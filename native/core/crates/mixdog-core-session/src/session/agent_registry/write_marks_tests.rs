@@ -55,7 +55,7 @@ impl ThreadState for GatedHeaders {
     }
 }
 
-async fn workers(headers: Arc<GatedHeaders>) -> (tempfile::TempDir, StoreWorkers) {
+async fn workers(headers: Arc<impl ThreadState + 'static>) -> (tempfile::TempDir, StoreWorkers) {
     let dir = tempfile::tempdir().expect("temp dir");
     let tokens = mixdog_rt::testing::tokens();
     let root = dir.path().to_owned();
@@ -92,7 +92,70 @@ async fn the_barrier_waits_for_the_writes_before_it_and_not_the_later_ones() {
     assert_eq!(workers.marks().committed(), mark, "the later write was still open when the barrier answered");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// Headers whose patches are refused for the first `left` attempts, each attempt stamped in ms since `started`.
+struct Flaky {
+    left: std::sync::atomic::AtomicU64,
+    started: mixdog_rt::time::Instant,
+    attempts: Mutex<Vec<u128>>,
+}
+
+#[async_trait::async_trait]
+impl ThreadState for Flaky {
+    async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, PortError> {
+        Ok(Map::new())
+    }
+    async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
+        use std::sync::atomic::Ordering;
+        self.attempts.lock().unwrap().push(self.started.elapsed().as_millis());
+        let refused = self.left.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
+        if refused { Err(PortError::Denied("store refused".into())) } else { Ok(()) }
+    }
+    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        Ok(None)
+    }
+    async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
+        Ok(())
+    }
+}
+
+/// `fixtures/agent-index-retry` (record-agent-index-retry.mjs): Node's index write queue tries a refused persist four times, after
+/// 50, 250 and 1000 ms, stops at the first success, rejects its flush after the fourth refusal and keeps the batch for a later
+/// flush or the 15 s retry; a write that recovered leaves no failure behind. The clock moves only by its own timers and the
+/// explicit `advance` of the retry timer.
+#[tokio::test(start_paused = true)]
+async fn a_refused_header_write_is_retried_as_nodes_index_queue_retries_it() {
+    use std::sync::atomic::Ordering;
+
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-index-retry/golden.json")).unwrap();
+    let outcome = |settled: Result<(), String>, started: mixdog_rt::time::Instant| (settled.is_ok(), started.elapsed().as_millis() as u64);
+    for case in golden["scenarios"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let left = case["failures"].as_u64().unwrap_or(u64::MAX);
+        let headers = Arc::new(Flaky { left: left.into(), started: mixdog_rt::time::Instant::now(), attempts: Mutex::new(Vec::new()) });
+        let (_dir, workers) = workers(headers.clone()).await;
+
+        workers.write("sess_row", Some(Map::new()));
+        let want = |step: &Value| (step["ok"].as_bool().unwrap(), step["at"].as_u64().unwrap());
+        assert_eq!(outcome(workers.settled().await, headers.started), want(&case["flush"]), "{name}: the flush");
+        if let Some(after) = case["retryAfter"].as_u64() {
+            tokio::time::advance(std::time::Duration::from_millis(after)).await;
+        }
+        if let Some(later) = case.get("later").or_else(|| case.get("laterDrain")) {
+            headers.left.store(0, Ordering::SeqCst);
+            assert_eq!(outcome(workers.settled().await, headers.started), want(later), "{name}: the later flush");
+        } else if case.get("retryAfter").is_some() {
+            workers.settled().await.expect("the retry timer put the kept write");
+        }
+
+        let attempts: Vec<u64> = case["attempts"].as_array().unwrap().iter().map(|a| a.as_u64().unwrap()).collect();
+        let tried: Vec<u64> = headers.attempts.lock().unwrap().iter().map(|a| *a as u64).collect();
+        assert_eq!(tried, attempts, "{name}: the attempts");
+        let still_failing = case["unpersisted"].as_bool().unwrap();
+        assert_eq!(workers.marks().check(workers.marks().accepted()).unwrap().is_err(), still_failing, "{name}: the failure left behind");
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_failed_write_before_the_barrier_is_its_error() {
     let (_dir, workers) = workers(Arc::new(GatedHeaders::default())).await;
     workers.write("bad", None);
