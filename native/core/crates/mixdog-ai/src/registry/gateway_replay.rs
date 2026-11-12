@@ -446,6 +446,14 @@ fn send_request(provider: &str, send: &Value) -> ModelRequest {
         effort: send["opts"]["effort"].as_str().map(str::to_owned),
         ..RequestOptions::default()
     };
+    // A layered send: the turn's effort is what `resolveRoute` answers over the recorded route inputs (the turn's own,
+    // the session's saved choice, the preset's); the core's resolution must name the effort Node's did.
+    if let Some(route) = send.get("route") {
+        let obj = |v: &Value| v.as_object().cloned().unwrap();
+        let resolved = crate::service::admin_route::resolve_route(&obj(&route["config"]), &obj(&route["request"]), &|_, _| true).unwrap();
+        assert_eq!(resolved["effort"], route["effort"], "the route's effort");
+        options.effort = resolved["effort"].as_str().map(str::to_owned);
+    }
     // OpenRouter's own reasoning control rides the model parameters (`openRouterReasoningEffort`).
     if let Some(effort) = send["opts"]["openRouterReasoningEffort"].as_str() {
         options.model_parameters = Some(json!({"openRouterReasoningEffort": effort}));
@@ -605,6 +613,9 @@ scenarios! {
     the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_chat => "config-effort-openrouter-chat",
     the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_messages => "config-effort-openrouter-messages",
     the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_responses => "config-effort-openrouter-responses",
+    the_turns_effort_wins_over_the_sessions_saved_one_the_preset_and_the_config => "effort-layers-turn-over-session",
+    the_sessions_saved_effort_wins_over_the_preset_and_the_config => "effort-layers-session-over-preset",
+    the_presets_effort_wins_over_the_provider_config => "effort-layers-preset-over-config",
     a_configured_effort_xai_does_not_carry_is_left_off_xai_chat => "config-effort-unsupported-xai-chat",
     a_configured_effort_openrouter_does_not_list_is_left_off_openrouter_chat => "config-effort-unsupported-openrouter-chat",
     a_configured_effort_deepseek_does_not_map_leaves_thinking_on_without_one => "config-effort-unsupported-deepseek-chat",

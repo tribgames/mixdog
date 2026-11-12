@@ -1,7 +1,7 @@
 {
   "clockStartMs": 1794225600000,
   "command": "node benchmarks/rust-core/recorders/record-provider-gateways.mjs --tree <b6f tree>",
-  "fileCount": 48,
+  "fileCount": 51,
   "files": [
     {
       "bytes": 3940,
@@ -81,37 +81,37 @@
     {
       "bytes": 3577,
       "path": "custom-keys-after-output.json",
-      "sha256": "d9e9403cf28a3bffd681268173f709acfbdf547d617b72089bc5c32e83fdec2e"
+      "sha256": "b511a88f3dc2671103c09733b026b1d36232c62fba468f7fc22a72c5e8508650"
     },
     {
       "bytes": 7804,
       "path": "custom-keys-anthropic-thinking.json",
-      "sha256": "2ba41cc7c673bc9ca975c965b43914a37edb3a9f7b6a85880f8e426cee0cf7ca"
+      "sha256": "0d10e84df2e31dd4fc66a0f5d5305d24d8e02c1ac9643931e38392ee6376d5e3"
     },
     {
       "bytes": 7876,
       "path": "custom-keys-exhausted.json",
-      "sha256": "0bfecc759df39f323d61a50f867b865bd12caf6365d6bb4edc6a250d951fb6d6"
+      "sha256": "01b1e107911be3176325cc726eecdb3c9838e99658ff1552e5e464b6f0f75b8a"
     },
     {
       "bytes": 2871,
       "path": "custom-keys-not-quota.json",
-      "sha256": "32f6c6e7495d8e1946bf07f3d42ed55e54d96226888cdffdd7087153111d4f09"
+      "sha256": "1d303d6a6df419f1b61a90e6f40a842ae0d7dbbd61de3ea6eb2f40df20c2213b"
     },
     {
       "bytes": 3613,
       "path": "custom-keys-reasoning-then-quota.json",
-      "sha256": "a4fe0e1a4bce338f5b1a9e6c36f0e8c3d7db59d22133d759302b4b5991b07881"
+      "sha256": "b3156729bf2eb1faf87c40bd8aad89a3e9247a21d298aaf467ea1a7f14116242"
     },
     {
       "bytes": 7974,
       "path": "custom-keys-reasoning.json",
-      "sha256": "061ab3a6888e3cf27e4b3252d5ae21f0a894efe16c4c1de270122139afad1163"
+      "sha256": "b54f610eea452bd1dfe0cb3a1c52a0e133cc4d3b8cb45a570935691701ab6c9e"
     },
     {
       "bytes": 9555,
       "path": "custom-keys-switch.json",
-      "sha256": "0a9c714ce510a632822be64f91e7494b7aa9cef7ccdfbf4e0833cfa5048b477c"
+      "sha256": "f8bb178ff07cb2a81a3113f831fda0f3c2a290939387554c79db2192e7f387f1"
     },
     {
       "bytes": 5079,
@@ -137,6 +137,21 @@
       "bytes": 3798,
       "path": "deepseek-pinned-toolless.json",
       "sha256": "8b08b29a6792bed680c8f52436c512cae78e6e10d44432c4ba947ffbc993c541"
+    },
+    {
+      "bytes": 3712,
+      "path": "effort-layers-preset-over-config.json",
+      "sha256": "541d911322c87d2af4795bfd704a537ec7259796b457c97ad242f0c599503101"
+    },
+    {
+      "bytes": 3841,
+      "path": "effort-layers-session-over-preset.json",
+      "sha256": "925bf3a954280569a956c9529bdb1c41e988041eb35dcb12c732d16665f3a1af"
+    },
+    {
+      "bytes": 3861,
+      "path": "effort-layers-turn-over-session.json",
+      "sha256": "ef2b0dda53b42909f0c7e6f8491198658b08c7ce162bc5cc26bccf1284a5980d"
     },
     {
       "bytes": 3732,
@@ -277,7 +292,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
-  "recorderSha256": "c24b913c1499c8b9dd94e052082a9b330762e87fa6bbb923a37c83ad2e8a575a",
+  "recorderSha256": "a6051d77177938485aa05bfefa2ce2a97d33cbe1a194dd6b102d2359de2816b8",
   "replayExclusions": {
     "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
     "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
@@ -320,6 +335,9 @@
     "deepseek-listing",
     "deepseek-messages-tools",
     "deepseek-pinned-toolless",
+    "effort-layers-preset-over-config",
+    "effort-layers-session-over-preset",
+    "effort-layers-turn-over-session",
     "muse-responses",
     "opencode-go-chat",
     "opencode-go-gemini",
@@ -343,5 +361,5 @@
     "xai-responses"
   ],
   "set": "provider-gateways",
-  "totalBytes": 254456
+  "totalBytes": 265870
 }

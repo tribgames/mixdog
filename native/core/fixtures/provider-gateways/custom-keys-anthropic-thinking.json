@@ -25,7 +25,7 @@
   ],
   "keyIds": [
     "default",
-    "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5"
+    "96a695ea-1fe9-4723-8c5b-a0127064a86f"
   ],
   "pool": {
     "accounts": [
@@ -37,11 +37,11 @@
         "label": "Account 1"
       },
       {
-        "id": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
+        "id": "96a695ea-1fe9-4723-8c5b-a0127064a86f",
         "label": "Account 2"
       }
     ],
-    "selectedId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
+    "selectedId": "96a695ea-1fe9-4723-8c5b-a0127064a86f",
     "auto": true,
     "policy": "limit",
     "useCredits": true
@@ -68,8 +68,8 @@
           "providerMetadata": {
             "accountRouting": {
               "provider": "custom-keys-anthropic-thinking",
-              "accountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
-              "sessionAccountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5"
+              "accountId": "96a695ea-1fe9-4723-8c5b-a0127064a86f",
+              "sessionAccountId": "96a695ea-1fe9-4723-8c5b-a0127064a86f"
             }
           }
         }
@@ -192,7 +192,7 @@
           "stage": "account-changed",
           "payload": {
             "provider": "custom-keys-anthropic-thinking",
-            "accountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
+            "accountId": "96a695ea-1fe9-4723-8c5b-a0127064a86f",
             "at": 1794225600000
           }
         }
@@ -210,8 +210,8 @@
         "providerMetadata": {
           "accountRouting": {
             "provider": "custom-keys-anthropic-thinking",
-            "accountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
-            "sessionAccountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5"
+            "accountId": "96a695ea-1fe9-4723-8c5b-a0127064a86f",
+            "sessionAccountId": "96a695ea-1fe9-4723-8c5b-a0127064a86f"
           }
         },
         "wireReroute": null

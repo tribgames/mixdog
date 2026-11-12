@@ -25,7 +25,7 @@
   ],
   "keyIds": [
     "default",
-    "54cddfe0-a24c-48cf-8f36-c7084257cc44"
+    "a0ea2614-dd81-4ece-8e63-82e23cb26b69"
   ],
   "pool": {
     "accounts": [
@@ -37,7 +37,7 @@
         "label": "Account 1"
       },
       {
-        "id": "54cddfe0-a24c-48cf-8f36-c7084257cc44",
+        "id": "a0ea2614-dd81-4ece-8e63-82e23cb26b69",
         "label": "Account 2"
       }
     ],
