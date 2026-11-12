@@ -77,7 +77,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "2569bf4b42cfbf696fdfcec80f4cad3dbae585bb3ea618a35225f8de022cbf2a",
+  "recorderSha256": "58126cb8cfdb0c5a5d6913f1f86ea51089c976538aec699627b5e573365cfa1c",
   "scenarios": [
     "legacy-json-keys",
     "image-strip",
