@@ -113,7 +113,8 @@ fn run(decoder: &mut dyn WireDecoder, scenario: &Value, unit: fn(&Value) -> Vec<
 
 fn chat_decoder(scenario: &Value) -> ChatDecoder {
     let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
-    ChatDecoder::new(profile, ProviderId::from("groq")).with_known_tools(known(scenario))
+    // The recorder's `providerName`.
+    ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known(scenario))
 }
 
 #[test]
@@ -142,15 +143,22 @@ fn chat_replays_node_s_leaked_calls() {
             // A turn cut at the token limit (with calls) or filtered never runs a call it leaked: Node's
             // `normalizeCompatChatResponse` rejects the collector's result with a `ProviderIncompleteError` that holds the
             // recovered call, so the turn fails and the call does not reach the executor. The recorded `stored` side of
-            // these scenarios drives the loop with the collector's raw result, which the product's send never hands it,
-            // so it is not compared here.
+            // these scenarios is the loop over that error (the agent crate's loop replay compares it).
             let mut events = Vec::new();
             for event in scenario["wire"].as_array().expect("wire") {
                 events.extend(decoder.feed(&sse_unit(event)).expect("feed"));
             }
-            let err = decoder.finish().expect_err(&label);
+            // The text the guard held back is relayed before the failure (the stream's end hands it out, then fails).
+            let err = match decoder.finish() {
+                Ok(tail) => {
+                    events.extend(tail);
+                    decoder.finish().expect_err(&label)
+                }
+                Err(err) => err,
+            };
             assert_eq!(err.code.as_deref(), Some("PROVIDER_INCOMPLETE"), "{label}");
-            assert_eq!(err.message, format!("response incomplete: finish_reason={finish}"), "{label}");
+            assert_eq!(err.message, scenario["stored"]["turnError"].as_str().expect("turnError"), "{label}");
+            assert!(scenario["stored"]["turnError"].as_str().unwrap().contains(&format!("finish_reason={finish}")), "{label}");
             assert_eq!(text_of(&events), recorded["content"].as_str().expect("content"), "{label}: content");
             assert!(calls_of(&events).is_empty(), "{label}: nothing dispatched");
             super::leak_golden::assert_calls(&label, &recorded["toolCalls"], &err.partial_tool_calls);

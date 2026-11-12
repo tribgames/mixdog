@@ -100,10 +100,11 @@
           "toolCalls": [
             {
               "id": "c1",
-              "type": "function",
-              "function": {
-                "name": "f",
-                "arguments": "{\"a\":\"{\"a\":\"\"}"
+              "name": "f",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+                "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
               }
             }
           ],
@@ -114,7 +115,17 @@
           "rawUsage": null,
           "generationMs": 0
         },
-        "dispatched": [],
+        "dispatched": [
+          {
+            "id": "c1",
+            "name": "f",
+            "arguments": {
+              "__invalidToolArgs": true,
+              "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+              "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
+            }
+          }
+        ],
         "arguments": "{\"a\":\"{\"a\":\"\"}"
       },
       "calls": [
@@ -193,6 +204,27 @@
                 "callback": "onToolCall"
               }
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.parseToolCalls",
+          "args": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "tool_calls": [
+                  {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                      "name": "f",
+                      "arguments": "{\"a\":\"{\"a\":\"\"}"
+                    }
+                  }
+                ]
+              }
+            },
+            "gateway"
           ]
         }
       ]

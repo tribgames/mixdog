@@ -11,7 +11,7 @@
   "entry": "openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test's own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.",
   "exclusions": [
     "`normalized` (a turn cut by length with calls, or by content_filter): the replay compares the ProviderError the core's ChatDecoder fails with (`partial_tool_calls` whole against `props.partialToolCalls` and `result.toolCalls`, the message, the code, the partial content); not compared, unobservable to the caller: the error's name, providerIncomplete, finishReason, responseId, rawUsage (the core keeps the usage as `partial_usage`) and model (the request's own model, `partial_model: None`)",
-    "the first case's raw tool-call objects (`parseToolCalls` returning `choice.message.tool_calls`): Node's dispatcher skips them for want of a top-level `name`, so `dispatched` is [] there; the replay compares the core's dispatched and returned calls with those objects read in the product's `{id, name, arguments}` shape, and arguments the core cannot parse are compared as the text it keeps verbatim (`__rawArguments`)",
+    "the first case's `parseToolCalls` callback: the test hands the collector one that returns the raw `choice.message.tool_calls` objects (no top-level `name`, so Node's dispatcher skips them: a state no turn reaches, the product's parser always gives `{id, name, arguments}`); the recording uses the product's own `parseToolCalls` (openai-compat-wire.mjs) over the same chunks, so `dispatched` and `toolCalls` are what a turn gets (the joined arguments, bad JSON, ride as the invalid-arguments marker)",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 38890,
+      "bytes": 39958,
       "path": "cases.json",
-      "sha256": "ed7472559c60fa0542bfc73816e9ba84df16441c8a4a8be089e14d2be63c2bd2"
+      "sha256": "920d0bfe7748f4997a64d936af9f02c3a53063a051bad607aed3eb2aa16cef73"
     }
   ],
   "inputs": [
@@ -115,9 +115,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compat-chat-stream-tool-calls.mjs",
-  "recorderSha256": "4ffd97257938155d7d0a5220417f263a9adad1f182db5e7c36cab3d0959f5427",
+  "recorderSha256": "9f9dffeffcd2497e410ead1a6aa50fc2b0305e5ed66f934a84501bde9b9bff8d",
   "replay": "mixdog-ai/src/providers/compat/chat/decode.rs: `pub struct ChatDecoder` (:155, re-exported pub at providers/compat/chat/mod.rs:18) built by `ChatDecoder::new(profile, owner)` (:193) and `.with_known_tools(names)` (:224), fed each recorded chunk as one SSE `data: <json>\n\n` unit through `WireDecoder::feed(&[u8])` (:578) and ended by `finish()` (:601). `feed` returns the StreamEvents (text, tool dispatches, errors) the Node consumer returns/dispatches for the same chunks; the `normalized` field (normalizeCompatChatResponse over a cut stream) maps to the `ProviderError` (`PROVIDER_INCOMPLETE`, holding the calls as `partial_tool_calls`) that `finish()` / `feed` returns for a cut finish_reason (`ChatDecoder::incomplete_failure`).",
   "set": "provider-compat-chat-stream-tool-calls",
-  "totalBytes": 38890,
+  "totalBytes": 39958,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
