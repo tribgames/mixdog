@@ -153,6 +153,12 @@ impl ThreadStore for DefaultTail {
     fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<super::seams::ContextRead>) -> Result<super::seams::ContextRead, CoreError> {
         self.0.context_io(lane, id, read)
     }
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        self.0.context_len(lane, id)
+    }
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<super::seams::ContextRead, CoreError> {
+        self.0.context_from_io(lane, id, skip)
+    }
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         self.0.session_meta(id)
     }

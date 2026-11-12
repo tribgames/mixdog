@@ -704,46 +704,29 @@ impl ThreadStore for MemStore {
         if lock(&self.damaged).contains(id.as_str()) {
             return Err(Self::unreadable(id.as_str()));
         }
-        Ok(ContextRead(Box::new(self.records(id))))
+        Ok(ContextRead(Box::new((self.records(id), 0usize))))
     }
 
-    /// One page: the last compaction's replacement, then the model rows after it.
+    /// One page: the last compaction's replacement, then the model rows after it, less the first `skip`.
     fn context_cpu(
         &self,
         _lane: &InLane<CpuInteractive>,
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
-        let records = *read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context");
-        // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
-        let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
-        for (ordinal, record) in records {
-            match record {
-                Record::Compacted(compacted) => {
-                    out = match compacted.replacement {
-                        Slot::Inline(entries) => entries
-                            .into_iter()
-                            .map(|e| (ordinal, ItemId::from(e.iid), e.body))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                }
-                Record::Item(item) if item.model => {
-                    if let Slot::Inline(body) = item.body {
-                        out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
-                    }
-                }
-                // An amended row reads as its amend body, as the real store's context rows do.
-                Record::Amend(amend) => {
-                    if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
-                        row.2 = body;
-                    }
-                }
-                // A rewound row leaves the context, as it leaves the real store's.
-                Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
-                _ => {}
-            }
-        }
-        Ok(ContextStep::Done(out.into_iter().map(|(_, iid, body)| (iid, body)).collect()))
+        let (records, skip) = *read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        let mut rows = model_rows(records);
+        rows.drain(..skip.min(rows.len()));
+        Ok(ContextStep::Done(rows))
+    }
+
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        let read = self.context_io(lane, id, None)?;
+        Ok(model_rows(read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context").0).len())
+    }
+
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
+        let (records, _) = *self.context_io(lane, id, None)?.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        Ok(ContextRead(Box::new((records, skip))))
     }
 
     fn open_log(
@@ -967,6 +950,8 @@ impl ThreadStore for CallCounted {
         fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
+        fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
@@ -975,6 +960,37 @@ impl ThreadStore for CallCounted {
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
     }
+}
+
+/// The model context of a log's records: the last compaction's replacement, then the model rows after it.
+fn model_rows(records: Vec<(u64, Record)>) -> Vec<(ItemId, Value)> {
+    // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
+    let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
+    for (ordinal, record) in records {
+        match record {
+            Record::Compacted(compacted) => {
+                out = match compacted.replacement {
+                    Slot::Inline(entries) => entries.into_iter().map(|e| (ordinal, ItemId::from(e.iid), e.body)).collect(),
+                    _ => Vec::new(),
+                };
+            }
+            Record::Item(item) if item.model => {
+                if let Slot::Inline(body) = item.body {
+                    out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
+                }
+            }
+            // An amended row reads as its amend body, as the real store's context rows do.
+            Record::Amend(amend) => {
+                if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
+                    row.2 = body;
+                }
+            }
+            // A rewound row leaves the context, as it leaves the real store's.
+            Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
+            _ => {}
+        }
+    }
+    out.into_iter().map(|(_, iid, body)| (iid, body)).collect()
 }
 
 /// An amend replaces the body (and blob refs) of its live row, as the real store's readers see it.

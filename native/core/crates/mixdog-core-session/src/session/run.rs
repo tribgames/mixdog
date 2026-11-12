@@ -55,10 +55,45 @@ impl ModelContext {
     /// the log stores redacted reads as it was committed while this process holds it, as Node's
     /// in-memory session does: the stored copy is the only one a marker replaced.
     pub async fn read(&self) -> Result<Vec<(ItemId, Value)>, CoreError> {
-        let mut rows = read_context(&self.store, &self.lanes, &self.thread).await?;
+        self.read_from(0).await
+    }
+
+    /// [`read`](Self::read) without its first `skip` rows, whose frames the store does not read.
+    pub async fn read_from(&self, skip: usize) -> Result<Vec<(ItemId, Value)>, CoreError> {
+        let mut rows = read_context_from(&self.store, &self.lanes, &self.thread, skip).await?;
         rows.retain(|(iid, _)| *iid != self.input);
         self.sensitive.held(&self.thread, &mut rows);
         Ok(rows)
+    }
+
+    /// The bodies of the context's newest rows, widened until one satisfies `wanted` or the whole context is held: what a
+    /// caller that looks for the newest such row reads, as the whole context holds no newer one.
+    pub async fn read_tail_until(&self, wanted: impl Fn(&Value) -> bool) -> Result<Vec<Value>, CoreError> {
+        let len = self.len().await?;
+        let mut take = 16usize;
+        loop {
+            let skip = len.saturating_sub(take);
+            let rows: Vec<Value> = self.read_from(skip).await?.into_iter().map(|(_, body)| body).collect();
+            if skip == 0 || rows.iter().any(&wanted) {
+                return Ok(rows);
+            }
+            take = take.saturating_mul(8);
+        }
+    }
+
+    /// How many rows [`read`](Self::read) returns for a context with no input row, answered from the store's index: a caller
+    /// that wants `session.messages.length` never reads the conversation.
+    pub async fn len(&self) -> Result<usize, CoreError> {
+        let token = CancellationToken::new();
+        self.store.unheld().await;
+        let (store, thread) = (self.store.clone(), self.thread.clone());
+        self.lanes
+            .io
+            .submit_wait(&token, move |lane| store.context_len(lane, &thread))
+            .await
+            .map_err(context_refused)?
+            .await
+            .map_err(|_| context_dropped())?
     }
 
     /// `rememberSensitiveValues(sessionId, executionCalls)` for this thread (`loop/tool-phase.mjs:49`).
@@ -79,6 +114,21 @@ impl ModelContext {
     }
 }
 
+fn context_dropped() -> CoreError {
+    CoreError::Internal { incident_id: "session-context-job-dropped".into() }
+}
+
+/// A turn's read waits for room on a full lane (a burst of reads let go by a rewrite fills it) rather than being refused:
+/// only a lane with no healthy worker fails it.
+fn context_refused(error: mixdog_rt::SubmitWaitError) -> CoreError {
+    match error {
+        mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
+        mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
+        mixdog_rt::SubmitWaitError::Cancelled => context_dropped(),
+        mixdog_rt::SubmitWaitError::ShutDown(_) => CoreError::Internal { incident_id: "session-context-lane-shut-down".into() },
+    }
+}
+
 /// The model context of `thread`: its lineage's model rows since the last compaction, oldest
 /// first, as of the rows acked so far.
 pub(crate) async fn read_context(
@@ -86,25 +136,28 @@ pub(crate) async fn read_context(
     lanes: &SessionLanes,
     thread: &ThreadId,
 ) -> Result<Vec<(ItemId, Value)>, CoreError> {
+    read_context_from(store, lanes, thread, 0).await
+}
+
+/// [`read_context`] without the first `skip` rows.
+async fn read_context_from(
+    store: &Arc<dyn ThreadStore>,
+    lanes: &SessionLanes,
+    thread: &ThreadId,
+    skip: usize,
+) -> Result<Vec<(ItemId, Value)>, CoreError> {
     let token = CancellationToken::new();
-    let dropped = || CoreError::Internal {
-        incident_id: "session-context-job-dropped".into(),
-    };
-    // A turn's read waits for room on a full lane (a burst of reads let go by a rewrite fills it) rather than being refused:
-    // only a lane with no healthy worker fails it.
-    let refused = |error: mixdog_rt::SubmitWaitError| match error {
-        mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
-        mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
-        mixdog_rt::SubmitWaitError::Cancelled => dropped(),
-        mixdog_rt::SubmitWaitError::ShutDown(_) => CoreError::Internal { incident_id: "session-context-lane-shut-down".into() },
-    };
+    let (dropped, refused) = (context_dropped, context_refused);
     let mut read = None;
     loop {
         store.unheld().await;
         let (store_io, thread) = (store.clone(), thread.clone());
         let page = lanes
             .io
-            .submit_wait(&token, move |lane| store_io.context_io(lane, &thread, read))
+            .submit_wait(&token, move |lane| match read {
+                None if skip > 0 => store_io.context_from_io(lane, &thread, skip),
+                read => store_io.context_io(lane, &thread, read),
+            })
             .await
             .map_err(refused)?
             .await
