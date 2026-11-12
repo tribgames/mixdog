@@ -1439,9 +1439,18 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let thread_state = Arc::new(LateThreads(late.clone()));
     let late_requests = Arc::new(crate::late_session::LateRequests::default());
     let (dispatch_policy, dispatch_connectors) = (policy.clone(), connectors.clone()); // both move into the turn path parts
-    // The project registry file (`projects.json`): the code-graph trust reads it strictly, the `session` tool's project listing tolerantly (`crate::code_graph_trust::RegistryProjects`).
-    let project_registry = Arc::new(mixdog_store::registry::Registry::new(mixdog_home.join("projects.json")));
-    let project_list: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ProjectList> = Arc::new(crate::code_graph_trust::RegistryProjects { registry: project_registry.clone(), lane: b.tokens.maintenance_io });
+    // The project registry is the `projects` rows of the core state, the one the workspace's `project/*` methods write: the code-graph trust and the `session` tool's
+    // project listing read it too. A profile that came from Node brings its `projects.json` into the rows once, here, before anything reads them.
+    let project_registry = Arc::new(mixdog_workspace::catalog::Catalog::new(
+        b.core_state.clone(),
+        mixdog_workspace::lanes::Lanes { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io, cpu_bulk: b.tokens.cpu_bulk },
+    ));
+    match project_registry.import_registry(&mixdog_home).await {
+        Ok(true) => tracing::info!("[projects] projects.json joined the project rows of the core state"),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(%error, "[projects] projects.json could not be joined into the project rows; the next start tries again"),
+    }
+    let project_list: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ProjectList> = Arc::new(crate::code_graph_trust::RegistryProjects { registry: project_registry.clone() });
     let bot_ids: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds> = Arc::new(mixdog_core::run_host::tool_pool::session_port::ContactBotIds::new(mcp.agents.clone(), contacts.clone()));
     // What `session bots` reads besides the catalog; its report watches are the home delivery's, bound once that exists (in `verify_bound`).
     let bot_world = Arc::new(crate::late_session::DaemonBotWorld::new(bot_ids.clone(), config.clone(), channel_admin.clone(), held_requests.clone()));
@@ -1535,7 +1544,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::code_graph_trust::UserTrustedRoots {
             registry: project_registry,
             user_cwd: mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
-            lane: b.tokens.maintenance_io,
         }),
         code_graph_cache.clone(),
     ));

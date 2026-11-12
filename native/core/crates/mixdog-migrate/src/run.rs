@@ -683,6 +683,8 @@ impl Migrator {
 pub mod cli;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod registry_import_tests;
 
 /// The names the sources of `item` get in its quarantine folder: base names, or the
 /// escaped relative path for all of them when two base names collide.
