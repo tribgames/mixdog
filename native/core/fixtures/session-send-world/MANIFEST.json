@@ -34,7 +34,7 @@
   },
   "provenance": {
     "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
-    "recorderSha256": "bf4becedcb17db917b28ae06da358d71ded0c1bc37aefdfbd50b81d4a6fd4563",
+    "recorderSha256": "594abd098b3a30b30bdefd3b7421e390d875abce04f6fbeabed525b7f00ce0a3",
     "nodeVersion": "v22.20.0",
     "inputs": [
       {
@@ -75,11 +75,11 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "ef3aef8a3fa785cd17b3076b222680174067dddef8f8a6e557b4987fcccb52e9"
+        "sha256": "441cc2f04b353491868387768ef5aa4f57dbfb3e282c0ff6b6da1abca8cc2903"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",
-        "sha256": "c5e47abc9039579f99ab3467c4c18892e9243524c9078923d99530d793791e43"
+        "sha256": "2d24b36cbde3c01b287eb1fe9a8b4fb53647a84af33f090bba880ab33b89035a"
       }
     ]
   }
