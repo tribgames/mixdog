@@ -44,7 +44,9 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { exactProductIdentity, recordingProvenance, writeSetManifest } from '../../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
+const REFERENCE = 'b6f10295a2f698afc85332467192de28500bd146';
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const treeAt = args.indexOf('--tree');
@@ -669,6 +671,12 @@ for (const [name, first] of only && only !== 'cut' ? [] : [
 }
 
 writeFileSync(goldenFile,`${JSON.stringify(golden, null, 2)}\n`);
+// The set's manifest is the agent set's (several recorders share it): this run re-lists every file and states the tree it
+// loaded, which `exactProductIdentity` refuses unless every `src`/`apps` file is the reference commit's.
+const setDir = join(here, '..');
+const { set, recorder, command, product: _product, fileCount: _count, totalBytes: _bytes, files: _files, nodeVersion: _node, inputs: _inputs, ...extra } = JSON.parse(readFileSync(join(setDir, 'MANIFEST.json'), 'utf8'));
+const { nodeVersion, inputs } = recordingProvenance('native/core/fixtures/agent/connect-errors/record.mjs', ['benchmarks/rust-core/recorders/lib/common.mjs']);
+writeSetManifest(setDir, { set, recorder, command, extra: { ...extra, nodeVersion, inputs }, identity: exactProductIdentity(nodeRoot, REFERENCE) });
 console.log(
   Object.entries(golden.cases)
     .map(([name, item]) => `${name}: ${item.laps.length} laps, ends ${item.ended.kind}`)
