@@ -69,7 +69,13 @@ const notes = {};
         Object.assign(process.env, env);
         const plan = planShellDeadlines({ args: input, backgroundOnTimeout });
         for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
-        calls.push({ env, args: input, backgroundOnTimeout, plan });
+        // What the end of the hold does in the shell run (shell-command.mjs `armDeadlines`, :523-:556): the threshold timer is
+        // armed when autoBackgroundMs > 0 and below the (foreground) timeout, and promotes with the hold's reason; otherwise the
+        // timeout timer promotes ('timeout') when promoteAtTimeout, else the run is killed (the limit is enforced).
+        const { timeout, autoBackgroundMs, promoteAtTimeout } = plan;
+        const armed = autoBackgroundMs > 0 && (timeout <= 0 || autoBackgroundMs < timeout);
+        const holdEnd = armed ? (input.background === true ? 'background' : 'threshold') : timeout > 0 && promoteAtTimeout ? 'timeout' : 'enforce';
+        calls.push({ env, args: input, backgroundOnTimeout, plan, holdEnd });
       }
     }
   }
@@ -408,6 +414,18 @@ const notes = {};
     { path: '<ROOT>', hidden: true }, { path: '<ROOT>', hidden: true, head_limit: 200 }, { path: '<ROOT>', hidden: true, head_limit: 100 },
     { path: '<ROOT>', hidden: true, head_limit: 10, offset: 95 }, { path: '<ROOT>', hidden: true, offset: 100 }, { path: '<ROOT>', hidden: true, offset: 101 }, { path: '<ROOT>', hidden: true, head_limit: 0 },
     { path: '<ROOT>' }, { path: '<ROOT>/missing' }, { path: '<ROOT>', hidden: true, limit: 10, offset: 95 }, { path: '<ROOT>', hidden: true, head_limit: 5, limit: 10 },
+    // every shape of the two integer arguments (arg-guard.mjs guardList): absent, null, number, numeric string, zero, negative, fraction, non-numeric, other types, both spellings
+    ...[
+      { head_limit: null, limit: 10 }, { head_limit: null }, { limit: null }, { head_limit: null, limit: null },
+      { head_limit: '5' }, { head_limit: '5.0' }, { head_limit: ' 7 ' }, { head_limit: '0' }, { head_limit: '-0' }, { head_limit: '3', limit: 9 },
+      { limit: '7' }, { limit: 0 }, { limit: '0' }, { head_limit: 5, limit: 'x' }, { head_limit: 0, limit: 5 }, { head_limit: 1000000 },
+      { head_limit: 'abc' }, { head_limit: '2.5' }, { head_limit: '-3' }, { head_limit: '' }, { head_limit: '1e2' },
+      { head_limit: -1 }, { head_limit: -1.5 }, { head_limit: 2.5 }, { head_limit: true }, { head_limit: [3] }, { head_limit: {} },
+      { limit: -1 }, { limit: 1.5 }, { limit: 'x' }, { head_limit: null, limit: 'x' }, { head_limit: 'x', limit: 5 },
+      { offset: null }, { offset: '95' }, { offset: '95.0' }, { offset: ' 95 ' }, { offset: '0' }, { offset: 0 },
+      { offset: -1 }, { offset: '-1' }, { offset: 1.5 }, { offset: '1.5' }, { offset: 'x' }, { offset: '' }, { offset: true }, { offset: [1] },
+      { offset: 'x', head_limit: 'y' }, { offset: '98', head_limit: '1' }, { offset: null, head_limit: null, limit: 2 },
+    ].map((shape) => ({ path: '<ROOT>', hidden: true, ...shape })),
   ];
   const calls = [];
   for (const input of inputs) {
@@ -548,7 +566,7 @@ writeSetManifest(out, {
       'exec-hoist-long': 'the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given',
       'exec-env': `the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>`,
       'fs-markers': 'capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them',
-      'exec-deadline': 'Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
+      'exec-deadline': 'holdEnd (what the end of the hold does) is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it; Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
       'agent-tool-call-ids': 'a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values',
       'scm-locks': 'the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core\'s `/` separators for the recorded `\\`; the "rejected" outcome of an aborted wait is a list apart from the events, because the order of a promise\'s rejection handler against another task\'s start is a tick of Node\'s promise queue, not a behaviour',
     },

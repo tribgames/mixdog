@@ -4,7 +4,7 @@
 use super::benign::is_benign_search_exit_one;
 use super::env::{ShellEnv, shell_env};
 use super::hoist::{plan_long_inline_script_file_transport, plan_long_shell_script_file_transport};
-use super::shell::{Args, hold_ms, promotes_at_timeout, time_limit_ms};
+use super::shell::{Args, PromotionReason, hold_end, hold_ms, promotes_at_timeout, time_limit_ms};
 use serde_json::Value;
 use std::path::Path;
 
@@ -54,6 +54,20 @@ fn the_hold_and_the_run_limit_are_planned_as_node_plans_them() {
         }
         if promote != plan["promoteAtTimeout"].as_bool().unwrap() {
             failures.push(format!("promoteAtTimeout for {} {} (background {enabled}): Node {}, here {promote}", call["env"], call["args"], plan["promoteAtTimeout"]));
+        }
+        // What the end of the hold does is decided by `hold_end`, the function the shell run waits and words its promotion by.
+        // A call with no hold never reaches that decision.
+        if enabled && hold > 0 {
+            let got = match hold_end(call["args"]["background"] == true, limit, hold, &env) {
+                None => "enforce",
+                Some(PromotionReason::Background) => "background",
+                Some(PromotionReason::Threshold) => "threshold",
+                Some(PromotionReason::Timeout) => "timeout",
+                Some(_) => "other",
+            };
+            if got != call["holdEnd"].as_str().unwrap() {
+                failures.push(format!("end of the hold for {} {}: Node {}, here {got}", call["env"], call["args"], call["holdEnd"]));
+            }
         }
         compared += 1;
     }

@@ -2,7 +2,7 @@
   "command": "node benchmarks/rust-core/recorders/record-tools-untested.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "exclusions": {
     "agent-tool-call-ids": "a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values",
-    "exec-deadline": "Node's timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job",
+    "exec-deadline": "holdEnd (what the end of the hold does) is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it; Node's timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job",
     "exec-env": "the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>",
     "exec-hoist-long": "the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given",
     "fs-markers": "capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them",
@@ -26,9 +26,9 @@
       "sha256": "f1ec1a836302757dbd232a1d6b6512041918598edfbf4a9607c88dbe67a53961"
     },
     {
-      "bytes": 83949,
+      "bytes": 90897,
       "path": "exec-deadline.json",
-      "sha256": "eb7b8cae737644d15313c23f07c35c814cb1b96e210f2a9685c110cb516c125e"
+      "sha256": "16236a909761d52439dcd48111bce77f173aeb000d1bd13eaa9aa4114937ceff"
     },
     {
       "bytes": 2127,
@@ -41,9 +41,9 @@
       "sha256": "a8dc38e3b8412f063897a9b8d4e3461a7de2fa64285baf3e9a967680390ab334"
     },
     {
-      "bytes": 13151,
+      "bytes": 49887,
       "path": "fs-list-page.json",
-      "sha256": "ae56818bae9407c189d87cd7ad2a1ce02ec2d635b49f9f12eb7be6cc0ee69f8e"
+      "sha256": "a5bcee375b0c18eb3b0128bc643a522445ed688b38aa286867af3f9056a790a1"
     },
     {
       "bytes": 2838,
@@ -126,7 +126,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-untested.mjs",
-  "recorderSha256": "ff0d3cddb86036ff35462ee23878a1a754e29c5adbfe9090bcc0f7f5dc34e606",
+  "recorderSha256": "f9ad2db8e95c1eae5e97acb6b8e9eb1e4544ab7b3f56deb7851910a3ccd5b474",
   "set": "tools-untested",
-  "totalBytes": 1460040
+  "totalBytes": 1503724
 }
