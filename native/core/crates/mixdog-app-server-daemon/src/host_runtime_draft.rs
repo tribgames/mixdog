@@ -150,7 +150,7 @@ impl HostRuntime for LiveHostRuntime {
             .registry
             .session_entries(false, &Default::default())
             .into_iter()
-            .map(|(_, row)| row)
+            .map(|(_, row)| std::sync::Arc::unwrap_or_clone(row))
             .filter(|row| text(row, "ownerSessionId").as_deref() == Some(id) || text(row, "parentSessionId").as_deref() == Some(id))
             .collect();
         let scope = self.scope_of(id);
