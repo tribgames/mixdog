@@ -255,6 +255,9 @@ pub(crate) struct ControlCell {
     /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub recovered: std::sync::atomic::AtomicBool,
+    /// No draft file write is queued or running and none owed (a removal or sweep to try again), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub drafts_settled: std::sync::atomic::AtomicBool,
     /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]

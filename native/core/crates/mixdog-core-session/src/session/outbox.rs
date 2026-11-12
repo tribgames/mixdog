@@ -283,15 +283,6 @@ impl Outbox {
             .collect()
     }
 
-    /// The ids of the entries of retained units not yet written (handed, or kept from an earlier failure), in order.
-    pub fn retained(&self) -> Vec<u64> {
-        self.entries
-            .iter()
-            .filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_) | Stage::Held(_), retain: true, .. })))
-            .map(|entry| entry.id)
-            .collect()
-    }
-
     /// The unit `id` belongs to, when it holds a record.
     pub fn unit_of(&self, id: u64) -> Option<u64> {
         self.get(id)?.durable.as_ref().map(|durable| durable.unit)
@@ -419,7 +410,8 @@ impl Outbox {
     /// Nothing accepted after it is handed before it is handed again, the store keeps nothing of a failed write
     /// (`durability.rs`), and every batch is a prefix of what is handed, so what the log holds is always the accepted
     /// sequence less what was failed to its waiter, whatever fails, retries, arrives meanwhile or closes; a crash loses what
-    /// was not written, never reorders it.
+    /// was not written, never reorders it, and a close whose write fails loses everything not written, told
+    /// (`SessionActor::lose_unsaved`, the close rule).
     pub fn handoff(&mut self, room: usize, retry: bool) -> Vec<HandedUnit> {
         // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
         let mut end = 0;
@@ -503,26 +495,6 @@ impl Outbox {
             usage.records -= 1;
             usage.bytes -= bytes;
         }
-    }
-
-    /// A write failed and was rolled back: the entries of `retained` (units kept for the next write) stay, in order, out of
-    /// the window, to be handed again; every other unreleased entry is failed, as [`Self::fail_all`].
-    pub fn fail_all_but(&mut self, retained: &std::collections::HashSet<u64>) -> Vec<Entry> {
-        self.normal = Usage::default();
-        self.reserve = Usage::default();
-        let (kept, failed): (Vec<Entry>, Vec<Entry>) = self.entries.drain(..).partition(|entry| {
-            retained.contains(&entry.id) || entry.needs.is_some_and(|needs| retained.contains(&needs))
-        });
-        self.entries = kept.into();
-        for entry in &mut self.entries {
-            if let Some(durable) = entry.durable.as_mut() {
-                durable.counted = false;
-                if let Stage::Handed(encoded) = &durable.stage {
-                    durable.stage = Stage::Held(encoded.clone());
-                }
-            }
-        }
-        failed
     }
 
     /// Removes the entries of the unit `id` belongs to, none of them handed off yet (one of its records could not be

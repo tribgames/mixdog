@@ -1420,6 +1420,8 @@ impl DirInner {
             #[cfg(any(test, feature = "test-support"))]
             recovered: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
+            drafts_settled: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
             #[cfg(any(test, feature = "test-support"))]
             record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),

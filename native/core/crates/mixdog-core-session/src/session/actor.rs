@@ -342,6 +342,8 @@ pub(crate) enum JobDone {
     },
     /// The end record of run `.0` is durable: its draft file goes.
     DraftEnded(String),
+    /// [`DRAFT_RETRY`] passed: the draft removals and the sweep that failed run again.
+    DraftRetryDue,
     ApprovalId {
         turn: TurnId,
         ask: ApprovalAsk,
@@ -689,6 +691,9 @@ const TOAST_TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 /// `saveSession`'s debounce (`store.mjs`: "debounced (150 ms) unless `opts.immediate`").
 const USAGE_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 
+/// How long a draft file whose removal failed waits before it is removed again ([`SessionActor::draft_failed`]).
+const DRAFT_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub(crate) struct ActorChannels {
     pub ctl_rx: mpsc::Receiver<Ctl>,
     pub inbox_rx: mpsc::Receiver<Inbox>,
@@ -826,6 +831,13 @@ pub(crate) struct SessionActor {
     /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
     /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
     ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
+    /// Drafts whose removal failed, by run id: removed again after [`DRAFT_RETRY`] until it succeeds.
+    drafts_removing: std::collections::HashSet<String>,
+    /// The open's sweep failed: it runs again after [`DRAFT_RETRY`], keeping these runs' drafts.
+    sweep_due: Option<Vec<String>>,
+    draft_retry_armed: bool,
+    /// A closing session's write failed: nothing more is written ([`Self::lose_unsaved`]).
+    write_lost: Option<CoreError>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released: sent once the pump has
@@ -1180,6 +1192,10 @@ impl SessionActor {
             draft_stopped: std::collections::HashSet::new(),
             drafts_after_save: Vec::new(),
             ended_drafts: std::collections::HashMap::new(),
+            drafts_removing: std::collections::HashSet::new(),
+            sweep_due: None,
+            draft_retry_armed: false,
+            write_lost: None,
             after_publish: Vec::new(),
             releasing: false,
             replies_after_publish: Vec::new(),
@@ -1303,6 +1319,7 @@ impl SessionActor {
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
                 self.cell.recovered.store(!self.recovering && self.outbox.is_empty(), SeqCst);
+                self.cell.drafts_settled.store(self.draft_queue.is_empty() && !self.draft_busy && self.drafts_removing.is_empty() && self.sweep_due.is_none(), SeqCst);
                 self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.handed.store(self.outbox.handed().len(), SeqCst);
                 self.cell.stepped.notify_waiters();
@@ -1733,9 +1750,24 @@ impl SessionActor {
 
     /// A draft write failed. A redaction that could not be written removes the draft (`failClosed`); a removal that fails
     /// after it stops the run's drafts. An append that failed leaves the draft as it was (the next whole write repairs it).
+    ///
+    /// The draft rule: a draft file is owned until its clear bytes are provably gone (a redaction or a removal of it
+    /// succeeded): by its run while it streams, by `ended_drafts` (with the run's mark subscription, so a value marked
+    /// meanwhile is redacted out of it) while its run's records wait to land, then by its removal. A removal that fails,
+    /// a redaction's fallback included, stays owed in `drafts_removing` and runs again after [`DRAFT_RETRY`] until it
+    /// succeeds; a failed sweep at open likewise. A session that ends first leaves the file itself as the record the next
+    /// open acts on: `recover` sweeps the drafts of runs that ended, and recovers, then removes, those of runs left open.
     fn draft_failed(&mut self, write: &super::turn_draft::DraftWrite, error: &CoreError) {
         use super::turn_draft::DraftWrite;
         tracing::error!("session {}: a draft write failed: {error:?}", self.id.as_str());
+        if let DraftWrite::Remove { rid } = write {
+            self.drafts_removing.insert(rid.clone());
+            self.arm_draft_retry();
+        }
+        if let DraftWrite::Sweep { open } = write {
+            self.sweep_due = Some(open.clone());
+            self.arm_draft_retry();
+        }
         match write {
             DraftWrite::Replace { rid, .. } => {
                 // Before anything queued after it: the file holding the unredacted value goes first.
@@ -1756,6 +1788,32 @@ impl SessionActor {
                 }
             }
             DraftWrite::Remove { .. } | DraftWrite::Sweep { .. } => {}
+        }
+    }
+
+    fn arm_draft_retry(&mut self) {
+        if std::mem::replace(&mut self.draft_retry_armed, true) {
+            return;
+        }
+        let jobs = self.jobs_tx.clone();
+        let due = self.deps.clock.sleep(DRAFT_RETRY);
+        drop(tokio::spawn(async move {
+            due.await;
+            let _ = jobs.send(JobDone::DraftRetryDue);
+        }));
+    }
+
+    /// The owed draft removals run again; the sweep keeps, besides the runs open at open, every draft this session still
+    /// owns: the live run's and the ended runs' kept for their records.
+    fn draft_retry(&mut self) {
+        self.draft_retry_armed = false;
+        for rid in std::mem::take(&mut self.drafts_removing) {
+            self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
+        }
+        if let Some(mut open) = self.sweep_due.take() {
+            open.extend(self.run.as_ref().map(|run| run.turn.as_str().to_owned()));
+            open.extend(self.ended_drafts.keys().cloned());
+            self.draft_push(super::turn_draft::DraftWrite::Sweep { open }, None);
         }
     }
 
@@ -1924,11 +1982,15 @@ impl SessionActor {
                 if let Err(error) = &result {
                     self.draft_failed(&write, error);
                 }
+                if result.is_ok() && let super::turn_draft::DraftWrite::Remove { rid } = &write {
+                    self.drafts_removing.remove(rid);
+                }
                 if let Some(ack) = ack {
                     let _ = ack.send(Ok(()));
                 }
                 self.draft_pump();
             }
+            JobDone::DraftRetryDue => self.draft_retry(),
             JobDone::DraftEnded(rid) => {
                 self.draft_stopped.remove(&rid);
                 // A barrier passes records a failed save holds: the end record may still be unsaved, and the draft is
@@ -2332,7 +2394,12 @@ impl SessionActor {
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
         // A closing thread gives what a failed barrier left one more barrier before it stops (Node's exit drain writes what
-        // is queued); a write that fails again keeps the retained units, and the thread with them.
+        // is queued); once a write failed while it closes, nothing is written again ([`Self::lose_unsaved`]).
+        if let Some(error) = self.write_lost.clone()
+            && !self.outbox.is_empty()
+        {
+            self.lose_unsaved(error);
+        }
         if self.cell.closed.load(SeqCst) && self.outbox.awaits_retry() {
             self.retry_due = true;
         }
@@ -2858,17 +2925,28 @@ impl SessionActor {
         self.projected = self.acked.clone();
     }
 
-    /// A rolled-back write kept the units `retained` for the next write (as Node's recorder keeps a failed batch's bytes):
-    /// their records stay queued, in order, and land with it; their requests hear the failure now, once. Everything else
-    /// unreleased fails as in [`Self::fail_all`]. Nothing of a kept unit is shown until it lands.
-    fn fail_all_but(&mut self, retained: Vec<u64>, error: CoreError) {
-        let retained: std::collections::HashSet<u64> = retained.into_iter().collect();
-        for entry in self.outbox.fail_all_but(&retained) {
-            self.fail_entry(entry, &error);
+    /// The close rule: a closing session gives everything it holds one write, in accept order (its exit drain, [`Self::pump`]).
+    /// When a write fails while it closes, nothing more of it is written, ever: every record not yet durable (rows released
+    /// unsaved, units kept whole, records still queued or accepted after) is lost together, the session is told once, in
+    /// accept order, exactly which ([`super::notices::SessionNotices::records_lost`], and the log), and every waiter hears
+    /// the failure. So the log keeps a prefix of what was accepted: no unit lands without every unit accepted before it,
+    /// and an actor that is ending keeps nothing to write behind a reopen's back. (After an indeterminate write, a told
+    /// record may have landed.)
+    fn lose_unsaved(&mut self, error: CoreError) {
+        self.write_lost = Some(error.clone());
+        let lost: Vec<Arc<Record>> = self.outbox.unsaved_records().cloned().collect();
+        if !lost.is_empty() {
+            let kinds: Vec<String> = lost
+                .iter()
+                .map(|record| match &**record {
+                    Record::Item(item) => format!("item {}", item.iid.as_str()),
+                    other => serde_json::to_value(other).ok().and_then(|value| value.get("k").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default(),
+                })
+                .collect();
+            tracing::error!("session {}: {} records not on disk are lost as the session closes ({error:?}): {kinds:?}", self.id.as_str(), lost.len());
+            self.deps.notices.records_lost(self.id.as_str(), &lost);
         }
-        self.tell_retained(&retained, &error);
-        self.generation += 1;
-        self.rebuild_projected();
+        self.fail_all(error);
     }
 
     /// The requests of the kept units hear the failure now, once.
@@ -3018,15 +3096,9 @@ impl SessionActor {
                         )
                     }
                 };
-                // A closing thread had its retry: what is still unsaved is lost with it.
+                // A closing thread had its retry: what is still unsaved is lost with it, told.
                 if self.cell.closed.load(SeqCst) {
-                    tracing::error!("session {}: records not saved to disk are dropped as the session closes: {error:?}", self.id.as_str());
-                    let retained = if retain { self.outbox.retained() } else { Vec::new() };
-                    if retained.is_empty() {
-                        self.fail_all(error);
-                    } else {
-                        self.fail_all_but(retained, error);
-                    }
+                    self.lose_unsaved(error);
                     return;
                 }
                 self.hold_failed(&error, cause, retain);
