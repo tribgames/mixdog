@@ -6,9 +6,8 @@
 # there is no direct tag-push trigger.
 # Requires the NPM_TOKEN repo secret (npm automation token) and the
 # MIXDOG_GOOGLE_OAUTH_CLIENT_ID / MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET repo
-# secrets: Mixdog's Google OAuth desktop client, which every shipped build (the
-# npm package and each desktop runtime.asar) embeds through
-# scripts/embed-google-oauth-client.mjs. The release fails up front without
+# secrets: Mixdog's Google OAuth desktop client, which every shipped mixdogd
+# embeds at build time (mixdogd-build.yml). The release fails up front without
 # them. The optional MAC_CERTIFICATE_* and APPLE_API_* secrets sign and
 # notarize the macOS app; the optional AZURE_* secrets sign the Windows
 # installer.
@@ -109,14 +108,17 @@ jobs:
           node-version: "22"
 
       # Fail before any package work (and before the hidden draft exists) when
-      # the Google OAuth client secrets are missing. The npm and desktop jobs
-      # each embed the client again and fail the same way; the file written
-      # here is never packaged.
+      # the Google OAuth client secrets are missing: the mixdogd build compiles
+      # in whatever it is given, and would otherwise ship without the client.
       - name: Require the Google OAuth client secrets
         env:
           MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
           MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
-        run: node scripts/embed-google-oauth-client.mjs --require
+        run: |
+          if [ -z "$MIXDOG_GOOGLE_OAUTH_CLIENT_ID" ] || [ -z "$MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::MIXDOG_GOOGLE_OAUTH_CLIENT_ID and MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET must both be set"
+            exit 1
+          fi
 
       - name: Verify release tag matches package version
         env:
@@ -139,6 +141,11 @@ jobs:
           }
           console.log(`Verified release identity ${tag}.`);
           NODE
+
+      # The desktop package and the Rust workspace (what every mixdogd reports)
+      # carry the release version too.
+      - name: Verify the desktop and core versions match the release
+        run: node scripts/check-release-version.mjs
 
   validate:
     name: validate-and-stage-npm
@@ -187,14 +194,6 @@ jobs:
           done
           exit 1
 
-      # src/tui/dist is gitignored; smoke imports it. Build it once, then pack
-      # with lifecycle scripts disabled so prepack does not rebuild it.
-      - name: Build TUI
-        run: npm run build:tui
-
-      - name: Smoke
-        run: npm run smoke
-
       # The gate already ran the default lane on every gated main push; this
       # re-runs it only when a critical path changed after the newest gated
       # commit (deploy.yml run_critical). The tool-contract files inside the
@@ -228,33 +227,16 @@ jobs:
         if: inputs.run_critical && steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
 
-      # Daemon suites start the daemon under the supervisor built from this
-      # source (a checkout's release build is preferred over the pinned download).
-      - name: Build the native supervisor
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
         if: inputs.run_critical
-        run: npm run build:supervisor:test
+        run: node scripts/stage-native-tools.mjs
 
       - name: Verify changed source-critical release invariants
         if: inputs.run_critical
-        run: |
-          npm test
-          npm run smoke:patch
-
-      # `npm pack --ignore-scripts` below skips prepack, so the shipped-history
-      # generation never runs there: fail instead when the committed file is
-      # stale (needs the full history fetched above; a shallow clone is skipped
-      # by the script's own guard).
-      - name: Verify shipped definition history is current
-        run: node scripts/build-shipped-history.mjs --check
-
-      # The gitignored client file ships through package.json `files` (src/),
-      # so it is written after the tests (google-mcp.test.mjs expects a source
-      # tree without one) and before the pack below.
-      - name: Embed the Google OAuth client
-        env:
-          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
-        run: node scripts/embed-google-oauth-client.mjs --require
+        run: npm test
 
       - name: Pack staged npm release
         id: pack
@@ -263,8 +245,6 @@ jobs:
           set -euo pipefail
           PACKAGE=$(npm pack --silent --ignore-scripts | tail -n 1)
           test -n "$PACKAGE"
-          # Extracting a missing member fails; nothing of the file is printed.
-          tar -xzOf "$PACKAGE" package/src/runtime/shared/google-oauth-client.generated.json > /dev/null
           echo "file=$PACKAGE" >> "$GITHUB_OUTPUT"
 
       - name: Stage npm package
@@ -404,13 +384,52 @@ jobs:
           # notes list merged PRs only, and Deploy commits straight to main, so
           # they would leave just a compare link.
 
+  # mixdogd, the Rust core, for every target a desktop package carries (the
+  # app's own core and the four server cores): the single producer of the
+  # mixdogd-<target> artifacts in this run. The desktop packagers stage them
+  # (stage-core.mjs) and linux-verify-full consumes them (mixdogd_prebuilt).
+  mixdogd:
+    needs: [identity]
+    uses: ./.github/workflows/mixdogd-build.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ inputs.ref }}
+    secrets:
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+
+  # The shipped Linux x64 core boots on a fresh profile and answers a first call
+  # (the release-gate rust-core job does the same on a debug build).
+  core-smoke:
+    name: boot-shipped-mixdogd
+    needs: [identity, mixdogd]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-x86_64-unknown-linux-gnu
+          path: core
+      - name: Boot mixdogd and answer a first call
+        run: |
+          chmod +x core/mixdogd
+          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd core/mixdogd
+
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   # actions: read lets each packager poll this run for the desktop-out
   # artifact and the build-desktop-once result.
   desktop-windows:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, mixdogd]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -428,11 +447,9 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, mixdogd]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -452,11 +469,9 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-x64:
-    needs: [prepare-github-release]
+    needs: [prepare-github-release, mixdogd]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -476,8 +491,6 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28), so the
   # native tools do not follow the package runner's glibc. The shipped Linux
@@ -494,7 +507,7 @@ jobs:
       ref: ${{ inputs.ref }}
 
   desktop-linux-x64:
-    needs: [prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools, mixdogd]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -508,12 +521,9 @@ jobs:
       arch: x64
       artifact_arch: x86_64
       target: linux
-    secrets:
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-linux-arm64:
-    needs: [prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools, mixdogd]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -527,20 +537,18 @@ jobs:
       arch: arm64
       artifact_arch: arm64
       target: linux
-    secrets:
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   # Full Linux verification (update proof, sandbox .deb, distro containers,
   # native-tool exec matrix) gates publication.
   linux-verify-full:
-    needs: [identity, linux-native-tools]
+    needs: [identity, linux-native-tools, mixdogd]
     uses: ./.github/workflows/linux-desktop-verify.yml
     permissions:
       contents: read
     with:
       full: true
       native_tools_prebuilt: true
+      mixdogd_prebuilt: true
       # Every checkout inside the called workflow uses this exact commit
       # (and asserts HEAD == ref), not the caller's default-branch sha.
       ref: ${{ inputs.ref }}
@@ -561,7 +569,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, desktop-build, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [validate, desktop-build, core-smoke, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
