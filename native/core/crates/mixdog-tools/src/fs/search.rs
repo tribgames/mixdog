@@ -15,6 +15,7 @@ use globset::GlobBuilder;
 use globset::GlobSet;
 use globset::GlobSetBuilder;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsError;
@@ -96,7 +97,7 @@ pub(super) async fn walk_entries_pruned(
     cap: Option<usize>,
     server: Option<SearchClass>,
 ) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, server };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, descent: Default::default(), server };
     walk_kept(ctx, request, keep, cap).await
 }
 
@@ -109,16 +110,17 @@ pub(super) async fn walk_inventory(
     cap: usize,
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, server: None };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, descent: Default::default(), server: None };
     walk_kept(ctx, request, keep, Some(cap)).await
 }
 
 /// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
 /// kept, as one `--files --directories` request to the search server, which is a broad search (`isBroadSearchRequest`: its
 /// args hold `--files`) and takes its turn on the broad-search gate within the search's budget. It is refused or ends past
-/// its budget as a glob's inventory does (`BROAD_REFUSALS`).
-pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune: Vec::new(), server: Some(SearchClass::Bulk) };
+/// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
+/// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
+pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
     broad_search(ctx, BROAD_REFUSALS[1], |_| walk_kept(ctx, request, keep, Some(cap))).await
 }
 
@@ -260,6 +262,16 @@ async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
 /// (`createOwnerFairGate`: the turn goes round the sessions that wait, not to the oldest waiter).
 static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> = std::sync::LazyLock::new(mixdog_rt::OwnerGate::new);
 
+/// The gate's owner key of a call. Node's is the session id of the loop that ran the tool (`executeTool`'s
+/// `callerSessionId`, `runWithToolExecutionOwner`, tool-execution-owner.mjs), which is the thread id here: a sub-agent's
+/// run has its own session and so its own thread, never its parent's; the core keys a session by its thread id, so a
+/// session's threads are the owners its sessions are in Node. A call with no session is `anonymous`, and the key is trimmed and cut at 240
+/// characters (owner-fair-gate.mjs `run`).
+fn gate_owner(thread: &str) -> String {
+    let owner: String = thread.trim().chars().take(240).collect();
+    if owner.is_empty() { "anonymous".to_owned() } else { owner }
+}
+
 /// How a broad search came by its turn, and how long its work then ran.
 pub(super) struct Turn {
     /// It waited behind another search. Node tells such a search's admission to whichever call was running when the
@@ -290,7 +302,7 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
     let waited = mixdog_rt::Scope::new()
         .cancel(&ctx.cancel)
         .within(Duration::from_millis(budget))
-        .run(BROAD_SEARCH.enter(ctx.thread_id.as_str(), &ctx.cancel))
+        .run(BROAD_SEARCH.enter(&gate_owner(ctx.thread_id.as_str()), &ctx.cancel))
         .await;
     let turn = match waited {
         mixdog_rt::Scoped::Done(Ok(turn)) => turn,

@@ -78,6 +78,15 @@ pub struct WriteRequest {
     pub precondition: WritePrecondition,
 }
 
+/// A walk's reach below its root. An entry at depth `max_depth` is listed, never entered; a folder named in `bare`, or a
+/// dotted folder when `bare_dotted`, is listed but not entered.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Descent {
+    pub max_depth: Option<usize>,
+    pub bare: Vec<String>,
+    pub bare_dotted: bool,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WalkRequest {
     pub root: AbsPath,
@@ -88,6 +97,8 @@ pub struct WalkRequest {
     pub include_dirs: bool,
     /// Directories the walk neither lists nor enters.
     pub prune: Vec<AbsPath>,
+    /// How far down the walk goes (`rg --max-depth`) and which folders it lists without entering.
+    pub descent: Descent,
     /// The search-server request the walk stands for (a glob's `--files` listing, a find's inventory), queued as Node's
     /// server queues it; `None`: a walk Node does not send to its search server, never refused as
     /// [`FsErrorKind::Saturated`].

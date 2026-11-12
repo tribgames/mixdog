@@ -2657,7 +2657,7 @@ impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain
             match regex::RegexBuilder::new(&self.request.pattern).case_insensitive(!self.request.case_sensitive).build() {
                 Err(e) => out.push_back(Err(FsError::new(FsErrorKind::InvalidPattern { message: e.to_string() }, None))),
                 Ok(re) => {
-                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false, prune: Vec::new(), server: None };
+                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false, prune: Vec::new(), descent: Default::default(), server: None };
                     let mut walk = self.inner.walk(self.walk_lane, walk);
                     let mut paths = Vec::new();
                     while let Some(Ok(entry)) = walk.next().await {
