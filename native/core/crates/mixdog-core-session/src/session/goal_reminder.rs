@@ -127,6 +127,39 @@ fn finish(header: &Header, mut change: HeaderChange, revision: f64, goal: Option
     (Some(GoalReminder { revision: revision as u64, content }), change)
 }
 
+/// `markPendingGoalReminder(session, reason)`: one more revision of the pending reminder, which
+/// the next request carries.
+pub fn mark(header: &Header, reason: &str, now: i64) -> HeaderChange {
+    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+    let revision = json_number(pending_revision(header).max(count(header.get("goalReminderRevision"))) + 1.0);
+    let reason = match js_trim(reason) {
+        "" => "compaction",
+        reason => reason,
+    };
+    set(&mut change, "goalReminderRevision", revision.clone());
+    set(&mut change, "pendingGoalReminder", json!({ "version": 1, "type": "goal_state", "revision": revision, "reason": reason }));
+    set(&mut change, "updatedAt", json!(now));
+    change
+}
+
+/// The pre-send compaction's reminder (`pre-send-compact.mjs`: `markPendingGoalReminder(session,
+/// 'compaction')`, then `snapshotPendingGoalReminder(session)`): the text the kept latest request
+/// carries (its `latestUserPrefix`), and the header change the two make, in that order.
+pub fn compaction(header: &Header, goal: Option<Goal>, now: i64) -> (Option<GoalReminder>, HeaderChange) {
+    let mut change = mark(header, "compaction", now);
+    let mut marked = header.clone();
+    marked.extend(change.set.clone());
+    let todo = mixdog_core_ports::ports::todo_list::list_of(&marked);
+    let (reminder, snapshot) = snapshot(&marked, goal, &todo, now);
+    for key in &snapshot.unset {
+        unset(&mut change, key);
+    }
+    for (key, value) in snapshot.set {
+        set(&mut change, &key, value);
+    }
+    (reminder, change)
+}
+
 /// `acknowledgePendingGoalReminder(session, revision)`: the marker goes only if it is still the
 /// revision the turn carried.
 pub fn acknowledge(header: &Header, revision: u64, now: i64) -> Option<HeaderChange> {

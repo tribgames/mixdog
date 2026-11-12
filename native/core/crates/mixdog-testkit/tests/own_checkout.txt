@@ -1,0 +1,1 @@
+This file is the fixture of tests/own_checkout.rs: a checkout that changes it must read its own version.

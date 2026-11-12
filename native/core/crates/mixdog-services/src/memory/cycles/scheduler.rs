@@ -269,15 +269,20 @@ fn run_failure(message: String) -> MemoryError {
     MemoryError::Runtime(message)
 }
 
+/// `getCycleLastRun`: an unreadable row reads as never run.
+pub(crate) async fn read_last_run(db: &Db) -> CycleLastRun {
+    match get_meta(db, CYCLE_LAST_RUN_KEY).await {
+        Ok(value) => {
+            let obj = value.unwrap_or_else(|| json!({}));
+            CycleLastRun { cycle1: number_or_zero(obj.get("cycle1")), cycle1_heartbeat: number_or_zero(obj.get("cycle1_heartbeat")) }
+        }
+        Err(_) => CycleLastRun::default(),
+    }
+}
+
 impl Inner {
     async fn last_run(&self) -> CycleLastRun {
-        match get_meta(&self.db, CYCLE_LAST_RUN_KEY).await {
-            Ok(value) => {
-                let obj = value.unwrap_or_else(|| json!({}));
-                CycleLastRun { cycle1: number_or_zero(obj.get("cycle1")), cycle1_heartbeat: number_or_zero(obj.get("cycle1_heartbeat")) }
-            }
-            Err(_) => CycleLastRun::default(),
-        }
+        read_last_run(&self.db).await
     }
 
     /// `setCycleLastRun`: a shallow merge into the run-times row.

@@ -59,7 +59,18 @@ struct Inner {
     /// The tail of the background flush chain: every flush waits for the one
     /// before it, so bursts never run concurrent full-backlog scans.
     flush_tail: Mutex<Option<JoinHandle<()>>>,
+    #[cfg(test)]
+    statements: Mutex<Vec<(&'static str, Value)>>,
 }
+
+// Node's statement texts (`ingest/ingest-insert.mjs`), byte for byte.
+const MAX_TURN_SQL: &str = "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1";
+const INSERT_SQL: &str = "
+        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      ";
 
 #[derive(Clone)]
 pub struct SessionIngest(Arc<Inner>);
@@ -118,6 +129,8 @@ impl SessionIngest {
             lane,
             ordinals: Mutex::new(OrdinalStore::default()),
             flush_tail: Mutex::new(None),
+            #[cfg(test)]
+            statements: Mutex::new(Vec::new()),
         }))
     }
 
@@ -186,8 +199,9 @@ impl SessionIngest {
         project_id: Option<&str>,
     ) -> Result<(usize, Vec<i64>)> {
         let client = self.0.db.client().await?;
+        self.observe(MAX_TURN_SQL, serde_json::json!([session_id]));
         let mut turn: i32 = client
-            .query_opt("SELECT COALESCE(MAX(source_turn), 0) FROM entries WHERE session_id = $1", &[&session_id])
+            .query_opt(MAX_TURN_SQL, &[&session_id])
             .await
             .ok()
             .flatten()
@@ -202,14 +216,12 @@ impl SessionIngest {
                 if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
             let assigned = turn + 1;
             let source_ref = stable_session_source_ref(session_id, message, row.role, &row.content, row.occurrence as usize);
+            self.observe(
+                INSERT_SQL,
+                serde_json::json!([ts_ms, row.role, row.raw_content, source_ref, session_id, assigned, project_id, time_source]),
+            );
             let stored = client
-                .query(
-                    "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                     ON CONFLICT DO NOTHING
-                     RETURNING id",
-                    &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source],
-                )
+                .query(INSERT_SQL, &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source])
                 .await?;
             if let Some(first) = stored.first() {
                 inserted += stored.len();
@@ -251,6 +263,17 @@ impl SessionIngest {
                 mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (backlog) attempted={} embedded={}", outcome.attempted, outcome.embedded);
             }
         });
+    }
+
+    fn observe(&self, _sql: &'static str, _params: Value) {
+        #[cfg(test)]
+        self.0.statements.lock().expect("statements").push((_sql, _params));
+    }
+
+    /// The entries statements sent so far (text, params), in order.
+    #[cfg(test)]
+    pub(crate) fn statements(&self) -> Vec<(&'static str, Value)> {
+        self.0.statements.lock().expect("statements").clone()
     }
 
     fn enqueue_flush(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {

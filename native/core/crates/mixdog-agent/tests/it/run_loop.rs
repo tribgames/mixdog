@@ -141,6 +141,8 @@ struct Scripted {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     /// Every `settle_send` the loop made, in order.
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
+    /// Every `release_send` the loop made (what its guard lets go with no runtime).
+    released: Mutex<Vec<String>>,
 }
 
 impl Scripted {
@@ -157,6 +159,7 @@ impl Scripted {
             script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
+            released: Mutex::new(Vec::new()),
         })
     }
 
@@ -201,6 +204,9 @@ impl ProviderAdapter for Scripted {
     async fn settle_send(&self, group: &str, end: mixdog_core_api::domain::provider::SendEnd) {
         self.settled.lock().unwrap().push((group.to_owned(), end));
     }
+    fn release_send(&self, group: &str) {
+        self.released.lock().unwrap().push(group.to_owned());
+    }
 }
 
 fn text(s: &str) -> Step {
@@ -242,13 +248,25 @@ impl JitterSource for HalfJitter {
     }
 }
 
+/// Records each wait; with a hold, a wait ends only when the test lets it ([`HeldTimer`]).
 #[derive(Default)]
-struct RecordedWait(Mutex<Vec<Duration>>);
+struct RecordedWait(Mutex<Vec<Duration>>, Option<Arc<HeldTimer>>);
 #[async_trait]
 impl RetryWait for RecordedWait {
     async fn wait(&self, delay: Duration) {
         self.0.lock().unwrap().push(delay);
+        if let Some(held) = &self.1 {
+            held.waiting.notify_one();
+            held.elapse.notified().await;
+        }
     }
+}
+
+/// The host's timer under the test's hand: a wait announces itself and its time passes when the test says so.
+#[derive(Default)]
+struct HeldTimer {
+    waiting: tokio::sync::Notify,
+    elapse: tokio::sync::Notify,
 }
 
 #[derive(Default)]
@@ -1844,7 +1862,7 @@ async fn a_detached_eager_run_ends_with_the_turns_cancellation() {
     assert!(!released.load(Ordering::SeqCst), "not cancelled: it is left to finish, as in Node");
     h.cancel.cancel();
     while !released.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 }
 
@@ -2325,6 +2343,29 @@ async fn a_dropped_turn_settles_its_group_as_cancelled() {
     assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Cancelled)]);
 }
 
+/// The turn's future is dropped where no Tokio runtime is entered: the group's hold on what other sends wait for is let go
+/// by the guard itself, which needs no runtime.
+#[test]
+fn a_turn_dropped_outside_a_runtime_lets_go_of_its_group() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let h = Harness::new(vec![turn(vec![text("a"), Step::Hang])]);
+    let mut run = Box::pin(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    runtime.block_on(async {
+        while h.provider.requests().is_empty() {
+            std::future::poll_fn(|cx| {
+                let _ = std::future::Future::poll(run.as_mut(), cx);
+                std::task::Poll::Ready(())
+            })
+            .await;
+            tokio::task::yield_now().await;
+        }
+    });
+    assert!(h.provider.released.lock().unwrap().is_empty(), "the send is still in flight");
+    drop(run);
+    let groups = h.provider.groups();
+    assert_eq!(*h.provider.released.lock().unwrap(), [groups[0].clone().unwrap()]);
+}
+
 #[tokio::test]
 async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
     let h = Harness::new(vec![
@@ -2453,10 +2494,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let h = Harness::new(vec![
+    let mut h = Harness::new(vec![
         turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
     let seed = EffortSnapshot {
         provider: "openai".into(),
@@ -2482,16 +2525,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(judge.clone());
     let task = tokio::spawn(run.run());
-    while !judge.entered.load(Ordering::SeqCst) {
-        tokio::task::yield_now().await;
-    }
-    // The judge is held: the second request must not have been sent.
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    // The judge is held and the grace has not passed: the second request must not have been sent.
     assert_eq!(h.provider.requests().len(), 1);
+    // The judgment resolves inside the grace, whose time never passes.
     judge.gate.notify_one();
-    let output = task.await.unwrap().expect("run");
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the run ends once judged").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     let seen = adapter.seen.lock().unwrap().clone();
     assert!(seen[0].as_ref().is_some_and(|p| p.updates.is_empty()), "the first request has nothing to update");
@@ -2499,15 +2538,70 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(second.updates.iter().collect::<Vec<_>>(), [(&2, &"high".to_owned())]);
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
+
+/// Never answers.
+struct SilentJudge;
+#[async_trait]
+impl mixdog_agent::step_effort::StepEffortJudge for SilentJudge {
+    async fn judge(&self, _input: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_only() {
+    use mixdog_agent::effort::EffortMode;
+    use mixdog_agent::effort::EffortRoute;
+    use mixdog_agent::effort::EffortSnapshot;
+    use mixdog_agent::effort::EffortWiring;
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
+    let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+    };
+    let mut cfg = config();
+    cfg.effort = Some(EffortWiring {
+        route: EffortRoute {
+            provider: "openai".into(),
+            model: "gpt-6.1".into(),
+            mode: Some(EffortMode::Responses),
+            allowed: ["low", "high"].map(String::from).to_vec(),
+            seed: Some(seed),
+            wire: Arc::new(|e| Some(e.to_owned())),
+        },
+        adapter: adapter.clone(),
+    });
+    cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: "do it".into(), base: "low".into() });
+    let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
+    run.set_step_judge(Arc::new(SilentJudge));
+    let task = tokio::spawn(run.run());
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    assert_eq!(*h.waiter.0.lock().unwrap(), [mixdog_agent::step_effort::STEP_EFFORT_GRACE]);
+    assert_eq!(h.provider.requests().len(), 1, "held while the grace has not passed");
+    // The grace passes; the judge still has not answered.
+    timer.elapse.notify_one();
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the request goes out once the grace has passed").unwrap().expect("run");
+    assert_eq!(h.provider.requests().len(), 2);
+    assert!(output.transcript[2].effort.is_none(), "an unanswered step stays at the effort in force");
+}
 struct Artifacts(Mutex<Vec<String>>);
 #[async_trait]
 impl mixdog_agent::offload::ArtifactStore for Artifacts {
     async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
         self.0.lock().unwrap().push(content.to_owned());
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
     async fn preview(&self, _content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
 }
 
@@ -3462,7 +3556,7 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
         self.preview(content).await
     }
     async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
     }
 }
 

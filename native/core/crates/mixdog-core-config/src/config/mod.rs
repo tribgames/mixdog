@@ -33,12 +33,14 @@ pub mod seams;
 mod service;
 pub mod secret_changes;
 mod watch;
+mod channel_follow;
 
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub use watch::ConfigWatcher;
+pub use channel_follow::ChannelConfigFollow;
 pub use service::set_worktree_settings;
 pub use seams::ConfigLocalProviderSettings;
 pub use seams::ConfigVoiceEnabled;
@@ -248,9 +250,14 @@ struct Shared {
     next_adoption: AtomicU64,
     /// Where the app feed's announcements go ([`Config::announce_to`]); none before the composition binds it.
     announcer: std::sync::OnceLock<Announcer>,
+    /// What a settings call awaits before it answers ([`Config::shown_by`]); none before the composition binds it.
+    shown: std::sync::OnceLock<Shown>,
 }
 
 type Adoption = Arc<dyn Fn() + Send + Sync>;
+
+/// Resolves once the threads have shown every settings change announced so far.
+pub type Shown = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>> + Send + Sync>;
 
 /// Publishes one app-feed notification (`method`, `params`) in order with the sections.
 pub type Announcer = Arc<dyn Fn(&'static str, Value) + Send + Sync>;
@@ -350,6 +357,7 @@ impl Config {
             adoptions: Mutex::default(),
             next_adoption: AtomicU64::new(0),
             announcer: std::sync::OnceLock::new(),
+            shown: std::sync::OnceLock::new(),
         };
         let current = shared.doc.load();
         for name in PUBLISHED_SUBTREES {
@@ -396,6 +404,21 @@ impl Config {
     /// binding is ignored.
     pub fn announce_to(&self, announcer: Announcer) {
         let _ = self.shared.announcer.set(announcer);
+    }
+
+    /// Binds what a settings call awaits before it answers: Node announced a settings change to its sessions synchronously inside
+    /// the write, so the session's update reached the client before the call's answer. A second binding is ignored.
+    pub fn shown_by(&self, shown: Shown) {
+        let _ = self.shared.shown.set(shown);
+    }
+
+    /// Resolves once the threads have shown every settings change announced so far; at once before [`Config::shown_by`]. The error
+    /// names a thread that did not show it in time.
+    pub async fn shown(&self) -> Result<(), String> {
+        match self.shared.shown.get() {
+            Some(shown) => shown().await,
+            None => Ok(()),
+        }
     }
 
     /// One app-feed announcement (`ui/settings/changed`, `ui/providerModels/changed`); nothing before [`Config::announce_to`].

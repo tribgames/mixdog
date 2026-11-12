@@ -385,6 +385,9 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.pool.primary.wire_routing()
     }
+    fn release_send(&self, group: &str) {
+        self.pool.primary.release_send(group);
+    }
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.pool.primary.settle_send(group, end).await;
     }

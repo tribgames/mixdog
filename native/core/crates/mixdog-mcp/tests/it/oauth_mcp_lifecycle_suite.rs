@@ -61,6 +61,8 @@ use super::oauth_suite::respond;
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-mcp-lifecycle/golden.json");
 const SEED_TOKEN: &str = "fixture-token";
 const MAIN_TOKEN: &str = "fixture-token-2";
+/// The bound of a wait for an event a case expects (a close, an answer, the flow's end): reached only when it does not come.
+const EVENT_WAIT: Duration = Duration::from_secs(30);
 
 /// The recorder's `memoryStore`: the values by account and the order of the writes and deletions.
 #[derive(Default)]
@@ -221,7 +223,7 @@ async fn serve(listener: TcpListener, fixture: Arc<Fixture>) {
 
 /// One raw request and everything the listener answers; `Err` when it does not accept.
 async fn exchange(port: u16, request: &str) -> Result<Vec<u8>, ErrorKind> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.map_err(|error| error.kind())?;
+    let mut stream = crate::connect_loopback(port).await.map_err(|error| error.kind())?;
     stream.write_all(request.as_bytes()).await.map_err(|error| error.kind())?;
     let mut answer = Vec::new();
     stream.read_to_end(&mut answer).await.map_err(|error| error.kind())?;
@@ -375,7 +377,7 @@ async fn stage(client: &str) -> Stage {
     let server = tokio::spawn(serve(listener, Arc::clone(&fixture)));
     let spy = Arc::new(Spy::default());
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let dir = tempfile::tempdir().unwrap();
     let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
     hub.set_oauth_env(OAuthEnv { store: Arc::clone(&spy) as Arc<dyn SecretStore>, plugin_data: dir.path().to_path_buf(), io: io.durability });
@@ -391,7 +393,7 @@ async fn stage(client: &str) -> Stage {
         });
     }
     hub.apply(vec![config]);
-    tokio::time::timeout(Duration::from_secs(30), fixture.connected.notified()).await.expect("the hub connected");
+    mixdog_rt::time::timeout(EVENT_WAIT, fixture.connected.notified()).await.expect("the hub did not connect");
     Stage { hub, fixture, spy, origin_port, name, _dir: dir, _server: server }
 }
 
@@ -497,13 +499,13 @@ async fn seed(stage: &Stage, client: &str) -> u16 {
     let flow = stage.hub.login_flow(stage.name, AccountMode::Connect).unwrap().with_challenge(Some(&challenge));
     let run = run_flow(flow.start().await.unwrap(), "code");
     let callback = authorized(&run).await;
-    let end = tokio::time::timeout(Duration::from_secs(30), run.ended).await.unwrap().unwrap();
+    let end = mixdog_rt::time::timeout(EVENT_WAIT, run.ended).await.unwrap_or_else(|_| panic!("{client}: the seed sign-in did not end")).unwrap();
     assert!(matches!(end, LoginState::Done { .. }), "{client}: the seed sign-in ended with {end:?}");
     callback.port
 }
 
 /// The cases by the prefix of their title: each group is its own test (the seams are process-wide, so a test replays its
-/// cases one after the other) and `every_case_belongs_to_a_group` keeps the groups equal to the whole recording.
+/// cases one after the other, holding `crate::oauth_seams` against the other tests of the process) and `every_case_belongs_to_a_group` keeps the groups equal to the whole recording.
 const GROUPS: [&[&str]; 8] = [
     &["exchange invalid_client", "exchange unauthorized_client"],
     &["exchange invalid_grant"],
@@ -516,6 +518,7 @@ const GROUPS: [&[&str]; 8] = [
 ];
 
 async fn replay_group(group: usize) {
+    let _seams = crate::oauth_seams().await;
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let mut failures = Vec::new();
     let mut replayed = 0;
@@ -525,7 +528,7 @@ async fn replay_group(group: usize) {
             continue;
         }
         replayed += 1;
-        let outcome = match tokio::time::timeout(Duration::from_secs(40), tokio::spawn(replay(case.clone()))).await {
+        let outcome = match mixdog_rt::time::timeout(Duration::from_secs(40), tokio::spawn(replay(case.clone()))).await {
             Ok(joined) => joined,
             Err(_) => {
                 failures.push(format!("{title}: hung"));
@@ -683,7 +686,7 @@ async fn replay(case: Value) {
         seam::PAGE_RELEASE.fire();
     }
 
-    let mut ended = tokio::time::timeout(Duration::from_secs(30), run.ended).await.expect("the flow ended").unwrap();
+    let mut ended = mixdog_rt::time::timeout(EVENT_WAIT, run.ended).await.unwrap_or_else(|_| panic!("{title}: the flow did not end")).unwrap();
     let settled_without_release = run.settled.load(Ordering::SeqCst);
     // The main-line retry of the request that started the sign-in, as the SDK client makes it.
     let mut outcome_status = None;
@@ -698,7 +701,14 @@ async fn replay(case: Value) {
         _ => None,
     };
     let server_saw_close = match held_hold {
-        Some(hold) => json!(tokio::time::timeout(Duration::from_secs(3), hold.closed.notified()).await.is_ok()),
+        // Every recorded case that holds a request saw its socket close: the wait is for that close.
+        Some(hold) => {
+            assert_eq!(case["serverSawClose"], true, "{title}: Node kept the held request open, which no wait can show");
+            mixdog_rt::time::timeout(EVENT_WAIT, hold.closed.notified())
+                .await
+                .unwrap_or_else(|_| panic!("{title}: the server's held request did not close"));
+            json!(true)
+        }
         None => Value::Null,
     };
     // What the listener did while the case ran; releasing a page the case leaves held must not add to it. With
@@ -710,7 +720,7 @@ async fn replay(case: Value) {
     seam::PAGE_RELEASE.fire();
     let mut socket_results = Vec::new();
     for (kind, handle) in sockets.0 {
-        let closed = tokio::time::timeout(Duration::from_secs(10), handle).await.expect("the socket ended").unwrap();
+        let closed = mixdog_rt::time::timeout(EVENT_WAIT, handle).await.unwrap_or_else(|_| panic!("{title}: the {kind} socket did not end")).unwrap();
         socket_results.push(json!({"kind": kind, "closed": closed}));
     }
     if !socket_results.is_empty() {
@@ -722,7 +732,7 @@ async fn replay(case: Value) {
         (held.held, denied)
     };
     let held_page = match held_answer.0 {
-        Some(handle) => page(tokio::time::timeout(Duration::from_secs(5), handle).await.expect("the held page ended").unwrap()),
+        Some(handle) => page(mixdog_rt::time::timeout(EVENT_WAIT, handle).await.unwrap_or_else(|_| panic!("{title}: the held page did not end")).unwrap()),
         None => Value::Null,
     };
     let denied_page = held_answer.1.unwrap_or(Value::Null);

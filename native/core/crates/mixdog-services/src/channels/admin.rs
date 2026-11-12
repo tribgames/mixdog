@@ -69,6 +69,8 @@ type Done<T = Value> = Result<T, AdminError>;
 pub struct AdminDeps {
     pub schedules: Arc<dyn ScheduleRecords>,
     pub webhooks: Arc<dyn EndpointRecords>,
+    /// The one-transaction purge of a deleted bot's routines, over the stores' state.
+    pub owned: Arc<super::routines_db::OwnedRoutines>,
     pub routines: Arc<RoutineRuntime>,
     pub runtime: Arc<ChannelRuntime>,
     pub settings: Arc<dyn ChannelSettings>,
@@ -525,16 +527,8 @@ impl ChannelAdmin {
         if agent_home_session_id(agent_id).is_none() || agent_id == MIXY_AGENT_ID || agent_id == crate::bots::ids::MIXY_BOT_ID {
             return Err(format!("the routines of \"{agent_id}\" cannot be deleted with a bot").into());
         }
-        let (mut schedules, mut webhooks) = (Vec::new(), Vec::new());
-        for row in self.d.schedules.list().await?.into_iter().filter(|s| s.owner_agent_id == agent_id) {
-            self.d.schedules.delete(&row.name).await?;
-            schedules.push(row.name);
-        }
-        for row in self.d.webhooks.list().await?.into_iter().filter(|e| e.owner_agent_id == agent_id) {
-            self.d.webhooks.delete(&row.name).await?;
-            webhooks.push(row.name);
-        }
-        Ok(json!({"schedules": schedules, "webhooks": webhooks}))
+        let removed = self.d.owned.delete_owned_by(agent_id).await?;
+        Ok(json!({"schedules": removed.schedules, "webhooks": removed.webhooks}))
     }
 
     /// Registers or updates a schedule. Recurring input maps `time` (+ optional `days`) to a

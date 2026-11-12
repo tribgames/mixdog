@@ -8,15 +8,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 48481,
+      "bytes": 48440,
       "path": "golden.json",
-      "sha256": "e6d50ddefc6c3672c319de7fee86113b21e073965c770501a5c96a680d7ae034"
+      "sha256": "f3f981bf016ac3ba58721e4927bc3b7ad48aa663b37edcffbb91a766a76d1e03"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -53,11 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-audit.mjs",
-  "recorderSha256": "841b7f48b575b8eda3f7306adfd456f81c676fcb9649d8685682dc6ec22d3367",
+  "recorderSha256": "9e222ca743061d94ffc8bdcb18a04fcd3163516ec37ef5bd195593cfeeaa77f2",
   "replay": "mixdog-services memory/recall/browse.rs: pub fn search_by_ids (:751) with include_root_source (:827), reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240); a replay compares the returned compact session text including the root",
   "set": "memory-chunk-audit",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 48481,
+  "totalBytes": 48440,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

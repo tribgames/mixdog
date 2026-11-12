@@ -43,6 +43,9 @@ pub enum InstallError {
     Busy,
     #[error("cancelled")]
     Cancelled,
+    /// A hub answer that was not ok, in the words the caller's Node counterpart uses.
+    #[error("{0}")]
+    Hub(String),
 }
 
 impl InstallError {

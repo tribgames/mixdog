@@ -267,6 +267,10 @@ impl ProviderAdapter for AccountedAdapter {
         }
     }
 
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.inner.settle_send(group, end).await;
         let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);

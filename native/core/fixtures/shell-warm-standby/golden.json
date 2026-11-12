@@ -1,0 +1,190 @@
+{
+  "domain": "shell-warm-standby",
+  "recorder": "benchmarks/rust-core/recorders/record-shell-warm-standby.mjs",
+  "shell": "pwsh",
+  "calls": [
+    {
+      "ws": "A",
+      "parked": false,
+      "taken": false,
+      "input": {
+        "command": "Write-Output \"cold|$((Get-Location).ProviderPath)|$env:TEMP\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\ncold|<A>|<TEMP>",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": false,
+      "taken": false,
+      "input": {
+        "command": "Write-Output ready; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\nready",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "command": "$global:mixdogMark = 'set'; Write-Output \"warm|$((Get-Location).ProviderPath)|$([System.Environment]::CurrentDirectory)|$env:TEMP\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\nwarm|<A>|<A>|<TEMP>",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "command": "Write-Output \"next|[$global:mixdogMark]|$((Get-Location).ProviderPath)\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\nnext|[]|<A>",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "command": "Write-Output \"drift|$((Get-Location).ProviderPath)\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\ndrift|<B>",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048576
+      },
+      "text": "[exit code: 0]\n\nlen|1048486",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048576
+      },
+      "text": "[exit code: 0]\n\nlen|1048486",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "size": 1048576
+      },
+      "text": "[exit code: 0]\n\nlen|1048486",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048577
+      },
+      "text": "[exit code: 0]\n\nlen|1048487",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048577
+      },
+      "text": "[exit code: 0]\n\nlen|1048487",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "size": 1048577
+      },
+      "text": "[exit code: 0]\n\nlen|1048487",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048448
+      },
+      "text": "[exit code: 0]\n\nlen|1048358",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048448
+      },
+      "text": "[exit code: 0]\n\nlen|1048358",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "size": 1048448
+      },
+      "text": "[exit code: 0]\n\nlen|1048358",
+      "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 5242880
+      },
+      "text": "[exit code: 0]\n\nlen|5242790",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 5242880
+      },
+      "text": "[exit code: 0]\n\nlen|5242790",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "size": 5242880
+      },
+      "text": "[exit code: 0]\n\nlen|5242790",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "setAfterPark": {
+        "MIXDOG_STANDBY_PROBE": "claimed"
+      },
+      "input": {
+        "command": "Write-Output \"env|$env:MIXDOG_STANDBY_PROBE\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\nenv|claimed",
+      "isError": false
+    }
+  ]
+}

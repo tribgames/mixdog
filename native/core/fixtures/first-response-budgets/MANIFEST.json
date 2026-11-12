@@ -8,19 +8,19 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1336820,
+      "bytes": 1538552,
       "path": "golden.json",
-      "sha256": "783cb13598d5a9545f4a13dd62fb51bda6e3cf84b1897b6363a89c16f91a73d0"
+      "sha256": "28c97183bb17d4badc394e6713c3f3bcca44496a22905b048c007c5762277a12"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -28,7 +28,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/first-response-budgets-probe.mjs",
-      "sha256": "c6ce9f5ee9239106128066e099028a877a9858d7b18845952a5c96489f96e44e"
+      "sha256": "c839d37959cad27fb2aaac3e8e02f4d52650a72517f6acab31a56bec0b9b9487"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -44,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "465aad6ae970141223f867a86eb2ae8915c03ee20873b8105c228d1890008520"
+      "sha256": "162d94935f08f5744da888553b7893584d1f8da76f2a2eb0d58ea6a4715e238f"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -70,14 +70,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-first-response-budgets.mjs",
-  "recorderSha256": "3f12bc6af8099795818b5191a8e0226ab01058d93b7eab1e9fe4db560e7c6a22",
+  "recorderSha256": "ec1a84c83056cdd4817cfab94120feea13a0837c549e0596a04085bbf7cca01a",
   "replay": {
     "compare": "mixdog-ai providers::first_byte::FirstByteSettings::from_env over the recorded env of each case, then the real adapters' first_response_budget: GoogleAdapter (Vertex AI with modelParameters {serviceTier}, Antigravity per model, policy::antigravity_with for the ladder) and CompatAdapter (mimo-oauth and the profiles without a window of their own); compare every budget whole",
     "entry": "Drive these public items on o1: mixdog-ai/src/providers/first_byte.rs:58 FirstByteSettings::from_env; mixdog-ai/src/providers/first_byte.rs:109 FirstByteSettings::antigravity_budget.",
     "existsButNotPublicOnO1": [],
     "inputs": {
       "environment": "each case lists the variables it sets (cases[].observed.env); no other variable is set. The replay hands them to FirstByteSettings::from_env as a lookup, not through the process environment",
-      "models": "the curated Antigravity rows (no cached catalog): gemini-3.8-flash is gemini-flash, gemini-3.1-pro and gemini-4-argon are gemini-pro, Claude and gpt-oss have no family"
+      "models": "the curated Antigravity rows (no cached catalog): gemini-3.8-flash is gemini-flash, gemini-3.1-pro and gemini-4-argon are gemini-pro, Claude and gpt-oss have no family",
+      "routes": "the default environment also records every model Node's registries list (VERTEX_MODELS, ANTIGRAVITY_MODELS) on every tier for every provider (`registryRoutes`); the replay compares that route set with the one the core's registries enumerate, both ways"
     },
     "missingOnO1": [],
     "protocolMethods": [],
@@ -96,6 +97,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "first-response-budgets",
-  "totalBytes": 1336820,
+  "totalBytes": 1538552,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

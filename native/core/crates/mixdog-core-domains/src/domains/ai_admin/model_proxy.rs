@@ -133,6 +133,7 @@ fn message_out(m: &p::Message) -> w::ProxyMessage {
         }),
         turn_reminder: m.turn_reminder.clone(),
         provider_replay: m.provider_replay().iter().map(replay_out).collect(),
+        account_routing: m.account_routing.as_ref().map(|r| w::ProxyAccountRouting { provider: r.provider.clone(), account_id: r.account_id.clone(), session_account_id: r.session_account_id.clone() }),
     }
 }
 
@@ -272,6 +273,7 @@ fn message_in(m: w::ProxyMessage) -> Result<p::Message, Invalid> {
         w::ProxyMessageSource::TailReminder => p::MessageSource::TailReminder,
     });
     out.turn_reminder = m.turn_reminder;
+    out.account_routing = m.account_routing.map(|r| p::AccountRouting { provider: r.provider, account_id: r.account_id, session_account_id: r.session_account_id });
     for r in m.provider_replay {
         out.push_replay(p::ProviderReplay { owner: r.owner.as_str().into(), items: plain_json(r.items)? });
     }

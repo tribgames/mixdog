@@ -247,6 +247,37 @@ async fn every_provider_states_the_budget_node_states_on_every_route() {
         got.insert(name.clone(), Value::Object(stated));
     }
     assert_eq!(Value::Object(got), Value::Object(table.clone()));
+
+    // The routes: every model the core's registries list (Vertex AI's, Antigravity's curated rows) on every recorded tier.
+    // The recording lists what Node's registries do; a model on one side only fails here, and the budgets of all of them
+    // are compared whole, so a route present on one side only is a key of one map only.
+    let routes = &case["observed"]["budgets"]["registryRoutes"];
+    let ids = |value: &Value| -> Vec<String> { value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect() };
+    let mut vertex: Vec<String> = mixdog_ai::providers::google::models::vertex_records().into_iter().map(|row| row.id).collect();
+    let mut antigravity: Vec<String> = mixdog_ai::catalog::ANTIGRAVITY_FALLBACK.iter().map(|(id, _)| (*id).to_owned()).collect();
+    let (mut node_vertex, mut node_antigravity) = (ids(&routes["models"]["vertex"]), ids(&routes["models"]["antigravity"]));
+    for list in [&mut vertex, &mut antigravity, &mut node_vertex, &mut node_antigravity] {
+        list.sort();
+    }
+    assert_eq!(vertex, node_vertex, "the Vertex AI models of the core and of Node's registry");
+    assert_eq!(antigravity, node_antigravity, "the Antigravity models of the core and of Node's registry");
+    let mut models: Vec<String> = vertex.into_iter().chain(antigravity).collect();
+    models.sort();
+    models.dedup();
+    let mut wide = Map::new();
+    for name in routes["table"].as_object().unwrap().keys() {
+        let adapter = pc.config.adapter(name).await.unwrap_or_else(|| panic!("the core builds {name}"));
+        let mut stated = Map::new();
+        for model in &models {
+            for tier in ids(&routes["tiers"]) {
+                let parameters = (!tier.is_empty()).then(|| json!({ "serviceTier": tier }));
+                let budget = adapter.first_response_budget(model, parameters.as_ref());
+                stated.insert(format!("{model}|{tier}"), budget.map_or(Value::Null, |b| json!({ "transportMs": b.transport_ms, "semanticMs": b.semantic_ms })));
+            }
+        }
+        wide.insert(name.clone(), Value::Object(stated));
+    }
+    assert_eq!(Value::Object(wide), routes["table"], "the budget of every route the registries enumerate");
 }
 
 /// The vault of a PC that keeps every account it is asked for.

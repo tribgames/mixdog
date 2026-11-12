@@ -49,16 +49,32 @@ struct Known {
 
 type Listener = Arc<dyn Fn(u64) + Send + Sync>;
 
+/// Told the id of a session that gained values carried from another one (`carry`).
+type CarriedListener = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Default)]
 struct Inner {
     by_session: HashMap<String, Known>,
     listeners: HashMap<String, Vec<(u64, Listener)>>,
     next_listener: u64,
+    /// Session → the sessions its text went to (`carry`): every value it gains goes there too.
+    carries: HashMap<String, BTreeSet<String>>,
+}
+
+/// Where the marks outlive the process: a carry is written before [`SensitiveStore::carry`] returns, and a gain before any
+/// listener hears of it (so before the call that made the mark runs).
+pub trait MarkJournal: Send + Sync {
+    /// Text of `from` reached `to`.
+    fn carried(&self, from: &str, to: &str);
+    /// `values` marked for `origin` reached `sessions`, each holding them from the version given.
+    fn marked(&self, origin: &str, values: &[String], sessions: &[(String, u64)]);
 }
 
 #[derive(Default)]
 pub struct SensitiveStore {
     inner: Mutex<Inner>,
+    carried: std::sync::OnceLock<CarriedListener>,
+    journal: std::sync::OnceLock<Arc<dyn MarkJournal>>,
 }
 
 /// Stops its listener when dropped.
@@ -372,12 +388,102 @@ impl SensitiveStore {
         if session.is_empty() || values.is_empty() {
             return false;
         }
-        let (version, listeners) = {
+        self.gain(session, values)
+    }
+
+    /// Text of `from` went to `to` (a worker's report to its owner): every value `from` holds, and every value it gains
+    /// later, is `to`'s too, and so on along `to`'s own carries. `to` is told as by a mark of its own, and the carried
+    /// listener ([`Self::on_carried`]) is told each session that gained a value this way.
+    pub fn carry(&self, from: &str, to: &str) {
+        if from.is_empty() || to.is_empty() || from == to {
+            return;
+        }
+        let (fresh, values) = {
+            let mut inner = self.lock();
+            let fresh = inner.carries.entry(from.to_owned()).or_default().insert(to.to_owned());
+            (fresh, inner.by_session.get(from).map(|known| known.values.iter().cloned().collect::<Vec<String>>()).unwrap_or_default())
+        };
+        if let (true, Some(journal)) = (fresh, self.journal.get()) {
+            journal.carried(from, to);
+        }
+        if !values.is_empty() {
+            self.spread(from, &[to.to_owned()], values);
+        }
+    }
+
+    /// The one listener told the id of every session that gains values carried from another (the session directory,
+    /// which runs that session's rewrite whether it is loaded, running or not). A second one is refused.
+    pub fn on_carried(&self, listener: impl Fn(&str) + Send + Sync + 'static) -> bool {
+        self.carried.set(Arc::new(listener)).is_ok()
+    }
+
+    /// The one journal the marks are written to (bound by the thread store); a second one is refused.
+    pub fn journal_with(&self, journal: Arc<dyn MarkJournal>) -> bool {
+        self.journal.set(journal).is_ok()
+    }
+
+    /// `values` marked for `session` as a mark of its own (a mark the journal kept from an earlier run). True when it gained one.
+    pub fn restore(&self, session: &str, values: &[String]) -> bool {
+        let values: Vec<String> = values.iter().filter(|v| !v.is_empty()).cloned().collect();
+        !session.is_empty() && !values.is_empty() && self.gain(session, values)
+    }
+
+    /// `values` marked for `session`, then carried along its carries. True when `session` gained one.
+    fn gain(&self, session: &str, values: Vec<String>) -> bool {
+        self.spread(session, &[session.to_owned()], values)
+    }
+
+    /// `values` reach every session of `targets` and, from each that gains one, its own carries; never back to
+    /// `origin` unless it is a target, nor to a session reached already. The journal is told every session that gained
+    /// one before any listener is; the carried listener hears each but an `origin` a listener of its own (a running turn)
+    /// hears: a mark with none (a restored one, or one made outside a turn) has no barrier to rewrite its log, and its
+    /// journal entry holds the value until every listed session's log was rewritten. True when one gained.
+    fn spread(&self, origin: &str, targets: &[String], values: Vec<String>) -> bool {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        if !targets.iter().any(|t| t == origin) {
+            seen.insert(origin.to_owned());
+        }
+        let mut queue: Vec<String> = targets.to_vec();
+        let mut gained: Vec<(String, u64, Vec<Listener>)> = Vec::new();
+        while let Some(session) = queue.pop() {
+            if !seen.insert(session.clone()) {
+                continue;
+            }
+            if let Some((version, listeners, next)) = self.add(&session, &values) {
+                queue.extend(next);
+                gained.push((session, version, listeners));
+            }
+        }
+        if gained.is_empty() {
+            return false;
+        }
+        if let Some(journal) = self.journal.get() {
+            let sessions: Vec<(String, u64)> = gained.iter().map(|(session, version, _)| (session.clone(), *version)).collect();
+            journal.marked(origin, &values, &sessions);
+        }
+        for (session, version, listeners) in &gained {
+            for listener in listeners {
+                listener(*version);
+            }
+            if (session != origin || listeners.is_empty())
+                && let Some(listener) = self.carried.get()
+            {
+                listener(session);
+            }
+        }
+        true
+    }
+
+    /// Adds `values` to `session` and returns its new version, its listeners and the sessions it carries to; `None`
+    /// when it gained nothing.
+    #[allow(clippy::type_complexity)]
+    fn add(&self, session: &str, values: &[String]) -> Option<(u64, Vec<Listener>, Vec<String>)> {
+        let (version, listeners, carries) = {
             let mut inner = self.lock();
             let known = inner.by_session.entry(session.to_owned()).or_default();
             let fresh: Vec<&String> = values.iter().filter(|v| !known.values.contains(*v)).collect();
             if fresh.is_empty() {
-                return false;
+                return None;
             }
             let mut ordered: Vec<String> = known.spellings.clone();
             for value in &fresh {
@@ -398,12 +504,10 @@ impl SensitiveStore {
             let version = known.version;
             let listeners: Vec<Listener> =
                 inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
-            (version, listeners)
+            let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
+            (version, listeners, carries)
         };
-        for listener in listeners {
-            listener(version);
-        }
-        true
+        Some((version, listeners, carries))
     }
 
     /// Calls `listener` whenever `session` gains a sensitive value, until the
@@ -496,6 +600,17 @@ impl SensitiveStore {
                 .collect();
             if next != *calls {
                 out.insert("toolCalls".into(), Value::Array(next));
+                changed = true;
+            }
+        }
+        // The core keeps a completion's card on its message (`meta.taskCard`: the report as the card shows it, and the
+        // raw notification); Node's message has no card, its text is the content alone.
+        if let Some(card) = message.get("meta").and_then(|meta| meta.get("taskCard")) {
+            let next = redact_json_value(self, session, card);
+            if next != *card {
+                let mut meta = message["meta"].as_object().cloned().unwrap_or_default();
+                meta.insert("taskCard".into(), next);
+                out.insert("meta".into(), Value::Object(meta));
                 changed = true;
             }
         }

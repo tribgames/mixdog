@@ -61,7 +61,7 @@ try {
     await set.run(name, () => {
       const childEnv = { ...process.env, MIXDOG_DATA_DIR: dataDir, ...env };
       for (const variable of VARIABLES) if (!(variable in env)) delete childEnv[variable];
-      const ran = spawnSync(process.execPath, [fileURLToPath(new URL(`../../../${PROBE}`, import.meta.url)), set.tree], { env: childEnv, encoding: 'utf8', timeout: 120_000, windowsHide: true, maxBuffer: 1 << 20 });
+      const ran = spawnSync(process.execPath, [fileURLToPath(new URL(`../../../${PROBE}`, import.meta.url)), set.tree, ...(name === 'no variable is set' ? ['--registry-routes'] : [])], { env: childEnv, encoding: 'utf8', timeout: 120_000, windowsHide: true, maxBuffer: 1 << 20 });
       if (ran.status !== 0) throw new RecorderError(`the probe failed for "${name}": ${ran.stderr}`);
       return { env, budgets: JSON.parse(ran.stdout) };
     });
@@ -75,7 +75,7 @@ await set.finish({
   dataFiles: [PROBE],
   replay: {
     entry: 'mixdog-ai providers::first_byte::FirstByteSettings::from_env over the recorded env of each case, then the real adapters\' first_response_budget: GoogleAdapter (Vertex AI with modelParameters {serviceTier}, Antigravity per model, policy::antigravity_with for the ladder) and CompatAdapter (mimo-oauth and the profiles without a window of their own); compare every budget whole',
-    inputs: { environment: 'each case lists the variables it sets (cases[].observed.env); no other variable is set. The replay hands them to FirstByteSettings::from_env as a lookup, not through the process environment', models: 'the curated Antigravity rows (no cached catalog): gemini-3.8-flash is gemini-flash, gemini-3.1-pro and gemini-4-argon are gemini-pro, Claude and gpt-oss have no family' },
+    inputs: { routes: 'the default environment also records every model Node\'s registries list (VERTEX_MODELS, ANTIGRAVITY_MODELS) on every tier for every provider (`registryRoutes`); the replay compares that route set with the one the core\'s registries enumerate, both ways', environment: 'each case lists the variables it sets (cases[].observed.env); no other variable is set. The replay hands them to FirstByteSettings::from_env as a lookup, not through the process environment', models: 'the curated Antigravity rows (no cached catalog): gemini-3.8-flash is gemini-flash, gemini-3.1-pro and gemini-4-argon are gemini-pro, Claude and gpt-oss have no family' },
   },
 });
 process.exit(0);

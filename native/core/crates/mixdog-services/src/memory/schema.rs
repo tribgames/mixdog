@@ -13,7 +13,7 @@ use crate::memory::pg::db::Db;
 pub const ENTRY_STATUSES: [&str; 3] = ["pending", "active", "archived"];
 
 const BOOTSTRAP_DONE_KEY: &str = "boot.schema_bootstrap_complete";
-const DIMS_KEY: &str = "embedding.current_dims";
+pub(crate) const DIMS_KEY: &str = "embedding.current_dims";
 const MODEL_KEY: &str = "embedding.current_model";
 
 fn entries_ddl(dims: usize) -> String {
@@ -183,6 +183,14 @@ pub async fn ensure_memory_schema(db: &Db, dims: usize, model_identity: &serde_j
     Ok(())
 }
 
+/// A replay's gate just before the key build (where Node's recording holds each starter of its two-starter race).
+#[cfg(test)]
+pub(crate) type BeforeKeyBuild = std::sync::Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static BEFORE_KEY_BUILD: BeforeKeyBuild;
+}
+
 async fn install_core_key_index(db: &Db) -> Result<()> {
     let conflict = db
         .query_opt(
@@ -190,10 +198,26 @@ async fn install_core_key_index(db: &Db) -> Result<()> {
             &[],
         )
         .await?;
-    if conflict.is_none() {
-        db.batch(CORE_KEY_INDEX).await?;
+    if conflict.is_some() {
+        mixdog_rt::memory_stderr!(
+            "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
+        );
+        return Ok(());
     }
-    Ok(())
+    // The pool key replaces the legacy (project_id, element) key, which would refuse an agent
+    // memory sharing an element with a common one.
+    #[cfg(test)]
+    if let Ok(gate) = BEFORE_KEY_BUILD.try_with(std::sync::Arc::clone) {
+        gate().await;
+    }
+    match db.batch(&format!("{CORE_KEY_INDEX};\nDROP INDEX IF EXISTS core_entries_unique_proj_elem")).await {
+        Err(crate::memory::error::MemoryError::Pg(error)) if error.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) => {
+            // A write raced the conflict check: keep both rows, install the index later.
+            mixdog_rt::memory_stderr!("[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution");
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 async fn reset_vectors_for_model(db: &Db, dims: usize, identity: &serde_json::Value) -> Result<()> {
@@ -244,6 +268,32 @@ pub async fn set_meta(db: &Db, key: &str, value: &serde_json::Value) -> Result<(
     )
     .await?;
     Ok(())
+}
+
+/// `isBootstrapComplete`: the flag counts only while the objects it vouches for still exist.
+pub async fn is_bootstrap_complete(db: &Db) -> bool {
+    let check = async {
+        if db.query_opt("SELECT 1 FROM meta WHERE key = $1", &[&BOOTSTRAP_DONE_KEY]).await?.is_none() {
+            return Ok(false);
+        }
+        let schema = db.schema().name();
+        let row = db
+            .query_opt(
+                "SELECT
+                   EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                           WHERE t.typname = 'entry_status' AND n.nspname = $1)
+                   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'entries')
+                   AND EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_schema = $1 AND table_name = 'entries' AND column_name = 'status')
+                   AND EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_schema = $1 AND table_name = 'entries' AND column_name = 'chunk_root')
+                   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'meta')",
+                &[&schema],
+            )
+            .await?;
+        Ok::<_, crate::memory::error::MemoryError>(row.is_some_and(|row| row.get::<_, bool>(0)))
+    };
+    check.await.unwrap_or(false)
 }
 
 pub async fn get_meta(db: &Db, key: &str) -> Result<Option<serde_json::Value>> {

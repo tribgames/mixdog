@@ -243,6 +243,11 @@ impl ProviderAdapter for RegisteredAdapter {
 
     /// The send group ended without an answer: its measurement ends with the last failure and the slot is let go.
     async fn settle_send(&self, group: &str, _end: SendEnd) {
+        self.release_send(group);
+    }
+
+    /// The group's guard dropped (on any exit, in or out of a runtime): the same release, which needs no runtime.
+    fn release_send(&self, group: &str) {
         let state = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
         if let Some(state) = state {
             state.abandon();

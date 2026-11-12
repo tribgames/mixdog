@@ -189,6 +189,10 @@ pub struct Message {
     /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
     /// names it. An account pool passes this message's replay state to that account alone.
     pub account_routing: Option<AccountRouting>,
+    /// User and tool only (Node `meta.sentRequestTail`): the message a provider request ended with when a restart
+    /// or cancel cut it. An Anthropic wire keeps later user text beside it as sibling blocks instead of folding it
+    /// in, so the cached prefix that request wrote is sent unchanged.
+    pub sent_request_tail: bool,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -208,6 +212,7 @@ impl Message {
             source: None,
             turn_reminder: None,
             account_routing: None,
+            sent_request_tail: false,
             provider_replay: Vec::new(),
         }
     }
@@ -1140,6 +1145,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// cancelled it. Called by the loop once per group, before any other send; a provider that
     /// accounts sends writes what the group held back. Nothing to do by default.
     async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+    /// The logical send `group` is over for good, however it ended (answer, error, cancel, the caller's future
+    /// dropped, a panic): let go what it holds that other sends wait for. Synchronous, so a drop outside any
+    /// runtime can call it. Nothing by default.
+    fn release_send(&self, _group: &str) {}
     /// The session was deleted (`__mixdogCloseProviderConnectionsForSession(id,
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.

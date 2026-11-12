@@ -1,0 +1,290 @@
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-header-summary.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-header-summary.test.mjs
+new file mode 100644
+index 0000000..c7a45b1
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-header-summary.test.mjs
+@@ -0,0 +1,71 @@
++// A value a fill marked sensitive is in none of the session's stored copies
++// beside its messages: the header (its title, the repeat-failure guards that
++// keep each failed call's arguments) and the summary index (the title and the
++// previews, rows written before the mark included) hold the marker.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-summary-'));
++process.env.MIXDOG_DATA_DIR = dataDir;
++const { rememberSensitiveValues } = await import('./sensitive-values.mjs');
++const { _sessionHeaderForDisk } = await import('./store/serialize.mjs');
++const {
++  _sessionSummary,
++  _upsertSessionSummary,
++  foldSummaryIndexForRedaction,
++  settleSummaryIndexWrites,
++  summaryIndexPath,
++} = await import('./store-summary-index.mjs');
++const { summaryLogPath } = await import('./store-summary-log.mjs');
++
++const CODE = '482913';
++const fill = (text) => ({ name: 'browser', arguments: { action: 'fill', input: { ref: 'e1', sensitive: true, text } } });
++const signature = (text) => `browser:${JSON.stringify(fill(text).arguments)}`;
++
++test.after(() => rmSync(dataDir, { recursive: true, force: true }));
++
++test('the header keeps a marked value only as the marker in its title and repeat-failure guards', () => {
++  const id = 'sess_1_1_1_header';
++  const session = {
++    id,
++    title: `${CODE} is the code`,
++    _repeatFailGuard: { sig: signature(CODE), count: 1 },
++    _repeatFailHistory: [signature(CODE), 'read:{"path":"a"}'],
++    _repeatArgShapeFailGuard: null,
++    messages: [],
++  };
++  assert.equal(_sessionHeaderForDisk(session), session, 'nothing marked: the same header');
++  rememberSensitiveValues(id, [fill(CODE)]);
++  const stored = _sessionHeaderForDisk(session);
++  assert.ok(!JSON.stringify(stored).includes(CODE), JSON.stringify(stored));
++  assert.equal(stored.title, '[redacted] is the code');
++  assert.equal(stored._repeatFailHistory[1], 'read:{"path":"a"}');
++  assert.equal(session._repeatFailGuard.sig, signature(CODE), 'the live session keeps the value');
++});
++
++test('the summary rows written before the mark leave the index once the redacted row lands', async () => {
++  const id = 'sess_1_1_1_summary';
++  const session = {
++    id,
++    title: `${CODE} is the code`,
++    messages: [
++      { role: 'user', content: `${CODE} is the code from the mail.` },
++      { role: 'assistant', content: `Yes, ${CODE} was accepted.` },
++    ],
++  };
++  _upsertSessionSummary(session);
++  assert.ok(await settleSummaryIndexWrites({ ids: [id] }));
++  assert.ok(readFileSync(summaryLogPath(summaryIndexPath()), 'utf8').includes(CODE), 'the row before the mark');
++  rememberSensitiveValues(id, [fill(CODE)]);
++  const row = _sessionSummary(session);
++  assert.ok(!JSON.stringify(row).includes(CODE), JSON.stringify(row));
++  _upsertSessionSummary(session);
++  await foldSummaryIndexForRedaction(id);
++  for (const file of [summaryIndexPath(), summaryLogPath(summaryIndexPath())]) {
++    assert.ok(!readFileSync(file, 'utf8').includes(CODE), file);
++  }
++  assert.equal(JSON.parse(readFileSync(summaryIndexPath(), 'utf8')).rows[0].preview, '[redacted] is the code from the mail.');
++});
+diff --git a/src/runtime/agent/orchestrator/session/store/serialize.mjs b/src/runtime/agent/orchestrator/session/store/serialize.mjs
+index 8c4238d..732fe42 100644
+--- a/src/runtime/agent/orchestrator/session/store/serialize.mjs
++++ b/src/runtime/agent/orchestrator/session/store/serialize.mjs
+@@ -4,6 +4,7 @@ import { join } from 'node:path';
+ import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
+ import { loadLegacySession } from './legacy-session.mjs';
+ import { redactSensitiveMessage } from '../sensitive-projection.mjs';
++import { redactSensitiveText } from '../sensitive-values.mjs';
+ 
+ // Inline base64 images (tool screenshots included) are written as
+ // content-addressed refs, like prompt media, so session JSON stays small while
+@@ -45,7 +46,35 @@ export const TRANSIENT_SESSION_KEYS = Object.freeze([
+ /** The session's header as it is stored, messages aside (the session log
+  *  drops TRANSIENT_SESSION_KEYS and `messages` itself). */
+ export function _sessionHeaderForDisk(session) {
+-  return _withMidTurnContextAnchor(session, session);
++  return _withMidTurnContextAnchor(_withSensitiveHeaderRedacted(session), session);
++}
++
++/** The header fields that hold the conversation's text (the title, from the
++ *  first prompt) or a tool call's arguments (the repeat-failure guards keep
++ *  each failed call's signature, its arguments included): a value the session
++ *  marked sensitive is stored there as the marker, as in its messages. The
++ *  same object when nothing changes. */
++function _withSensitiveHeaderRedacted(session) {
++  const id = session?.id;
++  const text = (value) => (typeof value === 'string' ? redactSensitiveText(id, value) : value);
++  const guard = (value) => {
++    if (!value || typeof value !== 'object' || typeof value.sig !== 'string') return value;
++    const sig = text(value.sig);
++    return sig === value.sig ? value : { ...value, sig };
++  };
++  const changes = {};
++  const title = text(session?.title);
++  if (title !== session?.title) changes.title = title;
++  for (const key of ['_repeatFailGuard', '_repeatArgShapeFailGuard']) {
++    const next = guard(session?.[key]);
++    if (next !== session?.[key]) changes[key] = next;
++  }
++  const history = session?._repeatFailHistory;
++  if (Array.isArray(history)) {
++    const next = history.map(text);
++    if (next.some((entry, index) => entry !== history[index])) changes._repeatFailHistory = next;
++  }
++  return Object.keys(changes).length ? { ...session, ...changes } : session;
+ }
+ 
+ export function _sessionForDisk(session) {
+diff --git a/src/runtime/agent/orchestrator/session/store-summary-index.mjs b/src/runtime/agent/orchestrator/session/store-summary-index.mjs
+index 8882786..25ab991 100644
+--- a/src/runtime/agent/orchestrator/session/store-summary-index.mjs
++++ b/src/runtime/agent/orchestrator/session/store-summary-index.mjs
+@@ -5,15 +5,17 @@
+  * file. store.mjs re-exports these so
+  * importers stay unchanged.
+  */
+-import { appendFileSync, mkdirSync } from 'node:fs';
++import { appendFileSync, mkdirSync, readFileSync, truncateSync } from 'node:fs';
+ import { appendFile, mkdir, readdir, readFile, stat, truncate, unlink } from 'node:fs/promises';
+ import { dirname, join } from 'node:path';
+ import { getPluginData } from '../config.mjs';
+-import { withFileLock, withFileLockSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
++import { withFileLock, withFileLockSync, writeJsonAtomicAsync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+ import { applySummaryLogText, encodeSummaryOps, summaryLogPath } from './store-summary-log.mjs';
+ import { isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
+ import { sessionVisibility } from './store-summary-visibility.mjs';
+ import { sessionModeOf } from './agent-mode.mjs';
++import { redactSensitiveText } from './sensitive-values.mjs';
++import { redactSensitiveMessages } from './sensitive-projection.mjs';
+ import {
+   importKey,
+   inheritedFromSessionId,
+@@ -241,7 +243,11 @@ function _desktopSessionSummary(value, cwd = null) {
+ 
+ export function _sessionSummary(session) {
+   if (!session?.id) return null;
+-  const messageProjection = _sessionMessageProjection(session);
++  // The row is a stored copy too: a value the session marked sensitive is
++  // the marker in its title and previews, as in the session's own files.
++  const messages = Array.isArray(session.messages) ? session.messages : [];
++  const redacted = redactSensitiveMessages(session.id, messages);
++  const messageProjection = _sessionMessageProjection(redacted === messages ? session : { id: session.id, messages: redacted });
+   return {
+     id: String(session.id),
+     updatedAt: _positiveNumber(session.updatedAt, Date.now()),
+@@ -289,7 +295,7 @@ export function _sessionSummary(session) {
+     // The numbering epoch of messageCount: a compaction restarts it.
+     compactCount: compactCount(session.compaction) ?? 0,
+     realTurnCount: messageProjection.real,
+-    title: _cleanPreview(session.title || '', 100),
++    title: _cleanPreview(redactSensitiveText(session.id, session.title || ''), 100),
+     preview: messageProjection.preview,
+     lastMessagePreview: messageProjection.last,
+     lastMessageRoutine: messageProjection.lastRoutine,
+@@ -652,6 +658,42 @@ async function _compactSummaryIndexLocked(path) {
+   await truncate(logPath, 0);
+ }
+ 
++/**
++ * A session's files were rewritten for a value it marked sensitive
++ * (store.mjs `_write`): rows of it appended before the mark may hold the value.
++ * Once its queued row (built redacted) has landed, the delta log is folded into
++ * a fresh base, where only that latest row stays, and emptied. Waits for the
++ * index lock; the sync form is the exit drain's.
++ */
++export async function foldSummaryIndexForRedaction(id) {
++  await settleSummaryIndexWrites({ ids: [id] });
++  const path = summaryIndexPath();
++  await withFileLock(`${path}.lock`, () => _compactSummaryIndexLocked(path));
++}
++
++/** foldSummaryIndexForRedaction at the exit drain, after its sync flush. */
++export function foldSummaryIndexForRedactionSync() {
++  const path = summaryIndexPath();
++  withFileLockSync(`${path}.lock`, () => {
++    const logPath = summaryLogPath(path);
++    let logText = '';
++    try {
++      logText = readFileSync(logPath, 'utf8');
++    } catch (error) {
++      if (error?.code !== 'ENOENT') throw error;
++    }
++    let base = null;
++    try {
++      base = JSON.parse(readFileSync(path, 'utf8'));
++    } catch (error) {
++      if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
++    }
++    const { rows } = _normalizeSummaryIndex(applySummaryLogText(base ?? {}, logText));
++    writeJsonAtomicSync(path, { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: Date.now(), rows }, { compact: true, lock: false });
++    truncateSync(logPath, 0);
++  });
++}
++
+ /** Fold the delta log into the base now (tests, maintenance). Resolves false
+  *  when another process holds the index lock. */
+ export async function compactSummaryIndex() {
+diff --git a/src/runtime/agent/orchestrator/session/store.mjs b/src/runtime/agent/orchestrator/session/store.mjs
+index abb3b95..fae4dfd 100644
+--- a/src/runtime/agent/orchestrator/session/store.mjs
++++ b/src/runtime/agent/orchestrator/session/store.mjs
+@@ -6,7 +6,12 @@
+  * at its first write. A save records the difference from what the log holds
+  * and resolves once those records are fsynced.
+  */
+-import { _flushPendingSummaryOps, _sessionSummary } from './store-summary-index.mjs';
++import {
++  _flushPendingSummaryOps,
++  _sessionSummary,
++  foldSummaryIndexForRedaction,
++  foldSummaryIndexForRedactionSync,
++} from './store-summary-index.mjs';
+ // Facade re-export: summary-index API moved to store-summary-index.mjs; keep
+ // prior importers of store.mjs unchanged.
+ export {
+@@ -182,10 +187,11 @@ async function _write(session, opts, summaryVersion) {
+   const accepted = _acceptedCopies.get(session);
+   const transcript = accepted?.transcript ?? captureTranscriptSnapshot(session);
+   const row = _sessionSummary(session);
++  const redacting = redactionDue(id);
+   try {
+     // A value marked sensitive since the files were last written must leave
+     // every stored copy, not only the records still to come.
+-    if (redactionDue(id)) await redactSessionFiles(recorder, session);
++    if (redacting) await redactSessionFiles(recorder, session);
+     else await recorder.record(session, { compacted: opts?.compacted === true });
+   } catch (err) {
+     rollback();
+@@ -200,6 +206,13 @@ async function _write(session, opts, summaryVersion) {
+   // The recorder wrote its log only after proving the json beside it still
+   // leaves the log the record: its base's legacy is the row's log proof.
+   _queueSessionSummaryUpsertRow(row, summaryVersion, { logLegacy: recorder.legacy ?? null });
++  // The summary index is a stored copy too: its rows from before the mark
++  // leave it once this redacted row has landed.
++  if (redacting) {
++    await foldSummaryIndexForRedaction(id).catch((err) => {
++      process.stderr.write(`[session-store] summary redaction failed: ${err?.message}\n`);
++    });
++  }
+   recordLandedTranscript(accepted?.original ?? session, transcript);
+   _recordSaveLanded(id);
+   return SAVE_OUTCOME_SAVED;
+@@ -304,6 +317,7 @@ export const saveSessionDurably = saveSessionAsync;
+  */
+ export function drainSessionStore() {
+   startWaitingSaves();
++  let redacted = false;
+   for (const slot of takeAllPendingWrites()) {
+     try {
+       const opened = _recorderOrRefusal(slot.session);
+@@ -311,7 +325,11 @@ export function drainSessionStore() {
+         opened.recorder.record(slot.session).catch(() => {});
+         // As a save would (_write): a value marked since leaves the files,
+         // here synchronously (the save above is written first).
+-        if (redactionDue(slot.session.id)) redactSessionFilesSync(opened.recorder, slot.session);
++        if (redactionDue(slot.session.id)) {
++          redactSessionFilesSync(opened.recorder, slot.session);
++          _queueSessionSummaryUpsertRow(_sessionSummary(slot.session));
++          redacted = true;
++        }
+       }
+     } catch (err) {
+       process.stderr.write(`[session-store] drain save failed: ${err?.message}\n`);
+@@ -322,6 +340,8 @@ export function drainSessionStore() {
+   // (losing them is acceptable — the index self-heals).
+   try {
+     _flushPendingSummaryOps({ sync: true });
++    // As _write does after a redaction: the rows from before the mark leave.
++    if (redacted) foldSummaryIndexForRedactionSync();
+   } catch {
+     /* best-effort */
+   }

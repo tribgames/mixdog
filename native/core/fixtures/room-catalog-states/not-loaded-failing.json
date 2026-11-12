@@ -5,7 +5,7 @@
     "create",
     "update"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-ZmabUd\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -17,8 +17,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwb4yrewb1f008b3",
-    "roomId": "mwb4yrewb1f008b3"
+    "sessionId": "sess_room_mq3i4vkg00000009",
+    "roomId": "mq3i4vkg00000009"
   },
   "steps": [
     {
@@ -33,8 +33,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwb4yrewb1f008b3",
-            "roomId": "mwb4yrewb1f008b3"
+            "sessionId": "sess_room_mq3i4vkg00000009",
+            "roomId": "mq3i4vkg00000009"
           }
         }
       ]
@@ -51,7 +51,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwb4yrewb1f008b3",
+            "id": "mq3i4vkg00000009",
             "name": "Room Renamed",
             "members": [
               "alpha",

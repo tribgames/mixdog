@@ -75,9 +75,27 @@ for (const name of [...Object.keys(MODULES), 'xai']) {
   }
 }
 
+// With `--registry-routes`: every model Node's registries list (Vertex AI's `VERTEX_MODELS`, Antigravity's `ANTIGRAVITY_MODELS`)
+// on every tier, for every provider, so the replay compares the route set with what the core's registries enumerate, both ways.
+let registryRoutes;
+if (process.argv.includes('--registry-routes')) {
+  const { VERTEX_MODELS } = await importFrom(tree, `${P}vertex-ai-models.mjs`);
+  const models = [...new Set([...VERTEX_MODELS.map((entry) => entry.id), ...ANTIGRAVITY_MODELS.map((entry) => entry.id)])].sort();
+  registryRoutes = { models: { vertex: VERTEX_MODELS.map((entry) => entry.id), antigravity: ANTIGRAVITY_MODELS.map((entry) => entry.id) }, tiers: ROUTE_TIERS.map((tier) => tier ?? ''), table: {} };
+  for (const name of [...Object.keys(MODULES), 'xai']) {
+    let instance;
+    if (name === 'xai') instance = new OpenAICompatProvider(name, ENTRY);
+    else { const [file, exported] = MODULES[name]; instance = new (await importFrom(tree, `${P}${file}`))[exported](ENTRY); }
+    registryRoutes.table[name] = {};
+    for (const model of models) {
+      for (const tier of ROUTE_TIERS) registryRoutes.table[name][`${model}|${tier ?? ''}`] = plain(instance.firstResponseBudget?.(model, { modelParameters: tier ? { serviceTier: tier } : undefined }));
+    }
+  }
+}
+
 // What the environment's later change does: nothing, the budgets were fixed as the modules loaded.
 const changedTo = { STALL_TIMEOUT_S: '100', MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS: '45000', MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS: '90000', MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS: '2', MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS: '9,9', MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES: '0', MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS: '31000' };
 for (const [name, value] of Object.entries(changedTo)) process.env[name] = value;
 const afterEnvironmentChange = {};
 for (const model of ['', ...ANTIGRAVITY_MODELS.map((entry) => entry.id), 'not-a-listed-model']) afterEnvironmentChange[model] = plain(AntigravityOAuthProvider.prototype.firstResponseBudget.call({}, model || undefined));
-process.stdout.write(JSON.stringify({ vertex, compat, antigravity, settings, table, changedTo, afterEnvironmentChange }));
+process.stdout.write(JSON.stringify({ vertex, compat, antigravity, settings, table, registryRoutes, changedTo, afterEnvironmentChange }));

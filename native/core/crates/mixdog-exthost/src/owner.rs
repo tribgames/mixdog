@@ -138,7 +138,7 @@ mod tests {
     }
 
     async fn settle() {
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
     }
 
     #[tokio::test]

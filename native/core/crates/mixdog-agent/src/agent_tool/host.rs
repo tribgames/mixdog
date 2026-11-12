@@ -146,6 +146,10 @@ pub trait Sessions: Send + Sync {
     /// Reloads the stored agent sessions; `false` when this surface has none to reload.
     async fn rehydrate_agent_sessions(&self) -> bool;
     async fn read_session_handoff(&self, session_id: &str) -> Option<String>;
+    /// `redactSensitiveText(sessionId, text)`: the session's sensitive values in `text` as the marker.
+    fn redact_text(&self, _session_id: &str, text: String) -> String {
+        text
+    }
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool;
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String>;
     /// The agent's statusline route, dropped when its session closes.
