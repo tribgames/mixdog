@@ -7,12 +7,18 @@ edition = "2021"
 name = "mixdog-supervisor"
 path = "src/main.rs"
 
+[features]
+# The suite's instruments and seams (--threads, --empty-working-set,
+# MIXDOG_SUPERVISOR_STALL_READINGS); a product build has none of them.
+suite = []
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Cryptography",
     "Win32_System_JobObjects",
+    "Win32_System_ProcessStatus",
     "Win32_System_Threading",
 ] }
 
