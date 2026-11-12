@@ -211,6 +211,88 @@ export function mailLinkScenarios({ Readable, parseEnvelope, withGmailAppPasswor
       return { ops };
     },
 
+    // What tldts does to a host before and around the suffix match (its hostname validation, case, IP literals, IDN, length limits,
+    // private versus ICANN suffixes, wildcard and exception rules), through the sender, the signing domain and the link host.
+    'the hostnames the sender, the signing domain and the link may spell: tldts validates them before it matches a suffix': async () => {
+      const { ops, record, probe } = log();
+      const ar = (results) => `Authentication-Results: mx.google.com;\r\n       ${results}\r\n`;
+      const dkim = (signer) => ar(`dkim=pass header.d=${signer} header.s=s1`);
+      const dmarc = (from) => ar(`dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=${from}`);
+      const label = (length) => 'a'.repeat(length);
+      let n = 0;
+      const attempt = async (why, senderHost, authentication, link = JWT_LINK(senderHost)) => {
+        const session = `sess-host-${n++}`;
+        record(session, await readEmail([box(null, 'x', senderHost)], authentication, `Verify: ${link}`));
+        return probe(session, link, why);
+      };
+      // The signing domain.
+      for (const [why, signer] of [
+        ['a signing label starting with a hyphen', '-mail.victim.example'],
+        ['a signing label ending with a hyphen', 'mail-.victim.example'],
+        ['a signing label with a hyphen inside', 'ma--il.victim.example'],
+        ['a signing label of 64 bytes', `${label(64)}.victim.example`],
+        ['a signing label of 63 bytes', `${label(63)}.victim.example`],
+        ['a signing domain of 256 bytes', `${[label(63), label(63), label(63), label(49)].join('.')}.victim.example`],
+        ['a signing domain of 255 bytes', `${[label(63), label(63), label(63), label(48)].join('.')}.victim.example`],
+        ['a signing domain in capitals', 'MAIL.VICTIM.EXAMPLE'],
+        ['a signing domain with a trailing dot', 'mail.victim.example.'],
+        ['a signing domain with an empty label', 'mail..victim.example'],
+        ['a signing label with an underscore', '_dkim.victim.example'],
+        ['a signing domain with an invalid punycode label', 'xn--.victim.example'],
+        ['a signing domain of a single label', 'example'],
+        ['a signing domain that is an address', '0x7f.1'],
+      ]) await attempt(why, 'victim.example', dkim(signer));
+      // The sender: DMARC for the very domain takes it as written; the DKIM route needs a valid host.
+      for (const [why, senderHost] of [
+        ['a sender label starting with a hyphen', '-victim.example'],
+        ['a sender label ending with a hyphen', 'victim-.example'],
+        ['a sender label of 64 bytes', `${label(64)}.example`],
+        ['a sender of 256 bytes', `${[label(63), label(63), label(63), label(49)].join('.')}.victim.example`],
+        ['a sender of 255 bytes', `${[label(63), label(63), label(63), label(48)].join('.')}.victim.example`],
+        ['a sender in capitals', 'VICTIM.Example'],
+        ['a sender with a trailing dot', 'victim.example.'],
+        ['a sender with an empty label', 'victim..example'],
+        ['a sender label with an underscore', '_victim.example'],
+      ]) {
+        await attempt(`${why}, DMARC pass`, senderHost, dmarc(senderHost));
+        await attempt(`${why}, DKIM pass`, senderHost, dkim(senderHost));
+      }
+      // IP literals: URL parsing turns a spelled address into dotted decimal, which is a host, and never a registrable domain.
+      await attempt('a hex-spelled address sender, DMARC for its dotted form', '0x7f.1', dmarc('127.0.0.1'));
+      await attempt('a dotted sender, DMARC for its hex spelling', '127.0.0.1', dmarc('0x7f.1'));
+      await attempt('an address sender, DKIM for the same address', '192.0.2.1', dkim('192.0.2.1'));
+      await attempt('an address sender, DKIM for its decimal spelling', '192.0.2.1', dkim('3221225985.1'));
+      await attempt('an address-looking name, DKIM on its own domain', '1.2.3.example', dkim('1.2.3.example'));
+      // Internationalized names are compared in punycode.
+      await attempt('an IDN sender, DKIM in capitals', 'xn--bcher-kva.example', dkim('MAIL.BÜCHER.EXAMPLE'));
+      await attempt('an IDN sender, DKIM in unicode', 'xn--bcher-kva.example', dkim('mail.bücher.example'));
+      await attempt('an IDN sender, DKIM in punycode', 'xn--bcher-kva.example', dkim('mail.xn--bcher-kva.example'));
+      await attempt('an IDN sender, DKIM on an invalid punycode label', 'xn--bcher-kva.example', dkim('xn--bcher-kva.xn--.example'));
+      await attempt('an IDN public suffix, one registrant', 'a.xn--55qx5d.cn', dkim('mail.a.公司.cn'));
+      await attempt('an IDN public suffix, two registrants', 'a.xn--55qx5d.cn', dkim('b.xn--55qx5d.cn'));
+      // Private versus ICANN suffixes, wildcard and exception rules.
+      await attempt('a private suffix, two registrants', 'a.blogspot.com', dkim('b.blogspot.com'));
+      await attempt('a private suffix, one registrant', 'a.blogspot.com', dkim('www.a.blogspot.com'));
+      await attempt('a wildcard suffix, two registrants', 'x.foo.ck', dkim('y.foo.ck'));
+      await attempt('a wildcard suffix, one registrant', 'x.foo.ck', dkim('www.x.foo.ck'));
+      await attempt('a wildcard exception, one registrant', 'a.www.ck', dkim('b.www.ck'));
+      await attempt('a wildcard exception, another registrant', 'a.www.ck', dkim('b.example.ck'));
+      await attempt('the exception name itself', 'www.ck', dkim('mail.www.ck'));
+      await attempt('a bare public suffix as the sender', 'co.uk', dkim('co.uk'));
+      // The link host: the provenance belongs to the mail, whatever host its link names.
+      for (const [why, link] of [
+        ['a link in capitals', 'https://VICTIM.Example/verify?token=abc'],
+        ['a link with a trailing dot', 'https://victim.example./verify?token=abc'],
+        ['a link on a hex-spelled address', 'https://0x7f.1/verify?token=abc'],
+        ['a link on a hyphen-edged host', 'https://-victim.example/verify?token=abc'],
+        ['a link on a 64-byte label', `https://${label(64)}.example/verify?token=abc`],
+        ['a link on an IDN', 'https://bücher.example/verify?token=abc'],
+        ['a link on a private-suffix host', 'https://a.blogspot.com/verify?token=abc'],
+        ['a link on a host with a port', 'https://victim.example:8443/verify?token=abc'],
+      ]) await attempt(why, 'victim.example', dmarc('victim.example'), link);
+      return { ops };
+    },
+
     'a link the runtime read in a mail opens; the same URL anywhere else stays refused (the runtime leg)': async () => {
       const { ops, record, probe } = log();
       const mail = (address, link) => `${JSON.stringify({ id: '9001', from: address, fromAddresses: [{ name: '', address }], authentication: { dmarc: { result: 'pass', from: address.split('@')[1] }, dkim: [] }, subject: 'Confirm your e-mail', links: [link] })}\n\nConfirm: ${link}`;

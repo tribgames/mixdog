@@ -732,6 +732,959 @@
       }
     },
     {
+      "case": "the hostnames the sender, the signing domain and the link may spell: tldts validates them before it matches a suffix",
+      "observed": {
+        "ops": [
+          {
+            "op": "record",
+            "session": "sess-host-0",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"-mail.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-0",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label starting with a hyphen",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-1",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail-.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-1",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label ending with a hyphen",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-2",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"ma--il.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-2",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label with a hyphen inside",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-3",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-3",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label of 64 bytes",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-4",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-4",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label of 63 bytes",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-5",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-5",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain of 256 bytes",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-6",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-6",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain of 255 bytes",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-7",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-7",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain in capitals",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-8",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.victim.example.\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-8",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain with a trailing dot",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-9",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail..victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-9",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain with an empty label",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-10",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"_dkim.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-10",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing label with an underscore",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-11",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"xn--.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-11",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain with an invalid punycode label",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-12",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-12",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain of a single label",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-13",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"0x7f.1\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-13",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a signing domain that is an address",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-14",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@-victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@-victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"-victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-14",
+            "url": "https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label starting with a hyphen, DMARC pass",
+            "link": {
+              "url": "https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "-victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-15",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@-victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@-victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"-victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-15",
+            "url": "https://-victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label starting with a hyphen, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-16",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim-.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim-.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim-.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-16",
+            "url": "https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label ending with a hyphen, DMARC pass",
+            "link": {
+              "url": "https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim-.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-17",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim-.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim-.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"victim-.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-17",
+            "url": "https://victim-.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label ending with a hyphen, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-18",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-18",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label of 64 bytes, DMARC pass",
+            "link": {
+              "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-19",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-19",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label of 64 bytes, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-20",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-20",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender of 256 bytes, DMARC pass",
+            "link": {
+              "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-21",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-21",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender of 256 bytes, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-22",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-22",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender of 255 bytes, DMARC pass",
+            "link": {
+              "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-23",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-23",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender of 255 bytes, DKIM pass",
+            "link": {
+              "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-24",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@VICTIM.Example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@VICTIM.Example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-24",
+            "url": "https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender in capitals, DMARC pass",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-25",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@VICTIM.Example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@VICTIM.Example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-25",
+            "url": "https://VICTIM.Example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender in capitals, DKIM pass",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-26",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example.\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example.\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example.\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-26",
+            "url": "https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender with a trailing dot, DMARC pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-27",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example.\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example.\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"victim.example.\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-27",
+            "url": "https://victim.example./verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender with a trailing dot, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-28",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim..example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim..example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim..example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-28",
+            "url": "https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender with an empty label, DMARC pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-29",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim..example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim..example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"victim..example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-29",
+            "url": "https://victim..example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender with an empty label, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-30",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@_victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@_victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"_victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-30",
+            "url": "https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label with an underscore, DMARC pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-31",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@_victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@_victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"_victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-31",
+            "url": "https://_victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a sender label with an underscore, DKIM pass",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-32",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@0x7f.1\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@0x7f.1\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"127.0.0.1\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://0x7f.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://0x7f.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-32",
+            "url": "https://0x7f.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a hex-spelled address sender, DMARC for its dotted form",
+            "link": {
+              "url": "https://127.0.0.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "127.0.0.1",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-33",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@127.0.0.1\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@127.0.0.1\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"0x7f.1\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://127.0.0.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://127.0.0.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-33",
+            "url": "https://127.0.0.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a dotted sender, DMARC for its hex spelling",
+            "link": {
+              "url": "https://127.0.0.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "127.0.0.1",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-34",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@192.0.2.1\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@192.0.2.1\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"192.0.2.1\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-34",
+            "url": "https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an address sender, DKIM for the same address",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-35",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@192.0.2.1\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@192.0.2.1\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"3221225985.1\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-35",
+            "url": "https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an address sender, DKIM for its decimal spelling",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-36",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@1.2.3.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@1.2.3.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"1.2.3.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://1.2.3.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://1.2.3.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-36",
+            "url": "https://1.2.3.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an address-looking name, DKIM on its own domain",
+            "link": {
+              "url": "https://1.2.3.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "1.2.3.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-37",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@xn--bcher-kva.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@xn--bcher-kva.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.bücher.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-37",
+            "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN sender, DKIM in capitals",
+            "link": {
+              "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "xn--bcher-kva.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-38",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@xn--bcher-kva.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@xn--bcher-kva.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.bücher.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-38",
+            "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN sender, DKIM in unicode",
+            "link": {
+              "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "xn--bcher-kva.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-39",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@xn--bcher-kva.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@xn--bcher-kva.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.xn--bcher-kva.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-39",
+            "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN sender, DKIM in punycode",
+            "link": {
+              "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "xn--bcher-kva.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-40",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@xn--bcher-kva.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@xn--bcher-kva.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"xn--bcher-kva.xn--.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-40",
+            "url": "https://xn--bcher-kva.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN sender, DKIM on an invalid punycode label",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-41",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.xn--55qx5d.cn\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.xn--55qx5d.cn\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.a.公司.cn\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-41",
+            "url": "https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN public suffix, one registrant",
+            "link": {
+              "url": "https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.xn--55qx5d.cn",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-42",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.xn--55qx5d.cn\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.xn--55qx5d.cn\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.xn--55qx5d.cn\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-42",
+            "url": "https://a.xn--55qx5d.cn/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an IDN public suffix, two registrants",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-43",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.blogspot.com\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.blogspot.com\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.blogspot.com\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-43",
+            "url": "https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a private suffix, two registrants",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-44",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.blogspot.com\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.blogspot.com\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"www.a.blogspot.com\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-44",
+            "url": "https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a private suffix, one registrant",
+            "link": {
+              "url": "https://a.blogspot.com/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.blogspot.com",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-45",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@x.foo.ck\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@x.foo.ck\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"y.foo.ck\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-45",
+            "url": "https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a wildcard suffix, two registrants",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-46",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@x.foo.ck\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@x.foo.ck\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"www.x.foo.ck\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-46",
+            "url": "https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a wildcard suffix, one registrant",
+            "link": {
+              "url": "https://x.foo.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "x.foo.ck",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-47",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.www.ck\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.www.ck\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.www.ck\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-47",
+            "url": "https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a wildcard exception, one registrant",
+            "link": {
+              "url": "https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.www.ck",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-48",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.www.ck\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.www.ck\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.example.ck\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-48",
+            "url": "https://a.www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a wildcard exception, another registrant",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-49",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@www.ck\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@www.ck\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.www.ck\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-49",
+            "url": "https://www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "the exception name itself",
+            "link": {
+              "url": "https://www.ck/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "www.ck",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-50",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@co.uk\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@co.uk\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"co.uk\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-50",
+            "url": "https://co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a bare public suffix as the sender",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-51",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://VICTIM.Example/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://VICTIM.Example/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-51",
+            "url": "https://VICTIM.Example/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link in capitals",
+            "link": {
+              "url": "https://victim.example/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-52",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example./verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://victim.example./verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-52",
+            "url": "https://victim.example./verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link with a trailing dot",
+            "link": {
+              "url": "https://victim.example./verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-53",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://0x7f.1/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://0x7f.1/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-53",
+            "url": "https://0x7f.1/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on a hex-spelled address",
+            "link": {
+              "url": "https://127.0.0.1/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-54",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://-victim.example/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://-victim.example/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-54",
+            "url": "https://-victim.example/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on a hyphen-edged host",
+            "link": {
+              "url": "https://-victim.example/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-55",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-55",
+            "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on a 64-byte label",
+            "link": {
+              "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-56",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://b\"],\"attachments\":[]}\n\nVerify: https://bücher.example/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-56",
+            "url": "https://bücher.example/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on an IDN",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-host-57",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.blogspot.com/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://a.blogspot.com/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-57",
+            "url": "https://a.blogspot.com/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on a private-suffix host",
+            "link": {
+              "url": "https://a.blogspot.com/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-host-58",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@victim.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example:8443/verify?token=abc\"],\"attachments\":[]}\n\nVerify: https://victim.example:8443/verify?token=abc",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-host-58",
+            "url": "https://victim.example:8443/verify?token=abc",
+            "at": 1800000000000,
+            "why": "a link on a host with a port",
+            "link": {
+              "url": "https://victim.example:8443/verify?token=abc",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          }
+        ]
+      }
+    },
+    {
       "case": "a link the runtime read in a mail opens; the same URL anywhere else stays refused (the runtime leg)",
       "observed": {
         "ops": [

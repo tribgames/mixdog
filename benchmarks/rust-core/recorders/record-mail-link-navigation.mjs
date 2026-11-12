@@ -14,8 +14,8 @@ import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 const crates = 'native/core/crates/';
 REPLAY_TARGETS['mail-link-navigation'] = {
   rust: [
-    { path: `${crates}mixdog-tools/src/desktop/mail_links.rs`, line: 168, name: 'mail_links::record' },
-    { path: `${crates}mixdog-tools/src/desktop/mail_links.rs`, line: 189, name: 'mail_links::link_for' },
+    { path: `${crates}mixdog-tools/src/desktop/mail_links.rs`, line: 181, name: 'mail_links::record' },
+    { path: `${crates}mixdog-tools/src/desktop/mail_links.rs`, line: 202, name: 'mail_links::link_for' },
     { path: `${crates}mixdog-mcp/src/mail_reads.rs`, line: 30, name: 'mail_reads::record' },
     { path: `${crates}mixdog-tools/src/desktop/browser.rs`, line: 639, name: 'BrowserTool (Tool::call, action navigate)' },
   ],

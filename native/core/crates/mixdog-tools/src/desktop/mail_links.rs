@@ -16,7 +16,6 @@ use std::sync::PoisonError;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
-use url::Host;
 use url::Url;
 
 /// How long after the read a mail's link stays navigable: the lifetime the desktop gives a sign-in flow, a 2-step check
@@ -49,16 +48,29 @@ fn host_of(domain: &str) -> Option<String> {
     if !SHAPE.is_match(&text) {
         return None;
     }
-    match Url::parse(&format!("https://{text}/")).ok()?.host()? {
-        Host::Domain(host) => Some(host.to_owned()),
-        _ => None,
-    }
+    // As Node's `new URL(..).hostname`: an address spelled as digits (`0x7f.1`) is its dotted-quad form, which stays a host.
+    Some(Url::parse(&format!("https://{text}/")).ok()?.host_str()?.to_owned())
+}
+
+/// tldts's `isValidHostname`: a shallow structural check (at most 255 bytes, a label of at most 63, no label starting or ending
+/// with `-`, no empty label) that every host passes before its suffix is looked up.
+fn is_valid_hostname(host: &str) -> bool {
+    host.len() <= 255
+        && host.split('.').all(|label| {
+            let bytes = label.as_bytes();
+            (1..=63).contains(&bytes.len()) && bytes[0] != b'-' && bytes[bytes.len() - 1] != b'-' && bytes.iter().all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b > 127)
+        })
+}
+
+/// tldts's `isIp` for a host that passed `is_valid_hostname`: seven to fifteen digits and dots with exactly three dots.
+fn is_dotted_quad(host: &str) -> bool {
+    (7..=15).contains(&host.len()) && host.bytes().all(|b| b.is_ascii_digit() || b == b'.') && host.bytes().filter(|&b| b == b'.').count() == 3 && !host.starts_with('.') && !host.ends_with('.')
 }
 
 /// The Organizational Domain of `host` (RFC 7489 §3.2: by the public suffix list, its private suffixes included, so `a.github.io` is
-/// not `b.github.io`); `None` for an IP address, a bare suffix or no host.
+/// not `b.github.io`); `None` for an invalid hostname, an IP address, a bare suffix or no host.
 fn site_of(host: &str) -> Option<String> {
-    if matches!(Url::parse(&format!("https://{host}/")).ok()?.host()?, Host::Ipv4(_) | Host::Ipv6(_)) {
+    if !is_valid_hostname(host) || is_dotted_quad(host) {
         return None;
     }
     let labels: Vec<&str> = host.split('.').collect();
@@ -283,5 +295,10 @@ mod tests {
     #[test]
     fn only_a_single_from_mailbox_gmail_authenticated_counts() {
         replays("only a single From mailbox that Gmail authenticated counts");
+    }
+
+    #[test]
+    fn the_hostnames_a_mail_spells_are_judged_as_tldts_judges_them() {
+        replays("the hostnames the sender, the signing domain and the link may spell");
     }
 }
