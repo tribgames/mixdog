@@ -260,6 +260,60 @@ const notes = {};
   notes['agent-tool-call-ids'] = 'a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values';
 }
 
+// ---- agent: repeated-failure signatures (session/eager-dispatch.test.mjs :110) ----
+{
+  const classify = await load(`${orch}/session/loop/tool-classify.mjs`);
+  const cwd = process.cwd();
+  const MCP = 'mcp__plugin_mixdog_mixdog__';
+  const calls = [
+    ['read', { file_path: 'missing/file.txt' }, cwd],
+    ['read', { file_path: `${cwd}/missing/file.txt` }, cwd],
+    ['read', { file_path: 'missing/other.txt' }, cwd],
+    ['read', { file_path: `${cwd}\\missing\\file.txt` }, cwd],
+    ['read', { file_path: `${cwd.toUpperCase()}/MISSING/file.txt` }, cwd],
+    ['read', { file_path: './missing/../missing/file.txt' }, cwd],
+    ['read', { path: 'a/./b/../c.txt', limit: 5, offset: 1 }, 'C:\\work'],
+    ['read', { path: 'C:/work/sub/../c.txt' }, 'C:\\work'],
+    ['read', { path: '/abs/rooted.txt' }, 'C:\\work'],
+    ['read', { path: '' }, 'C:\\work'],
+    ['read', { path: 'https://example.com/a/../b' }, 'C:\\work'],
+    ['read', { path: 'file:///C:/x' }, 'C:\\work'],
+    ['read', { path: ['a.txt', 'b/../c.txt', 7, null] }, 'C:\\work'],
+    ['grep', { pattern: 'x', Path: 'src/../lib', paths: ['One.TXT'], files: ['a/b'], dir: 'd', dir_path: 'e', directory: 'f', base_path: 'g', cwd: 'h' }, 'C:\\work'],
+    ['grep', { pattern: 'path', glob: 'src/../*.rs', nested: { path: 'n/../m', z: 1, a: [{ file_path: 'q/../r' }] } }, 'C:\\work'],
+    ['shell', { command: 'ls ..', cwd: 'sub/..' }, 'C:\\work'],
+    [`${MCP}read`, { path: 'x' }, 'C:\\work'],
+    ['x', { b: 1, a: { d: [3, 2, 1], c: null }, 'é': 1, 'Z': 2, '\ud83d\ude00': 3, '\uffff': 4 }, 'C:\\work'],
+    ['x', { n: 1.5, big: 1e21, neg: -0, t: true, s: 'quote"back\\slash\nnl' }, 'C:\\work'],
+    ['x', {}, 'C:\\work'],
+    ['x', null, 'C:\\work'],
+    ['x', 'text', 'C:\\work'],
+    ['x', [1, { path: 'p/../q' }], 'C:\\work'],
+  ];
+  // A tool call's arguments are a JSON object: the signature of any other value (Node writes an array as an object keyed by index) is
+  // input no client can send, and is not recorded.
+  const intra = calls.filter((c) => c[1] !== null && typeof c[1] === 'object' && !Array.isArray(c[1])).map(([name, args]) => [name, args]);
+  const signatures = calls.map(([name, args, base]) => ({ name, args, cwd: base, repeatFailureSig: classify._repeatFailureSig(name, args, base) }));
+  const shapes = intra.map(([name, args]) => ({ name, args, intraTurnSig: classify._intraTurnSig(name, args), argShapeSig: classify._argShapeSig(name, args) }));
+  const sig = (name) => classify._repeatFailureSig('read', { file_path: name }, cwd);
+  const [relative, other, third] = [sig('missing/file.txt'), sig('missing/other.txt'), sig('missing/third.txt')];
+  const histories = [
+    [relative, other, relative, other, relative, other], [relative, relative, relative], [relative, relative], [], [relative],
+    [other, relative, relative, relative], [relative, other, third, relative, other, third, relative, other, third],
+    [relative, other, third, relative, other, third], Array.from({ length: 5 }, () => [relative, other, third, relative, other]).flat(),
+    Array.from({ length: 12 }, (_, i) => [relative, other, third, relative, other][i % 5]),
+    Array.from({ length: 15 }, (_, i) => [relative, other, third, relative, other][i % 5]),
+    Array.from({ length: 12 }, () => relative),
+  ];
+  const continues = [];
+  for (const history of histories) {
+    for (const signature of [relative, other, third, 'read:{}']) {
+      for (const limit of [1, 2, 3, 4]) continues.push({ history, signature, limit, cycle: classify._repeatFailurePatternWouldContinue(history, signature, limit) });
+    }
+  }
+  sets['agent-repeat-signature'] = { cwd, signatures, shapes, continues };
+}
+
 // ---- scm: the git repository write lock (tools/builtin/git-repo-rw-lock.test.mjs) ----
 {
   const { gitRepoLockKey, withGitRepoWriteLock, withGitWorktreeWriteLock } = await load(`${bt}/git-repo-rw-lock.mjs`);
