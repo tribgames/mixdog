@@ -310,6 +310,9 @@ async fn opened(boot: &Boot) -> (mixdog_core_session::session::StoreThreads, Arc
 async fn process(boot: Boot) -> Process {
     let (threads, provider) = opened(&boot).await;
     let rig = Rig::new();
+    // Node's recording runs under one frozen clock (`Date.now()` is 1700000000000 throughout): the session's clock reads what the run
+    // host's `Fixed` clock does, so a turn's elapsed time is `now - at` on one clock, as Node measures it.
+    rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
     let mut deps = rig.deps_parts(Arc::new(threads));
     // The production display of stored rows: what a client reads is compared with Node's read below.
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
@@ -470,41 +473,64 @@ fn read_conversation(read: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Each item of a `thread/read` answer as Node's read shows the same row (`node_view`): the kind, the text, the tool call with its input,
-/// call id and result, the turn's end with its status. Not shown, each declared in the manifest: the ids (generated: Node's are
-/// `hist_<session>_<ordinal>_<n>`, the core's are its own), the turn ids, and the row fields the client's own row fold derives (`expanded`,
-/// `count`, `completedCount`, the error counters, `elapsedMs`, `verb`).
-fn core_view(read: &Value) -> Vec<Value> {
-    read["items"]
-        .as_array()
-        .expect("the read's items")
-        .iter()
-        .map(|item| match item["type"].as_str().expect("an item type") {
-            "userMessage" => json!({ "kind": "user", "text": item["content"][0]["text"], "displayText": item["displayText"], "parts": item["content"].as_array().map(Vec::len) }),
-            "agentMessage" => json!({ "kind": "assistant", "text": item["text"] }),
-            "toolCall" => json!({ "kind": "tool", "name": item["name"], "args": item["input"], "callId": item["run"]["callId"], "result": item["output"], "runResult": item["run"]["result"], "isError": item["run"]["isError"].as_bool().unwrap_or(false) }),
-            "turnEnd" => json!({ "kind": "turndone", "status": item["status"] }),
-            other => json!({ "kind": other }),
+/// The rows a client holds for a `thread/read` answer: the product's own fold (`packages/protocol-client/src/rows.ts`, run by
+/// node over the answer's items by `benchmarks/rust-core/recorders/fold-thread-read.mjs`), which derives the rows' counters and
+/// error flags from the items as Node's restore does (`attachRestoredToolResult`).
+async fn client_rows(read: &Value) -> Vec<Value> {
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    let mut command = tokio::process::Command::new("node");
+    command
+        .current_dir(&root)
+        .args(["--import", "./apps/desktop/scripts/test-env.mjs", "--import", "./apps/desktop/scripts/test-tsx.mjs"])
+        .arg("benchmarks/rust-core/recorders/fold-thread-read.mjs")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let mut child = command.spawn().expect("node runs");
+    let mut stdin = child.stdin.take().expect("stdin");
+    stdin.write_all(read.to_string().as_bytes()).await.expect("the script reads");
+    drop(stdin);
+    let mut out = String::new();
+    child.stdout.take().expect("stdout").read_to_string(&mut out).await.expect("the script's rows");
+    assert!(child.wait().await.expect("the script ends").success(), "the fold script failed");
+    serde_json::from_str(out.trim()).expect("the folded rows")
+}
+
+/// Rows as compared with Node's recorded read, each exclusion declared in the manifest: the ids (generated: Node's are
+/// `hist_<session>_<ordinal>_<n>`, the core's are its own; a turn end's `finalAssistantId` is compared as the position of the row it
+/// names), the turn ids, and what only the core's rows carry or read differently:
+/// - `verb`: the recorded Node scenario drives the session manager without a client, so no `completionVerb` reaches it and its stored
+///   completion says `Thought` (`ask-turn-settle.mjs:34`); the core's thread picks `pickDoneVerb(stats.turns)` for every turn, as Node's
+///   session service does for a client's turn (`actor.rs` `begin_turn`);
+/// - the row keys the recording does not keep (`at`, `messageId`, `modelId`, `device`, `checkpointId` and the like): the recording holds
+///   only the keys of [`PROBE_KEYS`] for a row, and each of those is compared.
+fn comparable(rows: &[Value]) -> Vec<Value> {
+    let position = |id: &Value| rows.iter().position(|row| row["id"] == *id);
+    rows.iter()
+        .map(|row| {
+            let mut row = row.clone();
+            let fields = row.as_object_mut().expect("a row");
+            let final_assistant = fields.get("finalAssistantId").map(|id| position(id).map_or(Value::Null, |n| json!(n)));
+            fields.remove("id");
+            fields.remove("verb");
+            fields.retain(|key, _| PROBE_KEYS.contains(&key.as_str()));
+            if let Some(position) = final_assistant {
+                fields.insert("finalAssistant".into(), position);
+            }
+            row
         })
         .collect()
 }
 
-/// The rows of Node's recorded read, as [`core_view`] shows the core's items.
-fn node_view(case: &Value) -> Vec<Value> {
-    case["items"]
-        .as_array()
-        .expect("Node's read items")
-        .iter()
-        .map(|row| match row["kind"].as_str().expect("a row kind") {
-            "user" => json!({ "kind": "user", "text": row["text"], "displayText": row["text"], "parts": 1 }),
-            "assistant" => json!({ "kind": "assistant", "text": row["text"] }),
-            "tool" => json!({ "kind": "tool", "name": row["name"], "args": row["args"], "callId": row["callId"], "result": row["result"], "runResult": row["result"], "isError": row["isError"] }),
-            "turndone" => json!({ "kind": "turndone", "status": row["status"] }),
-            other => json!({ "kind": other }),
-        })
-        .collect()
-}
-
+/// The row keys Node's cold read prints for the rows of these scenarios.
+const PROBE_KEYS: [&str; 15] = [
+    "kind", "text", "name", "args", "expanded", "count", "completedCount", "callId", "result", "isError", "errorCount", "callErrorCount", "exitErrorCount", "status",
+    "elapsedMs",
+];
 /// The conversation Node's first request after the restart carries before the new task: each user message's text blocks,
 /// each assistant message's text and each of its tool calls' name and input, in order. Not tool results, thinking blocks or
 /// the turn reminders Node sends as system messages: that request is compared whole in the same case (`replay`). The new
@@ -756,7 +782,12 @@ async fn replay(name: &str) {
     // `restart-read-probe.mjs`) on the same conversation.
     let read = handle.request(request("thread/read", json!({ "threadId": id }), "op-read-end")).await.expect("thread/read");
     let Reply::Value(read) = read else { panic!("thread/read answers a value") };
-    assert_eq!(core_view(&read), node_view(&case.read), "{name}: the session a client reads when the scenario is over");
+    let (core_rows, node_rows) = (Value::Array(comparable(&client_rows(&read).await)), Value::Array(comparable(case.read["items"].as_array().expect("Node's read items"))));
+    let mut out = Vec::new();
+    if core_rows != node_rows {
+        differences(&core_rows, &node_rows, "$", &mut out);
+    }
+    assert!(out.is_empty(), "{name}: the session a client reads when the scenario is over differs from Node's:\n{}", out.join("\n"));
     let sent = lock(&wire.bodies).clone();
     let sent = &sent[case.before.len() + warms..];
     assert_eq!(sent.len(), case.after.len(), "{name}: requests after the restart");
