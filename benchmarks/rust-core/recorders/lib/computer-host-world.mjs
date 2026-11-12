@@ -108,12 +108,15 @@ export class Machine {
     /** Everything the machine was asked: `spawns` = gdbus/gsettings (program and arguments), `requests` = what reached the helper. */
     this.spawns = [];
     this.requests = [];
+    /** The same two streams in the order they happened: `{ tool: [program, ...args] }` or `{ helper: request }`. */
+    this.events = [];
     this.helpers = [];
   }
 
   reset() {
     this.spawns = [];
     this.requests = [];
+    this.events = [];
   }
 
   /** `gdbus` / `gsettings` answers: `{ status, out?, stderr?, write? }`, or null for a program that does not exist. */
@@ -128,6 +131,7 @@ export class Machine {
 
   spawnTool(command, args) {
     this.spawns.push([command, ...args]);
+    this.events.push({ tool: [command, ...args] });
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.kill = () => {};
@@ -153,6 +157,7 @@ export class Machine {
     child.stdin.write = (line) => {
       const request = JSON.parse(line);
       this.requests.push(request);
+      this.events.push({ helper: request });
       const { id } = request;
       const reply = this.helper(request, this);
       setImmediate(() => child.stdout.emit('data', `${MARKER}${JSON.stringify(reply.ok === false ? { id, ok: false, error: reply.error } : { id, ok: true, result: reply.result })}\n`));
@@ -198,6 +203,7 @@ export class Machine {
     childProcess.spawn = this.spawn;
     childProcess.execFile = (command, args, _options, done) => {
       this.spawns.push([command, ...args]);
+      this.events.push({ tool: [command, ...args] });
       const answer = this.tool(command, args);
       setImmediate(() => {
         if (!answer) return done(Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' }), '', '');
