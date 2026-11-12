@@ -35,6 +35,10 @@ struct Store {
     dirs: Mutex<HashSet<String>>,
     /// The stored session records asked for.
     header_reads: std::sync::atomic::AtomicUsize,
+    /// Every row write.
+    written: tokio::sync::Notify,
+    /// What a row write tells the agent status listener.
+    on_write: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[async_trait]
@@ -73,8 +77,19 @@ impl WorkerStore for Store {
 
     fn write(&self, session: &str, worker: Option<Row>) {
         if WorkerStore::kept(self, session) {
-            return self.keep(session, worker);
+            self.keep(session, worker);
+        } else {
+            self.write_row(session, worker);
         }
+        // `registry.onWorkerRowsChange`: the product's `StoreWorkers::write` announces each row change where it is made.
+        if let Some(changed) = self.on_write.get() {
+            changed();
+        }
+    }
+}
+
+impl Store {
+    fn write_row(&self, session: &str, worker: Option<Row>) {
         let mut maps = self.maps.lock().unwrap();
         let at = maps.iter().position(|(id, _)| id == session);
         match (at, worker) {
@@ -85,6 +100,8 @@ impl WorkerStore for Store {
             (None, Some(m)) => maps.insert(0, (session.to_owned(), m)),
             (None, None) => {}
         }
+        drop(maps);
+        self.written.notify_waiters();
     }
 }
 
@@ -686,6 +703,217 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
         Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
     );
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
+}
+
+/// A virtual clock: it moves only when the test advances it, and a wait on it resolves at the advance that reaches it.
+struct Virtual(tokio::sync::watch::Sender<i64>);
+impl Virtual {
+    fn advance(&self, ms: i64) {
+        self.0.send_modify(|now| *now += ms);
+    }
+}
+impl Clock for Virtual {
+    fn now_ms(&self) -> i64 {
+        *self.0.borrow()
+    }
+    fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let mut now = self.0.subscribe();
+        Box::pin(async move {
+            let _ = now.wait_for(|now| *now >= at_ms).await;
+        })
+    }
+}
+
+/// Resolves once `done` holds, re-checked at every row write; fails at the deadline naming `what`.
+async fn until_written(store: &Store, what: &str, done: impl Fn() -> bool) {
+    let wait = async {
+        loop {
+            let written = store.written.notified();
+            tokio::pin!(written);
+            written.as_mut().enable();
+            if done() {
+                return;
+            }
+            written.await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+}
+
+/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs), on the registry's clock: a running row whose
+/// session is gone leaves the index as a tombstone when the clock reaches its reap deadline, with no agent call, status read
+/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped by the first pass, one
+/// event delay after the start (Node's first pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
+#[tokio::test]
+async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event() {
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
+    let stamped = |due_in: i64| at(NOW - HOUR + due_in);
+    let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
+    rig.store.write("s-overdue", Some(running("s-overdue", "overdue", -60_000)));
+    rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
+    rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
+    rig.store.write("s-active", Some(running("s-active", "active", 20_000)));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
+    let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
+    // The index is loaded (the boot's first read), then the timer starts.
+    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
+    assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    // The first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS` after the start (maintenance-pass.mjs:23,129).
+    clock.advance(999);
+    assert!(!reaped("s-overdue"), "not before the first pass");
+    clock.advance(1);
+    until_written(&rig.store, "the row that came due while the core was down", || reaped("s-overdue")).await;
+    assert!(!reaped("s-early") && !reaped("s-late") && !reaped("s-active"), "nothing else is due yet");
+
+    // `s-active` works again 5 s in: its stamps move, and its deadline with them.
+    clock.advance(4_000);
+    {
+        let mut st = registry.lock();
+        let mut active = st.map("s-active").cloned().expect("the active row");
+        active.insert("updatedAt".into(), json!(at(NOW + 5_000)));
+        registry.persist(&mut st, "s-active", Some(active));
+    }
+    clock.advance(4_999);
+    assert!(!reaped("s-early"), "not before its deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the early row's tombstone at its deadline", || reaped("s-early")).await;
+    assert!(!reaped("s-late") && !reaped("s-active"), "the others are not due yet");
+    clock.advance(10_000);
+    assert!(!reaped("s-active"), "its old deadline has passed, its new one (an hour after it worked) has not");
+    clock.advance(40_000);
+    until_written(&rig.store, "the late row's tombstone at its deadline", || reaped("s-late")).await;
+    assert!(!reaped("s-active"), "the active row is not due yet");
+    // Now NOW + 60 s; its new deadline is NOW + 5 s + the reap window.
+    clock.advance(HOUR - 55_001);
+    assert!(!reaped("s-active"), "not before its new deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the active row's tombstone at its new deadline", || reaped("s-active")).await;
+    drop(registry);
+    clock.advance(HOUR);
+    tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
+}
+
+/// `fixtures/agent-row-deadline` (record-agent-row-deadline.mjs): a Lead's settled worker rows leave the index at their
+/// retention deadlines, on the registry's clock, as Node's maintenance pass removed them, and what the Lead's clients are
+/// told is what Node's were: the status the thread publishes (`thread/agents/updated`, Node's `agentStatusState` after an
+/// `onStatusChange`) lists none of them and changes at no removal, so nothing is published. The row due while the core was
+/// down: Node removes it at its first pass, one event delay (1 s) after the Lead's first status read; the core removes it
+/// at the timer's first look, before that read, so the first two steps differ by that row alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_were() {
+    use crate::session::SessionDirectory;
+    use crate::session::agent_activity::AgentStatus;
+    use crate::session::agent_registry::status_rows::AgentToolStatus;
+    use crate::session::tests::caught_up;
+    use crate::session::tests::start_thread;
+    use mixdog_app_protocol::v2::thread::ThreadAgents;
+    use mixdog_core_api::ids::ThreadId;
+
+    struct NoJobs;
+    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+    /// The directory reads its threads' status through this; it is bound once the status is built over the directory.
+    #[derive(Default)]
+    struct LateStatus(std::sync::OnceLock<Arc<AgentToolStatus>>);
+    #[async_trait]
+    impl AgentStatus for LateStatus {
+        async fn status(&self, thread: &ThreadId) -> ThreadAgents {
+            self.0.get().expect("bound").status(thread).await
+        }
+    }
+
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-row-deadline/golden.json")).unwrap();
+    let t0 = golden["t0"].as_i64().unwrap();
+    let srig = crate::session::testing::Rig::new();
+    let late = Arc::new(LateStatus::default());
+    let mut deps = srig.deps_parts(srig.store.clone());
+    deps.agent_status = late.clone() as Arc<dyn AgentStatus>;
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let lead = start_thread(&directory).await;
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(t0).0));
+    for row in golden["rows"].as_array().unwrap() {
+        let stamp = row["stampedAt"].clone();
+        let id = row["sessionId"].as_str().unwrap();
+        rig.store.write_row(
+            id,
+            Some(obj(json!({
+                "tag": row["tag"], "sessionId": id, "ownerSessionId": lead.id.as_str(), "parentSessionId": lead.id.as_str(),
+                "agent": "worker", "provider": "p", "model": "m", "status": "idle", "stage": "idle", "clientHostPid": PID,
+                "createdAt": stamp, "updatedAt": stamp, "finishedAt": stamp,
+            }))),
+        );
+    }
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), clock.clone()));
+    /// The status reads the same virtual time through the run's clock trait.
+    struct RunClock(Arc<Virtual>);
+    impl mixdog_agent::env::Clock for RunClock {
+        fn now_ms(&self) -> i64 {
+            Clock::now_ms(self.0.as_ref())
+        }
+    }
+    late.0.set(Arc::new(AgentToolStatus::new(registry.clone(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(RunClock(clock.clone())), None, None), directory.clone(), Arc::new(NoJobs), clock.clone()))).ok();
+    // The one listener of the row signal (`AgentActivity::everyone`): every loaded thread re-reads its status.
+    let weak = Arc::downgrade(&directory);
+    rig.store.on_write.set(Box::new(move || {
+        if let Some(directory) = weak.upgrade() {
+            for thread in directory.loaded_ids() {
+                directory.agent_activity(thread.as_str());
+            }
+        }
+    })).ok();
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+
+    let tags = |tombstoned: bool| {
+        let mut tags: Vec<String> = rig
+            .store
+            .maps
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(_, map)| if tombstoned { map.get("tombstone").and_then(|t| t.get("tag")) } else { map.get("sessionId").and(map.get("tag")) })
+            .map(|tag| tag.as_str().unwrap().to_owned())
+            .collect();
+        tags.sort();
+        tags
+    };
+    let published = || srig.feeds.frames(lead.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/agents/updated").count();
+    // The thread's status pass at load (Node's runtime publishes its `agentWorkers` once as it loads, not through
+    // `onStatusChange`): what follows is counted from it.
+    crate::eventually_on!(&[&srig.feeds.published], || (published() == 1).then_some(())).await;
+    let mut told = 1;
+    for step in golden["steps"].as_array().unwrap() {
+        let (step_at, what) = (step["at"].as_i64().unwrap(), step["what"].as_str().unwrap());
+        let shift = Clock::now_ms(clock.as_ref()) - t0;
+        clock.advance(step_at - shift);
+        if step_at == 5000 {
+            // The active row worked again and settled: its stamps move to now.
+            let mut st = registry.lock();
+            let mut active = st.map("sess_rows_active").cloned().expect("the active row");
+            let now = json!(at(t0 + 5000));
+            active.insert("updatedAt".into(), now.clone());
+            active.insert("finishedAt".into(), now);
+            registry.persist(&mut st, "sess_rows_active", Some(active));
+        }
+        let strings = |key: &str| step[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let (indexed, tombstoned) = (strings("indexed"), strings("tombstones"));
+        until_written(&rig.store, what, || tags(false) == indexed && tags(true) == tombstoned).await;
+        let status = AgentStatus::status(late.as_ref(), &lead.id).await;
+        let workers: Vec<String> = status.agent_workers.iter().map(|w| format!("{}:{}", w["tag"].as_str().unwrap(), w["status"].as_str().unwrap())).collect();
+        assert_eq!(workers, strings("workers"), "{what}: the workers the Lead's status lists");
+        caught_up(&lead).await;
+        let now = published();
+        assert_eq!((now - told) as u64, step["announced"].as_u64().unwrap(), "{what}: the status changes the Lead's clients were told");
+        told = now;
+        assert_eq!((tags(false), tags(true)), (indexed, tombstoned), "{what}: nothing else left the index");
+    }
+    // The directory's status holds the registry, so the timer is stopped here rather than by the registry going.
+    timer.abort();
 }
 
 /// A settled row past its retention and its continuation window becomes a tombstone when the

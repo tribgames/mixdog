@@ -35,10 +35,6 @@ dev-controls = ["crash-gates", "replay-controls", "terminal-lease-clock", "virtu
 # Reached through mixdog-app-server-daemon; named here only so the features above reach them.
 fancy-regex = { workspace = true, optional = true }
 mixdog-agent = { workspace = true, optional = true }
-mixdog-ai = { workspace = true, optional = true }
-mixdog-app-server = { workspace = true, optional = true }
-mixdog-core = { workspace = true, optional = true }
-mixdog-core-api = { workspace = true, optional = true }
 mixdog-core-base = { workspace = true, optional = true }
 mixdog-core-config = { workspace = true, optional = true }
 mixdog-core-domains = { workspace = true, optional = true }
@@ -56,6 +52,12 @@ mixdog-services = { workspace = true, optional = true }
 mixdog-workspace = { workspace = true, optional = true }
 mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+mixdog-app-server = { workspace = true }
+# `mixdog exec` composes its own core in process (src/exec/launcher.rs).
+mixdog-ai = { workspace = true }
+mixdog-core = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-services = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-migrate = { workspace = true }
 mixdog-rt = { workspace = true }
@@ -74,6 +76,20 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+# The exec replay's stand-in provider (tests/exec_replay.rs): the request head and the gzip body the provider sends.
+flate2 = { workspace = true }
+httparse = { workspace = true }
+mixdog-testkit = { workspace = true }
+# The crash record replay's boot faults (tests/crash_record_replay.rs, src/boot_fault.rs): in the test build of `mixdogd` only.
+mixdog-cli = { path = ".", features = ["crash-gates", "mixdog-core-session"] }
+tokio = { workspace = true, features = ["net", "io-util"] }
+# The CLI replay (tests/exec_cli_replay.rs): the stand-in serves TLS under a throwaway certificate the binary is pinned to.
+rcgen = { workspace = true }
+regex = { workspace = true }
+notify = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
@@ -116,3 +132,8 @@ mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-app-server-daemon = { workspace = true, features = ["replay-controls"] }
 mixdog-services = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The CLI replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
+>>>>>>> 2bea2584d

@@ -1,0 +1,181 @@
+{
+  "note": "what a Lead's status lists and announces as the agent maintenance pass removes worker rows at their deadlines",
+  "t0": 1793923200000,
+  "window": 86400000,
+  "lead": "sess_rows_lead",
+  "rows": [
+    {
+      "tag": "overdue",
+      "sessionId": "sess_rows_overdue",
+      "stampedAt": "2026-11-04T23:59:00.000Z"
+    },
+    {
+      "tag": "early",
+      "sessionId": "sess_rows_early",
+      "stampedAt": "2026-11-05T00:00:10.000Z"
+    },
+    {
+      "tag": "active",
+      "sessionId": "sess_rows_active",
+      "stampedAt": "2026-11-05T00:00:20.000Z"
+    },
+    {
+      "tag": "late",
+      "sessionId": "sess_rows_late",
+      "stampedAt": "2026-11-05T00:01:00.000Z"
+    }
+  ],
+  "steps": [
+    {
+      "at": 0,
+      "what": "the first status read",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "early",
+        "late",
+        "overdue"
+      ],
+      "tombstones": []
+    },
+    {
+      "at": 999,
+      "what": "before the first pass",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "early",
+        "late",
+        "overdue"
+      ],
+      "tombstones": []
+    },
+    {
+      "at": 1000,
+      "what": "the first pass, one event delay after the first read",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "early",
+        "late"
+      ],
+      "tombstones": [
+        "overdue"
+      ]
+    },
+    {
+      "at": 5000,
+      "what": "the active row written again",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "early",
+        "late"
+      ],
+      "tombstones": [
+        "overdue"
+      ]
+    },
+    {
+      "at": 9999,
+      "what": "before the early deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "early",
+        "late"
+      ],
+      "tombstones": [
+        "overdue"
+      ]
+    },
+    {
+      "at": 10000,
+      "what": "the early deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "late"
+      ],
+      "tombstones": [
+        "early",
+        "overdue"
+      ]
+    },
+    {
+      "at": 20000,
+      "what": "the active row's old deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "late"
+      ],
+      "tombstones": [
+        "early",
+        "overdue"
+      ]
+    },
+    {
+      "at": 59999,
+      "what": "before the late deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active",
+        "late"
+      ],
+      "tombstones": [
+        "early",
+        "overdue"
+      ]
+    },
+    {
+      "at": 60000,
+      "what": "the late deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active"
+      ],
+      "tombstones": [
+        "early",
+        "late",
+        "overdue"
+      ]
+    },
+    {
+      "at": 86404999,
+      "what": "before the active row's new deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [
+        "active"
+      ],
+      "tombstones": [
+        "early",
+        "late",
+        "overdue"
+      ]
+    },
+    {
+      "at": 86405000,
+      "what": "the active row's new deadline",
+      "workers": [],
+      "announced": 0,
+      "indexed": [],
+      "tombstones": [
+        "active",
+        "early",
+        "late",
+        "overdue"
+      ]
+    }
+  ]
+}

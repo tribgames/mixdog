@@ -816,6 +816,22 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
 }
 
+/// `fixtures/mcp-cwd-scope` `channelCall`: a `channel/call` naming a plugin's MCP tool reaches no MCP server; the channels
+/// dispatch answers it as Node's `handleToolCall` does. The channels service has no MCP client (nothing under `channels/`
+/// names `mixdog_mcp`, and this crate does not depend on it), so no live server can be reached through it: what is compared
+/// is the dispatch's answer, whole, with Node's; Node's `ran: []` is the recording of its reach.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_channel_call_naming_an_mcp_tool_reaches_no_server() {
+    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let recorded = &golden["channelCall"];
+    assert_eq!(recorded["ran"], json!([]), "Node's dispatch reached no server");
+    let e = env().await;
+    let svc = service(&e);
+    let reply = svc.call(request("channel/call", json!({"name": recorded["name"], "args": recorded["args"]}), Some("op-mcp"))).await.unwrap();
+    let Reply::Value(answer) = reply else { panic!("not a value") };
+    assert_eq!(answer, recorded["result"]);
+}
+
 /// `fixtures/session-transport-state-lanes` case 327 with Node's fix (`node-fix-remote-state-null-session.patch`): a
 /// manual ON of the bridge for `session_remote`, then its OFF, publish the pinned session and then none. What a client
 /// reads of each publication is `enabled` and `sessionId` (`applyRemoteSessionState`, desktop

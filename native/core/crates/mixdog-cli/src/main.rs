@@ -1,8 +1,11 @@
 //! `mixdogd serve | ctl | migrate | server-ensure` (SPEC §3.2). Argument parsing only; every
 //! subcommand body lives in the daemon, migrate or client crate it names.
 
-mod exec;
+#[cfg(feature = "crash-gates")]
+mod boot_fault;
 mod projector;
+
+use mixdog_cli::exec;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -118,9 +121,6 @@ struct StopArgs {
     confirm_token: Option<String>,
 }
 
-/// Exit status of a subcommand whose implementing crate has not landed.
-const EXIT_NOT_WIRED: u8 = 70;
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
@@ -194,19 +194,90 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     ExitCode::from(status)
 }
 
-/// Refuses what Node refuses before anything starts. The run itself needs the composition root's
-/// `exec::seams::CoreLauncher` and `exec::boundary::HostCredentials`.
+/// Writes the exec's answer and errors to this process's stdout and stderr.
+struct StdSink;
+
+impl exec::Sink for StdSink {
+    fn out(&self, text: &str) {
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(text.as_bytes());
+        let _ = out.flush();
+    }
+    fn err(&self, text: &str) {
+        use std::io::Write;
+        let _ = std::io::stderr().lock().write_all(text.as_bytes());
+    }
+}
+
+/// Refuses what Node refuses before anything starts, then runs the exec on its own core (`runHeadlessExec`).
 fn exec_command(args: exec::ExecArgs) -> ExitCode {
     let options = args.into_options(std::env::var("MIXDOG_USAGE_LOG").ok()).and_then(|options| {
-        exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref())
+        exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()).map(|()| options)
     });
-    match options {
-        Ok(()) => not_wired("exec"),
+    let options = match options {
+        Ok(options) => options,
         Err(refusal) => {
             eprintln!("mixdog: {refusal}");
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
-    }
+    };
+    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+        Ok(js) => js,
+        Err(err) => {
+            eprintln!("mixdog: resolving the JS runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // The host's own data folder (`resolvePluginData()`), where its credentials live; the run never writes to it.
+    let Some(host_data_dir) = mixdog_store::paths::Paths::from_process(&js.package_root).map(|paths| paths.data_dir) else {
+        eprintln!("mixdog: no data directory (set MIXDOG_DATA_DIR or HOME)");
+        return ExitCode::FAILURE;
+    };
+    let (executors, tokens) = match mixdog_app_server_daemon::boot_executors() {
+        Ok(booted) => booted,
+        Err(err) => {
+            eprintln!("mixdog: starting the executors: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let provider = exec::route::clean(options.provider.as_deref()).to_owned();
+    let credentials = executors.handle(TaskClass::Work).block_on(exec::launcher::ResolvedCredentials::read(&tokens, &provider, &host_data_dir));
+    // The exec's own thread: one, so the boundary's environment is applied while no other thread reads it.
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("mixdog: starting the async runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let ort_library = match mixdog_app_server_daemon::js_runtime::resolve_ort_library_current() {
+        Ok(Some(library)) => mixdog_services::effort_judge::model::OrtRuntime::Library(library),
+        Ok(None) => mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+        Err(err) => {
+            eprintln!("mixdog: resolving the ONNX Runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let launcher = exec::launcher::InProcessLauncher::new(executors, tokens, js, ort_library);
+    let host = exec::run::Host {
+        launcher: &launcher,
+        credentials: &credentials,
+        host_env: std::env::vars().collect(),
+        host_data_dir,
+        temp_dir: std::env::temp_dir(),
+        sink: Arc::new(StdSink),
+        now: exec::lifecycle::system_clock(),
+    };
+    // `installProcessSignalCleanup`: an interrupt ends the run with 130 after the shutdown.
+    let signal: exec::run::Signal = Box::pin(async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => 130,
+            Err(_) => std::future::pending().await,
+        }
+    });
+    let code = runtime.block_on(exec::run::run_exec(options, host, signal));
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
 fn ctl(args: CtlArgs) -> ExitCode {
@@ -295,18 +366,18 @@ fn serve() -> ExitCode {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    match mixdog_app_server_daemon::run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("mixdogd: {err}");
-            ExitCode::FAILURE
+    #[cfg(feature = "crash-gates")]
+    boot_fault::wait_for_launcher();
+    // Node installs its recorder at module load: a start that fails on its way up (no JS runtime, no executors) is recorded too.
+    mixdog_app_server_daemon::crash_record::install_for_process();
+    let start = || -> Result<(), String> {
+        #[cfg(feature = "crash-gates")]
+        if let Some(ended) = boot_fault::run() {
+            return ended;
         }
-    }
-}
-
-fn not_wired(name: &str) -> ExitCode {
-    eprintln!("mixdogd: `{name}` is not wired to its crate yet");
-    ExitCode::from(EXIT_NOT_WIRED)
+        mixdog_app_server_daemon::run().map_err(|error| error.to_string())
+    };
+    ExitCode::from(mixdog_app_server_daemon::crash_record::serve_recorded(start) as u8)
 }
 
 #[cfg(test)]

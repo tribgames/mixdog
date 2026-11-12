@@ -338,6 +338,7 @@ impl Run {
             signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
+            prepared: false,
         })
     }
 
@@ -405,7 +406,7 @@ impl Run {
                 return;
             }
         }
-        let env = self.call_env();
+        let mut env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
@@ -413,6 +414,15 @@ impl Run {
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
+        // A call with nothing to wait for reaches `prepareToolCall`'s refresh before the stream goes on (Node runs it in
+        // the eager start's own microtasks, `call-prep.mjs:70`), so the tool phase projects the batch against the
+        // snapshot that refresh left.
+        if preceding.none()
+            && let Some(mcp) = &self.env.mcp
+            && crate::env::or_cancelled(&self.cancel, mcp.refresh()).await.is_some()
+        {
+            Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
+        }
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
         let locks = self.barriers.locks.clone();

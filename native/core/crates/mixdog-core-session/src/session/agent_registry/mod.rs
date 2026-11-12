@@ -126,6 +126,8 @@ pub struct AgentRegistry {
     reap: Arc<dyn ReapWindow>,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
+    /// Woken by every refresh and row write: the deadline timer ([`keep_deadlines`]) arms again.
+    rearm: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Default)]
@@ -432,7 +434,76 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()) }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default() }
+    }
+
+    /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
+    /// (ms); infinity when none will.
+    pub fn next_stale_row_deadline(&self, since: f64) -> f64 {
+        let st = self.lock();
+        let reap = self.reap_ms();
+        let mut next = f64::INFINITY;
+        for row in st.rows(&Scope::default(), self.now()) {
+            if is_lead_pool_agent(row.get("agent")) {
+                continue;
+            }
+            let due = if is_terminal_row(&row) {
+                if is_unnotified_restart_failure(&row) {
+                    continue;
+                }
+                settled_retention_deadline(&reap, &row)
+            } else {
+                nonterminal_reap_deadline(&reap, &row)
+            };
+            if due > since && due < next {
+                next = due;
+            }
+        }
+        next
+    }
+
+    /// The deadline timer of the agent maintenance pass (`armDeadline`, maintenance-pass.mjs): a pass
+    /// (`refreshTagsFromSessions` over every owner's rows) runs at the earliest moment a row comes due by its stamps
+    /// alone after the last pass began, so a row past its reap deadline leaves the index then, not at the next agent
+    /// event. A deadline crossed while a pass ran starts the next pass at once; one due before the pass began was looked at
+    /// by it. Every refresh and row write arms the timer again. Ends once the registry is gone.
+    /// The timer waits on the registry's own clock (`Clock::until_ms`), the clock the rows' deadlines are read on.
+    /// The start is the moment of this call, not of the future's first poll.
+    pub fn keep_deadlines(registry: std::sync::Weak<Self>) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let started = registry.upgrade().map_or(0.0, |first| first.now());
+        Self::deadline_timer(registry, started)
+    }
+
+    async fn deadline_timer(registry: std::sync::Weak<Self>, started: f64) {
+        // Node re-arms a deadline past setTimeout's largest delay when it fires; this looks at the registry again.
+        const LONGEST_WAIT_MS: f64 = 3_600_000.0;
+        let Some(first) = registry.upgrade() else { return };
+        let rearm = first.rearm.clone();
+        let clock = first.clock.clone();
+        drop(first);
+        // Node arms no deadline before a pass has run, and the first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS`
+        // after the first status read (maintenance-pass.mjs:23,129). It then looks at every deadline after 0
+        // (`lastPassStart` starts at 0): a row that came due while the core was down is reaped by it.
+        clock.until_ms((started + 1_000.0) as i64).await;
+        let mut since = 0.0;
+        loop {
+            let rearmed = rearm.notified();
+            tokio::pin!(rearmed);
+            rearmed.as_mut().enable();
+            let Some(this) = registry.upgrade() else { return };
+            let (next, now) = (this.next_stale_row_deadline(since), this.now());
+            if next <= now {
+                since = now;
+                this.refresh_tags_from_sessions(false, &Scope::default()).await;
+                continue;
+            }
+            drop(this);
+            let at = next.min(now + LONGEST_WAIT_MS).ceil() as i64;
+            tokio::select! {
+                () = clock.until_ms(at) => {}
+                () = &mut rearmed => {}
+            }
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -483,6 +554,7 @@ impl AgentRegistry {
         }
         st.put(session, map.clone());
         self.store.write(session, map);
+        self.rearm.notify_waiters();
     }
 
     /// `mgr.listSessions({includeClosed})`: the loaded sessions as they are now, then the
@@ -804,6 +876,7 @@ impl AgentRegistry {
 
     /// `refreshTagsFromSessions` over the index as loaded.
     fn refresh(&self, st: &mut State, scan_sessions: bool, scope: &Scope) {
+        self.rearm.notify_waiters();
         self.resolve_owners(st);
         self.transition_stale(st, scope);
         self.drop_expired_kept(st);
@@ -836,6 +909,17 @@ impl AgentRegistry {
             }
             st.bind(&tag, &clean(session.get("id")), &clean(session.get("agent")), &clean(session.get("cwd")));
             self.scan_upsert(st, &session, &tag, &by_key);
+        }
+    }
+
+    /// `refreshTagsFromSessions({ memoryOnly: true })` (the status pulse, tag-refresh.mjs:19-22): the index is read and its rows bind
+    /// their tags; nothing is reaped, unbound or scanned, which the maintenance pass and the tool calls do.
+    pub async fn refresh_tags_from_index(&self, scope: &Scope) {
+        self.reload().await;
+        let mut st = self.lock();
+        let now = self.now();
+        for row in st.rows(scope, now) {
+            st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
     }
 

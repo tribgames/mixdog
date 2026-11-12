@@ -24,6 +24,7 @@ mod mixy_presence_replay_tests;
 #[cfg(test)]
 mod process_tests;
 #[cfg(test)]
+mod migrated_fixture;
 #[cfg(test)]
 mod wire_parity_tests;
 pub mod tool_exposure;

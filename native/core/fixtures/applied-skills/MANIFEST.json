@@ -1,0 +1,60 @@
+{
+  "cases": 8,
+  "command": "node benchmarks/rust-core/recorders/record-applied-skills.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "meta.submissionIds": "a steered prompt's submission id is drawn by each side; the count and non-empty ids are compared",
+    "meta.transcript.messageId / attemptId / checkpointId": "the client turn carried Node's (turnMeta); the core draws its own, so both sides are compared as an id (a non-empty string)",
+    "restored row id": "Node counts hist_<session>_<n>, the core uses the record's iid; both sides are compared as an id",
+    "restored row messageId / attemptId / checkpointId (the row's own top-level keys)": "a restored user row repeats the stored row's transcript ids at its top level; the same identities as meta.transcript.*, drawn by the core, compared as an id (a non-empty string) on both sides"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 61365,
+      "path": "golden.json",
+      "sha256": "656761dce235c75dfbd42f77eabfdb3f8d943153e4334efea87bebb77fa0ed70"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per case: the prompt(s), the applied names, every stored user row, every restored user row",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-applied-skills.mjs",
+  "recorderSha256": "b423db3778f37202cd5a1ea04f56950a75e99b8f0eb80aad82f0ed46a1ca4081",
+  "set": "applied-skills",
+  "syntheticInputs": [
+    "the provider: one that answers \"Done.\" (a summary request: \"a summary of the conversation\") and calls no tool",
+    "the skills: three SKILL.md files under MIXDOG_DATA_DIR/skills; broken-guide's file is removed before its case",
+    "each prompt's transcriptMeta, as a client turn carries it: { messageId (msg_turn, msg_<n>), attemptId, checkpointId, at: 1000, device: \"desktop-1\", completionVerb: \"Mapped\" }"
+  ],
+  "totalBytes": 61365
+}
