@@ -103,7 +103,6 @@ impl SessionHandle {
     pub fn stepped(&self) -> &tokio::sync::Notify {
         &self.cell.stepped
     }
-
     /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
     #[cfg(any(test, feature = "test-support"))]
     pub fn turn_busy(&self) -> bool {
@@ -234,7 +233,11 @@ impl SessionHandle {
     }
 
     async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        self.enqueue(req).await?.await.map_err(|_| self.closing())?
+        let method = req.method;
+        self.enqueue(req).await?.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, %method, "the session actor dropped the request's reply without answering it");
+            self.closing()
+        })?
     }
 
     /// `to_actor` for a caller that holds a gate: the request's cancel ends the wait on a full
@@ -267,7 +270,8 @@ impl SessionHandle {
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
             // A claim that cannot run claims nothing, as a throw inside `claimStagedOriginals` does.
-            let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
+            // A full lane is waited out (the claim keeps the user's originals); only a lane that cannot run it claims nothing.
+            let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
         // A full inbox must not hold the gate past the caller's cancel.
@@ -275,7 +279,10 @@ impl SessionHandle {
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
         let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        answer.await.map_err(|_| closed())?
+        answer.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
+            closed()
+        })?
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -307,20 +314,18 @@ impl SessionHandle {
     /// `thread/read`: the acked view, encoded on cpu-interactive (it can be a 2 MiB window).
     async fn read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let view = self.cell.view.load_full();
-        let job = self
-            .deps
-            .lanes
-            .cpu
-            .submit(&req.ctx.cancel, move |_lane| {
-                serde_json::to_value(SnapshotParams {
-                    thread: &view.summary,
-                    state: &view.state,
-                    items: view.items.iter().map(|item| item.as_ref()).collect(),
-                    has_older: view.has_older,
-                })
-                .expect("protocol types serialize")
-            })?;
-        job.await.map(Reply::Value).map_err(|_| CoreError::ConnectionClosed)
+        // A read waits for room on a full lane, bounded by the caller's cancel (never `QueueFull`).
+        mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
+            serde_json::to_value(SnapshotParams {
+                thread: &view.summary,
+                state: &view.state,
+                items: view.items.iter().map(|item| item.as_ref()).collect(),
+                has_older: view.has_older,
+            })
+            .expect("protocol types serialize")
+        })
+        .await
+        .map(Reply::Value)
     }
 
     /// `thread/reactions/set {agentId, emoji, messagesBack?, othersKeep?}`: a bot's reaction
@@ -345,6 +350,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -368,26 +374,26 @@ impl SessionHandle {
             return Ok(Reply::Value(reply));
         };
         let iid = ids[done.index].as_str().to_owned();
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
-        let found = self.deps.lanes.io.submit(&req.ctx.cancel, {
+        // The reaction is a bot's data: a full lane is waited out, never refused.
+        let found = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, {
             let iid = iid.clone();
             move |lane| store.history_row(lane, &thread, &iid)
-        })?;
-        let dropped = || CoreError::Internal { incident_id: "session-reaction-job-dropped".into() };
-        let (_, mut row) = found.await.map_err(|_| dropped())??.ok_or_else(|| CoreError::ItemNotFound {
+        });
+        let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound {
             thread_id: self.id.clone(),
             item_id: ids[done.index].clone(),
         })?;
         row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
         let transcript = self.deps.transcript.clone();
-        let shown = self.deps.lanes.cpu.submit(&req.ctx.cancel, {
+        let shown = mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, {
             let row = row.clone();
             move |lane| transcript.items(lane, &row)
-        })?;
+        });
         // Only the lines that carry reactions are re-shown; a row's other items are unchanged.
         let items: Vec<mixdog_protocol::ThreadItem> = shown
-            .await
-            .map_err(|_| dropped())?
+            .await?
             .into_iter()
             .filter_map(|shown| match shown {
                 super::seams::Shown::Item(
@@ -420,6 +426,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -441,9 +448,11 @@ impl SessionHandle {
                 .collect::<Vec<Value>>()
         })?;
         let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
+        let set = req.params.get("set").cloned().unwrap_or(Value::Null);
+        let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "rows": rows }),
+            params: json!({ "rows": rows, "set": set, "unset": unset }),
             op: None,
             ctx: req.ctx,
         };
@@ -595,7 +604,9 @@ impl SessionHandle {
 /// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
-    const NOT_CARRIED: [&str; 42] = [
+    // A copy still being made into the source is the source's; the heir's own reference set is given by the carry.
+    const NOT_CARRIED: [&str; 44] = [
+        "offloadInheriting", "offloadInheritingBoot",
         "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
         "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
         "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
@@ -855,6 +866,7 @@ impl ThreadHandle for SessionHandle {
                 let unsaved = rx.await.map_err(|_| self.closing())?;
                 let context = super::run::ModelContext {
                     store: self.deps.store.clone(),
+                    sensitive: self.deps.sensitive.clone(),
                     lanes: self.deps.lanes,
                     thread: self.id.clone(),
                     input: mixdog_core_api::ids::ItemId::from(String::new()),

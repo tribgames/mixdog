@@ -362,7 +362,7 @@ async fn the_quota_switch_going_off_through_the_config_drops_pending_resumes() {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     while !store.list().is_empty() {
         assert!(tokio::time::Instant::now() < deadline, "the pending resume was not dropped");
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     // On again: a resume scheduled now stays.
     config
@@ -374,7 +374,7 @@ async fn the_quota_switch_going_off_through_the_config_drops_pending_resumes() {
         .unwrap();
     let request = json!({ "sessionId": "sess_b", "turnKey": "t2", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
     store.schedule(&request).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(150)).await;
     assert_eq!(store.list().len(), 1);
     cancel.cancel();
     follow.await.unwrap();

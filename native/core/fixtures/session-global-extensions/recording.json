@@ -262,6 +262,56 @@
       }
     },
     {
+      "name": "overlapping-enables-connect-once",
+      "testLine": null,
+      "input": {
+        "steps": [
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              true
+            ]
+          },
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              true
+            ]
+          }
+        ],
+        "connector": "the first enabled connect stays pending until both toggles were asked, then the recorder releases it"
+      },
+      "result": {
+        "results": [
+          {
+            "servers": []
+          },
+          {
+            "servers": []
+          }
+        ],
+        "events": [
+          {
+            "connect": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "connectDone": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "invalidatePreSessionToolSurface": true
+          }
+        ]
+      }
+    },
+    {
       "name": "changes-fan-out-to-every-runtime-except-the-writer",
       "testLine": 86,
       "input": {

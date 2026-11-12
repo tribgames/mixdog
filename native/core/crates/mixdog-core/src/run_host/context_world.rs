@@ -174,6 +174,10 @@ impl ContextWorld for LiveContextWorld {
         // The daemon addresses every session by thread id; there is no ambient current session.
         let Some(thread) = thread else { return Ok(None) };
         let Ok(header) = self.threads.header(thread).await else { return Ok(None) };
+        self.snapshot_for(thread, header).await
+    }
+
+    async fn snapshot_for(&self, thread: &ThreadId, header: serde_json::Map<String, Value>) -> Result<Option<ContextSnapshot>, CoreError> {
         let route = self.routes.route(thread);
         let live = self.session.live_turn_messages(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
         let rows = if live.is_empty() {
@@ -264,7 +268,7 @@ impl ContextWorld for LiveContextWorld {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use mixdog_agent::compact::estimate::PartMeter;
     use mixdog_core_api::domain::provider::ContentPart;
     use mixdog_core_ports::ports::threads::Section;
@@ -440,7 +444,7 @@ mod tests {
 
     /// The route facts of a route change over the window rule alone (no catalog row): the model's window as
     /// `resolveSessionContextMeta` states it.
-    struct WindowFacts;
+    pub(crate) struct WindowFacts;
     #[async_trait]
     impl crate::run_host::route_change::RouteFacts for WindowFacts {
         fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
@@ -451,7 +455,7 @@ mod tests {
         }
     }
 
-    struct Fixed;
+    pub(crate) struct Fixed;
     impl mixdog_agent::env::Clock for Fixed {
         fn now_ms(&self) -> i64 {
             0
@@ -500,7 +504,7 @@ mod tests {
         }
     }
 
-    struct Quiet;
+    pub(crate) struct Quiet;
     impl mixdog_core_session::session::route_session::RouteStatusline for Quiet {
         fn write(&self, _: &str, _: &Route, _: Option<u64>) {}
     }
@@ -653,7 +657,14 @@ mod tests {
             let (provider, model) = (text(&target, "provider"), text(&target, "model"));
             let meta = meta.unwrap_or_else(|| self.catalog.model_meta_in(&provider, &model, config.get("providers").and_then(|providers| providers.get(provider.as_str()))));
             let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
-            let route = mixdog_ai::service::admin_route::refresh_route_fields(&config, &target, Some(&meta), &provider, &fast);
+            let route = mixdog_ai::service::admin_route::refresh_route_fields(
+                &config,
+                &target,
+                Some(&meta),
+                &provider,
+                &fast,
+                &|provider, model| self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok()),
+            );
             self.cells.set(thread, route.clone());
             Ok(Some(route))
         }
@@ -1095,6 +1106,11 @@ mod tests {
             use mixdog_core_ports::ports::threads::ThreadState;
             let mut got = self.replay.threads.header(&self.id).await.expect("the session");
             let mut want = self.replay.recorded_header(want);
+            // `offloadSources` and `offloadSourcesRules` (every session's reference set, empty for one naming no other
+            // session's sidecars, and the rules it was computed under) are the fix of `node-fix-prune-after-save.patch`,
+            // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+            assert!(got.remove("offloadSources").is_some_and(|sources| sources.is_array()), "{what}: the session holds its reference set");
+            assert_eq!(got.remove("offloadSourcesRules"), Some(Value::from(mixdog_store::offload_sources::RULES)), "{what}: under the present rules");
             for header in [&mut got, &mut want] {
                 assert!(header.get("updatedAt").is_some_and(Value::is_number), "{what}: a stored time");
                 header.remove("updatedAt");

@@ -39,13 +39,7 @@ pub trait GuardedSessions: Send + Sync {
     async fn automatic_closure(&self, id: &str) -> Result<bool, String>;
 }
 
-/// `isHistoricalAutomaticClosure(session)` (`historical-session-closure.mjs`).
-pub fn is_historical_automatic_closure(header: &serde_json::Map<String, serde_json::Value>) -> bool {
-    let text = |key: &str| header.get(key).and_then(serde_json::Value::as_str);
-    text("owner").is_some_and(|owner| !owner.is_empty())
-        && (header.get("closed") == Some(&serde_json::Value::Bool(true)) || text("status") == Some("closed"))
-        && matches!(text("closedReason"), Some("idle-sweep" | "terminal-reap"))
-}
+pub use mixdog_core_session::session::delete::is_historical_automatic_closure;
 
 #[async_trait]
 impl GuardedSessions for SessionDirectory {

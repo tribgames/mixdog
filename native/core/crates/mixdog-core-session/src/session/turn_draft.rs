@@ -188,7 +188,7 @@ impl DraftJournal {
             // draft again, with the chunk's seal.
             let mut whole = self.reset(marks, thread);
             if let Some(row) = body.get("sealed") {
-                whole["sealed"] = marks.redact_messages(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default();
+                whole["sealed"] = marks.redacted(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default();
             }
             return Some((whole, true));
         }
@@ -203,13 +203,13 @@ impl DraftJournal {
             out.insert("calls".into(), redact_calls(marks, thread, &calls));
         }
         if !results.is_empty() {
-            out.insert("results".into(), Value::Array(marks.redact_messages(thread, &results)));
+            out.insert("results".into(), Value::Array(marks.redacted(thread, &results)));
         }
         if let Some(tools) = body.get("tools") {
             out.insert("tools".into(), tools.clone());
         }
         if let Some(row) = body.get("sealed") {
-            out.insert("sealed".into(), marks.redact_messages(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default());
+            out.insert("sealed".into(), marks.redacted(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default());
         }
         if out.is_empty() {
             return None;
@@ -230,7 +230,7 @@ impl DraftJournal {
         out.insert("text".into(), Value::String(self.written_text.clone()));
         out.insert("reasoning".into(), Value::String(self.written_reasoning.clone()));
         out.insert("calls".into(), redact_calls(marks, thread, &self.calls));
-        out.insert("results".into(), Value::Array(marks.redact_messages(thread, &self.results)));
+        out.insert("results".into(), Value::Array(marks.redacted(thread, &self.results)));
         if let Some(tools) = self.tools {
             out.insert("tools".into(), Value::Bool(tools));
         }
@@ -247,5 +247,5 @@ impl DraftJournal {
 /// Tool calls as an assistant message stores them: their arguments redacted.
 fn redact_calls(marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId, calls: &[Value]) -> Value {
     let message = serde_json::json!({ "role": "assistant", "toolCalls": calls });
-    marks.redact_messages(thread, &[message]).into_iter().next().and_then(|message| message.get("toolCalls").cloned()).unwrap_or(Value::Array(Vec::new()))
+    marks.redacted(thread, &[message]).into_iter().next().and_then(|message| message.get("toolCalls").cloned()).unwrap_or(Value::Array(Vec::new()))
 }

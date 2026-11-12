@@ -211,7 +211,7 @@ impl CallDispatch {
                 tokio::spawn(async move {
                     let result = this.run_counted(client, req).await;
                     let _ = tx.send(Some(result));
-                    tokio::time::sleep(this.ttl).await;
+                    mixdog_rt::time::sleep(this.ttl).await;
                     let mut cache = this.cache.lock().unwrap();
                     if cache.get(&key).is_some_and(|e| Arc::ptr_eq(e, &run_entry)) {
                         cache.remove(&key);
