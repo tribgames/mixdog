@@ -33,6 +33,15 @@ export function createEntryLifecycle({
     idleStateChanged,
   });
 
+  // One agent's status change leaves the daemon as that one row, at once, to
+  // the clients of the session (wire.md). Each frame has its own key: a
+  // backed-up stream may drop the oldest (a seq gap the client resyncs on),
+  // never replace one with another.
+  function publishAgentStatusRow(entry, frame) {
+    if (isClosed() || entry.disposed || (entry.subscribers?.size || 0) === 0) return;
+    onFrame({ type: 'agent-status', key: `agent-status:${frame.sessionId}:${frame.seq}`, ...frame }, entry.subscribers);
+  }
+
   function assertAvailable(entry) {
     if (isClosed()) throw new Error('session service is closed');
     if (entry?.disposed) throw new Error('session runtime is disposed');
@@ -96,6 +105,11 @@ export function createEntryLifecycle({
         entry.unsubscribe = runtime.subscribe?.(() => schedulePublish(entry)) ?? null;
       } catch (err) {
         log(`session subscribe failed: ${err?.message || err}`);
+      }
+      try {
+        entry.unsubscribeAgentStatus = runtime.onAgentStatusRows?.((frame) => publishAgentStatusRow(entry, frame)) ?? null;
+      } catch (err) {
+        log(`agent status subscribe failed: ${err?.message || err}`);
       }
       return entry;
     } catch (error) {

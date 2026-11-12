@@ -149,10 +149,10 @@ function createSessionRecords() {
   const listeners = new Set();
   let closed = false;
 
-  function emit() {
+  function emit(id) {
     for (const listener of [...listeners]) {
       try {
-        listener();
+        listener(id);
       } catch {
         /* observers never affect the cache */
       }
@@ -193,7 +193,7 @@ function createSessionRecords() {
       onChange(path) {
         // A record no longer needed tells nobody; a json watch holds no record.
         if (logPathByJsonPath.has(path) || !entries.has(idsByPath.get(path)) || closed) return;
-        emit();
+        emit(idsByPath.get(path));
       },
     }
   );
@@ -273,6 +273,7 @@ export function acquireSessionRecords(mgr) {
     return {
       session: (id) => (id && mgr?.getSession?.(id)) || null,
       retainRead: (run) => run(),
+      retain() {},
       onChange: () => () => {},
       release() {},
     };
@@ -303,6 +304,10 @@ export function acquireSessionRecords(mgr) {
         read = outer;
         if (!released) records.retain(holder, keep);
       }
+    },
+    /** The holder now needs exactly the records `keep` (a Set of ids) names. */
+    retain(keep) {
+      if (!released) records.retain(holder, keep);
     },
     onChange(listener) {
       if (released || typeof listener !== 'function') return () => {};

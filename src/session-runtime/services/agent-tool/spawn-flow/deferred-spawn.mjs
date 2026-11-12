@@ -82,7 +82,8 @@ export function createDeferredSpawn({
           startedAt: job.startedAt,
           turnStartedAt: new Date().toISOString(),
         });
-        notifyStatusChange();
+        // Its job's meta now names the session.
+        notifyStatusChange({ jobsOf: job?.ownerSessionId || '', sessionId: prepared.session?.id });
         if (job?.status === 'cancelled') {
           closePreparedSpawn(prepared);
           return null;

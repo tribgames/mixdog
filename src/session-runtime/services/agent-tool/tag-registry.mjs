@@ -85,7 +85,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr, sessionRecords = null 
     resolveTombstoneOwners: index.resolveTombstoneOwners,
     getLiveSession,
   });
-  const { resolveTag, agentSessionEntries, nextTag } = createTagLookup({
+  const { resolveTag, agentSessionEntries, nextTag, tagEntryTag } = createTagLookup({
     tags,
     mgr,
     readWorkerRows,
@@ -138,6 +138,13 @@ export function createTagRegistry({ dataDir, cfgMod, mgr, sessionRecords = null 
     getLiveSession,
     tagForSession,
     agentSessionEntries,
+    tagEntryTag,
+    tagTombstoneIndex: reaper.tagTombstoneIndex,
+    // Tests: the status read before the status sets reads the reaper itself.
+    _reaperForTest: reaper,
+    rowFeed: index.rowFeed,
+    onTagMapsChange: tagMaps.onChange,
+    tagSeq: tagMaps.tagSeq,
     nextTag,
     refreshTagsFromSessions,
     bindTag,

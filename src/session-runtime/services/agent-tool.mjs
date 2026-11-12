@@ -11,6 +11,7 @@ import {
   terminalPidForContext,
 } from './agent-tool/helpers.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
+import { createStatusSets, statusScopeOf } from './agent-tool/status-sets.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
 import {
   liveAgentStatusRow,
@@ -30,7 +31,7 @@ import {
   subscribeLiveSessions,
 } from '../../runtime/agent/orchestrator/session/store/session-observers.mjs';
 import { acquireSessionRecords } from './agent-tool/job-views/session-record.mjs';
-import { onSessionActivityChange } from '../../runtime/shared/session-activity-signal.mjs';
+import { onSessionActivityChange, onSessionJobsChange } from '../../runtime/shared/session-activity-signal.mjs';
 import { onSessionApprovalWaitChange } from '../../runtime/shared/session-approval-wait.mjs';
 // Re-export the static tool descriptor so importers of this facade keep the
 // identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
@@ -71,9 +72,13 @@ export function createStandaloneAgent({
   const statusListeners = new Set();
   // Defined with the status reads below; a source of change only asks.
   let statusMayHaveChanged = () => {};
-  const notifyStatusChange = () => {
+  // Defined with the status sets below.
+  let noteStatusHint = () => {};
+  // `hint`: `{ sessionId, jobsOf }`, the agent's session and whose jobs changed.
+  const notifyStatusChange = (hint = null) => {
     // An agent started, finished or was cancelled: bookkeeping runs soon.
     requestAgentMaintenance();
+    noteStatusHint(hint);
     statusMayHaveChanged({ force: true });
   };
   // The status pulse's getSession, from memory (job-views/session-record.mjs).
@@ -104,6 +109,15 @@ export function createStandaloneAgent({
   };
   notifyRestartFailures();
   const views = createJobViews({ ...registry, mgr, reg, cfgMod, sessionRecords, DEFAULT_SPAWN_PREP_TIMEOUT_MS });
+  // What getStatus answers each scope, kept per agent (status-sets.mjs).
+  const sets = createStatusSets({ mgr, registry, progress: views.progress, sessionRecords });
+  // `hint.jobsOf`: the owner whose jobs changed ('' anyone's; absent none);
+  // no hint at all names nothing, so every scope's jobs are listed again.
+  noteStatusHint = (hint) => {
+    if (!hint) sets.noteJobs('');
+    else if (hint.jobsOf !== undefined) sets.noteJobs(clean(hint.jobsOf));
+    if (hint?.sessionId) sets.noteSession(clean(hint.sessionId));
+  };
   // Late-bound: the send flow that wakes an idle worker is built after spawn.
   let wakeIdleWorker = null;
   const spawnFlow = createSpawnFlow({
@@ -219,6 +233,7 @@ export function createStandaloneAgent({
     const key = scopeKey(ownerSession, pid);
     if (statusScopes.has(key)) return;
     statusScopes.set(key, { context: scopedContext, ownerSession: ownerSession || '' });
+    sets.addScope(key, scopedContext);
     unregisterMaintenance ??= registerAgentMaintenance(maintenanceSteps, nextMaintenanceDeadline);
     requestAgentMaintenance();
   }
@@ -229,6 +244,7 @@ export function createStandaloneAgent({
       if (scope.ownerSession !== sessionId) continue;
       statusScopes.delete(key);
       lastStatus.delete(key);
+      sets.removeScope(key);
       ended = true;
     }
     if (!ended) return;
@@ -239,6 +255,7 @@ export function createStandaloneAgent({
   function stopMaintenance() {
     unregisterMaintenance?.();
     unregisterMaintenance = null;
+    for (const key of statusScopes.keys()) sets.removeScope(key);
     statusScopes.clear();
     lastStatus.clear();
   }
@@ -279,11 +296,65 @@ export function createStandaloneAgent({
   // keychain prewarm finishing) asks
   // for one re-read of those answers from memory, on the next turn, and the
   // observers are told when any differs from what its reader last got.
-  const lastStatus = new Map(); // scope key -> the answer last handed out, serialized
-  // While observers are told, the answers the re-read just computed: an
-  // observer reading its status at once gets that answer instead of a second
-  // read of unchanged sources (scope key -> { readKey, status }).
-  let justRead = null;
+  // While prewarm keeps status empty: scope key -> the answer last handed out, serialized.
+  const lastStatus = new Map();
+  // While observers are told, the sets are current: an observer reading its
+  // status at once is answered from them without a second step.
+  let answersFresh = false;
+  // Prewarm finishing turns every set from empty to real: they are rebuilt.
+  let setsReady = false;
+  const statusReady = () => {
+    if (!isKeychainPrewarmReady()) {
+      setsReady = false;
+      return false;
+    }
+    if (!setsReady) {
+      setsReady = true;
+      sets.rebuild();
+      // A later prewarm wait is compared with the real answers handed out since.
+      lastStatus.clear();
+    }
+    return true;
+  };
+  // Per-row status frames (wire.md): scope key -> Set<listener(frame)>.
+  const rowListeners = new Map();
+  // Frames leave through one queue: a listener whose reaction changes status
+  // again (a read that steps the sets) appends the later frames behind the
+  // ones still being delivered, so every listener hears each scope's frames
+  // once, in seq order.
+  const frameQueue = [];
+  let delivering = false;
+  function deliverFrames() {
+    for (const key of statusScopes.keys()) {
+      const frames = sets.flushFrames(key);
+      for (const frame of frames) frameQueue.push({ key, frame });
+    }
+    if (delivering) return;
+    delivering = true;
+    try {
+      while (frameQueue.length > 0) {
+        const { key, frame } = frameQueue.shift();
+        for (const listener of [...(rowListeners.get(key) || [])]) {
+          try {
+            listener(frame);
+          } catch {
+            /* status observers never affect agent lifecycle */
+          }
+        }
+      }
+    } finally {
+      delivering = false;
+    }
+  }
+  // One step of the sets: every change sources named since the last one.
+  function stepSets() {
+    sets.processChanges();
+    deliverFrames();
+  }
+  const answerStrings = (status) => ({
+    workers: status.workers.map((row) => JSON.stringify(row)),
+    jobs: status.jobs.map((row) => JSON.stringify(row)),
+  });
   // Every context field statusFor's reads look at (helpers.mjs scope fields,
   // background-tasks.mjs task scope).
   const readKeyOf = (context) =>
@@ -294,7 +365,7 @@ export function createStandaloneAgent({
   const scopeKey = (ownerSession, pid) => `${ownerSession || ''}\0${pid || ''}`;
   statusMayHaveChanged = ({ force = false } = {}) => {
     // A source changed while observers were being told: answers are read anew.
-    justRead = null;
+    answersFresh = false;
     if (force) recheckForced = true;
     if (recheckQueued || disposed) return;
     recheckQueued = true;
@@ -303,25 +374,22 @@ export function createStandaloneAgent({
       let changed = recheckForced;
       recheckForced = false;
       if (disposed) return;
-      const answers = new Map();
-      // The records these answers read are exactly the ones still needed.
-      sessionRecords.retainRead(() => {
+      if (statusReady()) {
+        stepSets();
+        // The records the sets read are exactly the ones still needed.
+        sets.releaseRecords();
+        for (const key of statusScopes.keys()) if (sets.passChanged(key)) changed = true;
+      } else {
         for (const [key, scope] of statusScopes) {
-          let answer = '';
-          try {
-            const status = statusFor(scope.context);
-            answer = JSON.stringify(status);
-            answers.set(key, { readKey: readKeyOf(scope.context), status, handedOut: false });
-          } catch {
-            /* an unreadable answer counts as changed */
-          }
+          const answer = JSON.stringify(statusFor(scope.context));
+          sets.handOut(key, 'not-ready');
           if (lastStatus.get(key) === answer) continue;
           lastStatus.set(key, answer);
           changed = true;
         }
-      });
+      }
       if (!changed) return;
-      justRead = answers;
+      answersFresh = true;
       try {
         for (const listener of [...statusListeners]) {
           try {
@@ -331,7 +399,7 @@ export function createStandaloneAgent({
           }
         }
       } finally {
-        justRead = null;
+        answersFresh = false;
       }
     });
   };
@@ -348,26 +416,45 @@ export function createStandaloneAgent({
     if (reason && (ended === 'session' || reason === ended)) bookkeepingMayBeDue();
   };
   const stopStatusSources = [
+    // Each source names what it changed (status-sets.mjs); the rows of the
+    // worker index are compared by key once per document the store serves.
     onSessionActivityChange((sessionId) => {
+      sets.noteActivity(sessionId);
       statusMayHaveChanged();
       heldRowMayBeFree(sessionId, 'work');
     }),
-    onSessionApprovalWaitChange(() => statusMayHaveChanged()),
+    onSessionJobsChange((ownerSessionId) => {
+      sets.noteJobs(ownerSessionId);
+      statusMayHaveChanged();
+    }),
+    onSessionApprovalWaitChange((sessionId) => {
+      sets.noteSession(sessionId);
+      statusMayHaveChanged();
+    }),
     registry.onWorkerRowsChange(() => {
       statusMayHaveChanged();
       bookkeepingMayBeDue();
     }),
-    sessionRecords.onChange(() => {
+    sessionRecords.onChange((sessionId) => {
+      sets.noteSession(sessionId);
       statusMayHaveChanged();
       bookkeepingMayBeDue();
     }),
-    onRolePolicyResolved(() => statusMayHaveChanged()),
+    onRolePolicyResolved((role) => {
+      sets.noteRole(role);
+      statusMayHaveChanged();
+    }),
     registerSessionPurgeHook((sessionId) => {
+      sets.noteSession(sessionId);
       registry.forgetDeletedSession(sessionId);
       endStatusScopesOf(sessionId);
       bookkeepingMayBeDue();
     }),
     subscribeLiveSessions((session) => {
+      // A saved session is a new live copy, and announces what its turn wrote
+      // in place before the save: its rows are read again.
+      sets.noteSession(session?.id);
+      statusMayHaveChanged();
       if (session?.closed !== true) return;
       endStatusScopesOf(session.id);
       heldRowMayBeFree(session.id, 'session');
@@ -379,24 +466,75 @@ export function createStandaloneAgent({
   // background tasks — and reads no file in steady state.
   function getStatus(context = {}) {
     const scopedContext = agentScope({}, context);
-    if (!isKeychainPrewarmReady()) return statusFor(scopedContext);
+    if (!statusReady()) return statusFor(scopedContext);
+    const key = statusScopeFor(scopedContext);
+    // A context reading other task fields than its scope's first reader is
+    // answered by the read itself.
+    if (readKeyOf(statusScopes.get(key).context) !== readKeyOf(scopedContext)) {
+      const status = statusFor(scopedContext);
+      sets.handOut(key, answerStrings(status));
+      return status;
+    }
+    if (!answersFresh) stepSets();
+    // A row listener ended the scope during the step: the read answers itself.
+    if (!sets.has(key)) return statusFor(scopedContext);
+    if (sets.failed(key)) {
+      const status = statusFor(scopedContext);
+      sets.handOut(key, answerStrings(status));
+      return status;
+    }
+    // Each answer object is handed out once: a caller may keep or change it.
+    const status = sets.answer(key);
+    sets.handOut(key);
+    return status;
+  }
+
+  function statusScopeFor(scopedContext) {
     const ownerSession = callerSessionForContext(scopedContext);
     const pid = terminalPidForContext(scopedContext);
     noteStatusScope(scopedContext, ownerSession, pid);
-    const key = scopeKey(ownerSession, pid);
-    // Each answer object is handed out once: a caller may keep or change it.
-    const fresh = justRead?.get(key);
-    if (fresh && !fresh.handedOut && fresh.readKey === readKeyOf(scopedContext)) {
-      fresh.handedOut = true;
-      return fresh.status;
+    return scopeKey(ownerSession, pid);
+  }
+
+  const NOT_READY_LIST = Object.freeze({ epoch: 'not-ready', seq: 0, scope: null, workers: [], jobs: [] });
+  // A scope its own listeners keep ending: no list to start from (a new epoch).
+  const ENDED_LIST = Object.freeze({ epoch: 'ended', seq: 0, scope: null, workers: [], jobs: [] });
+
+  /** The full list of a scope with its frame sequence (wire.md): the frames
+   *  that list contains are delivered first. */
+  function getStatusList(context = {}) {
+    const scopedContext = agentScope({}, context);
+    if (!statusReady()) return { ...NOT_READY_LIST, workers: [], jobs: [] };
+    // A row listener may end the scope while this step delivers its frames
+    // (its owner purged): the read registers it again, as a first read does,
+    // and answers the new scope's list under its new epoch (wire.md).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const key = statusScopeFor(scopedContext);
+      stepSets();
+      if (sets.has(key)) return sets.list(key);
     }
-    const status = statusFor(scopedContext);
-    lastStatus.set(key, JSON.stringify(status));
-    return status;
+    return { ...ENDED_LIST, scope: statusScopeOf(scopedContext), workers: [], jobs: [] };
+  }
+
+  /** `listener(frame)` hears every per-row change of the scope `context`
+   *  reads (wire.md), in order; returns the unsubscribe. */
+  function onStatusRows(context, listener) {
+    if (typeof listener !== 'function') return () => {};
+    const scopedContext = agentScope({}, context);
+    const key = scopeKey(callerSessionForContext(scopedContext), terminalPidForContext(scopedContext));
+    let listeners = rowListeners.get(key);
+    if (!listeners) rowListeners.set(key, (listeners = new Set()));
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0 && rowListeners.get(key) === listeners) rowListeners.delete(key);
+    };
   }
 
   function disposeStatus() {
     disposed = true;
+    sets.dispose();
+    rowListeners.clear();
     stopMaintenance();
     // Its session observers and armed watchdogs would outlive the tool, and a
     // recreated tool would own the same sessions a second time.
@@ -426,6 +564,22 @@ export function createStandaloneAgent({
       return () => statusListeners.delete(listener);
     },
     getStatus,
+    getStatusList,
+    onStatusRows,
+    // Tests: what the status read before the sets read (status-oracle/), and their work.
+    _statusInternalsForTest: {
+      mgr,
+      tags: registry.tags,
+      readWorkerRows: registry.readWorkerRows,
+      reaper: registry._reaperForTest,
+      getLiveSession: registry.getLiveSession,
+      refreshTagsFromSessions: registry.refreshTagsFromSessions,
+      sessionRecords,
+      isKeychainPrewarmReady,
+    },
+    _statusCounters: sets.counters,
+    _statusAuditForTest: { set: sets.setAudit, misses: sets.auditMisses },
+    _tagMapsForTest: { tags: registry.tags, unbind: registry.unbindTag },
     recoverWorkers,
     // Daemon start: settle the rows the previous process left running and
     // queue each owner's failure result; resolves once they are queued.

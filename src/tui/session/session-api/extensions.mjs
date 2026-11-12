@@ -172,6 +172,8 @@ export function createSessionExtensionsApi(bag) {
     contextStatus: (options) => {
       return runtime.contextStatus?.(options) || null;
     },
+    // The per-row agent status list with its frame seq (wire contract).
+    getAgentStatus: () => runtime.agentStatusList?.() ?? null,
     readModelMessages: (messageStart = 0) => {
       return runtime.readModelMessages?.(messageStart) || { messageCount: 0, messages: [] };
     },

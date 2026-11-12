@@ -7,7 +7,7 @@ import {
 } from './tool-execution-contract.mjs';
 import { presentErrorText } from './err-text.mjs';
 import { clean } from './clean.mjs';
-import { emitSessionActivityChange } from './session-activity-signal.mjs';
+import { emitSessionActivityChange, emitSessionJobsChange } from './session-activity-signal.mjs';
 import { noteCommandToolSettled } from './turn-boundary-signal.mjs';
 import {
   parseTaskNotification,
@@ -130,25 +130,54 @@ function taskMatchesScope(task, scope, { includeUnattributed = true } = {}) {
   return false;
 }
 
+/** How long a finished task stays listed (any read prunes it after that). */
+export const FINISHED_TASK_TTL_MS = TASK_TTL_MS;
+
+// Every prune names what it removed, whichever read pruned and whoever's the
+// task was (a register's cap eviction drops another session's finished task).
+const evictionListeners = new Set();
+
+/** `listener(tasks)` hears each prune's removed tasks as
+ *  `{ taskId, surface, sessionId }` (`sessionId`: the owning session, '' when
+ *  unattributed); returns the unsubscribe. */
+export function onBackgroundTasksEvicted(listener) {
+  if (typeof listener !== 'function') return () => {};
+  evictionListeners.add(listener);
+  return () => evictionListeners.delete(listener);
+}
+
 function pruneTasks(options = {}) {
   const { force = false, surface } = options;
   const now = Date.now();
   const wanted = clean(surface);
   const scope = normalizeTaskScope(options);
+  const evicted = [];
+  const evict = (task) => {
+    tasks.delete(task.taskId);
+    if (evictionListeners.size > 0) {
+      evicted.push({ taskId: task.taskId, surface: task.surface, sessionId: taskSessionIdOf(task) || '' });
+    }
+  };
   // Deleting the entry being visited is safe during Map iteration.
-  for (const [taskId, task] of tasks) {
+  for (const task of tasks.values()) {
     if (wanted && task.surface !== wanted) continue;
     const finishedAt = task.finishedAtMs || 0;
     if (!force && !(finishedAt > 0 && now - finishedAt > TASK_TTL_MS)) continue;
-    if (taskMatchesScope(task, scope)) tasks.delete(taskId);
+    if (taskMatchesScope(task, scope)) evict(task);
   }
-  if (tasks.size <= MAX_TASKS) return;
-  const removable = [...tasks.values()]
-    .filter((task) => TERMINAL_STATUSES.has(task.status))
-    .sort((a, b) => (a.finishedAtMs || a.startedAtMs) - (b.finishedAtMs || b.startedAtMs));
-  while (tasks.size > MAX_TASKS && removable.length > 0) {
-    const task = removable.shift();
-    tasks.delete(task.taskId);
+  if (tasks.size > MAX_TASKS) {
+    const removable = [...tasks.values()]
+      .filter((task) => TERMINAL_STATUSES.has(task.status))
+      .sort((a, b) => (a.finishedAtMs || a.startedAtMs) - (b.finishedAtMs || b.startedAtMs));
+    while (tasks.size > MAX_TASKS && removable.length > 0) evict(removable.shift());
+  }
+  if (evicted.length === 0) return;
+  for (const listener of [...evictionListeners]) {
+    try {
+      listener(evicted);
+    } catch {
+      /* observers never affect the registry */
+    }
   }
 }
 
@@ -207,6 +236,7 @@ export function registerBackgroundTask({
   };
   tasks.set(id, task);
   emitSessionActivityChange(task.ownerSessionId || '');
+  if (task.surface === 'agent') emitSessionJobsChange(task.ownerSessionId || '');
   return task;
 }
 
@@ -473,6 +503,7 @@ export function completeBackgroundTask(
   if (resultType) task.resultType = resultType;
   if (instruction) task.notificationInstruction = compactText(instruction, 1_000);
   emitSessionActivityChange(task.ownerSessionId || '');
+  if (task.surface === 'agent') emitSessionJobsChange(task.ownerSessionId || '');
   // Work that ran in a directory may have changed files there, possibly
   // after its turn sealed: its end is a boundary like a finished command's.
   const cwd = task.input?.cwd || task.meta?.cwd;

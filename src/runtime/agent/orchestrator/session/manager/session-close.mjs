@@ -30,6 +30,7 @@ import { cancelBackgroundTasks } from '../../../../shared/background-tasks.mjs';
 import { releaseWorkerSnapshots } from '../../../../shared/worktrees/worker-snapshots.mjs';
 import { accountScopedSessionIdsOf } from '../../../../shared/provider-accounts.mjs';
 import { registerSessionPurgeHook } from '../store/session-observers.mjs';
+import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -220,6 +221,7 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
     if (typeof newGen === 'number') entry.generation = newGen;
     entry.stage = 'cancelling';
     entry.updatedAt = Date.now();
+    emitSessionActivityChange(id);
     // 3. Abort the in-flight controller. Providers that honour the signal
     //    unwind immediately; providers that don't will still be caught by
     //    the generation check after their await eventually returns.
@@ -311,6 +313,7 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
   entry.stage = 'cancelling';
   entry.closedReason = reason;
   entry.updatedAt = Date.now();
+  emitSessionActivityChange(id);
   try {
     entry.controller?.abort(new SessionClosedError(id, `abortSessionTurn (reason=${reason})`, reason));
   } catch {

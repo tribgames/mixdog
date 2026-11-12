@@ -103,9 +103,30 @@ export function _touchRuntime(id) {
       updatedAt: Date.now(),
     };
     _runtimeState.set(id, entry);
+    // A runtime appearing changes what agent status reads for the session.
+    emitSessionActivityChange(id);
   }
   return entry;
 }
+
+// The request phase the progress snapshot reports (waitingForTransport,
+// waitingForFirstSemantic): judged per logical model request, so output an
+// earlier request of this turn produced never ends a later request's
+// first-output phase. Agent status shows it (its watchdog line), so every
+// change of it is announced.
+function requestPhase(entry) {
+  const stage = entry.stage || 'idle';
+  const active = stage === 'connecting' || stage === 'requesting' || stage === 'streaming';
+  const requested = Boolean(entry.modelRequestStartedAt) && active;
+  return {
+    waitingForTransport: requested && !entry.requestTransportAt,
+    waitingForFirstSemantic: requested && !entry.requestFirstSemanticAt,
+  };
+}
+const phaseKey = (entry) => {
+  const phase = requestPhase(entry);
+  return (phase.waitingForTransport ? 1 : 0) + (phase.waitingForFirstSemantic ? 2 : 0);
+};
 
 export function _stopToolActivityHeartbeat(id) {
   if (!id) return;
@@ -162,6 +183,7 @@ export function updateSessionStage(id, stage) {
   const entry = _touchRuntime(id);
   const now = Date.now();
   const priorStage = entry.stage;
+  const priorPhase = phaseKey(entry);
   entry.stage = stage;
   // A new stage (a retried attempt included) has not sent its request yet.
   entry.requestSentAt = null;
@@ -174,8 +196,8 @@ export function updateSessionStage(id, stage) {
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   if (stage !== 'tool_running') _stopToolActivityHeartbeat(id);
-  // Agent status surfaces show the stage: they re-read on this pulse.
-  if (priorStage !== stage) emitSessionActivityChange(id);
+  // Agent status surfaces show the stage and request phase: they re-read on this pulse.
+  if (priorStage !== stage || priorPhase !== phaseKey(entry)) emitSessionActivityChange(id);
 }
 
 /**
@@ -257,9 +279,11 @@ export function markSessionTransportActivity(id) {
   const entry = _runtimeState.get(id);
   if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
   const now = Date.now();
+  const priorPhase = phaseKey(entry);
   entry.lastTransportAt = now;
   entry.requestTransportAt = now;
   entry.updatedAt = now;
+  if (priorPhase !== phaseKey(entry)) emitSessionActivityChange(id);
 }
 function _normalizeModelProgressKind(kind) {
   let value = 'semantic';
@@ -297,6 +321,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   }
   _stopToolActivityHeartbeat(id);
   const now = Date.now();
+  const priorPhase = phaseKey(entry);
   // Every semantic model event also proves transport health. The inverse is
   // intentionally false: raw chunks/keepalives update only lastTransportAt.
   entry.lastTransportAt = now;
@@ -315,7 +340,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   if (entry.stage === 'connecting' || entry.stage === 'requesting') {
     entry.stage = 'streaming';
     emitSessionActivityChange(id);
-  }
+  } else if (priorPhase !== phaseKey(entry)) emitSessionActivityChange(id);
   // Disk-side session.lastHeartbeatAt is the 60s zombie-reaper signal.
   const session = entry.session;
   if (session && now - (session.lastHeartbeatAt || 0) > HEARTBEAT_THROTTLE_MS) {
@@ -429,7 +454,7 @@ export function beginSessionTaskWait(id, taskId = null) {
 // also runs between queued follow-up turns within one ask.
 // The settle every terminal marker shares: stage, error, cleared turn clocks
 // and one completion stamp.
-function _settleTerminalEntry(entry, stage, lastError) {
+function _settleTerminalEntry(id, entry, stage, lastError) {
   entry.stage = stage;
   entry.lastError = lastError;
   entry.askStartedAt = null;
@@ -440,14 +465,14 @@ function _settleTerminalEntry(entry, stage, lastError) {
   entry.updatedAt = settledAt;
   entry.taskWaits = 0;
   entry.taskWaitJobIds = [];
-  emitSessionActivityChange(entry.session?.id || '');
+  emitSessionActivityChange(id);
 }
 export function markSessionDone(id, { empty = false } = {}) {
   if (!id) return;
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
   finishBrowserWork(id, entry);
-  _settleTerminalEntry(entry, 'done', null);
+  _settleTerminalEntry(id, entry, 'done', null);
   // Non-empty completion: drop any stale empty-final flag so a subsequent
   // ask on the same reusable runtime entry starts clean. Empty-final
   // completions preserve the flag (set by markSessionEmptyFinal just prior).
@@ -473,7 +498,7 @@ export function markSessionError(id, msg) {
   const entry = _touchRuntime(id);
   // A run that ended badly leaves no one to continue its browser work.
   finishBrowserWork(id, entry, true);
-  _settleTerminalEntry(entry, 'error', msg ? String(msg).slice(0, 200) : null);
+  _settleTerminalEntry(id, entry, 'error', msg ? String(msg).slice(0, 200) : null);
   // Error path is a non-empty completion (we have an error message, not a
   // silent empty final). Clear the flag so the next ask starts clean.
   entry.emptyFinal = false;
@@ -485,7 +510,7 @@ export function markSessionCancelled(id) {
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
   finishBrowserWork(id, entry, true);
-  _settleTerminalEntry(entry, 'done', null);
+  _settleTerminalEntry(id, entry, 'done', null);
   entry.emptyFinal = false;
   entry.emptyFinalAt = null;
   _unlinkParentAbortListener(entry);
@@ -523,11 +548,7 @@ export function getSessionProgressSnapshot(sessionId) {
   const firstSemanticAt = entry.firstSemanticAt || 0;
   const firstActivityAt = firstSemanticAt;
   const stage = entry.stage || 'idle';
-  const activeModelStage = stage === 'connecting' || stage === 'requesting' || stage === 'streaming';
-  // Judged per logical model request: output an earlier request of this turn
-  // produced never ends a later request's first-output phase.
-  const waitingForTransport = Boolean(modelRequestStartedAt && activeModelStage && !entry.requestTransportAt);
-  const waitingForFirstSemantic = Boolean(modelRequestStartedAt && activeModelStage && !entry.requestFirstSemanticAt);
+  const { waitingForTransport, waitingForFirstSemantic } = requestPhase(entry);
   return {
     stage,
     askStartedAt,
@@ -660,7 +681,7 @@ export function _clearSessionRuntime(id) {
   if (id) {
     _stopToolActivityHeartbeat(id);
     _unlinkParentAbortListener(_runtimeState.get(id));
-    _runtimeState.delete(id);
+    if (_runtimeState.delete(id)) emitSessionActivityChange(id);
     // R15: also drop the per-session metric-idempotency Set; otherwise it
     // grows O(sessions x iterations) for the whole server lifetime since
     // nothing else deletes from _metricSeenIter on session close.

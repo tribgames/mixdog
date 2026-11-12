@@ -92,10 +92,20 @@ export function createTagLookup({
       // read for an idle worker) was pure cost on every status pulse.
       if (seen.has(sessionId)) continue;
       const session = memoryOnly && sessionRecords ? sessionRecords.session(sessionId) : getLiveSession(sessionId);
-      if (session && reaper.tombstoneBlocksScan(session, tag, tombstones)) continue;
-      add(session, tag, true);
+      const entryTag = tagEntryTag(session, tag, tombstones);
+      if (!entryTag || !sessionMatchesContext(session, context) || seen.has(session.id)) continue;
+      seen.add(session.id);
+      rows.push({ tag: entryTag, session, loaded: true });
     }
     return rows;
+  }
+
+  /** The tag a session bound to `tag` is listed under (its own tag first),
+   *  whatever the scope, or '' when it is not listed (reaped, closed, a Lead's). */
+  function tagEntryTag(session, tag, tombstones) {
+    if (!session?.id || session.closed === true || reaper.tombstoneBlocksScan(session, tag, tombstones)) return '';
+    if (isLeadPoolAgent(session.agent)) return '';
+    return agentTagOf(session) || clean(tag);
   }
 
   function nextTag(agent, context = {}) {
@@ -121,5 +131,5 @@ export function createTagLookup({
     return tag;
   }
 
-  return { resolveTag, agentSessionEntries, nextTag };
+  return { resolveTag, agentSessionEntries, nextTag, tagEntryTag };
 }

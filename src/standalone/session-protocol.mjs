@@ -6,6 +6,8 @@
  */
 
 export const SESSION_READ_ACTIONS = Object.freeze([
+  // The session's per-row agent status list with its frame seq (wire contract).
+  'getAgentStatus',
   'inspectProjectBranch',
   'isSessionTerminal',
   'contextStatus',
