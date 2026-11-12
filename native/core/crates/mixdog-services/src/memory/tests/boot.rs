@@ -766,7 +766,7 @@ async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_nex
     use crate::memory::pg::cluster::{PgCluster, PgRuntime, Start};
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
     let dir = tempfile::tempdir().expect("dir");
-    let preferred = 57_000 + (std::process::id() % 800) as u16 * 8 + 5;
+    let preferred = super::support::preferred_port();
     // The port the start chose first (whichever it was: another process may hold `preferred` already), taken before its postmaster binds.
     let taken = Arc::new(std::sync::Mutex::new(None::<(u16, std::net::TcpListener)>));
     let holder = taken.clone();
