@@ -50,7 +50,7 @@ export function buildShellRoutingRules(kind = _defaultShellKind) {
 function buildShellDescription(kind) {
   const run = _shellBackgroundDisabled
     ? 'Commands run in the foreground until completion.'
-    : `Holds ${_holdS}s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.`;
+    : `Holds ${_holdS}s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). task wait only when no other work remains. Independent long runs: background:true; cancel when done.`;
   return `Run programs, builds, tests and computation. ${buildShellRoutingRules(kind)} ${run}`;
 }
 
@@ -105,7 +105,7 @@ export const BUILTIN_TOOLS = [
       compressible: false,
     },
     description:
-      "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+      "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -125,6 +125,12 @@ export const BUILTIN_TOOLS = [
                       file_path: { type: 'string' },
                       offset: { type: 'integer', minimum: 1 },
                       limit: { type: 'integer', minimum: 1, maximum: PUBLIC_READ_WINDOW_MAX },
+                      tail: {
+                        type: 'integer',
+                        minimum: 1,
+                        maximum: PUBLIC_READ_WINDOW_MAX,
+                        description: 'Last N lines, not with offset.',
+                      },
                     },
                     required: ['file_path'],
                     additionalProperties: false,
@@ -146,6 +152,12 @@ export const BUILTIN_TOOLS = [
           maximum: PUBLIC_READ_WINDOW_MAX,
           description:
             'Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.',
+        },
+        tail: {
+          type: 'integer',
+          minimum: 1,
+          maximum: PUBLIC_READ_WINDOW_MAX,
+          description: 'Last N lines of the file, not with offset.',
         },
         pages: {
           type: 'string',
@@ -223,7 +235,7 @@ export const BUILTIN_TOOLS = [
           type: 'integer',
           minimum: SHELL_HOLD_MIN_MS,
           maximum: SHELL_HOLD_MAX_MS,
-          description: `Hold in ms before a still-running command moves to the background (default ${SHELL_HOLD_DEFAULT_MS}). Usually omit; for a long finite command needed next, set up to ${SHELL_HOLD_MAX_MS}.`,
+          description: `Hold in ms before a still-running command moves to the background (default ${SHELL_HOLD_DEFAULT_MS}). Usually omit; for a long command when no other work remains, up to ${SHELL_HOLD_MAX_MS}.`,
         },
         background: {
           type: 'boolean',
@@ -254,7 +266,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: false,
     },
     description:
-      'Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.',
+      'Manage shell tasks. Completion is delivered automatically; wait only when no other work remains, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -446,6 +458,28 @@ export const BUILTIN_TOOLS = [
           description: 'Max entries; default 100; 0 = no page cap (absolute cap still applies).',
         },
         offset: { type: 'integer', minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'machine',
+    title: 'Machine Status',
+    annotations: {
+      title: 'Machine Status',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+      compressible: true,
+    },
+    description:
+      'One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        process: { type: 'string', description: 'Also list processes whose name contains this text.' },
+        top: { type: 'integer', minimum: 1, maximum: 20, description: 'Rows per top list; default 5.' },
       },
       additionalProperties: false,
     },

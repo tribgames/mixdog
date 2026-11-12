@@ -37,6 +37,10 @@ const sub = join(session, 'sub');
 mkdirSync(sub, { recursive: true });
 const dataFile = join(sub, 'data.txt');
 writeFileSync(dataFile, 'file-body-marker\n');
+// Fixtures the covered forms name: the cover only judges files it can inspect.
+writeFileSync(join(session, 'a.log'), Array.from({ length: 12 }, (_, i) => `line ${i + 1} boom`).join('\n') + '\n');
+writeFileSync(join(session, 'a.txt'), 'alpha\nfoo bar\nomega\n');
+writeFileSync(join(session, 'b.txt'), 'beta\n');
 
 const PRINT_CWD = 'node -e "console.log(process.cwd())"';
 const textOf = (output) => (typeof output === 'string' ? output : output.result);
@@ -487,20 +491,203 @@ test('piped program output, writes and reads that feed a program are not flagged
   }
 });
 
-test('reject mode blocks a flagged read without a note and still records it', () => {
+const offersAll = () => true;
+const BLOCK = /^Error: \[shell-tool-failed\] Blocked: the built-in tools cover this command, so it was not run\. Call instead: /;
+
+// [command, the exact call the rejection names]
+const REJECTED = {
+  [POWERSHELL]: [
+    ['Get-Content a.log -Tail 3', 'read {"file_path":"a.log","tail":3}'],
+    ['Get-Content -Path a.log -TotalCount 5', 'read {"file_path":"a.log","limit":5}'],
+    ['cat a.txt', 'read {"file_path":"a.txt"}'],
+    ['gc a.log | Select-Object -Last 4', 'read {"file_path":"a.log","tail":4}'],
+    ['gc a.log | Select-Object -First 4', 'read {"file_path":"a.log","limit":4}'],
+    ['Get-Content a.log | Select-String boom', 'grep {"pattern":"(?i)boom","path":"a.log","context":0,"limit":0}'],
+    [
+      'Select-String -Path sub\\data.txt -Pattern marker',
+      'grep {"pattern":"(?i)marker","path":"sub\\\\data.txt","context":0,"limit":0}',
+    ],
+  ],
+  [POSIX]: [
+    ['tail -n 3 a.log', 'read {"file_path":"a.log","tail":3}'],
+    ['tail -20 a.log', 'read {"file_path":"a.log","tail":20}'],
+    ['tail -n +5 a.log', 'read {"file_path":"a.log","offset":5}'],
+    ['head -n 5 a.txt', 'read {"file_path":"a.txt","limit":5}'],
+    ['cat a.txt | head -3', 'read {"file_path":"a.txt","limit":3}'],
+    ['grep -in "foo bar" a.txt', 'grep {"pattern":"(?i)foo bar","path":"a.txt","context":0,"limit":0}'],
+    ['rg foo a.txt', 'grep {"pattern":"foo","path":"a.txt","context":0,"limit":0}'],
+    ['ls sub', 'list {"path":"sub"}'],
+  ],
+};
+
+// Each of these keeps running (with the note when its first statement is a read).
+const STILL_RUNS = {
+  [POWERSHELL]: [
+    'Get-Content a.log | node x.js',
+    'Get-Content a.log -Tail 3; npm run build',
+    'Get-Content a.log | ForEach-Object { $_ }',
+    'git log | Select-Object -First 5',
+    'git status | node x.js',
+    'git status > out.txt',
+    'git commit -m "a $(x)"',
+    'echo "Get-Content a.log -Tail 3"',
+    'Write-Host "git status"',
+    'Get-Content $env:LOG -Tail 3',
+    'Get-Content a.log -Wait',
+    'sls foo src\\*.mjs',
+    'sls foo src\\*.mjs',
+    'Get-Process | Select-String node',
+    'Get-Content a.log -Tail 3 & sleep 1',
+    // The review's findings: each loses something the replacement does not do.
+    'Get-Content a.log -Encoding Unicode',
+    'Get-Content a.log -Raw',
+    'Get-Content a.txt,b.txt',
+    "Get-Content @'\na.txt\n'@",
+    'Get-Content a.log -Tail 0',
+    'Get-ChildItem sub -Recurse | Measure-Object -Property Length -Sum',
+    'Get-ChildItem sub -Recurse',
+    'Get-ChildItem sub -Force',
+    'Get-ChildItem sub -Directory',
+    'Get-ChildItem sub -Recurse -Force',
+    'Get-ChildItem sub',
+    'ls sub',
+    'Get-Content a.log | Sort-Object -Unique',
+    'Get-Content a.log | Measure-Object -Line',
+    'git worktree prune',
+    'git -C repo worktree prune',
+    'git stash',
+    'git -c alias.st=status st',
+    'git add -p',
+    'git diff --quiet',
+    'git diff --exit-code',
+    'git status 2>&1',
+    'git status || git log',
+    'git config --get user.name',
+  ],
+  [POSIX]: [
+    'cat a.txt | python3 x.py',
+    'cat a.txt && make',
+    'tail -n 3 a.log; npm test',
+    'tail -f a.log',
+    'git log | grep fix',
+    'git log | wc -l',
+    'git status > out.txt',
+    'git diff $(git merge-base a b)',
+    "echo 'cat a.txt'",
+    'echo "git status"',
+    'grep -v foo a.txt',
+    'grep foo a.txt | xargs rm',
+    'cat "$FILE"',
+    'cat a.txt &',
+    'find . -name "*.tmp" -delete',
+    // The review's findings.
+    'cat a.txt | sort -o b.txt',
+    'cat a.txt | wc -l',
+    'cat /dev/zero',
+    'cat /dev/stdin',
+    'cat a.txt b.txt',
+    'cat nofile.txt',
+    'cat sub',
+    'cat ~/a.txt',
+    'cat a*.txt',
+    'cat -n a.txt',
+    'ls -la sub',
+    'ls -a sub',
+    'ls',
+    'grep -c foo a.txt',
+    'grep -l foo a.txt',
+    'grep -rn foo sub',
+    'grep -C 201 foo a.txt',
+    'grep -C 5 foo a.txt',
+    'grep foo a.txt b.txt',
+    'grep "fo+" a.txt',
+    'grep "a|b" a.txt',
+    'rg -g "*.txt" foo .',
+    'head -n 0 a.txt',
+    'head -n 501 a.txt',
+    'tail -n 100001 a.log',
+    'tail -n +0 a.log',
+    'tail -f a.log',
+    'less a.txt',
+    'find . -name x',
+    'find . -name x -type f',
+    'git stash',
+    'git -c alias.st=status st',
+    'git add -p',
+    'git diff --quiet',
+    'git diff --exit-code',
+    'git worktree prune',
+    'git status 2>&1',
+    'git log || git status',
+    'git --no-pager log',
+    // No git command is covered: the git tool answers in its own form.
+    'git status',
+    'git -C ../other diff --stat',
+    'git log --oneline -3 && git status',
+    // One statement only: a join keeps conditions separate calls do not.
+    'grep NOMATCH a.txt && tail -n 3 a.log',
+    'tail -n 3 a.log; ls sub',
+    // A redirect changes what comes back.
+    'cat a.txt > /dev/null',
+    'tail -n 3 a.log 2>/dev/null',
+  ],
+};
+
+test('a command the tools cover whole is rejected with the exact call that replaces it', () => {
   for (const shellType of [POWERSHELL, POSIX]) {
-    for (const [command, tool] of FLAGGED[shellType]) {
+    for (const [command, call] of REJECTED[shellType]) {
       const telemetry = {};
-      const out = guard(command, shellType, { fileReadMode: 'reject', telemetry });
-      assert.match(out.failure ?? '', /^Error: \[shell-tool-failed\] Blocked: use read \/ grep \/ list/, command);
+      const out = guard(command, shellType, { cwd: session, offers: offersAll, telemetry, agent: 'a', sessionId: 's' });
+      assert.match(out.failure ?? '', BLOCK, `${shellType}: ${command}`);
+      assert.ok(out.failure.endsWith(call), `${shellType}: ${command}\n${out.failure}`);
       assert.equal(out.args, undefined);
+      assert.equal(telemetry.shellMisuse.length, 1);
       assert.equal(telemetry.shellMisuse[0].mode, 'reject');
-      assert.equal(telemetry.shellMisuse[0].tool, tool);
-    }
-    for (const command of NOT_FLAGGED[shellType]) {
-      assert.equal(guard(command, shellType, { fileReadMode: 'reject' }).failure, undefined, command);
+      assert.equal(telemetry.shellMisuse[0].kind, 'file-read');
     }
   }
+});
+
+test('a command with a statement the tools do not cover runs, with the note when it starts with a read', () => {
+  for (const shellType of [POWERSHELL, POSIX]) {
+    for (const command of STILL_RUNS[shellType]) {
+      const telemetry = {};
+      const out = guard(command, shellType, { cwd: session, offers: offersAll, telemetry });
+      assert.equal(out.failure, undefined, `${shellType}: ${command}`);
+      assert.equal(out.args.command, command);
+      for (const entry of telemetry.shellMisuse ?? []) assert.equal(entry.mode, 'warn', command);
+    }
+  }
+  const warned = guard('Get-Content a.log -Tail 3; npm run build', POWERSHELL, { cwd: session, offers: offersAll });
+  assert.deepEqual(warned.notes, [SHELL_FILE_READ_NOTE]);
+});
+
+test('a covered command is not rejected where the session lacks the tool that replaces it', () => {
+  const noGrep = (tool) => tool !== 'grep';
+  const at = { cwd: session, offers: noGrep };
+  assert.equal(guard('rg foo a.txt', POSIX, at).failure, undefined);
+  assert.match(guard('tail -n 3 a.log', POSIX, at).failure, BLOCK);
+  // No session information (a direct caller, a foreign adapter's shell): note only.
+  assert.equal(guard('tail -n 3 a.log', POSIX, { cwd: session }).failure, undefined);
+  assert.deepEqual(guard('tail -n 3 a.log', POSIX, { cwd: session }).notes, [SHELL_FILE_READ_NOTE]);
+});
+
+test('a command that runs in another directory is never covered, since the tools resolve paths in the session directory', () => {
+  const out = guard('tail -n 3 a.log', POSIX, { cwd: session, offers: offersAll, args: { cwd: sub } });
+  assert.equal(out.failure, undefined);
+  assert.equal(guard('cd sub; tail -n 3 data.txt', POSIX, { cwd: session, offers: offersAll }).failure, undefined);
+});
+
+test('the tool-exec path rejects only for a session that offers the tools', async () => {
+  const command = resolveShellFor('default').shellType === POWERSHELL ? 'Get-Content a.log -Tail 3' : 'tail -n 3 a.log';
+  const tools = (...names) => names.map((name) => ({ name }));
+  const full = { id: 'cover-full', cwd: session, tools: tools('read', 'grep', 'git', 'list', 'glob') };
+  const out = await executeTool('shell', { command }, session, full.id, full, {});
+  assert.match(textOf(out), /Blocked: the built-in tools cover this command/);
+  assert.match(textOf(out), /read \{"file_path":"a\.log","tail":3\}/);
+  const bare = { id: 'cover-bare', cwd: session, tools: tools('shell') };
+  const ran = await executeTool('shell', { command }, session, bare.id, bare, {});
+  assert.doesNotMatch(textOf(ran), /Blocked: the built-in tools cover this command/);
 });
 
 // ── through the tool ────────────────────────────────────────────────────────
