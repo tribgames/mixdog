@@ -1,42 +1,43 @@
 {
-  "note": "the realpath spelling of the Node key test is textually the directory itself on the recording machine; the key of a path is compared by spelling equality only",
+  "note": "the realpath spelling of the Node key test is textually the directory itself on the recording machine; each key is recorded with the key of the sandbox root replaced by <ROOT>",
   "platform": "win32",
+  "rootPlaceholder": "<ROOT>",
   "keys": [
     {
       "spelling": "<ROOT>\\Repo\\.git",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\Repo\\.git/",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\Repo\\.git\\x\\..",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\REPO\\.GIT",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>/Repo/.git",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\Repo\\.git\\",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\Repo\\.git\\.",
-      "sameAsFirst": true
+      "key": "<ROOT>\\repo\\.git"
     },
     {
       "spelling": "<ROOT>\\Repo\\.git\\x",
-      "sameAsFirst": false
+      "key": "<ROOT>\\repo\\.git\\x"
     },
     {
       "spelling": "<ROOT>\\Repo\\other",
-      "sameAsFirst": false
+      "key": "<ROOT>\\repo\\other"
     }
   ],
   "scenarios": [
