@@ -2,9 +2,12 @@
 //! `record-session-tool-project-cases.mjs`): each recorded call through the `SessionTool` over the
 //! `DirectorySessionPort`, the whole outcome (the tool's text or its error message) against Node's.
 //! The threads are real: `sess-1`, `worker-1` and `w` live in a `SessionDirectory` over the session rig, their headers
-//! are the directory's, and a fork and a compaction run the thread actors. Only the test's workspace switch is a double,
-//! as in Node's test: it answers `switchProject:ok` (the call's own `setCallerCwd` answers `<path>::caller`), so the
-//! `thread/setCwd` request stores that as the thread's cwd and every other request goes to the directory.
+//! are the directory's, and a fork and a compaction run the thread actors. The Project switch is the product's: the port's
+//! requests go through `SettingsRequests` to the thread settings service over the real workspace host, so what the call
+//! answers and what the thread's header stores are the product's. Node's test answered with a double (`switchProject:ok`,
+//! or `<path>::caller` for a call's own `setCallerCwd`); the product answers the folder it stored, which is what those
+//! doubles stood for (the manifest's `compared`). The calls run while the Lead's own turn runs, as a tool call does
+//! (`ownTurn: true`, recorded in `switches`).
 
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
@@ -18,44 +21,47 @@ use mixdog_core_session::session::testing::Rig;
 use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_tools::orch::session::SessionTool;
 
+use super::super::session_port::SettingsRequests;
 use super::*;
 
 fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-tool-project-cases/golden.json")).expect("json")
 }
 
-/// The test's workspace switch (`switchProject`, or the call's `setCallerCwd`): records the switch and stores its
-/// answer as the thread's cwd; every other request is the directory's.
-struct Switch {
-    directory: Arc<SessionDirectory>,
-    threads: Arc<SessionThreads>,
-    /// The workspace API's switches: `[method, path]`.
-    calls: Mutex<Vec<Value>>,
-    /// The call in flight carries its own `setCallerCwd`.
-    caller_owned: std::sync::atomic::AtomicBool,
+/// The Lead's own turn, held running until released: a `session set-project` call is made inside it.
+async fn hold_turn(directory: &SessionDirectory, rig: &Rig, thread: &str) -> Arc<tokio::sync::Notify> {
+    let release = Arc::new(tokio::sync::Notify::new());
+    let gate = release.clone();
+    rig.set_script(Arc::new(move |_run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            gate.notified().await;
+            mixdog_core_session::session::RunOutcome::Completed(Box::default())
+        })
+    }));
+    let id = ThreadId::from(thread);
+    let handle = directory.open_handle(&id, &connection()).await.expect("opens");
+    let op = OpId::from(uuid::Uuid::now_v7().to_string());
+    let params = json!({ "threadId": id, "opId": op.as_str(), "input": { "prompt": "work" } });
+    handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op), ctx: connection() }).await.expect("turn/start");
+    mixdog_core_session::session::testing::awaiting(
+        || format!("the turn of {thread} to run"),
+        async {
+            loop {
+                let stepped = handle.stepped().notified();
+                tokio::pin!(stepped);
+                stepped.as_mut().enable();
+                if mixdog_core_session::session::agent_registry::LiveSessions::running(directory, thread) {
+                    return;
+                }
+                stepped.await;
+            }
+        },
+    )
+    .await;
+    release
 }
 
-#[async_trait]
-impl ThreadRequests for Switch {
-    async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        if method != "thread/setCwd" {
-            return ThreadRequests::request(&*self.directory, thread, method, params).await;
-        }
-        let path = params["path"].as_str().expect("path").to_owned();
-        let cwd = if self.caller_owned.load(std::sync::atomic::Ordering::SeqCst) {
-            format!("{path}::caller")
-        } else {
-            self.calls.lock().expect("calls").push(json!([method, path]));
-            "switchProject:ok".to_owned()
-        };
-        let set = Map::from_iter([("cwd".to_owned(), json!(cwd))]);
-        self.threads.patch_header(thread, set, Vec::new()).await.expect("the thread");
-        Ok(Value::Null)
-    }
-    fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
-        ThreadRequests::interrupt(&*self.directory, thread)
-    }
-}
 /// The Settings switch of AI titles, which a case turns off between calls (`rt.config.aiSessionTitles = false`).
 struct Toggle(std::sync::atomic::AtomicBool);
 
@@ -91,6 +97,14 @@ impl ThreadState for Racing {
     }
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         self.threads.publish(thread, section).await
+    }
+}
+
+/// The call asks for a Project switch: `action=set-project`, or a `path` and no action.
+fn args_set_project(args: &Value) -> bool {
+    match args["action"].as_str() {
+        Some(action) => action == "set-project",
+        None => args["path"].is_string(),
     }
 }
 
@@ -202,14 +216,25 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
         }
         let racing: Arc<dyn ThreadState> = Arc::new(Racing { threads: threads.clone(), armed: case["recorded"]["store"]["title"] == "old" });
         let titles_on = Arc::new(Toggle(std::sync::atomic::AtomicBool::new(true)));
-        let switch = Arc::new(Switch { directory: directory.clone(), threads: threads.clone(), calls: Mutex::default(), caller_owned: Default::default() });
+        let hosted = mixdog_core_session::session::thread_settings_rig::hosted(&directory, threads.clone());
+        let built = mixdog_core_session::session::thread_settings_rig::build(
+            directory.clone(),
+            hosted.workspaces.clone(),
+            hosted.worktrees.clone(),
+            Vec::new(),
+            hosted.dir.path().join("task").to_string_lossy().into_owned(),
+        )
+        .await;
+        let requests = Arc::new(SettingsRequests::new(directory.clone(), Arc::new(built.settings)));
+        // A tool call runs inside its caller's turn.
+        let turn = if case["recorded"].get("switches").is_some() { Some(hold_turn(&directory, &rig, "sess-1").await) } else { None };
         let marks = HeartbeatSessions::new();
         let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
         let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, runs));
         let port = DirectorySessionPort::new(SessionPortParts {
             callers: callers.clone(),
             threads: racing.clone(),
-            requests: switch.clone(),
+            requests,
             titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(racing.clone(), Arc::new(Messages), Arc::new(Now))),
             ai_titles: titles_on.clone(),
             projects: Arc::new(NoProjects),
@@ -221,6 +246,8 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
         let mut calls = Vec::new();
         let mut live = None;
         let mut copies = Vec::new();
+        // The folder the Lead's header stored after each `set-project` the runtime answered (no `setCallerCwd`).
+        let mut stored = Vec::new();
         for call in case["recorded"]["calls"].as_array().unwrap() {
             match call["label"].as_str() {
                 // The test's store now answers `user-title`: the stored title is the user's.
@@ -240,7 +267,6 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
                 let workspace = Map::from_iter([("workspace".to_owned(), case["recorded"]["workspace"].clone())]);
                 threads.patch_header(&ThreadId::from("sess-1"), workspace, Vec::new()).await.expect("the thread");
             }
-            switch.caller_owned.store(call["context"].get("setCallerCwd").is_some(), std::sync::atomic::Ordering::SeqCst);
             let caller = call["context"]["callerSessionId"].as_str().unwrap_or("sess-1");
             let surface = if caller == "sess-1" { SurfaceKind::Lead } else { SurfaceKind::Agent };
             let outcome = match tool.call(&call_ctx(caller, surface), args).await {
@@ -251,6 +277,16 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
                 Err(error) => json!({ "error": error.message_for_model.replace(&shown_dir, "<dir>") }),
             };
             let outcome = minted(outcome, &mut copies);
+            if let Some(text) = outcome["ok"].as_str().filter(|_| args_set_project(&call["args"])) {
+                // The answer names the folder the header now stores.
+                let answered: Value = serde_json::from_str(text).expect("the answer");
+                let header = threads.header(&ThreadId::from("sess-1")).await.expect("the thread");
+                let folder = header["cwd"].as_str().expect("a stored folder").replace(&shown_dir, "<dir>");
+                assert_eq!(answered["cwd"], json!(folder), "{}: the answer is the stored folder", call["label"]);
+                if call["context"].get("setCallerCwd").is_none() {
+                    stored.push(json!(folder));
+                }
+            }
             calls.push(json!({ "label": call["label"], "tool": call["tool"], "args": call["args"], "context": call["context"], "outcome": outcome }));
             // The live session's title after the case's first call (`rt.session.title`/`titleSource`).
             if live.is_none() {
@@ -260,9 +296,16 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
         }
         let mut got = json!({ "calls": calls });
         let mut want = json!({ "calls": case["recorded"]["calls"].as_array().unwrap().iter().filter(|c| c["tool"] == "session").collect::<Vec<_>>() });
+        // Node's doubles answered `switchProject:ok` and `<path>::caller`; the product answers the folder it stored.
+        for call in want["calls"].as_array_mut().unwrap() {
+            if let Some(text) = call["outcome"]["ok"].as_str() {
+                call["outcome"]["ok"] = json!(text.replace("switchProject:ok", "<dir>").replace("<dir>::caller", "<dir>"));
+            }
+        }
         if let Some(switches) = case["recorded"].get("switches") {
-            // Node's switch got the resolved directory and its own-turn flag; the core's thread request carries the directory.
-            got["switches"] = json!(switch.calls.lock().expect("calls").iter().map(|c| c[1].as_str().unwrap().replace(&shown_dir, "<dir>")).collect::<Vec<_>>());
+            // Node's workspace switch got the resolved directory (and its own-turn flag, which the held turn stands for); the
+            // product's is the folder the Lead's header stored.
+            got["switches"] = json!(stored);
             want["switches"] = json!(switches.as_array().unwrap().iter().map(|s| s[0].clone()).collect::<Vec<_>>());
         }
         if let Some(pending) = case["recorded"].get("pending") {
@@ -278,8 +321,11 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
             want["forks"] = json!(forks.as_array().unwrap().iter().map(|f| json!([f[0], f[1]["compact"]])).collect::<Vec<_>>());
         }
         if let Some(touched) = case["recorded"].get("touched") {
-            got["touched"] = json!(switch.calls.lock().expect("calls").clone());
+            got["touched"] = json!(stored);
             want["touched"] = touched.clone();
+        }
+        if let Some(turn) = turn {
+            turn.notify_one();
         }
         let pretty = |v: &Value| serde_json::to_string_pretty(v).unwrap();
         assert!(got == want, "{}\n--- core\n{}\n--- node\n{}", case["case"], pretty(&got), pretty(&want));

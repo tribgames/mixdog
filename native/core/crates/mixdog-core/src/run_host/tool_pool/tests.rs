@@ -371,6 +371,9 @@ impl ThreadRequests for Requests {
         self.calls.lock().expect("calls").push((thread.as_str().to_owned(), method.to_owned(), params));
         Ok(self.reply.lock().expect("reply").clone())
     }
+    async fn set_caller_cwd(&self, _: &ThreadId, path: &str) -> Result<String, CoreError> {
+        Ok(path.to_owned())
+    }
     fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
         Ok(self.interrupted)
     }

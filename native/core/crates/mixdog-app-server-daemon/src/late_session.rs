@@ -429,19 +429,48 @@ impl Bound for LateReactions {
 }
 
 /// `ThreadRequests` of the `session` tool's port over the live directory (the port is built with the pool, before the directory).
-pub struct LateRequests(pub Arc<LateDirectory>);
+/// Bound with the thread settings service (`SettingsRequests`), which answers the methods the thread actor does not.
+#[derive(Default)]
+pub struct LateRequests(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>>);
+
+impl LateRequests {
+    pub fn bind(&self, requests: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>) -> Result<(), &'static str> {
+        self.0.set(requests).map_err(|_| "session tool requests")
+    }
+
+    fn bound(&self) -> &Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests> {
+        self.0.get().expect("session tool requests bound (compose::verify_bound)")
+    }
+}
 
 #[async_trait]
 impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
-        match self.0.directory() {
-            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::request(&*directory, thread, method, params).await,
+        match self.0.get() {
+            Some(requests) => requests.request(thread, method, params).await,
+            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
+        }
+    }
+
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, mixdog_core_api::CoreError> {
+        match self.0.get() {
+            Some(requests) => requests.set_caller_cwd(thread, path).await,
             None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
         }
     }
 
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
-        mixdog_core::run_host::tool_pool::session_port::ThreadRequests::interrupt(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
+        self.bound().interrupt(thread)
+    }
+}
+
+impl Bound for LateRequests {
+    fn cell(&self) -> &'static str {
+        "session tool requests"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
     }
 }
 /// `context.cwd` of a recorded tool change: the live header's folder (`ThreadCwd`); a thread that is not loaded has none, and the review keeps the path as given.
