@@ -84,6 +84,8 @@ struct Connectors {
     needs: Vec<String>,
     disabled: Vec<String>,
     save_works: bool,
+    /// The tools whose "always allow" was stored.
+    stored: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
@@ -97,7 +99,10 @@ impl ConnectorPermissions for Connectors {
     fn project_disabled(&self, _thread: &ThreadId, _tool: &str) -> bool {
         false
     }
-    async fn allow_always(&self, _bot: &str, _tool: &str) -> bool {
+    async fn allow_always(&self, _bot: &str, tool: &str) -> bool {
+        if self.save_works {
+            self.stored.lock().expect("stored").push(tool.to_owned());
+        }
         self.save_works
     }
 }
@@ -359,6 +364,42 @@ async fn a_no_from_the_person_denies_waits_and_marks_the_turn_as_waiting_on_them
     assert!(text.starts_with("Error: tool \"mcp__notes__append\" was not approved: "), "{text}");
     assert_eq!(waits(&r.events), [true, false]);
     assert_eq!(*r.guards.0.lock().expect("waits"), 1);
+}
+
+/// Node's connector approval for a bot's own session, answered "always allow" (recorded in `approval-grant-change-cases`, case "an
+/// approval whose grant cannot be saved ..."): the call runs once either way, a refused save raises the notice and stores nothing, a saved
+/// one raises none and stores the grant.
+#[tokio::test]
+async fn an_always_allow_that_cannot_be_saved_runs_the_call_and_tells_the_person_as_nodes_does() {
+    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/approval-grant-change-cases/golden.json")).expect("golden.json");
+    let case = golden["cases"].as_array().expect("cases").iter().find(|c| c["case"].as_str().is_some_and(|name| name.starts_with("an approval whose grant cannot be saved"))).expect("the recorded case");
+    for (label, save_works) in [("saved", true), ("refused", false)] {
+        let observed = &case["observed"][label];
+        let stored = Arc::new(Mutex::new(Vec::new()));
+        let r = rig(
+            Connectors { needs: vec!["mcp__notes__append".into()], save_works, stored: stored.clone(), ..Connectors::default() },
+            SessionSurface::default(),
+            false,
+        );
+        r.approvals.script.lock().expect("script").push_back(decided(true, Some(ApprovalRemember::Agent)));
+        // `outcome: null`: the call runs.
+        assert_eq!(r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await, GateDecision::Allow, "{label}: the call runs");
+        assert!(observed["outcome"].is_null());
+        let notices: Vec<serde_json::Value> = r
+            .events
+            .0
+            .lock()
+            .expect("events")
+            .iter()
+            .filter_map(|event| match event {
+                RunEvent::Stage(Stage::Notice { message, tone }) => Some(json!([message, if *tone == Tone::Warn { "warn" } else { "other" }])),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(serde_json::Value::Array(notices), observed["notices"], "{label}: the notices");
+        let kept = if stored.lock().expect("stored").is_empty() { "needs_approval" } else { "auto" };
+        assert_eq!(json!(kept), observed["stored"], "{label}: the stored permission");
+    }
 }
 
 #[tokio::test]

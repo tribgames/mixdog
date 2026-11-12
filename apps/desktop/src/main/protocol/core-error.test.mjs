@@ -64,6 +64,14 @@ test('an uncoded domain error without a text and other failures are left as they
   }
 });
 
+test('a refused argument reaches the window as the sentence Node\'s handler threw', () => {
+  const failure = rpcFailure({ reason: 'invalidParams', path: 'desktop.zoom', expected: 'Desktop zoom is fixed at 100%.' });
+  const shown = coreErrorForWindow(failure);
+  assert.equal(shown instanceof TypeError, true);
+  assert.equal(shown.message, 'Desktop zoom is fixed at 100%.');
+  assert.equal(shown.cause, failure);
+});
+
 test('a coded worktree refusal reaches the page in the shape worktreeFailure reads', () => {
   const shown = coreErrorForWindow(
     rpcFailure({

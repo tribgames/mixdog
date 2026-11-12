@@ -1,6 +1,7 @@
 // Only the `#![cfg(windows)]` suites use it.
 #[cfg(windows)]
 mod support;
+mod bundled_skills_suite;
 mod card_suite;
 mod catalog_suite;
 mod compact_suite;

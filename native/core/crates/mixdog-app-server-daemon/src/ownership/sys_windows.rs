@@ -1,4 +1,4 @@
-//! Windows: `LockFileEx` over `daemon-owner.lock` from SQLite's pending byte up, opened
+//! Windows: `LockFileEx` over the bytes of `daemon-owner.lock` that Node's SQLite lock takes, opened
 //! without `FILE_SHARE_DELETE`. That handle keeps the lock file, the data dir
 //! and every ancestor from being deleted or renamed while the core runs, and
 //! the barrier is held open the same way, so revalidation has nothing to check.
@@ -29,10 +29,11 @@ use super::AcquireError;
 use super::DataDir;
 use super::LOCK_FILE;
 
-/// SQLite's pending byte, where Node's lock (an exclusive SQLite transaction)
-/// and every SQLite lock byte begin. Bytes below it stay unlocked, so the lock
-/// file can still be read, by the owner too.
-const LOCK_START: u32 = 0x4000_0000;
+/// The bytes Node's lock takes: an exclusive SQLite transaction locks the pending, reserved and shared bytes from 1 GiB on
+/// (PENDING_BYTE, 2 + 510 bytes). Nothing the file holds lies there, so any other handle can read the file while the lock
+/// is held (a locked range refuses reads), and a Node daemon on the same data dir conflicts with this one.
+const SQLITE_LOCK_OFFSET: u32 = 0x4000_0000;
+const SQLITE_LOCK_LEN: u32 = 512;
 
 pub(super) struct LockFile {
     _file: File,
@@ -51,18 +52,17 @@ pub(super) fn lock(dir: &DataDir) -> Result<LockFile, AcquireError> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .open(dir.path().join(LOCK_FILE))
         .map_err(AcquireError::Unavailable)?;
-    // SAFETY: a zeroed OVERLAPPED is a valid descriptor; only its offset is set.
+    // SAFETY: a zeroed OVERLAPPED is a valid descriptor; the offset is set below.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    overlapped.Anonymous.Anonymous.Offset = LOCK_START;
-    // SAFETY: valid file handle and OVERLAPPED; the range runs from LOCK_START
-    // to the end of the file space.
+    overlapped.Anonymous.Anonymous.Offset = SQLITE_LOCK_OFFSET;
+    // SAFETY: valid file handle and OVERLAPPED; the range lies past any byte of the file.
     let ok = unsafe {
         LockFileEx(
             file.as_raw_handle() as HANDLE,
             LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
             0,
-            u32::MAX - LOCK_START,
-            u32::MAX,
+            SQLITE_LOCK_LEN,
+            0,
             &mut overlapped,
         )
     };

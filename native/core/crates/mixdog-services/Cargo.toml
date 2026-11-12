@@ -111,3 +111,6 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-services = { path = ".", features = ["test-support"] }
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 mixdog-exthost = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-trace = { workspace = true, features = ["flush-probe"] }

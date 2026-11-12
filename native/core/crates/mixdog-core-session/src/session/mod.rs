@@ -191,6 +191,8 @@ mod recovery_kill_tests;
 #[cfg(test)]
 mod sensitive_record_tests;
 #[cfg(test)]
+mod items_tail_tests;
+#[cfg(test)]
 mod sensitive_carry_tests;
 #[cfg(test)]
 mod message_sanitize_replay;
@@ -226,6 +228,10 @@ mod recorded_145_tests;
 mod phone_chat_tests;
 #[cfg(test)]
 mod session_reentry_tests;
+#[cfg(test)]
+mod task_notification_envelope_tests;
+#[cfg(test)]
+mod message_attachments_tests;
 #[cfg(test)]
 mod new_task_tests;
 #[cfg(test)]
@@ -393,6 +399,8 @@ pub struct SessionDeps {
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
     pub notices: Arc<dyn notices::SessionNotices>,
+    /// Announces a settings scope changed to every client (`notifySettingsChanged(scope)`): `ui/settings/changed`.
+    pub settings_changed: Arc<dyn Fn(&str) + Send + Sync>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.

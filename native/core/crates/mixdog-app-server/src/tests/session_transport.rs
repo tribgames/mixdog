@@ -441,9 +441,9 @@ async fn unsubscribing_never_interrupts_the_running_turn() {
     let items = vec![user_item(&uuid(2), &t, &prompt), agent_item("answer", &t, &answer_text)];
     expected.push(read(3, &world.id, state(false, &[&prompt]), items));
     whole("call-contract-243-terminal", &terminal.frames, &[world.id.as_str()], expected);
-    // The viewer attached while the turn ran: its snapshot shows the turn's prompt (the runtime's `busy` is what the run
-    // reports, and this scripted run reports nothing), then its unsubscribe is answered and nothing more reaches it.
-    let mut expected = resumed(2, 1, &world.id, 3, state(false, &[&prompt]), vec![user_item(&uuid(2), &t, &prompt)]).to_vec();
+    // The viewer attached while the turn ran: its snapshot shows the turn's prompt and the runtime busy (busy from the run's start,
+    // as Node's askSession), then its unsubscribe is answered and nothing more reaches it.
+    let mut expected = resumed(2, 1, &world.id, 3, state(true, &[&prompt]), vec![user_item(&uuid(2), &t, &prompt)]).to_vec();
     expected.push(answer(2, json!({})));
     whole("call-contract-243-desktop", &desktop.frames, &[world.id.as_str()], expected);
 }
@@ -716,7 +716,7 @@ async fn remote_state_churn_with_no_reader_leaves_only_the_latest() {
         answer(1, json!({ "subscription": { "id": "c1-1", "mode": "snapshot", "epoch": EPOCH, "startSeq": count + 1, "liveSeq": count + 1 } })),
         json!({
             "method": "app/snapshot",
-            "params": { "sections": [{ "section": "hostState", "key": "remoteSession", "revision": count, "value": { "sessionId": latest } }] },
+            "params": { "sections": [{ "section": "hostState", "key": "remoteSession", "revision": count, "value": { "enabled": true, "sessionId": latest, "cwd": null } }] },
             "feed": { "id": "app", "epoch": EPOCH, "seq": count },
         }),
     ];
@@ -800,7 +800,7 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         "meta": { "turnId": t, "at": 1000, "ext": { "outputTokens": 0, "thinkingElapsedMs": 0, "toolCount": 1, "completionVerb": "Mapped", "attemptId": uuid(4) } },
     });
     let mut expected = vec![started(1, &t)];
-    expected.extend(resumed(1, 2, &world.id, 4, state(false, &["go"]), snapshot_items));
+    expected.extend(resumed(1, 2, &world.id, 4, state(true, &["go"]), snapshot_items));
     expected[2]["params"]["hasOlder"] = json!(true); // 1991 stored rows lie before the window
     expected.extend([
         event(&world.id, 5, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),

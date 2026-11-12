@@ -170,6 +170,8 @@ pub struct Real {
     pub archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps>,
     /// The writer of `<data>/gateway-usage.local.jsonl`, the sessions' too.
     pub gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
+    /// The agent index's writer: `workers_step` drains it at the stop.
+    pub workers: Arc<mixdog_core_session::session::agent_registry::StoreWorkers>,
     /// Replay-only: the write-behind writers `replay/storesSettled` drains besides the session store.
     #[cfg(feature = "replay-controls")]
     pub(crate) replay_writers: crate::replay_stores_settled::WriteBehind,
@@ -310,6 +312,7 @@ impl Real {
     /// The hook bus has no stop in Node or here: it owns no task, timer or connection between calls. The MCP servers are not closed by Node's shutdown either
     /// (`disconnectAll` has no caller on that path); they end with the process.
     pub fn runtime_stop_steps(&self, reason: Arc<crate::compose::StopReasonCell>) -> Vec<StopStep> {
+        let agent_index = workers_step(self.workers.clone(), self.log.clone());
         let (ledgers, log) = (self.ledgers.clone(), self.log.clone());
         let drain: StopStep = ("usage ledger", Box::pin(async move {
             if let Some(open) = ledgers.if_open() {
@@ -360,8 +363,19 @@ impl Real {
         // steps, so `compose::flush_at_exit` writes what was recorded since on every release path.
         let usage = self.gateway_usage.clone();
         let settle: StopStep = ("gateway usage", Box::pin(async move { usage.settle().await }));
-        vec![settle, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
+        vec![settle, agent_index, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
     }
+}
+
+/// The agent index's queued row writes land (daemon.mjs: `canonicalAgentControl.dispose`, then `drainProcessWrites` ->
+/// `flushAllIndexWrites`, before the statusline routes drain); a write the queue could not persist is logged as Node logs it and the stop goes on.
+/// The step ends with the stop's own budget (the release supervises every stop step), as Node's shutdown budget bounds its drain.
+pub(crate) fn workers_step(workers: Arc<mixdog_core_session::session::agent_registry::StoreWorkers>, log: crate::daemon_log::DaemonLog) -> StopStep {
+    ("agent index", Box::pin(async move {
+        if let Err(error) = workers.settled().await {
+            log.log(&format!("agent index drain failed: {error}"));
+        }
+    }))
 }
 
 /// Where the boot retirement reads the shipped files (`defaults/shipped-history.json`, skills, agents, ...): the one root every reader of
@@ -1751,8 +1765,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(b.core_state.clone())),
     ));
     store_workers.bind_signals(activity.signals()).map_err(|_| ComposeError::AlreadyBound("store worker signals"))?;
-    #[cfg(feature = "replay-controls")]
-    let replay_workers = store_workers.clone();
+    let workers = store_workers.clone();
     let agent_registry = Arc::new(mixdog_core_session::session::agent_registry::AgentRegistry::new(
         store_workers,
         Arc::new(mixdog_core::run_host::agent_inputs::LateLiveSessions(late.clone())),
@@ -2189,6 +2202,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 agent_signals: activity.clone(),
                 warm: Arc::new(mixdog_core::run_host::warm_ports::WarmedTurns::new(warmer.clone())), // flip-channel-router-2: the turn-start warmer note (`ask-session.mjs:198-201,313`); the one `Arc<Warmer>`
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
+                settings_changed: { let config = config.clone(); Arc::new(move |scope: &str| config.announce(mixdog_core_config::config::SETTINGS_CHANGED, serde_json::json!({ "scope": scope }))) },
                 surface: session_surface.clone(),
         builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
                 shell_strips,
@@ -3284,7 +3298,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

@@ -5,6 +5,7 @@
 //! writes accepted later neither hold nor hasten it, and a failed write at or below it answers an error naming the store.
 //! Numbers may finish out of order (a store whose files are written separately); the committed count waits for the lowest.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -20,8 +21,8 @@ struct Marks {
     accepted: u64,
     /// Accepted and neither written nor failed yet.
     open: BTreeSet<u64>,
-    /// The lowest-numbered write that failed, and why.
-    failed: Option<(u64, String)>,
+    /// The writes that failed and why, until one is written after all (a retry that succeeded leaves no failure behind).
+    failed: BTreeMap<u64, String>,
 }
 
 impl WriteMarks {
@@ -63,10 +64,8 @@ impl WriteMarks {
     pub fn abandon(&self, error: &str) {
         {
             let mut marks = self.lock();
-            if let Some(first) = std::mem::take(&mut marks.open).first().copied()
-                && marks.failed.as_ref().is_none_or(|(at, _)| first < *at)
-            {
-                marks.failed = Some((first, error.to_owned()));
+            if let Some(first) = std::mem::take(&mut marks.open).first().copied() {
+                marks.failed.insert(first, error.to_owned());
             }
         }
         self.moved.notify_waiters();
@@ -81,10 +80,13 @@ impl WriteMarks {
         {
             let mut marks = self.lock();
             marks.open.remove(&mark);
-            if let Some(error) = error
-                && marks.failed.as_ref().is_none_or(|(at, _)| mark < *at)
-            {
-                marks.failed = Some((mark, error));
+            match error {
+                Some(error) => {
+                    marks.failed.insert(mark, error);
+                }
+                None => {
+                    marks.failed.remove(&mark);
+                }
             }
         }
         self.moved.notify_waiters();
@@ -105,7 +107,7 @@ impl WriteMarks {
     /// `None` while one is still open.
     pub fn check(&self, mark: u64) -> Option<Result<(), String>> {
         let marks = self.lock();
-        if let Some((at, error)) = &marks.failed
+        if let Some((at, error)) = marks.failed.first_key_value()
             && *at <= mark
         {
             return Some(Err(format!("{}: write {at}, accepted before the barrier, failed: {error}", self.store)));
@@ -158,6 +160,16 @@ mod tests {
         assert_eq!(marks.check(barrier), None, "a later failure neither answers nor fails it");
         marks.failed(first, "denied");
         assert_eq!(marks.check(barrier), Some(Err("the store: write 1, accepted before the barrier, failed: denied".to_owned())));
+    }
+
+    #[test]
+    fn a_write_that_failed_and_is_written_after_all_leaves_no_failure() {
+        let marks = WriteMarks::new("the store");
+        let first = marks.accept();
+        marks.failed(first, "denied");
+        assert!(marks.check(first).is_some_and(|answer| answer.is_err()));
+        marks.written(first);
+        assert_eq!(marks.check(first), Some(Ok(())));
     }
 
     #[test]

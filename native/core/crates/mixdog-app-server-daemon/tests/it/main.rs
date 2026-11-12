@@ -2,3 +2,4 @@
 //! nextest runs every test in its own process, so the real-executor boot (`real_executors::rt`) stays per test.
 mod legacy_clients;
 mod real_executors;
+mod temp_names_replay;

@@ -19,6 +19,7 @@ mod routing;
 mod sample;
 mod session_transport;
 mod wire;
+mod settings_change_feed;
 mod storm;
 mod subscriptions;
 
