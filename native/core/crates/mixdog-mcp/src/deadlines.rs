@@ -14,9 +14,8 @@ use crate::transport::TransportError;
 pub const CALL: Liveness = Liveness::stream(Duration::from_secs(1800));
 
 /// A notification or a reply to a server request. Node has no deadline for these (its SDK posts
-/// them without one). Divergence (decisions.md): Codex's MCP startup bound,
-/// `DEFAULT_STARTUP_TIMEOUT` 30 s (`codex-mcp/src/rmcp_client.rs:114`), which is also Node's
-/// `DEFAULT_MCP_STARTUP_TIMEOUT_MS` (`client-config.mjs:20`).
+/// them without one). Divergence (decisions.md): 30 s, Node's own MCP startup bound
+/// (`DEFAULT_MCP_STARTUP_TIMEOUT_MS`, `client-config.mjs:20`).
 pub const NOTICE: Liveness = Liveness::unary(Duration::from_secs(30));
 
 /// Opening or closing a session: the standalone stream, the SSE stream and its `endpoint`
