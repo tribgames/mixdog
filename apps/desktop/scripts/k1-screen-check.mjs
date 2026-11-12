@@ -7,7 +7,7 @@
 //     --desktop-profile=<converted desktop profile copy> --baseline=<baseline.json> --work=<scratch dir> [--out=result.json]
 //
 // The app and its core WRITE to the two profile copies: give it copies. Exit 0 only when every area passes.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
@@ -51,6 +51,10 @@ const env = {
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.MIXDOGD_BIN;
 
+// What the switch from 1.4.5 finds in the runtime root: the discovery file of the 1.4.5 daemon that was just ended, naming
+// a process that no longer runs. An app that takes it for a core never starts one (the failed switch of 2026-11-13 03:51).
+const ended = spawnSync(process.execPath, ['-e', '']).pid;
+writeFileSync(`${runtimeRoot}/daemon.json`, JSON.stringify({ protocol: 1, revision: 6, version: '1.4.5', pid: ended, startedAt: Date.now() - 3_600_000, endpoints: { channel: { port: 1, token: 'ended' }, session: { port: 2, token: 'ended' } } }));
 const startedAt = new Date().toISOString();
 const app = spawn(`${install}/Mixdog.exe`, [`--remote-debugging-port=${port}`], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], cwd: install });
 let appOutput = '';
@@ -207,6 +211,15 @@ try {
       ? { status: 'error', error: s.error || 'empty settings body', node: {} }
       : { status: 'pass', drawn: { categories: s.categories, bodyLength: s.bodyLength }, node: {}, ...(unsigned ? { noCredentialsInCopy: s.error } : {}) };
   }
+  // The app's own core, serving: read while everything still runs.
+  try {
+    const record = JSON.parse(readFileSync(`${runtimeRoot}/daemon.json`, 'utf8'));
+    areas.core = record.core?.state === 'serving' && record.pid !== ended
+      ? { status: 'pass', drawn: record.core.state, node: {} }
+      : { status: 'fail', error: `the runtime root's discovery is ${record.core ? `a core that is ${record.core.state}` : 'still the ended 1.4.5 daemon\'s'}`, node: {} };
+  } catch (e) {
+    areas.core = { status: 'fail', error: `no discovery file: ${e.message}`, node: {} };
+  }
   // What the window shows when it is done, for whoever reads a failure.
   screenText = await ev(() => document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 600));
   const shot = await client.request('Page.captureScreenshot', { format: 'png' });
@@ -231,7 +244,7 @@ areas.connection = lost.length
   : { status: 'pass', drawn: 0, node: {} };
 diagnostics = diagnostics.slice(-10);
 const result = {
-  passed: ['sessionList', 'projectList', 'sessionTranscript', 'settings', 'connection'].every((n) => areas[n]?.status === 'pass') && !areas.run,
+  passed: ['sessionList', 'projectList', 'sessionTranscript', 'settings', 'connection', 'core'].every((n) => areas[n]?.status === 'pass') && !areas.run,
   areas, screenText, rendererExceptions: exceptions.slice(0, 5), consoleErrors: consoleErrors.slice(0, 5), diagnosticsErrors: diagnostics,
 };
 writeFileSync(outPath, JSON.stringify(result, null, 1));
