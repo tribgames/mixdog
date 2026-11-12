@@ -1,16 +1,17 @@
 {
   "clock": "the Devin sign-in runs on a fixed clock (`devinSignInNow`, mock.timers Date): its record expires a year after it, and the replay gives the core that clock",
   "command": "node benchmarks/rust-core/recorders/record-credential-transitions.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch",
+  "environment": "MIXDOG_LLM_KEEPALIVE_MS=3600000: the connection warm-up gate does not lapse within a scenario, so each endpoint is warmed once per scenario (a `HEAD /`, recorded in `warmups`); the replay sets the same variable",
   "exclusions": [
-    "the connection warm-up (`HEAD /` of the production link) is answered by the endpoint and not recorded: it is the link's, one per new connection, not a step of any scenario; the replay answers it and does not compare it",
+    "the position of a warm-up (`HEAD /`) among the other requests is not compared: it travels on a connection of its own, fire-and-forget, so its arrival against the requests of the other connections is a race in Node itself (it came before the first request in three recordings and after it in the fourth); its occurrence and its order among the warm-ups are compared whole (`warmups`), the other requests whole and in order (`exchanges`)",
     "the Devin sign-in's result is the record `exchangeDevinCode` returns, recorded whole; the core's entry (`exchange_checked`) returns the account label and stores the record, so the replay compares the stored file with the recorded record"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1561041,
+      "bytes": 1561189,
       "path": "golden.json",
-      "sha256": "911ea55f443f66dac6d39fcf4b412bd8cf787be06fe51004595bf3d28874150b"
+      "sha256": "ca06448aa98cec9f88cb9f11425d4e15192d2ce93bd61cd0ad88dd6b8aac737f"
     }
   ],
   "inputs": [
@@ -30,7 +31,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9143,
+    "files": 9144,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -97,24 +98,29 @@
           "src/session-runtime/services/provider-admin.mjs",
           "src/standalone/daemon.mjs",
           "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs",
-          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs"
+          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-models.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs"
         ],
-        "sha256": "d2a4a2eb4f8bf94349d8590613bd1ca66fc2e017cb84f577d97c50bc17eaaffa"
+        "sha256": "9de2b88f2284e2b72ca13737391b3d1885ac766bfde67be1c49ad2f22ba4aa1a"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 38
+      "filesDifferingFromCommit": 43
     },
-    "srcSha256": "af81a74ed846d7566f621fdb6a8d2232012729c134eb78b81a5b12b3aa0c9578",
+    "srcSha256": "c64dfd4d8b45b12532894489ad48a4d5cb822763cb1a90f5a9a0798e3bf063f6",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-credential-transitions.mjs",
-  "recorderSha256": "03995a0917305c3aa65800cf9e99fa35a1e4bc5e7a93d19e0ba4c88ead56385f",
+  "recorderSha256": "0cc221bc2cc058e3b935e8bc0028fc7706d4e70029e43e3baa3cfd6cf4652670",
   "set": "credential-transitions",
-  "totalBytes": 1561041
+  "totalBytes": 1561189
 }

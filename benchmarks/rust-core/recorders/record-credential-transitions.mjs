@@ -44,6 +44,10 @@ const href = (path) => pathToFileURL(join(tree, path)).href;
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'credential-transitions-'));
 process.env.MIXDOG_HOME = join(process.env.MIXDOG_DATA_DIR, 'home');
 for (const k of Object.keys(process.env)) if (/API_KEY|TOKEN|SECRET/.test(k) && !/^MIXDOG_/.test(k)) delete process.env[k];
+// The warm-up gate (`preconnect`, 50 s by default) never lapses inside a scenario: a scenario that runs past it would warm its
+// endpoint again, at a moment that depends on the machine's speed.
+const KEEPALIVE_MS = '3600000';
+process.env.MIXDOG_LLM_KEEPALIVE_MS = KEEPALIVE_MS;
 mock.module(href('src/runtime/shared/file-permissions.mjs'), {
   namedExports: { enforceOwnerOnlyAclWin32() {}, async enforceOwnerOnlyAclWin32Async() {} },
 });
@@ -66,6 +70,7 @@ mock.module(href('src/runtime/shared/config.mjs'), {
 });
 const admin = await import(href('src/session-runtime/services/provider-admin.mjs'));
 const { exchangeDevinCode } = await import(href('src/runtime/agent/orchestrator/providers/devin-auth.mjs'));
+const { recycleLlmDispatcher } = await import(href('src/runtime/shared/llm/http-agent.mjs'));
 const { RETIRED_CAP, CARRIED_CAP, resetRegistry } = await import(href('src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs'));
 
 // ---- the scripted endpoint ----------------------------------------------------------------------------------------------
@@ -82,6 +87,7 @@ const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'c1', model: 'm-a
 const OK_STREAM = chunk({ role: 'assistant', content: 'OK' }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n';
 const MODELS = JSON.stringify({ data: [{ id: 'm-a' }] });
 let exchanges = [];
+let warmups = [];
 const answers = new Map();
 const ended = new Map();
 const finished = new Set();
@@ -92,8 +98,12 @@ const server = createServer((req, res) => {
     const origin = req.headers['x-bench-origin'] ?? null;
     const path = req.url;
     const authorization = req.headers.authorization ?? '';
-    // The connection warm-up (`HEAD /`) is the link's, answered and not recorded.
-    if (req.method === 'HEAD') return res.end();
+    // The connection warm-up (`HEAD /` of an origin, once per origin as the process's `preconnect` gates it): answered empty,
+    // recorded in the order the warm-ups arrive.
+    if (req.method === 'HEAD') {
+      warmups.push([origin, req.method, path, authorization]);
+      return res.end();
+    }
     const exchange = [origin, req.method, path, authorization, null];
     const at = exchanges.push(exchange) - 1;
     for (const waiting of arrivals) {
@@ -265,21 +275,25 @@ const recorded = {};
 for (const [name, run] of Object.entries(SCENARIOS)) {
   if (only && only !== name) continue;
   resetRegistry();
+  // A scenario starts as a new process: no origin has been warmed (its first request to the endpoint is preceded by the
+  // `HEAD` warm-up, as the replay's process is).
+  recycleLlmDispatcher();
   config = { providers: {}, modelSettings: {} };
   exchanges = [];
+  warmups = [];
   arrivals.clear();
   ended.clear();
   finished.clear();
   // Each step: [who, the key it read (a variable's value, a typed key) or the sign-in's code, the answer, the thrown text].
   const steps = [];
   await run(steps);
-  recorded[name] = { steps, exchanges };
-  console.log(`${name}: ${steps.length} steps, ${exchanges.length} exchanges`);
+  recorded[name] = { steps, exchanges, warmups };
+  console.log(`${name}: ${steps.length} steps, ${exchanges.length} exchanges, ${warmups.length} warm-ups`);
 }
 server.close();
 // One line per step and per exchange: two scenarios run past the caps (some 16,000 exchanges).
 const lines = (rows) => `[\n${rows.map((row) => JSON.stringify(row)).join(',\n')}\n]`;
-const scenarioText = Object.entries(recorded).map(([name, { steps, exchanges: seen }]) => `${JSON.stringify(name)}: {"steps": ${lines(steps)}, "exchanges": ${lines(seen)}}`);
+const scenarioText = Object.entries(recorded).map(([name, { steps, exchanges: seen, warmups: warmed }]) => `${JSON.stringify(name)}: {"steps": ${lines(steps)}, "exchanges": ${lines(seen)}, "warmups": ${lines(warmed)}}`);
 writeText(
   join(stage, 'golden.json'),
   `{"caps": ${JSON.stringify({ retired: RETIRED_CAP, carried: CARRIED_CAP })},\n"devinSignInNow": ${DEVIN_SIGN_IN_NOW},\n"served": ${lines(servedTable)},\n"scenarios": {\n${scenarioText.join(',\n')}\n}}\n`
@@ -291,8 +305,9 @@ writeSetManifest(stage, {
   extra: {
     ...provenance,
     clock: 'the Devin sign-in runs on a fixed clock (`devinSignInNow`, mock.timers Date): its record expires a year after it, and the replay gives the core that clock',
+    environment: `MIXDOG_LLM_KEEPALIVE_MS=${KEEPALIVE_MS}: the connection warm-up gate does not lapse within a scenario, so each endpoint is warmed once per scenario (a \`HEAD /\`, recorded in \`warmups\`); the replay sets the same variable`,
     exclusions: [
-      'the connection warm-up (`HEAD /` of the production link) is answered by the endpoint and not recorded: it is the link\'s, one per new connection, not a step of any scenario; the replay answers it and does not compare it',
+      'the position of a warm-up (`HEAD /`) among the other requests is not compared: it travels on a connection of its own, fire-and-forget, so its arrival against the requests of the other connections is a race in Node itself (it came before the first request in three recordings and after it in the fourth); its occurrence and its order among the warm-ups are compared whole (`warmups`), the other requests whole and in order (`exchanges`)',
       'the Devin sign-in\'s result is the record `exchangeDevinCode` returns, recorded whole; the core\'s entry (`exchange_checked`) returns the account label and stores the record, so the replay compares the stored file with the recorded record',
     ],
   },

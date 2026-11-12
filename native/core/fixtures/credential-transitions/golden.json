@@ -12312,6 +12312,8 @@
 [null,"POST","/v1/chat/completions","Bearer account-b-credential-04097",1],
 [null,"GET","/v1/models","Bearer account-b-credential-04098",0],
 [null,"POST","/v1/chat/completions","Bearer account-b-credential-04098",2]
+], "warmups": [
+[null,"HEAD","/",""]
 ]},
 "keys-seen-only-on-requests": {"steps": [
 ["typed","typed-credential-00000",{"ok":true},null],
@@ -24612,6 +24614,8 @@
 [null,"POST","/v1/chat/completions","Bearer typed-credential-04097",1],
 [null,"GET","/v1/models","Bearer typed-credential-00000",0],
 [null,"POST","/v1/chat/completions","Bearer typed-credential-00000",3]
+], "warmups": [
+[null,"HEAD","/",""]
 ]},
 "attached-after-the-stream-began": {"steps": [
 ["c","account-c-credential-7d21",null,"the upstream quoted [REDACTED] and [REDACTED]"],
@@ -24621,6 +24625,8 @@
 [null,"POST","/v1/chat/completions","Bearer account-c-credential-7d21",4],
 [null,"GET","/v1/models","Bearer attached-after-the-stream-began-0b9e",0],
 [null,"POST","/v1/chat/completions","Bearer attached-after-the-stream-began-0b9e",1]
+], "warmups": [
+[null,"HEAD","/",""]
 ]},
 "sign-in-token-scrubbed-at-once": {"steps": [
 ["devin sign-in","sign-in-code-5a1d",{"access_token":"devin-sign-in-grant-41c7d09e","refresh_token":null,"expires_at":1831536000000},null],
@@ -24629,5 +24635,7 @@
 ["https://api.devin.ai","POST","/auth/cli/token","",5],
 [null,"GET","/v1/models","Bearer account-e-credential-2f88",0],
 [null,"POST","/v1/chat/completions","Bearer account-e-credential-2f88",6]
+], "warmups": [
+[null,"HEAD","/",""]
 ]}
 }}

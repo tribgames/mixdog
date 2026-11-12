@@ -49,9 +49,16 @@ pub struct MultiWireAdapter {
     engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>,
     profile: CompatProfile,
     model_wires: HashMap<String, Wire>,
+    /// The socket warm-up of the endpoint, run before every send (`_preconnectFn(this.baseURL)`, openai-compat.mjs:207).
+    warm: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl MultiWireAdapter {
+    pub fn with_warm(mut self, warm: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.warm = Some(warm);
+        self
+    }
+
     /// `engines`: one adapter per served wire; `protocol_wire` is the wire of
     /// the provider's protocol (the default wire).
     pub fn new(
@@ -68,7 +75,7 @@ impl MultiWireAdapter {
         profile.wires.offered = offered(&served);
         // Every existing session of a custom provider started on its protocol's wire.
         profile.wires.legacy = LegacyWire::Fixed(protocol_wire);
-        Self { id, engines, profile, model_wires }
+        Self { id, engines, profile, model_wires, warm: None }
     }
 
     fn route(&self, model: &str) -> Option<Wire> {
@@ -108,6 +115,9 @@ impl ProviderAdapter for MultiWireAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if let Some(warm) = &self.warm {
+            warm();
+        }
         let model = request.model.as_str();
         let Some(wire) = self.route(model) else {
             let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
