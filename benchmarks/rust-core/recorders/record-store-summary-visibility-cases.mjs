@@ -109,6 +109,13 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
 await set.finish({
   entry: { runs: 'store-summary-visibility.mjs, store-summary-index.mjs, store-summary-reader.mjs, store/listing.mjs, store-transcript-projection.mjs projectStoredTranscript, manager/turn-checkpoint.mjs recorder, all over session files in a temp data dir', notRun: 'no live runtime: only the stored records and indexes' },
   replay: { entry: 'mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages', normalised: { dataDir: 'temp, not in the recording' } },
+  exclusions: {
+    'cases 0 and 1: agent descendants and agent parent links (rows, descendants, ofNullRows, parents)': 'no counterpart in mixdog-store; owner: mixdog-core-session agent_registry (mod.rs descendants)',
+    'case 2: closed Lead and agent checkpoint-marker policy (results)': 'the projected transcript of a closed record is produced by the session transcript read, not by mixdog-store; owner: mixdog-core-session',
+    'case 4: ordinarySummaries, ordinarySummariesAsync': 'the reader projection of the list row (a subset of its fields, with the file stat) is built by the thread list, not by mixdog-store; owner: mixdog-core-session thread_list.rs',
+    'case 4: storedSessions, storedSessionsIncludingAgentOnly, storedSessionExists, metadata, exact': 'the session documents and transcript reads of Node session files; Rust holds sessions as logs and reads them in mixdog-core-session; owner: mixdog-core-session',
+    'case 4: storedWorkers, workerLinks': 'the agent worker index (agent-workers.json) is not held by mixdog-store; owner: mixdog-core-session agent_registry pool_docs.rs and mixdog-core-agents pool_list.rs',
+  },
   replaceInText: roots.map((r) => [r, '<data>']),
   replaceRegex: [[/^\d+(:[0-9a-z]+:[A-Za-z0-9+\/=_-]+\/whole)$/, '<epoch>$1'], [/^\d+(:[0-9a-z]+:\d+)$/, '<pid>$1']],
   normaliseReason: 'the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>; a projection stamp without a fingerprint is <process id>:<clock>:<counter>, the process id written <pid>',

@@ -160,6 +160,15 @@ export const REPLAY_TARGETS = {
   'store-summary-workspace-cases': {
     rust: [r('mixdog-store/src/summary.rs', 107, 'workspace_summary')],
   },
+  'cursor-client-version-cases': {
+    rust: [r('mixdog-ai/src/client_versions.rs', 511, 'ClientVersions', 'warm (client_versions.rs:608), cursor (client_versions.rs:592)')],
+  },
+  'file-has-data-cases': {
+    rust: [r('mixdog-services/src/local_provider/catalog.rs', 29, 'file_has_data'), r('mixdog-services/src/local_provider/catalog.rs', 42, 'exact_file')],
+  },
+  'skill-creator-validator-cases': {
+    rust: [r('mixdog-mcp/src/skills.rs', 218, 'collect_skills')],
+  },
   'computer-error-recovery': {
     rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
     missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
