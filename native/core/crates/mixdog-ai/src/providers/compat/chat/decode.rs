@@ -259,7 +259,9 @@ impl ChatDecoder {
     fn exposure_now(&self) -> Exposure {
         Exposure {
             text_emitted: self.text_emitted,
-            tool_dispatched: self.tool_dispatched,
+            // Node's `toolWorkStarted`: a streamed call being accumulated or a call recovered from text counts as tool
+            // work from the moment it starts, dispatched or not (stream-state.mjs:143).
+            tool_dispatched: self.tool_dispatched || !self.tools.is_empty() || !self.leaked.is_empty(),
             tool_input_cut: self.tool_input_cut,
         }
     }
