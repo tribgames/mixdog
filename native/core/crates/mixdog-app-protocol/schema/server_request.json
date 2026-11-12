@@ -166,6 +166,21 @@
       ],
       "type": "object"
     },
+    "HostComputerCaptureParams": {
+      "description": "Params of `host/computer/capture` (core → host): the `capture` command exactly as the loopback bridge was posted it (`computer-bridge/client.mjs`: the host command plus `session_id`).",
+      "properties": {
+        "command": true
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "HostComputerDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/computer/displays` (core → host): none.",
+      "type": "object"
+    },
     "HostFileSnapshotParams": {
       "description": "Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.",
       "properties": {
@@ -1664,6 +1679,52 @@
         },
         "params": {
           "$ref": "#/definitions/ScreenDisplaysParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A Computer Use screen capture, taken and encoded by the desktop's computer host.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/capture"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerCaptureParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The displays of this PC as the computer host reports them.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/displays"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerDisplaysParams"
         }
       },
       "required": [

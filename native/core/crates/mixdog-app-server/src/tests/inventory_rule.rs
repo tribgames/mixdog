@@ -154,7 +154,7 @@ async fn every_notification_field_of_the_inventory_reaches_its_service_or_is_dro
 #[tokio::test(start_paused = true)]
 async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() {
     let rig = Rig::new();
-    let host = rig.ready(1, json!({ "host": { "browser": true, "visualize": true, "systemProxy": true, "updater": true, "files": true }, "modelProxy": true }));
+    let host = rig.ready(1, json!({ "host": { "browser": true, "visualize": true, "systemProxy": true, "updater": true, "files": true, "computer": true }, "modelProxy": true }));
     host.request(1, "host/claim", json!({ "hostId": "pc" }));
     assert_eq!(host.response(1).await["result"], json!({}));
     let samples = Samples::new();
@@ -168,6 +168,7 @@ async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() 
             "host/update/command" => HostCapability::Updater,
             "host/capture/fileSnapshot" | "host/localPage/url" => HostCapability::Files,
             "host/screen/displays" => HostCapability::Browser,
+            "host/computer/capture" | "host/computer/displays" => HostCapability::Computer,
             other => panic!("an answer of {other}: no capability serves it"),
         };
         let method = Method(Box::leak(field.method.clone().into_boxed_str()));

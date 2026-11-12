@@ -11276,6 +11276,18 @@
       "result": "JsonValue"
     },
     {
+      "method": "host/computer/capture",
+      "params": "HostComputerCaptureParams",
+      "requires": "host.computer",
+      "result": "HostComputerCaptureResult"
+    },
+    {
+      "method": "host/computer/displays",
+      "params": "HostComputerDisplaysParams",
+      "requires": "host.computer",
+      "result": "Vec<HostComputerDisplay>"
+    },
+    {
       "method": "host/visualize/command",
       "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
