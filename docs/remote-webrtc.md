@@ -11,11 +11,11 @@ this page explains how its pieces fit.
 
 | Part | Owns | Files |
 | --- | --- | --- |
-| Service (daemon) | Validates phone signals, checks the client streams the source, resolves ICE servers, mirrors the input-ownership gate in decode order, withholds JPEG images while WebRTC owns a client's view. | `main/remote-webrtc/relay.ts`, `main/remote-relay-client-calls.ts`, `main/remote-browser-streams.ts` |
+| Service (daemon) | Validates phone signals, checks the client streams the source, resolves ICE servers, mirrors the input-ownership gate in decode order, withholds JPEG images while WebRTC owns a client's view. | `main/remote-webrtc/relay.ts`, `main/remote-browser-streams.ts` |
 | Window main | Capture, geometry lock, the per-viewer transport state machine, input dispatch through the relay path's own guard. | `main/remote-webrtc/viewer.ts`, `main/remote-webrtc/host.ts`, `main/browser/remote-geometry.ts`, `main/browser/remote-stream-engine.ts` |
 | Sender renderer (hidden, trusted) | Every `RTCPeerConnection`, one canvas-generated track per source, encoder settings, sender stats. | `main/remote-webrtc/sender-window.ts`, `preload/remote-webrtc-sender.ts`, `renderer/remote-webrtc-sender/main.ts`, `shared/remote-webrtc-sender.ts` |
 | Phone (projected renderer) | The receiving `RTCPeerConnection`, presentation (zoom, pan, keyboard), input routing per epoch, receiver stats. | phone-side work |
-| `main/remote-ice-servers.ts` | `resolveRemoteIceServers()`: STUN + TURN with short-lived credentials from the relay. | |
+| `native/core/crates/mixdog-remote/src/ice/mod.rs` | STUN + TURN servers with short-lived credentials from the relay. | |
 
 A host advertises the contract with `browserWebrtc: 1` in its E2EE challenge.
 A phone without it, or a host without it, stays on JPEG.

@@ -36,7 +36,7 @@ SSH 서버 연결은 **내 PC의 Mixdog 창에서 원격 서버를 열어 쓰는
 | --- | --- | --- |
 | 연결 방식 | SSH(OpenSSH) | 코드로 연결 |
 | 상대방 | SSH로 접속되는 서버 | Mixdog 데스크톱 앱이 켜져 있는 다른 PC |
-| 상대방에 필요한 것 | sshd와 Node.js (Mixdog은 자동 설치) | Mixdog 앱 |
+| 상대방에 필요한 것 | sshd (Mixdog은 자동 설치) | Mixdog 앱 |
 | 모델 호출 | 내 PC의 로그인 사용 | 상대 PC의 Mixdog이 처리 |
 
 설정 → 연결에서 두 기능을 모두 찾을 수 있습니다.
@@ -46,8 +46,6 @@ SSH 서버 연결은 **내 PC의 Mixdog 창에서 원격 서버를 열어 쓰는
 **서버**
 
 - 운영체제: Linux(x64 또는 arm64, glibc 기반) 또는 macOS(x64 또는 arm64). Windows 서버와 Alpine 같은 musl 기반 리눅스는 지원하지 않습니다.
-- **Node.js 22 이상**과 **npm**
-- npm 레지스트리에 접속할 수 있어야 하며, 모듈 하나는 github.com에서 받을 수 있습니다. 서버가 인터넷에 접속하지 못하면 설치가 실패합니다.
 - 실행 중인 sshd. 관리자(root) 권한은 필요하지 않습니다.
 
 **내 PC**
@@ -62,7 +60,7 @@ SSH 서버 연결은 **내 PC의 Mixdog 창에서 원격 서버를 열어 쓰는
 3. **연결**을 누릅니다. 처음 접속하는 서버라면 [지문 확인](#처음-연결할-때의-지문-확인) 창이 먼저 나타납니다.
 4. 진행 상황이 차례로 표시됩니다.
    1. **서버 접속**: SSH로 서버에 접속합니다.
-   2. **서버 확인**: 서버의 운영체제와 Node.js 버전을 확인합니다.
+   2. **서버 확인**: 서버의 운영체제를 확인합니다.
    3. **Mixdog 설치**: 처음 연결할 때와 앱을 업데이트해 새 버전을 설치해야 할 때 표시되며 1분 정도 걸립니다. 같은 버전이 이미 설치되어 있으면 이 단계는 건너뜁니다.
    4. **연결**: 서버의 Mixdog에 붙습니다.
 5. 서버 창이 열리고, 서버가 목록에 저장됩니다. 다음부터는 목록에서 바로 열 수 있습니다.
@@ -109,7 +107,6 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 ```text
 ~/.mixdog-remote/
 ├── versions/<버전-해시>/   설치된 Mixdog 실행 파일 (앱 버전마다 별도 폴더, 설치 후 바뀌지 않음)
-├── deps/                   Mixdog이 쓰는 Node 모듈
 ├── runtime/                실행 중인 Mixdog의 접속 정보 (포트, 토큰)
 ├── user-data/              서버 쪽 설정과 작업 기록 (home/ 아래)
 ├── daemon.log              서버 Mixdog의 로그 (5MB를 넘으면 daemon.log.1로 복사한 뒤 비움)
@@ -120,8 +117,7 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 
 - 앱을 업데이트해서 새 버전을 연결하면 `versions/` 아래에 새 폴더가 생깁니다. 설치할 때 오래된 폴더가 자동으로 정리되는데, **현재와 직전 버전**, 그리고 **실행 중인 프로세스가 쓰고 있는 버전**은 남깁니다. 서버의 프로세스 목록을 읽지 못하면 안전을 위해 아무것도 지우지 않습니다. `user-data`는 버전과 무관하게 유지됩니다.
 - `daemon.log`가 5MB를 넘으면 `daemon.log.1`로 복사한 뒤 원래 파일을 비웁니다(한 세대만 보관). 실행 중인 서버 Mixdog은 중단 없이 계속 기록합니다.
-- 설치할 때 쓰는 `npm`은 자체 다운로드 캐시(보통 `~/.npm`)를 만들 수 있습니다. 이 폴더는 npm이 관리하며 Mixdog 정리 대상이 아닙니다.
-- 서버의 Mixdog은 백그라운드 프로세스(Node.js)로 실행되며, 사용자가 직접 설치해 쓰는 Mixdog과 완전히 분리되어 있습니다(별도의 데이터 폴더와 접속 정보를 씁니다).
+- 서버의 Mixdog은 백그라운드 프로세스로 실행되며, 사용자가 직접 설치해 쓰는 Mixdog과 완전히 분리되어 있습니다(별도의 데이터 폴더와 접속 정보를 씁니다).
 
 ## 보안 구조
 
@@ -194,7 +190,7 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 - 자동 재연결을 멈추면 "{서버 이름} 연결이 끊겼습니다"로 바뀌고, 이때만 **다시 연결**과 **창 닫기** 버튼이 나타납니다. 다시 로그인이나 확인이 필요한 경우 **다시 연결**은 이 PC 창의 연결 창을 열어 줍니다.
 - **서버의 작업은 계속됩니다.** 연결이 끊어진 동안에도 서버의 Mixdog은 하던 일을 진행합니다. 다시 연결되면 "서버에서 끝난 작업"과 "계속 진행 중인 작업"을 알려 줍니다. 단, 끊어질 때 진행 중이던 모델 호출은 내 PC를 거치므로 중단되며 자동으로 다시 시도하지 않습니다.
 - **유지 시간(grace time)**: 내 PC가 사라진 뒤 서버가 Mixdog을 켜 둔 채 기다리는 시간입니다. 기본 30분이며 서버별 설정에서 1분~7일로 바꿀 수 있습니다. 이 시간 안에 다시 연결되면 같은 Mixdog에 그대로 이어서 붙습니다. 변경한 값은 서버의 Mixdog이 새로 시작될 때부터 적용됩니다.
-- 사람이 해결해야 하는 문제(서버 지문 변경, 로그인 거절, 서버의 Node.js 문제 등)는 자동으로 다시 시도하지 않고 멈춥니다. 안내에 따라 해결한 뒤 설정 → 연결에서 다시 연결하십시오.
+- 사람이 해결해야 하는 문제(서버 지문 변경, 로그인 거절 등)는 자동으로 다시 시도하지 않고 멈춥니다. 안내에 따라 해결한 뒤 설정 → 연결에서 다시 연결하십시오.
 - 로그인한 모델 계정이 만료되면 "이 PC의 모델 로그인이 만료되었습니다"라고 알립니다. 서버가 아니라 **내 PC 창**의 설정 → 모델에서 다시 로그인하십시오.
 - **호출 크기 제한**: 호출 하나가 128 MiB를 넘거나 서버가 동시에 올린 호출 데이터가 256 MiB를 넘으면 그 호출만 거절됩니다. 자세한 기준은 [보안 구조](#보안-구조)를 참고하십시오.
 
@@ -228,19 +224,15 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 
 ## 문제 해결
 
-연결에 실패한 창에는 모두 "오류 코드: …" 줄이 표시됩니다(로그인, 지문 변경·폐기, OpenSSH 없음 포함). 아래 표는 그 코드를 기준으로 정리했습니다. "서버에 Node.js 22가 필요합니다"(`node-missing`, `node-too-old`)는 서버에서 Mixdog을 정리할 때도 나타납니다.
-
+연결에 실패한 창에는 모두 "오류 코드: …" 줄이 표시됩니다(로그인, 지문 변경·폐기, OpenSSH 없음 포함). 아래 표는 그 코드를 기준으로 정리했습니다.
 | 증상 / 코드 | 원인 | 해결 |
 | --- | --- | --- |
 | OpenSSH가 설치되어 있지 않습니다 (`ssh-missing`) | 내 PC에 `ssh`가 없거나 PATH에 없습니다. | macOS/Linux는 패키지 관리자로 OpenSSH 클라이언트를 설치합니다. Windows는 창에 표시되는 관리자 PowerShell 명령으로 OpenSSH 클라이언트를 추가합니다. |
 | 로그인할 수 없습니다 (`auth`) | 서버에 내 키가 등록되어 있지 않거나, 키·비밀번호가 거절되었습니다. | 창의 명령으로 키를 만들고(`ssh-keygen -t ed25519`) 서버에 등록(`ssh-copy-id`)합니다. 키가 여러 개면 서버 설정의 "로그인 키 파일"을 지정하고, ssh-agent 안내가 있으면 따릅니다. |
 | 서버 지문이 바뀌었습니다 (`host-key-changed`) | 저장된 지문과 서버가 내놓는 지문이 다릅니다. 서버 재설치일 수도, 가로채기일 수도 있습니다. | 서버 관리자에게 확인합니다. 정상이라면 `ssh-keygen -R …`로 이전 키를 지우거나, Mixdog 전용 파일의 키라면 "고급 · 키 교체"를 씁니다. |
 | 이 서버의 키는 폐기되었습니다 (`host-key-revoked`) | `known_hosts`가 이 키를 폐기(revoked)로 표시했습니다. | 서버 관리자에게 새 키를 받습니다. |
-| 서버에 Node.js 22가 필요합니다 (`node-missing`, `node-too-old`) | 서버에 Node.js가 없거나 22보다 낮습니다. 창에 찾은 버전이 표시됩니다. | 서버 터미널에서 창에 표시된 명령(`curl -fsSL https://fnm.vercel.app/install \| bash && fnm install 22`)을 실행하거나 Node.js 22 이상을 설치합니다. 비대화형 SSH에서도 `node`가 PATH에 잡혀야 합니다. |
-| 서버에 npm이 필요합니다 (`npm-missing`) | Node.js는 있지만 npm이 PATH에 없습니다. | npm이 포함된 Node.js를 설치합니다(위 명령 사용). |
 | 이 서버에서는 Mixdog을 실행할 수 없습니다 (`unsupported-platform`) | Windows 서버, Linux/macOS가 아닌 시스템, x64/arm64가 아닌 CPU, Alpine 같은 musl 리눅스입니다. | 지원되는 서버(glibc 기반 Linux, macOS)를 사용합니다. |
 | 설치하지 못했습니다 (`install-failed`) | 업로드한 파일이 손상되었거나 잠금 파일·권한 문제 등으로 설치 단계가 실패했습니다. 상세 내용에 이유가 있습니다. | 홈 폴더의 쓰기 권한과 디스크 여유 공간을 확인한 뒤 다시 시도합니다. 계속되면 [서버에서 Mixdog 지우기](#서버에서-mixdog-지우기) 후 다시 연결합니다. |
-| 서버에서 Mixdog에 필요한 구성 요소를 설치하지 못했습니다 (`deps-install`) | 서버의 `npm`이 npm 레지스트리나 github.com에 접속하지 못했습니다. | 서버의 인터넷, 프록시, `npm config`를 확인합니다. 다음 연결 때 설치를 다시 시도합니다. |
 | 다른 설치가 진행 중입니다 (`install-locked`) | 다른 PC나 다른 창이 같은 서버에 설치하는 중입니다. | 잠시 기다린 뒤 다시 시도합니다. 설치가 중단되어 남은 오래된 잠금은 자동으로 정리됩니다. |
 | 서버에 사용할 수 있는 포트가 없습니다 (`port-unavailable`) | 서버에서 Mixdog이 쓸 루프백 포트를 열지 못했습니다. | 서버의 방화벽·프로세스를 확인하고 사용 중인 포트를 정리합니다. |
 | 서버의 Mixdog을 다시 시작할까요? (`daemon-busy-other-version`) | 서버에서 **다른 버전**의 Mixdog이 작업 중이거나 다른 PC가 연결되어 있습니다. 앱 업데이트 직후의 이전 연결은 약 35초 기다린 뒤 이 안내로 바뀝니다. | 작업이 끝나길 기다리거나 **다시 시작하고 연결**을 누릅니다. 실행 중인 작업이 중단되고 다른 PC의 연결이 끊어집니다. |
@@ -251,7 +243,7 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 | Mixdog을 교체하지 못했습니다 (`daemon-replace`) | 다른 Mixdog이 계속 세션 포트를 다시 차지합니다. | 서버에서 실행 중인 Mixdog과 자동 재시작 설정(서비스, 스크립트)을 확인합니다. |
 | 이 Mixdog을 확인할 수 없습니다 (`daemon-unproven`) | 정리 중에 접속 정보를 잡고 있는 프로세스가 Mixdog인지 확인되지 않아 아무것도 지우지 않았습니다. | 서버에서 해당 프로세스를 확인해 종료한 뒤 다시 시도합니다. |
 | 서버의 Mixdog 버전이 맞지 않습니다 (`protocol-mismatch`) | 서버의 Mixdog이 이 앱과 호환되지 않는 통신 규약입니다. | 다시 연결하면 이 앱과 같은 버전을 서버에 설치합니다. 계속되면 설정 → 연결의 "서버에서 Mixdog 정리…"로 지운 뒤 다시 연결합니다. |
-| 연결하지 못했습니다 + 상세 내용 (`daemon-exited`, `daemon-timeout`, `daemon-unhealthy`) | 서버의 Mixdog이 시작 직후 종료되었거나 제때 준비되지 못했습니다. | 상세 내용의 `daemon.log` 마지막 줄이나 **서버 로그 가져오기**를 확인합니다. 메모리·디스크·Node.js 상태가 흔한 원인입니다. |
+| 연결하지 못했습니다 + 상세 내용 (`daemon-exited`, `daemon-timeout`, `daemon-unhealthy`) | 서버의 Mixdog이 시작 직후 종료되었거나 제때 준비되지 못했습니다. | 상세 내용의 `daemon.log` 마지막 줄이나 **서버 로그 가져오기**를 확인합니다. 메모리·디스크 상태가 흔한 원인입니다. |
 | 서버의 로그인 셸이 연결을 방해합니다 (`remote-shell`, `remote-home`) | 로그인할 때 서버가 예상 밖의 출력을 내보냈거나, 홈 폴더를 쓸 수 없습니다. | `~/.bashrc` 같은 로그인 스크립트가 비대화형 SSH에서 출력을 내지 않도록 정리하고 다시 시도합니다. |
 | 예상하지 못한 오류가 발생했습니다 (`internal`, `protocol`) | 서버 쪽 설치 프로그램이 예상하지 못한 결과를 냈습니다. | **로그 보기** 또는 **진단 정보 복사**로 내용을 확인해 이슈를 올릴 때 함께 첨부합니다. |
 | 연결하지 못했습니다 + "does not answer through the ssh tunnel" / "Another process answered" | SSH 터널은 열렸지만 끝에서 기대한 Mixdog이 응답하지 않거나 다른 프로세스가 응답했습니다. 보안 확인에서 멈춘 것입니다. | 다시 연결합니다. 반복되면 서버 로그와 방화벽·AllowTcpForwarding 설정을 확인합니다. |
@@ -277,7 +269,6 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 
 - Mixdog인지 확인할 수 없는 프로세스가 접속 정보를 잡고 있을 때
 - 종료한 뒤에도 `~/.mixdog-remote`의 Mixdog 코드를 실행하거나 그 데이터 폴더를 쓰는 프로세스가 남아 있을 때
-- 서버에 Node.js가 없거나 너무 오래되었을 때: 어떤 데몬을 멈춰도 되는지 확인할 수 없으므로 정리하지 않습니다. Node.js 22 이상을 설치한 뒤 다시 시도하거나 아래처럼 직접 지우십시오.
 
 **직접 지우기** (서버에 SSH로 접속할 수 있을 때)
 
@@ -288,12 +279,9 @@ kill <pid>                                  # 응답이 없으면 kill -9 <pid>
 
 # 2) 파일 삭제 (작업 기록을 남기려면 user-data는 빼고 지웁니다)
 rm -rf ~/.mixdog-remote
-
-# 3) 선택: npm이 만든 다운로드 캐시
-rm -rf ~/.npm
 ```
 
-`~/.npm`은 다른 npm 작업에도 쓰이므로 필요 없을 때만 지우십시오. 앱에서 서버를 지운 뒤에는 이 PC의 Mixdog 전용 `known_hosts`(앱 데이터 폴더의 `ssh/known_hosts`)에 서버의 지문이 남아 있는데, 해당 줄은 그대로 두어도 문제가 없습니다.
+앱에서 서버를 지운 뒤에는 이 PC의 Mixdog 전용 `known_hosts`(앱 데이터 폴더의 `ssh/known_hosts`)에 서버의 지문이 남아 있는데, 해당 줄은 그대로 두어도 문제가 없습니다.
 
 ---
 
@@ -301,11 +289,11 @@ rm -rf ~/.npm
 
 **What it is.** Open a remote server from a Mixdog desktop window over SSH. Files, editor, terminal and Git run on the server; AI model calls run on *this* PC with this PC's sign-in, so no API keys are stored on the server. This differs from "Open another PC" (Settings → Connection), which pairs with another PC that runs the Mixdog desktop app by code.
 
-**Requirements.** Server: Linux (x64/arm64, glibc) or macOS, Node.js 22+ with npm, npm registry and github.com access, sshd; no root. This PC: the OpenSSH client.
+**Requirements.** Server: Linux (x64/arm64, glibc) or macOS, sshd; no root. This PC: the OpenSSH client.
 
 **Connect.** Settings → Connection → *Connect SSH server*, enter `user@host[:port]` or an `~/.ssh/config` alias. On first contact Mixdog shows the server's fingerprint and pins it in its own `known_hosts` only after you confirm; a changed key blocks the connection. Login uses your keys/ssh-agent first; a refused login falls back to prompts for a key passphrase, a password or an OTP code (never stored). ProxyJump hops are confirmed one at a time.
 
-**On the server.** Everything lives in `~/.mixdog-remote` (`versions/`, `deps/`, `runtime/`, `user-data/`, `daemon.log`); no services, no root. npm may keep its own cache in `~/.npm`.
+**On the server.** Everything lives in `~/.mixdog-remote` (`versions/`, `runtime/`, `user-data/`, `daemon.log`); no services, no root.
 
 **Security.** The server-side daemon listens on `127.0.0.1` only and needs a token; the desktop reaches it through an `ssh -L` tunnel and verifies the process behind it first. It only attaches to a daemon in client model-proxy mode, so models always use this PC's sign-in, and each server can be limited to chosen providers. Agent and X11 forwarding are forced off, host keys are checked strictly, and Mixdog uses its own `known_hosts`. The agent runs commands with the permissions of the account you log in with.
 
@@ -321,7 +309,7 @@ rm -rf ~/.npm
 
 **Housekeeping.** `daemon.log` over 5 MB is copied to `daemon.log.1` and truncated. Old `versions/` folders are removed keeping the current and previous version and any version a live process uses; nothing is removed if the process list cannot be read.
 
-**Troubleshooting.** See the table in [문제 해결](#문제-해결); each row names the error code (for example `node-too-old`, `npm-missing`, `unsupported-platform`, `deps-install`, `install-locked`, `daemon-busy-other-version`, `daemon-not-proxy`, `host-key-changed`, `auth`).
+**Troubleshooting.** See the table in [문제 해결](#문제-해결); each row names the error code (for example `unsupported-platform`, `install-locked`, `daemon-busy-other-version`, `daemon-not-proxy`, `host-key-changed`, `auth`).
 
 **Removing Mixdog.** Use *Clean up Mixdog on the server…* (stops the daemon Mixdog started, removes `~/.mixdog-remote`, optionally keeps or deletes `user-data` and the list entry), or by hand: `kill <pid from ~/.mixdog-remote/runtime/daemon.json>; rm -rf ~/.mixdog-remote`.
 

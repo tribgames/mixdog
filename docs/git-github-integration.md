@@ -16,7 +16,7 @@ DNS hostname. Clone requires an absolute new destination under an existing
 parent. Review submissions carry the PR head commit id.
 
 The `github` agent tool and desktop IPC use the same allowlisted command builder
-and CLI process runner in `src/runtime/github`. No arbitrary `gh` command, raw
+and CLI process runner in `native/core/crates/mixdog-tools/src/github`. No arbitrary `gh` command, raw
 API endpoint, token, shell script, or local request-body filename is accepted.
 The CLI owns credentials. API bodies are JSON on stdin. CLI and API errors are
 visible, responses are bounded, and uncertain writes are not automatically
@@ -112,13 +112,13 @@ was copied into Mixdog.
 Runtime contracts and agent integration:
 
 ```powershell
-node --test src/runtime/github/github.test.mjs src/session-runtime/builtin-features.test.mjs src/session-runtime/tool-profile.test.mjs
+cargo test --manifest-path native/core/Cargo.toml -p mixdog-tools github
 ```
 
 Desktop integration (from `apps/desktop`):
 
 ```powershell
-node --import ./scripts/test-env.mjs --import tsx --test src/main/github-service.test.mjs src/renderer/github/github-ui.test.mjs src/renderer/settings/git-plugin.test.mjs src/renderer/source-control-commit.test.mjs
+node --import ./scripts/test-env.mjs --import tsx --test src/renderer/github/github-ui.test.mjs src/renderer/settings/git-plugin.test.mjs src/renderer/source-control-commit.test.mjs
 npm run typecheck
 ```
 

@@ -54,10 +54,10 @@ test results.
 
 ## Rule packs
 
-v1 structural rules live at `src/runtime/tidy/rules/<language>/<rule-id>.yml`
+v1 structural rules live at
+`native/core/crates/mixdog-services/data/tidy-rules/<language>/<rule-id>.yml`
 (ast-grep YAML: `id`, `language`, `severity`, `message`, `note`, `rule`,
-optional `fix`). Tests are `src/runtime/tidy/rules/__tests__/<rule-id>.yml`
-(`id` + `valid` / `invalid`).
+optional `fix`).
 
 | Rule | Severity | Fix | Languages |
 |---|---|---|---|
@@ -115,10 +115,10 @@ require a typed parameter, so tests use `catch (e) {}`.
 
 ## Tool reference
 
-Runtime: `src/runtime/tidy/`. Registered like `media` (tool defs in
-`src/session-runtime/tool-defs.mjs`, dispatch in
-`src/session-runtime/internal-tool-executor.mjs`, labels in
-`src/runtime/shared/tool-surface.mjs`). One JSON result per call.
+Runtime: `native/core/crates/mixdog-services/src/tidy/`. Registered like `media` (tool defs in
+`native/core/crates/mixdog-tools/src/orch/defs/tidy.json`, dispatch in
+`native/core/crates/mixdog-services/src/tidy/tool.rs`, labels in
+`native/core/crates/mixdog-core/src/run_host/tool_surface.rs`). One JSON result per call.
 
 `tidy` is an installable built-in, like Office: the tool ships with the runtime
 but stays off the session surface until the user installs it (Extensions →
@@ -148,7 +148,7 @@ Arguments: `paths[]` (project-relative scope), `languages[]`, `engines[]`,
 ### Language detection
 
 Files come from `git ls-files` and map to languages by extension; the code
-language table in `src/runtime/tidy/languages.mjs` mirrors
+language table in `native/core/crates/mixdog-services/src/tidy/languages.rs` mirrors
 `native/mixdog-graph/src/lang.rs` (a test pins the two together) and adds the
 formatter-only languages (powershell, json, yaml, markdown, toml, css, html).
 When the local `mixdog-graph` binary answers `mixdog-graph <cwd> --langs`, its
@@ -201,14 +201,14 @@ time so two formatters never write the same file at once.
 download without prompting. Under `ask` the call returns
 `needsApproval:{engines:[{id,version,bytes}],bytes}` and downloads nothing;
 re-call with `approveDownloads:true`. Toolchain engines are never downloaded.
-Assets come from `src/runtime/tidy/engines-manifest.json`, stream through the
-shared bounded downloader, are sha256-verified before extraction (zip via
-`jszip`, tar.gz via `zlib` + a minimal ustar reader), and are renamed
+Assets come from `native/core/crates/mixdog-services/data/tidy-engines-manifest.json`, stream through the
+shared bounded downloader, are sha256-verified before extraction (zip and
+tar.gz through a minimal ustar reader), and are renamed
 atomically into `<pluginData>/tools/<engine>/<version>/`.
 
 ### Structural rules
 
-`structural.mjs` exposes `scan({cwd, rulesText, files, fix})` over exactly one
+`structural.rs` exposes `scan({cwd, rulesText, files, fix})` over exactly one
 implementation — there is no fallback engine:
 
 - `graph-binary` — `mixdog-graph <cwd> --scan --rules - [--files ...] [--fix]`,

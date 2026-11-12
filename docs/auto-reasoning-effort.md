@@ -182,7 +182,5 @@ OpenHands-SFT and TIGER-Lab SWE-Next-SFT (MIT), and AlienKevin SWE-ZERO-12M
 and Lego-X SWE-Lego real and synthetic (Apache 2.0). The release notes of
 each `effort-judge-v*` release list the files, hashes and attributions.
 
-Implementation: [decision rule](../src/runtime/agent/orchestrator/providers/auto-effort.mjs),
-[turn judgment](../src/runtime/agent/orchestrator/session/manager/ask-turn-auto-effort.mjs),
-[step judgment](../src/runtime/agent/orchestrator/session/loop/step-auto-effort.mjs),
-[judge worker](../src/runtime/effort-judge/judge-worker.mjs).
+Implementation: [decision rule and turn/step judgment](../native/core/crates/mixdog-core/src/run_host/auto_effort.rs),
+[judge](../native/core/crates/mixdog-services/src/effort_judge/judge.rs).

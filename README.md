@@ -79,13 +79,6 @@ five-step tutorial walks you through the rest.
 > The Windows installer and app are code-signed, and the Mac app is signed and
 > notarized. If SmartScreen still appears, choose **More info → Run anyway**.
 
-Or run it in the terminal (Node.js 22.19+ or 24+):
-
-```bash
-npm install -g mixdog
-mixdog
-```
-
 <details>
 <summary>Supported providers</summary>
 
@@ -104,18 +97,18 @@ Cursor, Antigravity (Gemini), and MiMo OAuth are off by default under
 </details>
 
 <details>
-<summary>Headless <code>mixdog exec</code></summary>
+<summary>Headless <code>mixdogd exec</code></summary>
 
-`mixdog exec` runs one non-interactive, single-model session without personal
+`mixdogd exec` runs one non-interactive, single-model session without personal
 memory, prior sessions, skills, MCP servers, or plugins:
 
 ```bash
-mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh "fix the failing test"
+mixdogd exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh "fix the failing test"
 ```
 
 Web search is off by default (`--web-search` enables it). This does not block
 shell networking — headless exec is not an offline sandbox. Run
-`mixdog --help` for the full reference.
+`mixdogd exec --help` for the full reference.
 
 </details>
 
@@ -166,7 +159,6 @@ the reference.
 - [Git & GitHub](docs/git-github-integration.md)
 - [SSH servers](docs/ssh-remote.md) (Korean, with an English summary)
 - [Language servers](docs/language-servers.md)
-- [Office runtime](src/runtime/office/README.md)
 - [Development, configuration, and testing](docs/development.md)
 
 ## Feedback

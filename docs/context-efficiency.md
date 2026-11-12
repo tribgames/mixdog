@@ -21,7 +21,7 @@ Section 7 covers which instructions are loaded and when.
 There is no single fixed prompt size: workflow, profile, tools, and approved
 memory change what a session needs.
 
-Implementation: [prompt composition](../src/runtime/agent/orchestrator/context/role-instructions.mjs).
+Implementation: [prompt composition](../native/core/crates/mixdog-core-domains/src/domains/instructions.rs).
 
 ## 2. Purpose-built, bounded tools
 
@@ -36,8 +36,8 @@ keep cached answers tied to the files they describe.
 Execution caching saves repeated work, but does not necessarily shorten the
 returned text. Tool-result reduction is covered separately in section 9.
 
-Implementation: [read cache](../src/runtime/agent/orchestrator/session/cache/read-cache.mjs),
-[scoped cache](../src/runtime/agent/orchestrator/session/cache/scoped-cache.mjs).
+Implementation: [read cache](../native/core/crates/mixdog-tools/src/fs/read_state.rs),
+[scoped cache](../native/core/crates/mixdog-agent/src/cache_scope.rs).
 
 Repeated-call references use these same cache checks and must identify a
 result already delivered to the current loop. A matching call signature
@@ -82,7 +82,7 @@ requested outlines or relationships, not the full index, reducing both
 repeated analysis and the amount of code the model needs to read.
 
 Implementation: [native dependencies](../native/mixdog-graph/Cargo.toml),
-[graph tool interface](../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs).
+[graph tool interface](../native/core/crates/mixdog-tools/src/code_graph/mod.rs).
 
 ## 4. Provider-aware prompt caching
 
@@ -100,8 +100,8 @@ Where supported, this can reduce repeated processing and input cost.
 Cached tokens still count toward the model's context limit, and a cache hit
 is not guaranteed on every request.
 
-Implementation: [cache strategy](../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs),
-[prompt layers](../src/runtime/agent/orchestrator/context/role-instructions.mjs).
+Implementation: [cache strategy](../native/core/crates/mixdog-core/src/run_host/session_cache_opts.rs),
+[prompt layers](../native/core/crates/mixdog-core-domains/src/domains/instructions.rs).
 
 ## 5. Structured compaction for continuing work
 
@@ -123,8 +123,8 @@ compaction reports an error instead of silently cutting it. Summarization
 still costs time and tokens; it does not preserve every detail of the
 original conversation.
 
-Implementation: [compaction runner](../src/runtime/agent/orchestrator/session/compact/runner.mjs),
-[handoff structure](../src/runtime/agent/orchestrator/session/compact/summary.mjs).
+Implementation: [compaction runner](../native/core/crates/mixdog-agent/src/compact/compactor.rs),
+[handoff structure](../native/core/crates/mixdog-agent/src/compact/summary.rs).
 
 ## 6. Idle-time reduction of cache-miss cost
 
@@ -142,8 +142,7 @@ Actual cache lifetimes and savings depend on the provider and workload.
 Use `/autoclear` to manage the policy, `/compact` for manual compaction, and
 `/context` to inspect the active context.
 
-Implementation: [idle-time session flow](../src/tui/session/session-flow.mjs),
-[configuration](../src/session-runtime/config-helpers.mjs).
+Implementation: [compaction settings](../native/core/crates/mixdog-agent/src/compact/settings.rs).
 
 ## 7. On-demand loading and layered prompt management
 
@@ -160,9 +159,9 @@ arranged; section 1 addresses how concisely each instruction is written.
 On-demand loading reduces initial overhead. Once a capability is used, its
 loaded instructions, schemas, and results still occupy context.
 
-Implementation: [deferred-tool catalogs](../src/runtime/agent/orchestrator/context/deferred-tools.mjs),
-[skill loading](../src/runtime/agent/orchestrator/context/skill-catalog.mjs),
-[prompt composition](../src/runtime/agent/orchestrator/context/role-instructions.mjs).
+Implementation: [deferred-tool catalogs](../native/core/crates/mixdog-core/src/run_host/deferred_manifest.rs),
+[skill loading](../native/core/crates/mixdog-mcp/src/skill_catalog.rs),
+[prompt composition](../native/core/crates/mixdog-core-domains/src/domains/instructions.rs).
 
 ## 8. Database-backed long-term memory
 
@@ -180,12 +179,12 @@ per-request instruction.
 
 This reduces context overhead rather than eliminating it: core memory and
 retrieved history both consume tokens. See [Memory maintenance](memory-cycles.md)
-for ownership and history-retention details. Headless `mixdog exec` does not
+for ownership and history-retention details. Headless `mixdogd exec` does not
 load personal memory or prior sessions.
 
-Implementation: [database setup](../src/runtime/memory/lib/pg/adapter.mjs),
-[memory indexes](../src/runtime/memory/lib/memory.mjs),
-[session memory selection](../src/runtime/memory/lib/core-memory-file.mjs).
+Implementation: [database setup](../native/core/crates/mixdog-services/src/memory/pg/db.rs),
+[memory indexes](../native/core/crates/mixdog-services/src/memory/core/index.rs),
+[session memory selection](../native/core/crates/mixdog-services/src/memory/core/context.rs).
 
 ## 9. Tool-result reduction, deduplication, and offloading
 
@@ -217,9 +216,8 @@ all results undergo lossless encoding or AI summarization. Tool-level output
 limits may already have shortened a result; offloading preserves the text it
 receives, not output omitted before it reaches this layer.
 
-Implementation: [tool execution and reuse](../src/runtime/agent/orchestrator/session/tool-batch.mjs),
-[body deduplication](../src/runtime/agent/orchestrator/session/context-utils.mjs),
-[output persistence and budgets](../src/runtime/agent/orchestrator/session/tool-result-offload.mjs).
+Implementation: [tool execution, reuse and body deduplication](../native/core/crates/mixdog-agent/src/batch.rs),
+[output persistence and budgets](../native/core/crates/mixdog-agent/src/offload.rs).
 
 ## 10. Auto reasoning effort
 
@@ -242,8 +240,8 @@ This saves output and reasoning tokens, not context-window space. See
 [Auto reasoning effort](auto-reasoning-effort.md) for the decision rule, the
 judge model and its accuracy.
 
-Implementation: [decision rule](../src/runtime/agent/orchestrator/providers/auto-effort.mjs),
-[effort judge](../src/runtime/effort-judge/judge-client.mjs).
+Implementation: [decision rule](../native/core/crates/mixdog-core/src/run_host/auto_effort.rs),
+[effort judge](../native/core/crates/mixdog-services/src/effort_judge/judge.rs).
 
 ## Reading the results
 
