@@ -224,6 +224,13 @@ writeSetManifest(stage, {
       "the fork case: the session id the test's lifecycle double minted (new-1) stands for the id the core's directory minted, " +
       'and `forks` is [source, compacted] of the copy the core really made and compacted',
     excluded,
+    injected:
+      "the fork case's heir budget: the recording's lifecycle double (inheritToNewSession) names no route and no context window, so Node's " +
+      'recording holds none; the replay gives the forked session the route openai-oauth/gpt-6-astra with contextWindow, rawContextWindow ' +
+      '400000, effectiveContextWindowPercent 100, autoCompactTokenLimit and compactBoundaryTokens 300000 (room to spare, so the copy is ' +
+      "kept whole), which the product's heir policy reads from the session header (native/core/crates/mixdog-core/src/run_host/" +
+      'inheritance_fit.rs:114 `settings.session(header)`; the same seven fields of a route without a session: inheritance_fit.rs:96-104 ' +
+      '`route_header`)',
   },
 });
 commitStage(stage, finalDir);
