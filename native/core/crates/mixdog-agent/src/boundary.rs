@@ -469,6 +469,10 @@ impl Run {
         self.baseline = None;
         // Receipts point at tool results compaction just removed from context.
         self.cross_turn.clear();
+        // Cached read results and the read snapshots would answer a read with a body or a receipt the model no longer holds.
+        if let Some(reuse) = &self.env.reuse {
+            reuse.after_compaction();
+        }
         // The next send intentionally starts a new transcript shape: a tagged break, not an unexplained mismatch.
         self.cache_break_intent = Some("automatic_compaction".to_owned());
         // Compaction starts a new loop epoch: iteration indices count from the
