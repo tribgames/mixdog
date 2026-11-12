@@ -166,7 +166,7 @@ const yieldToEventLoop = () => new Promise((resolve) => setTimeout(resolve, 25))
 
 /** Ingest stored ordinary sessions whose record stamp (log and json, see
  *  session-log-reader.mjs sessionRecordStamp) changed since the last recorded
- *  backfill, then drop the rows of sessions whose record is gone (removed by
+ *  backfill (agent-only ones are stamped, not indexed), then drop the rows of sessions whose record is gone (removed by
  *  any path, not only the delete command). Sequential, yields between
  *  sessions. */
 export async function backfillSessionSearch({ deps } = {}) {
@@ -179,12 +179,17 @@ export async function backfillSessionSearch({ deps } = {}) {
       const stamp = sessionRecordStampOfSync(dir, sessionId);
       if (stamps.get(sessionId) === stamp) continue;
       const session = readSession(dir, `${sessionId}.json`);
-      if (session?.id && !isAgentOnlySession(session)) {
+      if (session?.id) {
+        // An agent-only session is never indexed, but its stamp is recorded all
+        // the same: without one it would be read in full on every start.
+        const indexed = !isAgentOnlySession(session);
         await serialized(session.id, async () => {
-          await appendSessionSearchMessages(session.id, redactSensitiveMessages(session.id, session.messages));
+          if (indexed) {
+            await appendSessionSearchMessages(session.id, redactSensitiveMessages(session.id, session.messages));
+          }
           await recordSessionSearchBackfillStamp(session.id, stamp);
         });
-        ingested += 1;
+        if (indexed) ingested += 1;
       }
     } catch (error) {
       logFailure(`backfill ${sessionId}`, error);
