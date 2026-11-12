@@ -704,6 +704,33 @@ test('recover logs a failed prune and still drains every pending home', async (t
   assert.equal(h.sessions.get('sess_home_lead').messages.length, 2, 'the pending home was drained');
 });
 
+test('recover starts the pending homes in bounded batches, the event loop turning between them', async (t) => {
+  const h = homes(t, []);
+  const ids = Array.from({ length: 12 }, (_, i) => `sess_home_${i}`);
+  let turn = 0;
+  let spinning = true;
+  setImmediate(function tick() {
+    turn += 1;
+    if (spinning) setImmediate(tick);
+  });
+  const startedOn = new Map();
+  const queue = {
+    ...h.deps.queue,
+    pendingHomes: async () => ids,
+    items: async (homeId) => {
+      if (!startedOn.has(homeId)) startedOn.set(homeId, turn);
+      return [];
+    },
+  };
+  const delivery = createAgentHomeDelivery({ ...h.deps, queue });
+  assert.deepEqual(await delivery.recover(), ids);
+  await Promise.all(ids.map((id) => delivery.drain(id)));
+  spinning = false;
+  const turns = ids.map((id) => startedOn.get(id));
+  assert.ok(turns.every((value) => value !== undefined), 'every home was drained');
+  assert.ok(new Set(turns.slice(0, 4)).size === 1 && turns[4] > turns[3] && turns[8] > turns[7], `batches: ${turns}`);
+});
+
 test('task reports an earlier version queued under a room log id are dropped, never posted into the log', async (t) => {
   const logId = 'sess_room_abc123';
   const h = homes(t, [logId]);
