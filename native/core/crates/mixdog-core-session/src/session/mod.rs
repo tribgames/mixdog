@@ -351,6 +351,8 @@ pub struct SessionDeps {
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
     pub notices: Arc<dyn notices::SessionNotices>,
+    /// Announces a settings scope changed to every client (`notifySettingsChanged(scope)`): `ui/settings/changed`.
+    pub settings_changed: Arc<dyn Fn(&str) + Send + Sync>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.

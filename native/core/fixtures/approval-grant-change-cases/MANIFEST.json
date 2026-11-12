@@ -72,16 +72,16 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-approval-grant-change-cases.mjs",
-  "recorderSha256": "c111cdcbf1c638d1e0f444635a5ae44727c8c0142e1c90d19c7d76bdd0b8d60c",
+  "recorderSha256": "48d5f5c26089760bd982d6716cbc64879fce00daec9cbc3695a4a3ca35c7b4ac",
   "replay": {
     "compare": "the desktop's approval answer (apps/desktop/src/main/approval-grant-change.ts through ipc-sessions.ts and remote-methods.ts): replay each case and compare the answer and the operations issued whole",
-    "entry": "NO RUST ENTRY ON o1: the permissions-change announcement after an approval that remembers a grant: the core answers `thread/approval/answer` (mixdog-core-session approval_notification.rs `answer_approval`) and publishes no settings change for it; the desktop announces it (apps/desktop/src/main/approval-grant-change.ts).",
+    "entry": "Drive these public items on o1: thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the permissions-change announcement after an approval that remembers a grant: the core answers `thread/approval/answer` (mixdog-core-session approval_notification.rs `answer_approval`) and publishes no settings change for it; the desktop announces it (apps/desktop/src/main/approval-grant-change.ts)"
-    ],
+    "missingOnO1": [],
     "normalised": {},
-    "protocolMethods": [],
+    "protocolMethods": [
+      "thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs"
+    ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
