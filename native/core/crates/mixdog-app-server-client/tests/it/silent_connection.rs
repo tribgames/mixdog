@@ -78,8 +78,16 @@ async fn a_silent_connection_is_kept_until_its_socket_closes() {
     let probe = tokio::spawn(async move { asking.call_raw("thread/list", json!({}), CallOptions::default()).await });
     let request: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
     assert_eq!(request["method"], "thread/list", "the call went out on the same connection");
-    conn.server_send(&json!({ "id": request["id"], "result": {} }));
-    assert_eq!(probe.await.unwrap().expect("the call after the silence is answered"), json!({}));
+    // The answer is the one the recorded daemon gave the probe call (`result.wire`).
+    let reply: Json = node["result"]["wire"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|exchange| exchange["request"]["startLine"].as_str().is_some_and(|line| line.starts_with("POST /call ")))
+        .map(|exchange| serde_json::from_str(exchange["response"]["body"].as_str().unwrap()).unwrap())
+        .expect("the recorded answer of the probe call");
+    conn.server_send(&json!({ "id": request["id"], "result": reply }));
+    assert_eq!(probe.await.unwrap().expect("the call after the silence is answered"), reply);
     observed.push(step(&net, &mut events));
 
     conn.server_close(1006, "socket destroyed");
