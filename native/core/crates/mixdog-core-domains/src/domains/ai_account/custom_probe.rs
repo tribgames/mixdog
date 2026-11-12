@@ -63,7 +63,8 @@ pub trait CustomProbeHost: Send + Sync {
     fn require_local_provider_management(&self) -> Result<(), Failure>;
 
     /// `resolveCustomInput`; a refusal is the text Node throws.
-    async fn resolve_input(&self, input: &Value) -> Result<ResolvedCustom, Failure>;
+    /// `body_lone_units`: the lone surrogates the client's `requestBody` held (its size limit counts each as Node does).
+    async fn resolve_input(&self, input: &Value, body_lone_units: usize) -> Result<ResolvedCustom, Failure>;
 
     /// `createCustomProvider(id, { ...config, apiKey })`.
     async fn create(&self, id: &str, config: &Value, api_key: &str) -> Result<Arc<dyn CustomEndpoint>, Failure>;
@@ -95,7 +96,7 @@ async fn bounded<T>(
 ) -> Result<T, Stopped> {
     tokio::select! {
         biased;
-        () = tokio::time::sleep(limit) => {
+        () = mixdog_rt::time::sleep(limit) => {
             Err(Stopped::Timeout(format!("{label} timed out after {}s", (limit.as_millis() as f64 / 1000.0).round())))
         }
         done = run => done.map_err(Stopped::Failed),
@@ -172,9 +173,9 @@ impl CustomProbes {
     }
 
     /// `discoverCustomProviderModels`: `{ models }`, or `{ models, error }` when discovery failed.
-    pub async fn discover_models(&self, input: Value) -> Result<Value, Failure> {
+    pub async fn discover_models(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
         self.host.require_local_provider_management()?;
-        let resolved = self.host.resolve_input(&input).await?;
+        let resolved = self.host.resolve_input(&input, body_lone_units).await?;
         let secrets = secrets_of(self.host.as_ref(), &resolved.api_key, &resolved.config);
         let id = resolved.id.as_deref().unwrap_or("custom-discovery");
         let provider = match self.host.create(id, &resolved.config, &resolved.api_key).await {
@@ -197,16 +198,16 @@ impl CustomProbes {
 
     /// `testCustomProvider`: `{ ok: true }` (with the pooled key that served), or `{ ok: false,
     /// phase: 'discovery', error }`. A send that fails is thrown, sanitized.
-    pub async fn test(&self, input: Value) -> Result<Value, Failure> {
+    pub async fn test(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
         self.host.require_local_provider_management()?;
-        let resolved = self.host.resolve_input(&input).await?;
+        let resolved = self.host.resolve_input(&input, body_lone_units).await?;
         let secrets = secrets_of(self.host.as_ref(), &resolved.api_key, &resolved.config);
         let thrown = |message: &str| Failure::error(sanitize_message(message, &secrets));
         // The first visible manual model needs no discovery; otherwise the first visible
         // discovered one.
         let mut model = manual_rows(&resolved.config).into_iter().find(|row| !row.hidden).map(|row| row.id);
         if model.is_none() {
-            let discovery = self.discover_models(input.clone()).await.map_err(|failure| thrown(failure.message()))?;
+            let discovery = self.discover_models(input.clone(), body_lone_units).await.map_err(|failure| thrown(failure.message()))?;
             if let Some(error) = discovery.get("error").filter(|error| !error.is_null()) {
                 return Ok(json!({ "ok": false, "phase": "discovery", "error": error }));
             }

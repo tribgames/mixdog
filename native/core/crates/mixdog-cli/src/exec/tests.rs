@@ -72,7 +72,7 @@ impl HostCredentials for Creds {
 }
 
 fn notif(method: &str, params: Value) -> RpcNotification {
-    RpcNotification { method: method.into(), params: Some(params), emitted_at_ms: None, feed: None }
+    RpcNotification { method: method.into(), params: Some(params), emitted_at_ms: None, feed: None, lone_surrogates: Vec::new() }
 }
 
 fn item(method: &str, item: Value) -> RpcNotification {

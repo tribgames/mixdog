@@ -356,6 +356,10 @@ pub enum RunEvent {
     /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
     /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
     ToolBatch(ToolBatch),
+    /// The execution view of the same batch's calls, right after its audit and before any of them is committed or runs
+    /// (`rememberSensitiveValues(sessionId, executionCalls)`, `loop/tool-phase.mjs:49`): the host marks the values a
+    /// sensitive fill carries, so the stored copies of the transcript hold a marker for them from the assistant turn on.
+    ExecutionCalls(Vec<ToolCall>),
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
@@ -499,9 +503,13 @@ pub struct CompactRequest<'a> {
     /// The provider refused the request as too long: the latest request's
     /// attachments now travel by reference.
     pub reference_latest_attachments: bool,
-    /// A pass inside a running turn (`activeTurn: true` of the pre-send pass): the latest instruction travels on with a
-    /// continuation message. A manual or heir pass (`compaction-runner.mjs`) passes none and adds no continuation.
+    /// The pass runs inside a turn (`activeTurn: true` of the pre-send compaction): a turn in
+    /// progress gets the active-turn continuation. A manual or handoff pass between turns
+    /// (`runHandoffCompaction`) passes none.
     pub active_turn: bool,
+    /// Node `goalReminderText` (`latestUserPrefix`): the session's Goal and open todo snapshot the
+    /// kept latest request carries; empty for none.
+    pub latest_user_prefix: &'a str,
 }
 
 pub struct CompactOutput {
@@ -531,6 +539,16 @@ pub enum CompactError {
     /// The pass was cancelled; the run ends as aborted, not as a failed compaction.
     Aborted,
     Failed(String),
+    /// The summary failed on a route the plan resolved (Node's `error.compactRoute`): the failure
+    /// names that route's provider and model, which need not be the conversation's.
+    RouteFailed(String, CompactRoute),
+}
+
+/// The provider and model of the summary route a compaction failed on.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CompactRoute {
+    pub provider: String,
+    pub model: String,
 }
 
 /// The compaction pipeline (rules and summary). The loop owns when it runs and

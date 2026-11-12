@@ -186,7 +186,10 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
       return;
     }
     void pager.earlier().then((outcome) => {
-      if (outcome === 'unsupported' && !pager.window) growWindow();
+      if (pager.window) return;
+      if (outcome === 'unsupported') growWindow();
+      // The window the page was asked for, not the rows held now.
+      else if (outcome === 'moved') growWindow(pager.movedFrom);
     });
   }, [growWindow, liveHasOlder, pager, sessionId]);
   const requestLater = useCallback(() => {
@@ -206,7 +209,8 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
   };
 }
 
-export function useTranscriptHistory(sessionId: string, itemCount: number, hasOlder?: boolean): () => void {
+/** Grows the window by a page from the rows held now, or (a number) from that many rows. */
+export function useTranscriptHistory(sessionId: string, itemCount: number, hasOlder?: boolean): (heldRows?: unknown) => void {
   const countRef = useRef(itemCount);
   countRef.current = itemCount;
   const hasOlderRef = useRef(hasOlder);
@@ -231,13 +235,14 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
     const paging = pagingRef.current;
     return () => endPage(paging);
   }, [sessionId]);
-  return useCallback(() => {
+  return useCallback((heldRows?: unknown) => {
     const prefetch = window.mixdogDesktop?.prefetchSession;
     const paging = pagingRef.current;
     if (!sessionId || !prefetch || paging.pending) return;
     const older = hasOlderRef.current;
     const tail = typeof older === 'boolean';
-    const count = countRef.current;
+    // A click handler hands its event here: only a number names the rows a window is grown from.
+    const count = typeof heldRows === 'number' ? heldRows : countRef.current;
     const nextLimit = tail
       ? nextTranscriptTailLimit(count, paging.pagedFrom, older)
       : nextTranscriptHistoryLimit(count, paging.limit);

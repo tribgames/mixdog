@@ -225,11 +225,6 @@ pub fn prepare_turn_effort_configuration(
     Some(EffortSnapshot { provider: route.provider.to_owned(), model: model_key(route.model), mode, initial_effort, effort })
 }
 
-/// The snapshot as the user turn's `meta.effortConfiguration` stores it.
-pub fn snapshot_value(snapshot: &EffortSnapshot) -> Value {
-    effort_value(snapshot)
-}
-
 /// The managed local model's catalog entry (`localProviderModelEntry(model)`).
 #[derive(Clone, Debug)]
 pub struct LocalEntry {
@@ -356,17 +351,6 @@ impl HopWiring for RouteWirer {
     }
 }
 
-fn mode_name(mode: EffortMode) -> &'static str {
-    match mode {
-        EffortMode::Responses => "responses",
-        EffortMode::Anthropic => "anthropic",
-        EffortMode::Custom => "custom",
-    }
-}
-
-pub fn effort_value(e: &EffortSnapshot) -> Value {
-    json!({ "version": 1, "provider": e.provider, "model": e.model, "mode": mode_name(e.mode), "initialEffort": e.initial_effort, "effort": e.effort })
-}
 
 #[cfg(test)]
 mod tests {
@@ -431,7 +415,7 @@ mod tests {
                 messages: &messages,
             };
             let got = prepare_turn_effort_configuration(&route, &facts, case["turnEffort"].as_str(), &unsupported, &|_| None);
-            let got = got.as_ref().map(snapshot_value).unwrap_or(Value::Null);
+            let got = got.as_ref().map(EffortSnapshot::to_value).unwrap_or(Value::Null);
             assert_eq!(got, case["snapshot"], "{case}");
         }
     }

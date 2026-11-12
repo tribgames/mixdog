@@ -1,7 +1,19 @@
 //! `github` (T §3.9): repositories, issues, pull requests, Actions runs, releases and
-//! notifications through the `gh` CLI, spawned by the `ProcessManager` seam.
+//! notifications — the agent's tool over the one GitHub client the desktop uses too
+//! (`executeGithubTool`, `src/runtime/github/tool.mjs`): the request is served by
+//! [`GhClient::execute`], and the model reads its reduced, capped text ([`reduce`]), with the
+//! whole response kept as a raw file of the session.
+
+mod reduce;
+
+#[cfg(test)]
+mod k1_replay;
+
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
@@ -10,298 +22,76 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 use mixdog_scm::error::ScmFailure;
-use mixdog_scm::error::scrub_credentials;
-use mixdog_scm::exec::Exec;
-use mixdog_scm::exec::ExecSpec;
+use mixdog_scm::gh::client::GhClient;
+use mixdog_scm::gh::contract;
 
-use crate::code_graph::invalid_args;
 use crate::code_graph::text_output;
 use crate::orch::util::spec_from_def;
 
 const SPEC: &str = include_str!("specs/github.json");
-const RUN_LIMIT: u64 = 32_000_000;
+const NO_ARCHIVE: &str = "unavailable (no session archive)";
 
-/// The actions that only read; every other request, an unknown one included, changes something
-/// (`githubRequestMutates`, `runtime/github/contract.mjs`).
-const READ_ACTIONS: [&str; 15] = [
-    "repo.list",
-    "repo.view",
-    "issue.list",
-    "issue.view",
-    "issue.comments",
-    "pr.list",
-    "pr.view",
-    "pr.comments",
-    "workflow.list",
-    "run.list",
-    "run.view",
-    "run.logs",
-    "release.list",
-    "release.view",
-    "notification.list",
-];
-
-/// Whether a `github` request may change something: an unknown action counts as a change.
+/// `githubRequestMutates`: whether a `github` request may change something; an unknown action counts as a change.
 pub fn github_call_mutates(args: &JsonValue) -> bool {
-    !args.get("action").and_then(JsonValue::as_str).is_some_and(|action| READ_ACTIONS.contains(&action))
+    args.get("action").and_then(JsonValue::as_str).and_then(contract::definition).is_none_or(|def| def.write)
 }
+
 pub struct GithubTool {
     spec: ToolSpec,
+    client: Arc<GhClient>,
+    /// Where a result's raw file is kept (`<data>/tool-results/<session>/`); `None`: no session archive.
+    data_dir: Option<PathBuf>,
 }
 
 impl GithubTool {
-    pub fn new() -> Self {
-        Self {
-            spec: spec_from_def(SPEC, false, &[]),
-        }
-    }
-}
-
-impl Default for GithubTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-struct Req<'a>(&'a JsonValue);
-
-impl Req<'_> {
-    fn str(&self, key: &str) -> Option<&str> {
-        self.0.get(key).and_then(JsonValue::as_str).filter(|s| !s.is_empty())
+    pub fn new(client: Arc<GhClient>, data_dir: Option<PathBuf>) -> Self {
+        Self { spec: spec_from_def(SPEC, false, &[]), client, data_dir }
     }
 
-    fn need(&self, action: &str, key: &str) -> Result<String, String> {
-        self.str(key)
-            .map(str::to_owned)
-            .ok_or_else(|| format!("github {action}: \"{key}\" is required."))
+    /// `executeGithubTool`: the text the model reads for `args`, or the request's failure.
+    async fn text(&self, ctx: &ToolContext, args: &JsonValue) -> Result<String, ScmFailure> {
+        let result = reduce::parsed(&self.client.execute(args, ctx.cwd.as_path(), &ctx.cancel).await?);
+        let action = args.get("action").and_then(JsonValue::as_str).unwrap_or("");
+        let original = result.get("data").cloned().unwrap_or(JsonValue::Null);
+        let data = reduce::project_list(action, &original)
+            .or_else(|| reduce::project_view(action, &original))
+            .unwrap_or_else(|| reduce::reduce(&original, None, None));
+        let mut reduced = result.as_object().cloned().unwrap_or_default();
+        reduced.insert("data".to_owned(), data.clone());
+        if reduced.get("hostname").and_then(JsonValue::as_str) == Some(contract::DEFAULT_HOSTNAME) {
+            reduced.shift_remove("hostname");
+        }
+        let text = reduce::stringify_value(&JsonValue::Object(reduced.clone()));
+        // Lists point at raw only when a row or excerpt was cut; they are projected by design. Everything else needs raw
+        // whenever the reduction dropped data.
+        let lossy = if contract::definition(action).is_some_and(|def| def.list) {
+            data.as_array().is_some_and(|rows| reduce::rows_were_cut(rows))
+        } else {
+            reduce::stringify_value(&data) != reduce::stringify_value(&original)
+        };
+        if !lossy && reduce::fits(&text) {
+            return Ok(text);
+        }
+        let content = match &original {
+            JsonValue::String(text) => reduce::plain_text(text),
+            other => mixdog_js::json_stringify_indent_parsed(other, 2),
+        };
+        let raw = self.archive(ctx, &content).await;
+        reduced.insert("raw".to_owned(), JsonValue::String(raw.map_or_else(|| NO_ARCHIVE.to_owned(), |path| mixdog_js::json_parsed_text(&path))));
+        let with_raw = reduce::stringify_value(&JsonValue::Object(reduced.clone()));
+        Ok(if reduce::fits(&with_raw) { with_raw } else { reduce::cap_result(&reduced, args) })
     }
 
-    fn number(&self, action: &str, key: &str) -> Result<String, String> {
-        self.0
-            .get(key)
-            .and_then(JsonValue::as_u64)
-            .map(|n| n.to_string())
-            .ok_or_else(|| format!("github {action}: \"{key}\" is required."))
-    }
-
-    fn flag(&self, key: &str) -> bool {
-        self.0.get(key).and_then(JsonValue::as_bool).unwrap_or(false)
-    }
-
-    fn list(&self, key: &str) -> Vec<String> {
-        self.0
-            .get(key)
-            .and_then(JsonValue::as_array)
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default()
-    }
-}
-
-fn argv<const N: usize>(parts: [&str; N]) -> Vec<String> {
-    parts.iter().map(|s| (*s).to_owned()).collect()
-}
-
-/// The `gh` argument vector of one action, validated; never a shell string.
-fn build(action: &str, args: &JsonValue) -> Result<Vec<String>, String> {
-    let r = Req(args);
-    let mut v: Vec<String> = Vec::new();
-    let (group, verb) = action
-        .split_once('.')
-        .ok_or_else(|| format!("github: unknown action \"{action}\""))?;
-    match (group, verb) {
-        ("notification", "list") => v.extend(argv(["api", "notifications"])),
-        ("notification", "read") => {
-            let id = r.number(action, "id")?;
-            v.extend(argv(["api", "-X", "PATCH"]));
-            v.push(format!("notifications/threads/{id}"));
-            return Ok(v);
+    /// `persistToolResultArtifactSync` on the `github-raw` channel: the shown path of the stored response, `None` without a
+    /// session archive (no data directory, session or call) or when it cannot be written.
+    async fn archive(&self, ctx: &ToolContext, content: &str) -> Option<String> {
+        let data_dir = self.data_dir.as_deref()?;
+        if ctx.thread_id.as_str().is_empty() || ctx.call_id.as_str().is_empty() {
+            return None;
         }
-        ("repo", "list") => {
-            v.extend(argv(["repo", "list"]));
-            v.extend(r.str("owner").map(str::to_owned));
-        }
-        ("repo", "view") => {
-            v.extend(argv(["repo", "view"]));
-            v.extend(r.str("repo").map(str::to_owned));
-        }
-        ("repo", "create") => {
-            v.extend(argv(["repo", "create"]));
-            v.push(r.need(action, "repo")?);
-            v.push(format!("--{}", r.str("visibility").unwrap_or("private")));
-            if let Some(d) = r.str("description") {
-                v.extend(["--description".to_owned(), d.to_owned()]);
-            }
-        }
-        ("repo", "clone") => {
-            v.extend(argv(["repo", "clone"]));
-            v.push(r.need(action, "repo")?);
-            v.extend(r.str("destination").map(str::to_owned));
-        }
-        ("repo", "fork") => {
-            v.extend(argv(["repo", "fork"]));
-            v.push(r.need(action, "repo")?);
-            v.push("--clone=false".to_owned());
-            if let Some(o) = r.str("organization") {
-                v.extend(["--org".to_owned(), o.to_owned()]);
-            }
-        }
-        ("issue" | "pr", "list") => {
-            v.extend([group.to_owned(), "list".to_owned()]);
-            if let Some(s) = r.str("state") {
-                v.extend(["--state".to_owned(), s.to_owned()]);
-            }
-        }
-        ("issue" | "pr", "view" | "comments") => {
-            v.extend([group.to_owned(), "view".to_owned(), r.number(action, "number")?]);
-            if verb == "comments" {
-                v.push("--comments".to_owned());
-            }
-        }
-        ("issue" | "pr", "close" | "reopen" | "checkout") => {
-            v.extend([group.to_owned(), verb.to_owned(), r.number(action, "number")?]);
-        }
-        ("issue" | "pr", "comment") => {
-            v.extend([group.to_owned(), "comment".to_owned(), r.number(action, "number")?]);
-            v.extend(["--body".to_owned(), r.need(action, "body")?]);
-        }
-        ("issue", "create") | ("pr", "create") => {
-            v.extend([group.to_owned(), "create".to_owned()]);
-            v.extend(["--title".to_owned(), r.need(action, "title")?]);
-            v.extend(["--body".to_owned(), r.str("body").unwrap_or("").to_owned()]);
-            for l in r.list("labels") {
-                v.extend(["--label".to_owned(), l]);
-            }
-            for a in r.list("assignees") {
-                v.extend(["--assignee".to_owned(), a]);
-            }
-            if group == "pr" {
-                for (key, flag) in [("base", "--base"), ("head", "--head")] {
-                    if let Some(x) = r.str(key) {
-                        v.extend([flag.to_owned(), x.to_owned()]);
-                    }
-                }
-                if r.flag("draft") {
-                    v.push("--draft".to_owned());
-                }
-            }
-        }
-        ("issue", "edit") => {
-            v.extend(["issue".to_owned(), "edit".to_owned(), r.number(action, "number")?]);
-            for (key, flag) in [("title", "--title"), ("body", "--body")] {
-                if let Some(x) = r.str(key) {
-                    v.extend([flag.to_owned(), x.to_owned()]);
-                }
-            }
-            for l in r.list("labels") {
-                v.extend(["--add-label".to_owned(), l]);
-            }
-            for a in r.list("assignees") {
-                v.extend(["--add-assignee".to_owned(), a]);
-            }
-        }
-        ("pr", "merge") => {
-            v.extend(["pr".to_owned(), "merge".to_owned(), r.number(action, "number")?]);
-            v.push(format!("--{}", r.str("method").unwrap_or("merge")));
-            v.extend(["--match-head-commit".to_owned(), r.need(action, "sha")?]);
-        }
-        ("pr", "review") => {
-            v.extend(["pr".to_owned(), "review".to_owned(), r.number(action, "number")?]);
-            v.push(
-                match r.str("event").unwrap_or("COMMENT") {
-                    "APPROVE" => "--approve",
-                    "REQUEST_CHANGES" => "--request-changes",
-                    _ => "--comment",
-                }
-                .to_owned(),
-            );
-            v.extend(["--body".to_owned(), r.str("body").unwrap_or("").to_owned()]);
-            if let Some(sha) = r.str("sha") {
-                v.extend(["--match-head-commit".to_owned(), sha.to_owned()]);
-            }
-        }
-        ("workflow", "list") => v.extend(argv(["workflow", "list"])),
-        ("workflow", "run") => {
-            v.extend(["workflow".to_owned(), "run".to_owned(), r.need(action, "workflow")?]);
-            if let Some(x) = r.str("ref") {
-                v.extend(["--ref".to_owned(), x.to_owned()]);
-            }
-            if let Some(inputs) = r.0.get("inputs").and_then(JsonValue::as_object) {
-                for (k, val) in inputs {
-                    let text = val.as_str().map(str::to_owned).unwrap_or_else(|| val.to_string());
-                    v.extend(["-f".to_owned(), format!("{k}={text}")]);
-                }
-            }
-        }
-        ("run", "list") => {
-            v.extend(argv(["run", "list"]));
-            if let Some(w) = r.str("workflow") {
-                v.extend(["--workflow".to_owned(), w.to_owned()]);
-            }
-        }
-        ("run", "view") => v.extend(["run".to_owned(), "view".to_owned(), r.number(action, "id")?]),
-        ("run", "logs") => {
-            v.extend(["run".to_owned(), "view".to_owned(), r.number(action, "id")?]);
-            v.push(if r.flag("failed") { "--log-failed" } else { "--log" }.to_owned());
-        }
-        ("run", "rerun") => {
-            v.extend(["run".to_owned(), "rerun".to_owned(), r.number(action, "id")?]);
-            if r.flag("failed") {
-                v.push("--failed".to_owned());
-            }
-        }
-        ("run", "cancel") => v.extend(["run".to_owned(), "cancel".to_owned(), r.number(action, "id")?]),
-        ("release", "list") => v.extend(argv(["release", "list"])),
-        ("release", "view") => {
-            v.extend(argv(["release", "view"]));
-            v.push(r.need(action, "tag")?);
-        }
-        ("release", "create" | "edit") => {
-            v.extend(["release".to_owned(), verb.to_owned(), r.need(action, "tag")?]);
-            for (key, flag) in [("target", "--target"), ("title", "--title"), ("body", "--notes")] {
-                if let Some(x) = r.str(key) {
-                    v.extend([flag.to_owned(), x.to_owned()]);
-                }
-            }
-            for (key, flag) in [("draft", "--draft"), ("prerelease", "--prerelease")] {
-                if r.flag(key) {
-                    v.push(flag.to_owned());
-                }
-            }
-        }
-        _ => return Err(format!("github: unknown action \"{action}\"")),
-    }
-    if let Some(repo) = r.str("repo")
-        && !matches!((group, verb), ("repo", _) | ("notification", _))
-    {
-        v.extend(["--repo".to_owned(), repo.to_owned()]);
-    }
-    let paged = matches!(verb, "list");
-    if paged && group != "workflow" {
-        let limit = r.0.get("limit").and_then(JsonValue::as_u64).unwrap_or(30);
-        v.extend([
-            if group == "notification" { "--paginate" } else { "--limit" }.to_owned(),
-        ]);
-        if group != "notification" {
-            v.push(limit.to_string());
-        }
-    }
-    Ok(v)
-}
-
-fn failure(error: ScmFailure) -> ToolError {
-    match error {
-        ScmFailure::Cancelled => ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"),
-        ScmFailure::Unavailable { .. } => ToolError::new(
-            ToolErrorCode::Unavailable {
-                capability: "gh".to_owned(),
-                reason: "the gh CLI is not installed".to_owned(),
-            },
-            "Error: github: the gh CLI is not installed or not on PATH",
-        ),
-        other => ToolError::new(
-            ToolErrorCode::Io { os_code: None },
-            format!("Error: github: {}", scrub_credentials(&other.to_string())),
-        ),
+        crate::exec::archive::persist(ctx.io.durability, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content)
+            .await
+            .map(|stored| stored.path)
     }
 }
 
@@ -311,48 +101,23 @@ impl Tool for GithubTool {
         &self.spec
     }
 
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let action = args.get("action").and_then(JsonValue::as_str).unwrap_or("");
-        let argv = build(action, &args).map_err(|m| invalid_args("action", format!("Error: {m}")))?;
-        let mut spec = ExecSpec::new("gh", ctx.cwd.as_path());
-        spec.args = argv;
-        spec.max_output = RUN_LIMIT;
-        spec.env_set.push(("GH_PROMPT_DISABLED".to_owned(), "1".to_owned()));
-        spec.env_set.push(("NO_COLOR".to_owned(), "1".to_owned()));
-        if let Some(host) = args.get("hostname").and_then(JsonValue::as_str).filter(|h| !h.is_empty()) {
-            spec.env_set.push(("GH_HOST".to_owned(), host.to_owned()));
+    /// `GITHUB_OUTBOUND` (`human-gate/outbound-policy.mjs`): a comment or a review posts outside Mixdog.
+    fn outbound_kind(&self, args: &JsonValue) -> Option<ActionKind> {
+        match args.get("action").and_then(JsonValue::as_str)? {
+            "issue.comment" | "pr.comment" => Some(ActionKind::Comment),
+            "pr.review" => Some(ActionKind::Review),
+            _ => None,
         }
-        let output = Exec::new(ctx.processes.clone())
-            .run(spec, &ctx.cancel)
-            .await
-            .map_err(failure)?;
-        let stdout = scrub_credentials(&output.stdout_text());
-        if output.success() {
-            let text = stdout.trim_end();
-            return Ok(text_output(if text.is_empty() { "(no output)" } else { text }));
-        }
-        let detail = scrub_credentials(&output.stderr_text());
-        let detail = if detail.trim().is_empty() { stdout } else { detail };
-        Err(ToolError::new(
-            ToolErrorCode::Io { os_code: output.code },
-            format!("Error: github {action} failed: {}", detail.trim()),
-        ))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::build;
-
-    #[test]
-    fn builds_gh_argv_per_action() {
-        let v = build("pr.merge", &json!({"number": 7, "method": "squash", "sha": "abc", "repo": "o/r"})).unwrap();
-        assert_eq!(v, ["pr", "merge", "7", "--squash", "--match-head-commit", "abc", "--repo", "o/r"]);
-        let v = build("issue.list", &json!({"state": "open", "limit": 5})).unwrap();
-        assert_eq!(v, ["issue", "list", "--state", "open", "--limit", "5"]);
-        assert!(build("pr.view", &json!({})).unwrap_err().contains("\"number\" is required"));
-        assert!(build("nope", &json!({})).is_err());
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        match self.text(ctx, &args).await {
+            Ok(text) => Ok(text_output(text)),
+            // `executeGithubTool` answers every failure as `Error: <message>`.
+            Err(failure) => {
+                let text = format!("Error: {failure}");
+                Err(ToolError::new(ToolErrorCode::Failed { reason: text.clone() }, text))
+            }
+        }
     }
 }

@@ -5,19 +5,19 @@
   "files": [
     {
       "bytes": 90752,
-      "path": ".mixdog/data/sessions/sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf.log.jsonl",
-      "sha256": "5cf3f7172d02cfe32ba757f28bfa9bf67d5dd311a2fc02f953792d08287f9270"
+      "path": ".mixdog/data/sessions/sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e.log.jsonl",
+      "sha256": "68e815bac3f0ee5936910e1e84d0ce64fcffec8ff8385b732c745b467947387a"
     },
     {
       "bytes": 740850,
       "path": "golden.json",
-      "sha256": "2a4c605946dd1b9e3cb849be8b0e6fa342b0bf97b9d8a1be4272f84dbf2bab0c"
+      "sha256": "d9df4b79a68db37a2d7ef00659cfe2c5f3823918f8585922d97d4e92a43d1fc2"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",

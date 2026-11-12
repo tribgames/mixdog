@@ -1,7 +1,7 @@
 {
   "note": "runtime.contextStatusSettled(options) of a real session runtime over a session built by a real turn, every call in the order made",
   "now": 1800000000000,
-  "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+  "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
   "route": {
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
@@ -13,10 +13,10 @@
         "inspect": true
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -213,7 +213,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -633,13 +633,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:0",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -836,7 +836,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -1262,13 +1262,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:1",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -1465,7 +1465,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -1891,13 +1891,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:2",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -2094,7 +2094,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -2520,13 +2520,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:3",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -2723,7 +2723,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -3149,13 +3149,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:4",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -3352,7 +3352,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -3778,13 +3778,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:5",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -3981,7 +3981,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -4407,13 +4407,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:6",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -4610,7 +4610,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -5036,13 +5036,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:7",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -5239,7 +5239,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -5665,13 +5665,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:8",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -5868,7 +5868,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -6294,13 +6294,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:1:section:0",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -6497,7 +6497,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -6923,13 +6923,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:2:section:0",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -7126,7 +7126,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -7552,13 +7552,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:2:section:1",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -7755,7 +7755,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -8181,13 +8181,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:2:section:2",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -8384,7 +8384,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -8810,13 +8810,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:2:section:3",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -9013,7 +9013,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -9439,13 +9439,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:2:section:4",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -9642,7 +9642,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -10068,13 +10068,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:3:section:0",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -10271,7 +10271,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -10686,7 +10686,7 @@
           "estimatedTokens": 8223,
           "preview": {
             "id": "message:3:section:0",
-            "text": "# Session\nCwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work\nModel: Claude-Sonnet-4-6\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\.mixdog\\data\\scratch\\s.b402a0edc96ba451 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: a.txt\n\n---",
+            "text": "# Session\nCwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work\nModel: Claude-Sonnet-4-6\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\.mixdog\\data\\scratch\\s.9f5aa3afcac27a39 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: a.txt\n\n---",
             "truncated": false,
             "stale": false
           }
@@ -10697,13 +10697,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:3:section:1",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -10900,7 +10900,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -11326,13 +11326,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:4",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -11529,7 +11529,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -11955,13 +11955,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:5",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -12158,7 +12158,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -12584,13 +12584,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:6",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -12787,7 +12787,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -13213,13 +13213,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:7",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -13416,7 +13416,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -13842,13 +13842,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:8",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -14045,7 +14045,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -14471,13 +14471,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:9",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -14674,7 +14674,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -15100,13 +15100,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:0",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -15303,7 +15303,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -15729,13 +15729,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:1",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -15932,7 +15932,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -16358,13 +16358,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:2",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -16561,7 +16561,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -16987,13 +16987,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:3",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -17190,7 +17190,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -17616,13 +17616,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:4",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -17819,7 +17819,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -18245,13 +18245,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:5",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -18448,7 +18448,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -18874,13 +18874,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:6",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -19077,7 +19077,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -19503,13 +19503,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:7",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -19706,7 +19706,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -20132,13 +20132,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:8",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -20335,7 +20335,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -20761,13 +20761,13 @@
       "options": {
         "inspect": true,
         "entryId": "tool:9",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -20964,7 +20964,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -21390,13 +21390,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:999",
-        "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7"
+        "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -21593,7 +21593,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -22019,13 +22019,13 @@
       "options": {
         "inspect": true,
         "entryId": "message:0:section:0",
-        "revision": "cd1e63b749b20f170378c2dc302477b32ba0c7149408374c0475052fdb7a2668"
+        "revision": "4ebba9c9fcce6295ce006c2946d05f457c229702af1bf6efb2214680dfee113b"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -22222,7 +22222,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -22651,10 +22651,10 @@
         "revision": "not-a-revision"
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -22851,7 +22851,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",
@@ -23278,10 +23278,10 @@
         "inspect": true
       },
       "status": {
-        "sessionId": "sess_4242_1800000000000_1800000000000_e4b5ed91ab6c3c6c838e8dd79565b5cf",
+        "sessionId": "sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.3b963d4c37a0bfa9\\context-inspection-live\\work",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.7dd0ca727ff8f87e\\context-inspection-live\\work",
         "toolMode": "full",
         "contextWindow": 500000,
         "effectiveContextWindow": 500000,
@@ -23478,7 +23478,7 @@
           }
         },
         "inspection": {
-          "revision": "6e4057cbca9a1bab0cb13bb0ee13da1684cb647faed08a346ef51519a2b607c7",
+          "revision": "1423db2066d0e725de153831fbfd8e45fff69007c771a784da3ffbc7287ffcbf",
           "categories": [
             {
               "key": "system",

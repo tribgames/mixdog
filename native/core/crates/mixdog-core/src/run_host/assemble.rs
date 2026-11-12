@@ -230,6 +230,22 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
     options.thread = Some(identity);
 }
 
+/// `...session.providerCacheOpts`, spread last into every send's options (`ask-turn-loop-options.mjs:74-77`): the
+/// session's cache policy. Its `cacheStrategy` is what the Anthropic body reads as `model_parameters.cacheStrategy`
+/// (a lead session's message breakpoints are `1h`), its `promptCacheScope` the request's cache scope.
+pub(crate) fn apply_cache_opts(options: &mut mixdog_core_api::domain::provider::RequestOptions, header: &Header) {
+    let Some(opts) = header.get("providerCacheOpts").and_then(Value::as_object) else { return };
+    if let Some(strategy) = opts.get("cacheStrategy").filter(|strategy| strategy.is_object()) {
+        let parameters = options.model_parameters.get_or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(parameters) = parameters.as_object_mut() {
+            parameters.insert("cacheStrategy".to_owned(), strategy.clone());
+        }
+    }
+    if let Some(scope) = opts.get("promptCacheScope").and_then(Value::as_str) {
+        options.prompt_cache_scope = Some(scope.to_owned());
+    }
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services, prefix_guards: std::sync::Mutex::default() }
@@ -335,11 +351,17 @@ impl HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
         let provider_id = text(header, "provider");
-        let provider = s
-            .registry
-            .get(provider_id)
-            .await
-            .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
+        // Node readies the route's provider when a stored session is resumed (`resume.mjs:108` `refreshRouteEffort` ->
+        // `route-resolution.mjs:38` `ensureProvidersReady(ensureProviderEnabled(config, provider))`); a thread opened
+        // after a restart has had no such step here, so the first request readies it the same way.
+        let provider = match s.registry.get(provider_id).await {
+            Some(provider) => Some(provider),
+            None => match seams.hop_host(thread, header) {
+                Some(host) => host.provider(provider_id).await.map_err(refuse)?,
+                None => None,
+            },
+        }
+        .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
         let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
@@ -364,6 +386,7 @@ impl HostRunParts {
         options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
+        apply_cache_opts(&mut options, header);
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
         options.wire_pin = wire_pin_of(header.get("wireRoute"));

@@ -1004,6 +1004,10 @@ impl ContextTarget for GaugeTarget {
     }
 }
 
+#[cfg(test)]
+#[path = "thread_switches_home_replay.rs"]
+mod home_replay;
+
 /// `isScratchSession(session)`: an agent's home thread or a room's thread never is; any other
 /// is while it holds no user conversation and no completed turn.
 pub(crate) fn is_scratch(thread: &str, committed: &[Value], live: &[Value]) -> bool {
@@ -1030,7 +1034,7 @@ impl SessionContextSwitch {
 
     /// Leaving the open conversation: a scratch one is tombstoned (nothing worth resuming), any
     /// other stays resumable but is detached, which moves its generation on (`closeSurfaceSession(session, reason,
-    /// { tombstone: isScratchSession(session) })`); its memory is ingested without waiting; its work is released.
+    /// { tombstone: isScratchSession(session) })`); its memory is ingested as it unloads; its work is released.
     async fn leave(&self, thread: &ThreadId) -> Result<(), String> {
         let committed = match ThreadMessages::messages(&self.threads, thread).await {
             Ok(messages) => messages,
@@ -1046,18 +1050,11 @@ impl SessionContextSwitch {
         } else if !self.close.detach(thread.as_str(), CONTEXT_SWITCH_REASON, false).await {
             return Err(format!("session close failed (reason={CONTEXT_SWITCH_REASON}); the current session is kept"));
         }
-        let context = self.directory.model_context(thread);
-        let memory = self.directory.deps().memory.clone();
-        // An unread record is not "no cwd": the rows would be filed under the wrong project, so
-        // this best-effort ingest is skipped (the switch itself has already happened).
-        if let Ok(header) = self.directory.try_stored_header(thread).await {
-            let cwd = header.and_then(|header| header.get("cwd").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default();
-            tokio::spawn(async move {
-                if let Ok(rows) = context.read().await {
-                    memory.ingest(&context.thread, &cwd, rows.into_iter().map(|(_, body)| body).collect()).await;
-                }
-            });
-        }
+        // Its memory (`void ingestSessionIntoMemory(session)`, `context-switch.mjs:35`) is ingested once, by the close
+        // itself: the closed thread unloads and its unload ingests the model context without the switch waiting.
+        // `releaseSessionWork(session.id, cleanupReason)` (`context-switch.mjs`): the session's own background tasks
+        // are cancelled and its gateway route cleared, as a delete releases them.
+        self.directory.deps().deletion.release_session_work(thread.as_str(), CONTEXT_SWITCH_REASON).await;
         Ok(())
     }
 }

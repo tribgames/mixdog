@@ -153,7 +153,7 @@ impl CoreLauncher for InProcessLauncher {
         let info: ClientInfo = serde_json::from_value(serde_json::json!({ "name": "mixdog-exec", "version": env!("CARGO_PKG_VERSION"), "kind": "cli" })).map_err(|error| error.to_string())?;
         let options = ConnectOptions { thread_reducer: Some(feed), ..ConnectOptions::new(Target { id: "in-process".into() }, connector, info) };
         let client = mixdog_app_server_client::connect(options).await.map_err(|error| error.to_string())?;
-        Ok(Arc::new(InProcessSession { client, core, shutdown }))
+        Ok(Arc::new(InProcessSession { client, core, shutdown, tokens: self.tokens.clone() }))
     }
 }
 
@@ -161,6 +161,7 @@ struct InProcessSession {
     client: mixdog_app_server_client::engine::Client,
     core: Arc<ComposedCore>,
     shutdown: Shutdown,
+    tokens: LaneTokens,
 }
 
 #[async_trait]
@@ -203,7 +204,10 @@ impl CoreSession for InProcessSession {
         self.core.flush_log().await;
         // The run removes the root while this process lives on, so the core's SQLite files close here, not at the process exit.
         let core = self.core.clone();
-        tokio::task::spawn_blocking(move || core.close_data_files()).await.map_err(|error| error.to_string())
+        mixdog_rt::LaneToken::submit(self.tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |_lane| core.close_data_files())
+            .map_err(|error| format!("{error:?}"))?
+            .await
+            .map_err(|error| format!("{error:?}"))
     }
 
     /// The extension host and the core's services stopped with the core (`close`).

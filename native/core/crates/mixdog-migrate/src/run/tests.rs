@@ -461,6 +461,39 @@ fn tombstones_reach_their_one_session() {
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
 
+/// A copy of a conversation 1.4.5 made without a link to its source (a clear's fork) gets the reference set its
+/// transcript names (`tool-results/<segment>/`, its system prompt included, its own left out) in its header, which the
+/// prune's index reads; a session naming no other session's sidecars gets an empty one (known: it is not scanned).
+#[test]
+fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let sidecar = |id: &str| roots.data.join("tool-results").join(id).join("ab.txt").to_string_lossy().replace('\\', "\\\\");
+    let fork = format!(
+        r#"{{"id":"sess_fork","messages":[{{"role":"system","content":"rules at {}"}},{{"role":"user","content":"see {} and {}"}}]}}"#,
+        sidecar("sess_other"),
+        sidecar("sess_src"),
+        sidecar("sess_fork")
+    );
+    write(&roots.data, "sessions/sess_fork.json", fork.as_bytes());
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &manifest,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let sources = |id: &str| crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap().header.get("offloadSources").cloned();
+    assert_eq!(sources("sess_fork"), Some(json!(["sess_other", "sess_src"])));
+    assert_eq!(sources("sess_b"), Some(json!([])), "a session naming no other session's sidecars holds an empty set, not none");
+}
+
 /// A session saved again after its turn opened, with a route change in that turn: the
 /// migrated history is the one v1.4.5 recovery leaves (`session/vectors/checkpoint_splice.json`).
 /// The record's messages past the boundary give way to the checkpoint's turn, closed as a

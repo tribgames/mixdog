@@ -28,9 +28,9 @@
   "fileCount": 7,
   "files": [
     {
-      "bytes": 28488,
+      "bytes": 28621,
       "path": "beside-daemon.json",
-      "sha256": "211b9d6b9dafc57f2a31719375fddecc8be26de26ed51f80af6471932dd6f396"
+      "sha256": "06e267c7f40e53f5014c5b1a2c82ad541df136a94c5a071e61078521263b520f"
     },
     {
       "bytes": 27653,
@@ -58,15 +58,15 @@
       "sha256": "df2d44867d59e2bc365fc21e86881d9f199b8e12d7196b8450a492edb9ac6063"
     },
     {
-      "bytes": 28433,
+      "bytes": 28566,
       "path": "text.json",
-      "sha256": "555bead008fa9ccb8111b0f0f39d5decd5670d60858d7364a3a565571a0bdb8f"
+      "sha256": "481691739fc962746c639b72707a1b00f523cdbb118e8e5df3d8c9f5b61af43f"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exec-cli-tap.mjs",
@@ -224,5 +224,5 @@
       "side": "core"
     }
   ],
-  "totalBytes": 224882
+  "totalBytes": 225148
 }

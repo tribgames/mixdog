@@ -580,15 +580,15 @@ function roomRowText(room: Obj, body: string): string {
 }
 
 /** `roomRowItem` (agent-room.mjs): the user's bubble, or a notice row whose `room` payload the app renders as speech, pass or limit
- * line. The payload (`kind`, `name`, `to`, `usage`, ...) is `meta.ext.room`, the message id `meta.ext.messageId`, and a user row's
- * files and reactions `meta.ext.attachments` / `meta.ext.reactions`: the stored fields the product reads them from. Without a
- * payload the item is member speech by `speaker`. */
+ * line. The core's `roomRow` item carries the payload (`kind`, `name`, `to`, `usage`, ...) as `room`, a user row's files, image chips
+ * and reactions as `attachments` / `images` / `reactions`, and the message id and time in `meta`; the payload's own `at` is the
+ * line's time, which the row puts after the id as Node's does. */
 function roomRowItem(item: Obj, m: Obj): Obj {
-  const ext = asObj(m.ext);
-  const { images, ...stored } = isObj(ext.room) ? ext.room : { kind: 'speech', speaker: item.speaker as Json };
+  const { at: _at, ...stored } = asObj(item.room);
+  const images = item.images;
   const targets = roomTargets(stored);
   const room: Obj = targets.length ? { ...stored, to: targets.map((t) => t.id), toName: targets.map((t) => t.name) } : stored;
-  const messageId = text(ext.messageId);
+  const messageId = text(m.messageId);
   const user = room.kind === 'user';
   const sender: Obj = user && room.fromSession ? (room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' }) : {};
   return {
@@ -599,9 +599,9 @@ function roomRowItem(item: Obj, m: Obj): Obj {
     room: { ...room, ...(messageId ? { id: messageId } : {}), ...atField(m) },
     ...(messageId ? { messageId } : {}),
     ...atField(m),
-    ...(user || room.kind === 'speech' ? attachmentsField(ext.attachments) : {}),
+    ...(user || room.kind === 'speech' ? attachmentsField(item.attachments) : {}),
     ...(user && Array.isArray(images) && images.length ? { images } : {}),
-    ...(user ? reactionsField(ext.reactions) : {}),
+    ...(user ? reactionsField(item.reactions) : {}),
     ...sender,
   };
 }

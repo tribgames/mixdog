@@ -29,7 +29,9 @@ interface PhoneWindow {
   /** Rows the phone asked to hold. */
   limit: number;
 }
-const phoneWindows = new WeakMap<SnapshotDeltaEncoder, PhoneWindow>();
+/** One window per phone and session: keyed by Node's delta encoder, or by the K1 phone's own per-thread key
+ *  (remote-phone-transcript.ts). */
+const phoneWindows = new WeakMap<object, PhoneWindow>();
 
 const idOf = (item: unknown): unknown => (item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined);
 
@@ -63,31 +65,43 @@ function budgetedStart(
 const PHONE_PAGE_MAX_ITEMS = 512;
 
 /** The phone asked for a window of `limit` rows (a history page). */
-export function requestPhoneTranscriptPage(encoder: SnapshotDeltaEncoder | undefined, limit: number): void {
-  const window = encoder ? phoneWindows.get(encoder) : undefined;
+export function requestPhoneTranscriptPage(key: object | undefined, limit: number): void {
+  const window = key ? phoneWindows.get(key) : undefined;
   if (window && Number.isInteger(limit) && limit > window.limit) {
     window.limit = Math.min(limit, window.limit + PHONE_PAGE_MAX_ITEMS);
   }
 }
 
-/** `snapshot` as this phone's encoder should send it: its window of rows,
- *  each as its phone copy (remoteTranscriptSnapshot), and `transcriptHasOlder`
- *  set when rows above the window are left out. */
-function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknown): unknown {
+/** Rows above the first one the phone holds (`held[0]`) that its window asks for and `items` would have to give: what a
+ *  page still has to bring when `items` lacks them. 0 before a first page. */
+export function phoneTranscriptWanted(key: object, items: readonly unknown[], held: readonly unknown[] | undefined): number {
+  const window = phoneWindows.get(key);
+  const start = window && held?.length ? indexOfId(items, idOf(held[0])) : -1;
+  if (!window || start < 0) return 0;
+  return Math.max(0, wantedAbove(window, items, start));
+}
+
+/** Rows above `start` the window asks for, at most one page. */
+const wantedAbove = (window: PhoneWindow, items: readonly unknown[], start: number): number =>
+  Math.min(window.limit - (items.length - start), PHONE_PAGE_MAX_ITEMS);
+
+/** `snapshot` as one phone's window over it (`key`: one per phone and session), given the rows the phone `held` last: its
+ *  window of rows, each as its phone copy (remoteTranscriptSnapshot), and `transcriptHasOlder` set when rows above the
+ *  window are left out. */
+export function phoneTranscriptView(key: object, snapshot: unknown, held: readonly unknown[] | undefined): unknown {
   const record = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : null;
   if (!record || !Array.isArray(record.items)) return remoteTranscriptSnapshot(snapshot);
   const items = record.items as unknown[];
-  const held = (encoder.resumePoint()?.held as { items?: unknown } | undefined)?.items;
-  let window = phoneWindows.get(encoder);
+  let window = phoneWindows.get(key);
   let start = window && Array.isArray(held) && held.length ? indexOfId(items, idOf(held[0])) : -1;
   let tailStart = window && start >= 0 ? indexOfId(items, window.tailFirstId) : -1;
   if (!window || start < 0 || tailStart < start) {
     start = budgetedStart(items, items.length, REMOTE_TRANSCRIPT_TAIL_ITEMS, REMOTE_TRANSCRIPT_TAIL_BYTES, false);
     tailStart = start;
     window = { tailFirstId: idOf(items[start]), limit: items.length - start };
-    phoneWindows.set(encoder, window);
+    phoneWindows.set(key, window);
   } else {
-    const wanted = Math.min(window.limit - (items.length - start), PHONE_PAGE_MAX_ITEMS);
+    const wanted = wantedAbove(window, items, start);
     if (wanted > 0) start = budgetedStart(items, start, wanted, DESKTOP_TRANSCRIPT_PAGE_BYTES, true);
   }
   const windowed = start === 0 ? record : { ...record, items: items.slice(start), transcriptHasOlder: true };
@@ -98,5 +112,8 @@ function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknow
  *  that pages (`transcriptPaging`), the whole window for an older build that
  *  cannot page from `transcriptHasOlder`. */
 export function encodePhoneSessionState(encoder: SnapshotDeltaEncoder, snapshot: unknown, paging: boolean): unknown {
-  return encoder.encode(paging ? phoneTranscriptSnapshot(encoder, snapshot) : remoteTranscriptSnapshot(snapshot));
+  const held = (encoder.resumePoint()?.held as { items?: unknown } | undefined)?.items;
+  return encoder.encode(
+    paging ? phoneTranscriptView(encoder, snapshot, Array.isArray(held) ? held : undefined) : remoteTranscriptSnapshot(snapshot)
+  );
 }

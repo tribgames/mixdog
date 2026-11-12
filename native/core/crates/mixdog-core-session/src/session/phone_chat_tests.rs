@@ -93,7 +93,7 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = timer_fired.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(16)).await;
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     let wake = tokio::sync::Notify::new();
@@ -597,10 +597,13 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let rig = Rig::new();
         let (directory, handle) = running_on_records(&rig).await;
         let frames = || rig.feeds.frames(handle.id.as_str());
+        // The load's own frame (its agent scope) comes before anything the case does.
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (!frames().is_empty()).then_some(())).await;
+        let loaded = frames().len();
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
             // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == loaded + 3).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;

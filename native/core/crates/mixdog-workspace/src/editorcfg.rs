@@ -448,7 +448,8 @@ impl Backups {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Value::Null),
             Err(e) => return Err(e.into()),
         };
-        match serde_json::from_slice::<Value>(&bytes) {
+        // A draft Node saved with half of an emoji holds `\ud83d`: read as U+FFFD, never deleted as unparsable.
+        match serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)) {
             Ok(v) if Self::valid(&v) && now_ms() - v["updatedAt"].as_f64().unwrap_or(0.0) as i64 <= MAX_BACKUP_AGE_MS => Ok(v),
             _ => {
                 let _ = std::fs::remove_file(&path);
@@ -568,5 +569,32 @@ mod tests {
         assert_eq!(backups.read(&source).unwrap()["content"], "mine");
         backups.delete(&source).unwrap();
         assert_eq!(backups.read(&source).unwrap(), Value::Null);
+    }
+
+    /// A draft Node backed up holding half of an emoji (`native/core/fixtures/lone-surrogate-files`,
+    /// record-lone-surrogate-files.mjs): read back as Node's `readEditorBackup` reads it (U+FFFD), not deleted.
+    #[test]
+    fn a_backup_node_wrote_with_half_an_emoji_is_read_not_deleted() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "editor-backup").unwrap();
+        // The recording's clock (nextest runs each test in its own process).
+        unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", case["nodeRead"]["updatedAt"].to_string()) };
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::new(dir.path());
+        let source = dir.path().join("notes.md").to_string_lossy().into_owned();
+        let path = backups.path_of(&source).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::copy(set.join("editor-backup/before").join(case["file"].as_str().unwrap()), &path).unwrap();
+        assert_eq!(backups.read(&source).unwrap(), case["nodeRead"]);
+        assert!(path.exists());
+        // Node's own rewrite of the draft it read, one second later on the recording's clock: the same document.
+        let rel = case["file"].as_str().unwrap();
+        let after = &case["after"][rel];
+        unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", after["updatedAt"].to_string()) };
+        let op = &case["op"]["writeEditorBackup"];
+        backups.write(&source, op["content"].as_str().unwrap(), op["expectedContent"].as_str().unwrap()).unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(&written, after);
     }
 }

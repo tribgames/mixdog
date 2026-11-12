@@ -32,7 +32,7 @@ async fn fresh_context_equals_node() {
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let archive = PreviewArchive { session };
     let ctx = FreshContext {
-        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, preview: true },
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
     for scenario in golden["scenarios"].as_array().expect("scenarios") {
@@ -117,7 +117,8 @@ async fn compactor_equals_node() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
-                active_turn: true,
+                active_turn: scenario["options"]["activeTurn"].as_bool().unwrap_or(false),
+                latest_user_prefix: "",
             })
             .await
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -137,7 +138,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
         Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0 })
     }
 }
@@ -186,7 +187,8 @@ async fn the_pipeline_time_spans_the_summary_and_the_summary_time_is_its_own() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
-                active_turn: true,
+                active_turn: scenario["options"]["activeTurn"].as_bool().unwrap_or(false),
+                latest_user_prefix: "",
             })
             .await
             .expect("compact");
@@ -199,4 +201,58 @@ async fn the_pipeline_time_spans_the_summary_and_the_summary_time_is_its_own() {
             assert!(output.pipeline_ms < 40.0, "no summary request in the span: {}", output.pipeline_ms);
         }
     }
+}
+
+/// Every file an execution dump writes (the dump and a large message's blob).
+struct Written(std::sync::Mutex<Vec<String>>);
+#[async_trait::async_trait]
+impl mixdog_agent::offload::ArtifactStore for Written {
+    async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        self.0.lock().unwrap().push(content.to_owned());
+        self.preview(content).await
+    }
+    async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        let n = self.0.lock().unwrap().len();
+        Some(mixdog_agent::offload::Artifact { display_path: format!("/art/{n}.txt"), path: format!("/art/{n}.txt"), lines: content.lines().count(), sha256: "ab".repeat(32) })
+    }
+}
+
+/// A session that marked `482913` sensitive.
+struct MarkedCode;
+impl mixdog_agent::compact::dropped::Redactor for MarkedCode {
+    fn redact(&self, rows: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        rows.into_iter()
+            .map(|row| serde_json::from_str(&serde_json::to_string(&row).unwrap().replace("482913", "[redacted]")).unwrap())
+            .collect()
+    }
+}
+
+/// The dump and its blobs are written with the session's sensitive values redacted (Node
+/// `buildExecutionTail` over `redactSensitiveMessages`); the transcript kept in context is not.
+#[tokio::test]
+async fn execution_dump_holds_sensitive_values_redacted() {
+    use mixdog_agent::compact::execution_tail::{TailOptions, build_execution_tail};
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let written = Written(std::sync::Mutex::new(Vec::new()));
+    let ctx = TailContext { meter: &meter, rows: &Rows, archive: &written, redactor: &MarkedCode, preview: false };
+    let fill = serde_json::json!({ "action": "fill", "input": { "ref": "e1", "text": "482913", "sensitive": true } });
+    let messages: Vec<_> = [
+        serde_json::json!({ "role": "user", "content": "The portal mailed me 482913." }),
+        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "f", "name": "browser", "arguments": fill }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "f", "content": format!("Filled 482913\n{}", "page line\n".repeat(15_000)) }),
+        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "r", "name": "read", "arguments": { "path": "a" } }] }),
+        serde_json::json!({ "role": "tool", "toolCallId": "r", "content": "ok" }),
+    ]
+    .iter()
+    .map(node_message)
+    .collect();
+    let out = build_execution_tail(&ctx, &messages, &TailOptions { context_window: 40_000, preserve_conversation: false }).await.expect("tail");
+    let files = written.0.lock().unwrap().clone();
+    assert!(files.len() >= 2, "the dump and the large result's blob: {}", files.len());
+    for file in &files {
+        assert!(!file.contains("482913"), "{file:.200}");
+        assert!(file.contains("[redacted]") || file.contains("archivedMessage"), "{file:.200}");
+    }
+    assert!(out.messages.iter().any(|m| m.text().contains("482913") || m.tool_calls().iter().any(|c| c.arguments.to_string().contains("482913"))));
 }

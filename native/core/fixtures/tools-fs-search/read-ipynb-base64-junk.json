@@ -1,0 +1,153 @@
+{
+  "name": "read-ipynb-base64-junk",
+  "files": {
+    "latin1.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEéÿÁUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "two-byte-skipped.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEĀȊUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "two-byte-letter.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEŁUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "three-byte-skipped.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhE€UgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "three-byte-letter.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhE乁UgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "three-byte-pad.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhE丽UgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "astral.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhE😀UgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "url-safe-letters.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEĭşĀŁUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "url-safe-skipped.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEéĀUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "after-padding.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==Ł😀\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "short.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"plot()\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"display_data\",\n     \"metadata\": {},\n     \"data\": {\n      \"image/png\": \"ZŁg==\"\n     }\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}"
+  },
+  "resizer": [
+    {
+      "inputSha256": "c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77",
+      "ext": "png",
+      "reply": {
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "dimensions": {
+          "originalWidth": 1,
+          "originalHeight": 1,
+          "displayWidth": 200,
+          "displayHeight": 200
+        }
+      }
+    },
+    {
+      "inputSha256": "9bf17003cdf2df0c3122fe2268e1ec27702f07666ff3104caf3569b9fdcdeeb8",
+      "ext": "png",
+      "invalid": true
+    },
+    {
+      "inputSha256": "fb5532b5cfbf54a6e4790750146178a10014dc46c28c21081e1fb55e2181122a",
+      "ext": "png",
+      "invalid": true
+    },
+    {
+      "inputSha256": "5ddeb6fdd4794836d83eb34061d53e22077128c9dc50a7112fc1d19d8c36a70a",
+      "ext": "png",
+      "invalid": true
+    },
+    {
+      "inputSha256": "1c58e81e00d5147a6254bcbdb16615aa5eeca257677ad5d06994ee9d00d45fb0",
+      "ext": "png",
+      "invalid": true
+    }
+  ],
+  "calls": [
+    {
+      "tool": "read",
+      "input": {
+        "path": "latin1.ipynb",
+        "full": true
+      },
+      "text": "{\"content\":[{\"type\":\"text\",\"text\":\"```python\\nplot()\\n# Output: [image output — cell 0]\\n```\"},{\"type\":\"text\",\"text\":\"[Image: source: <ROOT>\\\\latin1.ipynb [cell 0], 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map to the original image.]\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "two-byte-skipped.ipynb",
+        "full": true
+      },
+      "text": "{\"content\":[{\"type\":\"text\",\"text\":\"```python\\nplot()\\n# Output: [image output — cell 0]\\n```\"},{\"type\":\"text\",\"text\":\"[Image: source: <ROOT>\\\\two-byte-skipped.ipynb [cell 0], 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map to the original image.]\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "two-byte-letter.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "three-byte-skipped.ipynb",
+        "full": true
+      },
+      "text": "{\"content\":[{\"type\":\"text\",\"text\":\"```python\\nplot()\\n# Output: [image output — cell 0]\\n```\"},{\"type\":\"text\",\"text\":\"[Image: source: <ROOT>\\\\three-byte-skipped.ipynb [cell 0], 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map to the original image.]\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "three-byte-letter.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "three-byte-pad.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "astral.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "url-safe-letters.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "url-safe-skipped.ipynb",
+        "full": true
+      },
+      "text": "{\"content\":[{\"type\":\"text\",\"text\":\"```python\\nplot()\\n# Output: [image output — cell 0]\\n```\"},{\"type\":\"text\",\"text\":\"[Image: source: <ROOT>\\\\url-safe-skipped.ipynb [cell 0], 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map to the original image.]\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "after-padding.ipynb",
+        "full": true
+      },
+      "text": "{\"content\":[{\"type\":\"text\",\"text\":\"```python\\nplot()\\n# Output: [image output — cell 0]\\n```\"},{\"type\":\"text\",\"text\":\"[Image: source: <ROOT>\\\\after-padding.ipynb [cell 0], 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map to the original image.]\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsSAAALEgHS3X78AAAFCElEQVR4nO3XsRECQRDEwMl8Q4cEwKEokNGGEtCs7mGP7cCBG9hLByNGHG5gbx0IRCACmUAcgYfgPnHgC+JwPB4TiCPwEJwviCPwEOy7DvzEEpWoJhBH4CE4XxBH4CGYn1iOwENwv3LgP4hj8+BMII7AQ3C+II7AQzA/sRyBh+D8B3EEHoL934E/6YERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERsCyDgQSGAHLOhBIYAQs60AggRGwrAOBBEbAsg4EEhgByzoQSGAELOtAIIERsKwDgQRGwLIOBBIYAcs6EEhgBCzrQCCBEbCsA4EERkDXgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdCCQwApZ1IJDACFjWgUACI2BZBwIJjIBlHQgkMAKWdSCQwAhY1oFAAiNgWQcCCYyAZR0IJDAClnUgkMAIWNaBQAIjYFkHAgmMgGUdPAFWMjUolKR0kwAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "short.ipynb",
+        "full": true
+      },
+      "text": "```python\nplot()\n# Output: [image output — cell 0]\n```",
+      "isError": false
+    }
+  ]
+}

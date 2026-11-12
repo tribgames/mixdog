@@ -378,7 +378,7 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
             // `installProcessSignalCleanup`: the cleanup closes the runtime first; the turn it aborts fails with the
             // session-closed error (`teardown.mjs`), reported as any failure, and the process exits with the
             // signal's code.
-            if let Ok(Err(error)) = tokio::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
+            if let Ok(Err(error)) = mixdog_rt::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
                 sink.err(&format!("[mixdog-exec] cleanup failed: {error}\n"));
             }
             // `getSession()?.id || getReservedSessionId() || 'pending'`.

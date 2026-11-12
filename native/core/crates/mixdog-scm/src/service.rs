@@ -417,10 +417,8 @@ impl ScmService {
                 return Err(CoreError::InvalidParams { path: "scope".into(), expected: "turn or session".into() });
             }
             (WireReviewScope::Session, _, file) => {
-                let worktree = self.worktrees.cwd(&thread).await?.ok_or_else(|| CoreError::InvalidParams {
-                    path: "threadId".into(),
-                    expected: "a thread with a working directory".into(),
-                })?;
+                // No such thread, as the turn scope answers one (Node's session read: `session <id> is not available`).
+                let worktree = self.worktrees.cwd(&thread).await?.ok_or_else(|| CoreError::ThreadNotFound { thread_id: thread.clone() })?;
                 match file {
                     Some(file) => self.reviews.session_review_file_patch(&worktree, session, file, params.old_path.as_deref().unwrap_or("")).await,
                     None => self.reviews.session_review_diff(&worktree, session).await,

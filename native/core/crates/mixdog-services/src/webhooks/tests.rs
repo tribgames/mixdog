@@ -385,7 +385,7 @@ async fn a_head_that_never_completes_is_closed_after_the_headers_timeout() {
     let listener = serve_on_loopback(&f).await;
     let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
     stream.write_all(b"POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: ").await.unwrap();
-    tokio::time::sleep(super::listener::HEADERS_TIMEOUT + std::time::Duration::from_secs(1)).await;
+    mixdog_rt::time::sleep(super::listener::HEADERS_TIMEOUT + std::time::Duration::from_secs(1)).await;
     let mut reply = Vec::new();
     let _ = stream.read_to_end(&mut reply).await;
     assert!(reply.is_empty() || reply.starts_with(b"HTTP/1.1 408"), "{}", String::from_utf8_lossy(&reply));

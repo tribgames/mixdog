@@ -51,7 +51,7 @@ impl EventSource<ProcessEvent> for HeldUntilLimit {
                     let what = format!("the {} capture's hung write-tree starts its limit once the {} capture has its root (`queued`)", order.early(), order.late);
                     order.awaiting(what, queued.wait_for(|open| *open)).await.expect("the order gate outlives the capture");
                 }
-                tokio::time::sleep(limit).await;
+                mixdog_rt::time::sleep(limit).await;
                 self.limit = None;
                 Some(ProcessEvent::Exited { seq: 0, exit: ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::TimeLimit) } })
             }

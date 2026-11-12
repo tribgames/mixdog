@@ -595,7 +595,7 @@ impl Activity {
         let Some(claim) = claim else {
             return answer.await.unwrap_or_else(|_| Err(stopped(true)));
         };
-        match tokio::time::timeout(env_ms("MIXDOG_ADMISSION_SYNC_TIMEOUT_MS", 60_000), &mut answer).await {
+        match mixdog_rt::time::timeout(env_ms("MIXDOG_ADMISSION_SYNC_TIMEOUT_MS", 60_000), &mut answer).await {
             Ok(done) => done.unwrap_or_else(|_| Err(stopped(true))),
             // Lost the race when the admission thread already claimed it: its answer is coming.
             Err(_) if claim.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() => Err(admission_unreadable(Some("unknown"), None)),
@@ -625,7 +625,7 @@ impl Activity {
                 return Ok(grant);
             }
             tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(100)) => {}
+                () = mixdog_rt::time::sleep(Duration::from_millis(100)) => {}
                 () = cancel.cancelled() => return Err(ScmFailure::Cancelled),
             }
         }

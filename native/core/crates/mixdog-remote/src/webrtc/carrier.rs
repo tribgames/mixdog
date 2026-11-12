@@ -232,7 +232,7 @@ async fn run(
     let emit = |event: CarrierEvent| {
         let _ = events.send(event);
     };
-    let setup = tokio::time::sleep(peer::SETUP_BUDGET);
+    let setup = mixdog_rt::time::sleep(peer::SETUP_BUDGET);
     tokio::pin!(setup);
     let opened = budget.step("open", peer::open(&config, None)).await.and_then(|opened| opened);
     let peer::Opened { pc, events: mut peer_events } = match opened {
@@ -558,7 +558,7 @@ mod tests {
         let events = RefCell::new(Vec::new());
         let emit = |event: CarrierEvent| events.borrow_mut().push(event);
         let items = vec![item(CarrierChannel::App, 10), item(CarrierChannel::App, 20)];
-        tokio::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
+        mixdog_rt::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
             .await
             .expect("the send does not wait on the peer");
         assert!(!gate.failed);
@@ -579,7 +579,7 @@ mod tests {
         let events = RefCell::new(Vec::new());
         let emit = |event: CarrierEvent| events.borrow_mut().push(event);
         let items = vec![item(CarrierChannel::Control, 9), item(CarrierChannel::Control, 9)];
-        tokio::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
+        mixdog_rt::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
             .await
             .expect("the send does not wait on the peer");
         assert!(gate.failed);

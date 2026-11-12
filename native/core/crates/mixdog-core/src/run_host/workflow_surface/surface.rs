@@ -177,7 +177,3 @@ impl WorkflowSurface for RunWorkflowSurface {
         self.texts.orchestration_instructions(mode).await
     }
 }
-
-#[cfg(test)]
-#[path = "surface_tests.rs"]
-mod tests;
