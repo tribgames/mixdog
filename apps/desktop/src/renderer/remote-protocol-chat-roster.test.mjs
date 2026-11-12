@@ -302,13 +302,15 @@ test('getSnapshot is null until a start, then the start\'s blank snapshot with t
   assert.equal(await adapter.calls.getSnapshot([], other), null, 'another page holds its own shell');
 });
 
-test('the adapter the switch point loads claims all 36 chat calls, the shell snapshot and the thread list, and nothing twice', async () => {
+test('the adapter the switch point loads claims all 35 chat calls, the shell snapshot and the thread list, and nothing twice', async () => {
   const { adapter } = await import('./remote-protocol-chat.ts');
   assert.equal(adapter.group, 'chat');
   const claimed = Object.keys(adapter.calls);
-  assert.equal(claimed.length, 38, 'the 36 chat calls, getSnapshot and the thread list');
+  assert.equal(claimed.length, 37, 'the 35 chat calls, getSnapshot and the thread list');
   assert.equal(new Set(claimed).size, claimed.length, 'nothing twice');
-  // Every call Node's recording made of the chat host is claimed.
+  // Every call Node's recording made of the chat host is claimed: here, or (submitFeedback) by the settings adapter.
+  const { adapter: settings } = await import('./remote-protocol-settings.ts');
   const recordedCalls = [...new Set(read('./remote-protocol-chat.recorded.json').cases.map((c) => c.call))];
-  assert.deepEqual(recordedCalls.filter((name) => !claimed.includes(name)), []);
+  assert.deepEqual(recordedCalls.filter((name) => !claimed.includes(name)), ['submitFeedback']);
+  assert.equal(typeof settings.calls.submitFeedback, 'function');
 });

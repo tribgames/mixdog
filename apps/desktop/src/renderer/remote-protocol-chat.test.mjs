@@ -113,11 +113,6 @@ const SCRIPT = {
   'agentRoomAction-update': (n) => ({ 'room/update': n.result }),
   'agentRoomAction-remove': () => ({ 'room/remove': {} }),
   // feedback.rs:287 `{ id, status: "accepted" }`; the refusals are the core's own sentences
-  'submitFeedback-accepted': (n) => ({ 'feedback/upload': n.result }),
-  'submitFeedback-rate-limited': (n) => ({ 'feedback/upload': new Error(n.error) }),
-  'submitFeedback-unavailable': (n) => ({ 'feedback/upload': new Error(n.error) }),
-  'submitFeedback-bad-receipt': (n) => ({ 'feedback/upload': new Error(n.error) }),
-  'submitFeedback-network': (n) => ({ 'feedback/upload': new Error(n.error) }),
   'deleteSession-missing': () => ({ 'thread/delete': rpcError('threadNotFound', 'thread not found'), 'thread/unsubscribe': {} }),
 };
 
@@ -132,6 +127,12 @@ const REPLAYED_BY = {
   'startProjectTask-unknown': 'remote-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
   'openAgentHome-unknown-agent': 'remote-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
   'agentRoomAction-unknown': 'remote-chat-host.test.mjs: agentRoomAction of an unknown action',
+  ...Object.fromEntries(
+    ['accepted', 'rate-limited', 'unavailable', 'bad-receipt', 'network'].map((outcome) => [
+      `submitFeedback-${outcome}`,
+      'remote-protocol-settings.slow.test.mjs: the settings adapter answers submitFeedback (feedback/upload over a real core)',
+    ])
+  ),
 };
 
 /** The fields the phone's readers use (use-composer-submission.ts:461, model-controls.tsx:654/754, shell-job-controls.tsx:63/65). */
@@ -230,7 +231,6 @@ const invoke = {
   openAgentHome: (api, a) => api.openAgentHome(...a),
   resetAgentHome: (api, a) => api.resetAgentHome(...a),
   agentRoomAction: (api, a) => api.agentRoomAction(...a),
-  submitFeedback: (api, a) => api.submitFeedback(...a),
 };
 
 test('the recording is an exact Node b6f10295a manifest', () => {
