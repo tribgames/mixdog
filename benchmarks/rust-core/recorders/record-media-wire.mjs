@@ -4,14 +4,12 @@
 //
 //   node benchmarks/rust-core/recorders/record-media-wire.mjs --tree <exact export of b6f10295a>
 //
-// Each row is what the provider's own send does to the messages, step for step, from Node's real modules: the
-// instance's flags, `preparePdfTextForProvider(messages, instance)` (the awaited pre-send step every provider that can
-// take a PDF as text runs on every attempt), then the family's lowering of the prepared messages
-// (anthropic-request-utils `toAnthropicMessages`, openai-compat-wire `toOpenAIMessages` / `toXaiResponsesInput`,
-// openai-responses-payload `buildRequestBody`, gemini-schema `toGeminiContents`, cursor `toCursorMessages` +
-// cursor-wire-request `parseMessages`, and the managed local model's `assertLocalModelInput` +
-// `toLocalProviderMessages`). The attachments are stored in Node's real attachment store, which every lowering reads
-// them back from (`readAttachmentBase64`).
+// Each row is the whole request body of the provider's own `send` on the messages, from Node's real modules: every
+// HTTP provider is sent to with `fetch` replaced by a capture that answers 400, so the body is the one its transport was
+// handed (Messages, Chat, the compat Responses wire, Gemini, the managed local model's own `send`); the built-in
+// Responses wire's `buildRequestBody` (its socket send serialises it), Devin's `buildDevinChatRequest` encoded as
+// `GetChatMessageRequest`, and Cursor's `parseMessages` result (its frame is built from it). The attachments are stored in
+// Node's real attachment store, which every lowering reads them back from (`readAttachmentBase64`).
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,14 +31,9 @@ process.on('exit', () => rmSync(dataDir, { recursive: true, force: true }));
 const PROVIDERS = 'src/runtime/agent/orchestrator/providers/';
 const store = await load('src/runtime/attachments/store.mjs');
 const media = await load(`${PROVIDERS}media-normalization.mjs`);
-const { toAnthropicMessages } = await load(`${PROVIDERS}lib/anthropic-request-utils.mjs`);
-const { toOpenAIMessages, toXaiResponsesInput } = await load(`${PROVIDERS}openai-compat-wire.mjs`);
 const { buildRequestBody } = await load(`${PROVIDERS}openai-responses-payload.mjs`);
-const { toGeminiContents } = await load(`${PROVIDERS}gemini-schema.mjs`);
 const { __cursorModelInternals: { toCursorMessages } } = await load(`${PROVIDERS}cursor.mjs`);
 const { parseMessages } = await load(`${PROVIDERS}cursor-wire-request.mjs`);
-const { assertLocalModelInput } = await load('src/runtime/local-provider/input-capabilities.mjs');
-const { toLocalProviderMessages } = await load(`${PROVIDERS}mixdog-local-wire.mjs`);
 const JSZip = (await import(pathToFileURL(join(tree, 'node_modules/jszip/lib/index.js')).href)).default;
 
 // ---- the attachments ----
@@ -101,10 +94,10 @@ const partOf = (kind) => {
 };
 const parts = Object.fromEntries(kinds.map((kind) => [kind.name, partOf(kind)]));
 // A turn with the attachment, its answer and the turn after it: the attachment is history for the request.
-const messagesOf = (name, lastTurn = false) => [
+const messagesOf = (name) => [
   { role: 'user', content: [{ type: 'text', text: 'look at this' }, structuredClone(parts[name])] },
-  // The Devin router prompt reads the latest turn alone, so its row ends on the attachment.
-  ...(lastTurn ? [] : [{ role: 'assistant', content: 'seen' }, { role: 'user', content: 'and now?' }]),
+  { role: 'assistant', content: 'seen' },
+  { role: 'user', content: 'and now?' },
 ];
 
 // What the extension host's extraction gave for the same bytes (the core replays these through its DocumentText seam):
@@ -137,31 +130,82 @@ const { GeminiProvider } = await load(`${PROVIDERS}gemini.mjs`);
 const { CursorApiProvider } = await load(`${PROVIDERS}cursor.mjs`);
 const { MixdogLocalProvider } = await load(`${PROVIDERS}mixdog-local.mjs`);
 const { DevinOAuthProvider } = await load(`${PROVIDERS}devin.mjs`);
-const { devinRouterPrompt } = await load(`${PROVIDERS}devin-wire-request.mjs`);
 
-const anthropicWire = (prepared, provider) => toAnthropicMessages(prepared, [], provider);
-const chatWire = (name) => (prepared, instance) => toOpenAIMessages(prepared, name, { nativePdf: instance.nativePdf });
+// Every provider that sends over HTTP is sent to for real: its own `send` runs on the messages, down to the request the
+// transport is handed, and the body that `fetch` receives is the row's. The transport answers 400 at once, so nothing
+// leaves the machine and the send ends on that error (a send that fails before it reaches `fetch` is the row's error).
+const sent = [];
+globalThis.fetch = async (url, init) => {
+  sent.push({ url: String(url?.url ?? url), body: init?.body === undefined ? null : String(init.body) });
+  return new Response('{"error":{"message":"stop"}}', { status: 400, headers: { 'content-type': 'application/json' } });
+};
+const MODEL = 'model-under-test';
+async function sendOnce(instance, messages, model) {
+  sent.length = 0;
+  try {
+    await instance.send(messages, model, [], {});
+  } catch (error) {
+    if (sent.length === 0) throw error;
+  }
+  if (sent.length !== 1) throw new Error(`${sent.length} requests for one send`);
+  return JSON.parse(sent[0].body);
+}
+const viaSend = (model = MODEL) => (instance, messages) => sendOnce(instance, messages, model);
+// NORMALISED (one field, declared in the manifest): the Messages send resizes every image it carries
+// (`prepareAnthropicImages`, sharp) and annotates a resized one with a text block; the table's 1x1 PNG is enlarged to
+// 200x200. The recorded body keeps the stored bytes and drops the annotation, so everything else of the request is compared.
+const viaMessages = async (instance, messages) => {
+  const body = await sendOnce(instance, messages, MODEL);
+  for (const message of body.messages) {
+    if (!Array.isArray(message.content)) continue;
+    message.content = message.content.filter((part) => !(part.type === 'text' && /^\[Image: [^\]]*\] These display dimensions supersede/.test(part.text)));
+    for (const part of message.content) {
+      if (part.type === 'image' && part.source?.type === 'base64') part.source = { ...part.source, data: PNG.toString('base64'), media_type: 'image/png' };
+    }
+  }
+  return body;
+};
+
+// Devin: the chat request as `buildDevinChatRequest` builds it and the transport encodes it (`GetChatMessageRequest`).
+const { buildDevinChatRequest } = await load(`${PROVIDERS}devin-wire-request.mjs`);
+const { devinRequestMetadata } = await load(`${PROVIDERS}devin-wire-session.mjs`);
+const { encodeDevinMessage } = await load(`${PROVIDERS}devin-wire-protobuf.mjs`);
+const DEVIN_OS = '<os>';
+const devinChat = (instance, messages) => {
+  const { request } = buildDevinChatRequest(messages, {
+    model: MODEL,
+    modelRow: null,
+    tools: [],
+    metadata: { ...devinRequestMetadata({ apiKey: 'k', userJwt: 'j', client: 'cli' }), os: DEVIN_OS },
+    cascadeId: 'cascade',
+    executionId: 'execution',
+  });
+  return { chatRequest: Buffer.from(encodeDevinMessage('GetChatMessageRequest', request)).toString('base64') };
+};
+
 const families = [
   // The Messages wire: the built-in API, a gateway engine that takes a PDF natively (OpenRouter), one that takes no PDF
   // (OpenCode Go, a custom Anthropic gateway) and one that takes no document of any kind (DeepSeek).
-  { family: 'anthropic-messages', provider: 'anthropic', body: 'messages', make: () => new AnthropicProvider({ apiKey: 'k' }), lower: (p) => anthropicWire(p, 'anthropic') },
-  { family: 'anthropic-messages', provider: 'openrouter', body: 'messages', make: () => new OpenRouterProvider({ apiKey: 'or', preconnect: false }).anthropic, lower: (p) => anthropicWire(p, 'openrouter') },
-  { family: 'anthropic-messages', provider: 'opencode-go', body: 'messages', make: () => new OpenCodeGoProvider({ apiKey: 'k' }).anthropic, lower: (p) => anthropicWire(p, 'opencode-go') },
-  { family: 'anthropic-messages', provider: 'custom-anthropic', body: 'messages', make: async () => createCustomProvider('custom-z', { name: 'z', protocol: 'anthropic', models: [{ id: 'm' }], ...cfg }), lower: (p) => anthropicWire(p, 'custom-z') },
-  { family: 'anthropic-messages', provider: 'deepseek', body: 'messages', make: () => new DeepSeekProvider({ apiKey: 'ds', preconnect: false }).anthropic, lower: (p) => anthropicWire(p, 'deepseek') },
+  { family: 'anthropic-messages', provider: 'anthropic', make: () => new AnthropicProvider({ apiKey: 'k' }), build: viaMessages },
+  { family: 'anthropic-messages', provider: 'openrouter', make: () => new OpenRouterProvider({ apiKey: 'or', preconnect: false }).anthropic, build: viaMessages },
+  { family: 'anthropic-messages', provider: 'opencode-go', make: () => new OpenCodeGoProvider({ apiKey: 'k' }).anthropic, build: viaMessages },
+  { family: 'anthropic-messages', provider: 'custom-anthropic', make: async () => createCustomProvider('custom-z', { name: 'z', protocol: 'anthropic', models: [{ id: 'm' }], ...cfg }), build: viaMessages },
+  { family: 'anthropic-messages', provider: 'deepseek', make: () => new DeepSeekProvider({ apiKey: 'ds', preconnect: false }).anthropic, build: viaMessages },
   // The Chat Completions wire (every compat class lowers a PDF to text) and the Responses wire of the compat classes.
-  { family: 'openai-chat', provider: 'deepseek-chat', body: 'messages', make: () => new OpenAICompatProvider('deepseek', cfg), lower: chatWire('deepseek') },
-  { family: 'openai-responses-compat', provider: 'xai', body: 'input', make: () => new OpenAICompatProvider('xai', cfg), lower: (p, i) => toXaiResponsesInput(p, null, { providerName: 'xai', nativePdf: i.nativePdf }).input },
-  // The built-in Responses wire takes a PDF natively.
-  { family: 'openai-responses', provider: 'openai', body: 'input', make: () => new OpenAIDirectProvider({ apiKey: 'k' }), lower: (p) => buildRequestBody(p, 'gpt-test', [], { promptCacheProvider: 'openai' }).input },
-  { family: 'gemini', provider: 'gemini', body: 'contents', make: () => new GeminiProvider({ apiKey: 'k' }), lower: (p) => toGeminiContents(p, 'gemini-test') },
+  { family: 'openai-chat', provider: 'deepseek-chat', make: () => new OpenAICompatProvider('deepseek', cfg), build: viaSend() },
+  { family: 'openai-responses-compat', provider: 'xai', make: () => new OpenAICompatProvider('xai', cfg), build: viaSend() },
+  // The built-in Responses wire takes a PDF natively and sends over a WebSocket: the body is `buildRequestBody`'s, which
+  // the socket send serialises (openai-ws.mjs:134).
+  { family: 'openai-responses', provider: 'openai', make: () => new OpenAIDirectProvider({ apiKey: 'k' }), build: async (instance, messages) => buildRequestBody(await media.preparePdfTextForProvider(messages, instance), MODEL, [], { promptCacheProvider: 'openai' }) },
+  { family: 'gemini', provider: 'gemini', make: () => new GeminiProvider({ apiKey: 'k' }), build: viaSend('gemini-test'), model: 'gemini-test' },
   {
+    // Cursor sends a protobuf frame over HTTP/2 that `buildRunRequest` (not exported) assembles from `parseMessages`'s
+    // result; the row is that result, which is everything an attachment changes in the frame.
     family: 'cursor',
     provider: 'cursor-api',
-    body: 'parsed',
     make: () => new CursorApiProvider({ apiKey: 'k' }),
-    lower: (p, i) => {
-      const parsed = parseMessages(toCursorMessages(p, 'cursor-api', { nativePdf: i.nativePdf }));
+    build: async (instance, messages) => {
+      const parsed = parseMessages(toCursorMessages(await media.preparePdfTextForProvider(messages, instance), 'cursor-api', { nativePdf: instance.nativePdf }));
       return {
         systems: parsed.systems,
         history: parsed.history,
@@ -170,44 +214,38 @@ const families = [
       };
     },
   },
+  // Devin (Cascade): no document block, and no vision on a text-only model; the whole chat request.
+  { family: 'devin', provider: 'devin-oauth', make: () => new DevinOAuthProvider({}), build: async (instance, messages) => devinChat(instance, await media.preparePdfTextForProvider(messages, instance)), vision: false },
   {
-    // Devin (Cascade): no document block, and no vision on a text-only model; the router prompt lowers the latest turn.
-    family: 'devin',
-    provider: 'devin-oauth',
-    body: 'prompt',
-    lastTurn: true,
-    make: () => new DevinOAuthProvider({}),
-    lower: (p) => {
-      const prompt = devinRouterPrompt(p, { vision: false });
-      return { prompt: prompt.prompt, images: prompt.images };
-    },
-  },
-  {
-    // The managed local model: text-only, so a request is degraded before it is lowered (and may be refused).
+    // The managed local model: text-only, so a request is degraded before it is lowered (and may be refused). Its own
+    // `send` runs; the only seams are the ones the class takes for it: the server it would start (an address nothing
+    // listens on) and the queue that runs a request (run at once).
     family: 'openai-chat-text-only',
     provider: 'mixdog-local',
-    body: 'messages',
-    make: () => new MixdogLocalProvider({}),
-    lower: (p, i) => toOpenAIMessages(toLocalProviderMessages(assertLocalModelInput({ id: 'm', name: 'Local Model' }, p, [], {}, {})), 'mixdog-local', { nativePdf: i.nativePdf }),
+    make: () =>
+      new MixdogLocalProvider({}, {
+        ensureServer: async () => ({ baseURL: 'http://127.0.0.1:1', apiKey: 'k' }),
+        runRequest: (run) => run(new AbortController().signal),
+      }),
+    build: viaSend(),
+    vision: false,
   },
 ];
 
-const exactJson = (value) => JSON.parse(JSON.stringify(value));
 const rows = [];
 for (const spec of families) {
   const instance = await spec.make();
-  const capabilities = { nativePdf: instance.nativePdf ?? null, nativeDocuments: instance.nativeDocuments ?? null };
+  const capabilities = { nativePdf: instance.nativePdf ?? null, nativeDocuments: instance.nativeDocuments ?? null, vision: spec.vision ?? true };
   for (const kind of kinds) {
-    const messages = messagesOf(kind.name, spec.lastTurn === true);
+    const messages = messagesOf(kind.name);
     let body;
     let error = null;
     try {
-      const prepared = await media.preparePdfTextForProvider(structuredClone(messages), instance);
-      body = exactJson(spec.lower(prepared, instance));
+      body = JSON.parse(JSON.stringify(await spec.build(instance, structuredClone(messages))));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
-    rows.push({ family: spec.family, provider: spec.provider, capabilities, kind: kind.name, messages, wire: spec.body, ...(error === null ? { body } : { error }) });
+    rows.push({ family: spec.family, provider: spec.provider, model: spec.model ?? MODEL, capabilities, kind: kind.name, messages, ...(error === null ? { body } : { error }) });
   }
 }
 
@@ -219,13 +257,17 @@ writeSetManifest(outDir, {
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <exact export of b6f10295a>`,
   extra: {
-    values: 'plain JSON: each row is the request-body part the family builds from the messages (`wire`: messages, input, contents, or the cursor request\'s parsed history)',
+    values: 'plain JSON: each row is the whole request body of the provider\'s own send (the JSON its transport was handed, captured at `fetch` with every provider\'s real `send`; the built-in Responses wire\'s `buildRequestBody`, which its socket send serialises; Devin\'s `GetChatMessageRequest` bytes as base64; the managed local model through its own `send`); only Cursor\'s row is a part of its request (below)',
+    normalised: [
+      'anthropic-messages rows, field messages[].content[] (image parts): the Messages send resizes every image (`prepareAnthropicImages`, sharp: the table\'s 1x1 PNG is enlarged to 200x200) and puts an annotation text block before a resized one. The recorder drops the annotation and writes the stored PNG bytes back, so the rest of the request is compared. The core\'s Messages send does not resize: an open difference, named in the report, not a declared equality',
+      'devin row, field metadata.os of the request (the host\'s OS name): the recorder writes `<os>` and the replay sets the same value',
+    ],
     exclusions: [
       'replay, side core: the replay\'s provider declares the capabilities its row recorded (`capabilities`, the flags of the Node instance), because the run loop reads them from the adapter it is given; the flags of the core\'s own adapters are compared with the same rows by mixdog-ai registry::builder::tests::each_route_takes_the_documents_nodes_instance_declared',
-      'extraction, side node: the text of a PDF (pdf.js, first 100 pages, 256 KiB, the fixed unreadable text) and of an Office file is the extension host\'s, which runs Node\'s own code; the replay\'s DocumentText answers each file of the table with what Node\'s lowering gave for the same bytes (`extraction`, the text after the label line of Node\'s own lowering). The table\'s PDFs are one page, so the page and size limits and the truncation of a long extraction are not exercised here; the unreadable PDF and the unreadable Office container are',
-      'opencode-go, side core: the core\'s OpenCode Go adapter needs a stored OAuth login to be built, so its flags (no PDF, no document-less rule) are compared only through the arm that builds every Messages engine without a declaration of its own (registry/builder.rs gateway_messages_engine), shared with the custom Anthropic row; the row itself replays',
-      'deepseek-chat and mixdog-local flags, side core: Node\'s OpenAICompatProvider class (Chat wire of every compat class) and MixdogLocalProvider declare nativePdf false; the core has no builder name that routes a model to a Chat engine of its own for the first (the Messages route of the same gateway is the deepseek row), and the managed local route is the text-only route the replay runs with its own wiring (TextOnlyInput), not a registered adapter',
-      'devin, side core and node: Node\'s row is `devinRouterPrompt` (the latest turn lowered by `loweredContent`), the core\'s `router_prompt`; the full chat request needs a session exchange and is not recorded. Only the latest turn is compared, so the row ends on the attachment',
+      'extraction, side node: the text of a PDF (pdf.js, first 100 pages, 256 KiB, the fixed unreadable text) and of an Office file is the extension host\'s, which runs Node\'s own code; the replay\'s DocumentText answers each file of the table with what Node\'s lowering gave for the same bytes (`extraction`, the text after the label line of Node\'s own lowering). The table\'s PDFs are one page, so the page and size limits and the truncation of a long extraction are compared by the media-text set instead (`fixtures/tools/media-text/pdf.json`: 105 pages, 300 KB of text; replayed by mixdog-exthost tests/it/pool.rs); the unreadable PDF and the unreadable Office container are exercised here',
+      'opencode-go and deepseek-chat flags, side core: both are now built by the product\'s builder (`opencode-go-oauth` on a model its routing sends to Messages, `deepseek` on the one-shot Chat route) and their flags compared with these rows by mixdog-ai registry::builder::tests::each_route_takes_the_documents_nodes_instance_declared',
+      'mixdog-local flags, side core: the registry never builds the managed local route (`builder.rs`: "built per turn from the managed runtime\'s endpoint"); the product builds its media layer per turn (`ManagedLocalModels::media`: `MediaLowering::new(.., LOCAL_PROVIDER_ID)`, the text-only route), which is what the replay runs (`TextOnlyInput`). That route lowers every PDF to text and every image to the omitted text whatever flags an adapter declares, so `nativePdf` / `vision` of the Node instance are not read from a core adapter',
+      'cursor row, side node and core: Cursor sends a protobuf frame over HTTP/2 that `buildRunRequest` (not exported) assembles from `parseMessages`\'s result; the core\'s `CursorCodec::encode` frames the run it was built with. The row is `parseMessages`\'s result (systems, history, user text, user images), which is everything an attachment changes in the frame, not the frame',
       'families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows\' lowering with nativePdf false; opencode-go\'s and command-code\'s Gemini and Responses engines take the rows of their families',
       'refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core\'s refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here',
       'anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded',

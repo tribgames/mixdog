@@ -104,7 +104,12 @@ async fn each_route_takes_the_documents_nodes_instance_declared() {
         defer_loading: false,
         freeform: None,
     };
-    let request = |model: &str| ModelRequest { model: model.to_owned(), messages: Vec::new(), tools: vec![tool.clone()], options: RequestOptions::default() };
+    let request = |model: &str, agent: bool| ModelRequest {
+        model: model.to_owned(),
+        messages: Vec::new(),
+        tools: if agent { vec![tool.clone()] } else { Vec::new() },
+        options: RequestOptions::default(),
+    };
     let enabled = json!({"enabled": true, "apiKey": "k"});
     let custom = json!({"type": "custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
     // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
@@ -117,15 +122,21 @@ async fn each_route_takes_the_documents_nodes_instance_declared() {
         ("custom-anthropic", "custom-z", custom, "m", None),
         ("deepseek", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("messages")),
         ("openrouter", "openrouter", enabled.clone(), "anthropic/claude-sonnet-4.5", Some("messages")),
+        // The product's own adapters for the routes the table names after Node's classes: OpenCode Go's Messages engine
+        // (a model its routing sends there) and DeepSeek's Chat wire (`OpenAICompatProvider('deepseek')`), which only a
+        // one-shot request without tools takes (DeepSeek's Messages endpoint is for agent sessions).
+        ("opencode-go", "opencode-go-oauth", enabled.clone(), "minimax-m2", Some("messages")),
+        ("deepseek-chat", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("chat")),
     ];
     for (row, name, cfg, model, wire) in routes {
+        let agent = row != "deepseek-chat";
         let adapter = b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}"));
         if let Some(wire) = wire {
-            let context = mixdog_core_api::domain::provider::WireRouteContext { agent: true, ..Default::default() };
+            let context = mixdog_core_api::domain::provider::WireRouteContext { agent, ..Default::default() };
             let route = adapter.wire_routing().expect("a gateway routes").resolve_wire_route(model, &context).await.unwrap().unwrap();
             assert_eq!(route.wire, wire, "{row}: {model} is on the wire the row is for");
         }
-        assert_eq!(adapter.media_support(&request(model)).await, declared(row), "{row}");
+        assert_eq!(adapter.media_support(&request(model, agent)).await, declared(row), "{row}");
     }
 }
 
