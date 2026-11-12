@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -44,14 +44,50 @@ const seed = async (sessionId, checkpointIds = ['cp-1', 'cp-2']) => {
 
 test('concurrent and repeated record reads parse the changes file once', async () => {
   await seed('shared');
+  // A restart: the writes above primed the cache, a new process has none.
+  _setTurnSnapshotStoreRootForTest(dir);
   bigParses = 0;
   const reads = await Promise.all(
     Array.from({ length: 15 }, (_, index) => loadTurnChangeRecord('shared', index % 2 ? 'cp-1' : 'cp-2'))
   );
   assert.ok(reads.every(Boolean));
+  const afterFirstRead = bigParses;
   assert.equal((await loadTurnChangeRecords('shared')).length, 2);
   assert.equal((await loadTurnChangeRecord('shared', 'cp-1')).checkpointId, 'cp-1');
-  assert.equal(bigParses, 1);
+  assert.equal(bigParses, afterFirstRead, 'one read parsed the file; the rest reused it');
+  assert.ok(afterFirstRead > 0);
+});
+
+test('recording a turn appends to a large history and the next read parses nothing', async () => {
+  const ids = Array.from({ length: 40 }, (_, index) => `cp-${index}`);
+  await seed('append', ids);
+  const file = join(dir, 'changes', `${createHash('sha256').update('append').digest('hex').slice(0, 24)}.jsonl`);
+  const sizeBefore = statSync(file).size;
+  await upsertTurnChangeRecord('append', { checkpointId: 'cp-new', kind: 'tracked', root: dir, files: [bigFile('n.txt')] });
+  bigParses = 0;
+  const written = statSync(file).size - sizeBefore;
+  assert.ok(written < 40_000, `one turn's record was written, not the whole history (${written} bytes)`);
+  assert.equal((await loadTurnChangeRecords('append')).length, 41);
+  assert.equal(bigParses, 0, 'the read after a write reuses the cached records');
+  // A restart reads the appended file back, in order, with the superseded copy gone.
+  await upsertTurnChangeRecord('append', { checkpointId: 'cp-0', kind: 'tracked', root: dir, files: [bigFile('again.txt')] });
+  _setTurnSnapshotStoreRootForTest(dir);
+  const records = await loadTurnChangeRecords('append');
+  assert.equal(records.length, 41);
+  assert.equal(records.find((record) => record.checkpointId === 'cp-0').files[0].path, 'again.txt');
+  assert.equal(records.find((record) => record.checkpointId === 'cp-0').revision, 2);
+});
+
+test('an appended file still honours the byte budget by dropping the oldest turns first', async () => {
+  const huge = (path) => ({ ...bigFile(path), patch: 'y'.repeat(9 * 1024 * 1024) });
+  for (const checkpointId of ['cp-1', 'cp-2', 'cp-3', 'cp-4', 'cp-5']) {
+    await upsertTurnChangeRecord('budget', { checkpointId, kind: 'tracked', root: dir, files: [huge('h.txt')] });
+  }
+  _setTurnSnapshotStoreRootForTest(dir);
+  assert.deepEqual(
+    (await loadTurnChangeRecords('budget')).map((record) => record.checkpointId),
+    ['cp-3', 'cp-4', 'cp-5']
+  );
 });
 
 test('a write is never served stale', async () => {
@@ -101,7 +137,7 @@ test('mutating a read record does not leak into the next read', async () => {
 
 test('a failed read is not served after the file recovers', async () => {
   await seed('recover', ['cp-1']);
-  const file = join(dir, 'changes', `${createHash('sha256').update('recover').digest('hex').slice(0, 24)}.json`);
+  const file = join(dir, 'changes', `${createHash('sha256').update('recover').digest('hex').slice(0, 24)}.jsonl`);
   const good = readFileSync(file);
   const stamp = new Date('2024-01-01T00:00:00Z');
   // Same size and mtime: the signature cannot tell the broken file from the good one.

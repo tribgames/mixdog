@@ -13,9 +13,10 @@
 // list is what lets a SHARED worktree still revert: the baseline describes the
 // whole tree, but only these paths may be restored from it.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rm, stat, truncate } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { writeFileAtomicAsync } from './atomic-file.mjs';
+import { withFileLock } from './file-lock.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -153,7 +154,7 @@ export async function sweepDirectory(directory, ttlMs, maxFiles) {
     const now = Date.now();
     const kept = [];
     for (const name of names) {
-      if (!name.endsWith('.json')) continue;
+      if (!name.endsWith('.json') && !name.endsWith('.jsonl')) continue;
       const path = join(directory, name);
       try {
         const info = await stat(path);
@@ -311,11 +312,12 @@ export async function clearSessionChangeHistory(sessionId) {
     await rm(legacySummaryPath(id), { force: true });
     await rm(recordPath(id), { force: true });
   });
-  return await chain(`changes:${id}`, async () => {
-    const records = (await readChangesFile(id))?.records || [];
+  return await changesExclusive(id, async () => {
+    const count = (await loadChangeState(id))?.records.size || 0;
     await rm(changesPath(id), { force: true });
+    await rm(legacyChangesPath(id), { force: true });
     changeRecordsCache.delete(id);
-    return records.length;
+    return count;
   });
 }
 
@@ -442,18 +444,15 @@ async function forgetChangeRecordsRoot(target, removed, kept) {
     return;
   }
   for (const name of names) {
-    if (!name.endsWith('.json')) continue;
+    if (!name.endsWith('.json') && !name.endsWith('.jsonl')) continue;
     const path = join(changesRoot(), name);
-    let sessionId = '';
-    try {
-      sessionId = clean(JSON.parse(await readFile(path, 'utf8'))?.sessionId);
-    } catch {
-      // Unreadable or corrupt file: no session id, skipped below.
-    }
-    if (!sessionId || changesPath(sessionId) !== path) continue;
-    await chain(`changes:${sessionId}`, async () => {
-      const records = (await readChangesFile(sessionId))?.records;
-      if (!records) return;
+    const sessionId = await changesFileSessionId(path);
+    if (!sessionId || ![changesPath(sessionId), legacyChangesPath(sessionId)].includes(path)) continue;
+    await changesExclusive(sessionId, async () => {
+      // Each file is judged by what it holds, not by the one a read prefers.
+      const state = await parseChangesFile(sessionId, path, path === changesPath(sessionId)).catch(() => null);
+      if (!state) return;
+      const records = [...state.records.values()];
       const marked = [];
       const next = records.map((record) => {
         const files = Array.isArray(record?.files) ? record.files : [];
@@ -468,7 +467,7 @@ async function forgetChangeRecordsRoot(target, removed, kept) {
       });
       if (marked.length === 0) return;
       try {
-        await writeChangeRecords(sessionId, next);
+        await writeChangeRecords(sessionId, next, path);
         removed.push(...marked.map((checkpointId) => `${path}#${checkpointId}`));
       } catch {
         kept.push(path);
@@ -494,24 +493,110 @@ function changesRoot() {
   return join(recordRoot(), 'changes');
 }
 
+const changesHash = (sessionId) => createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+
+// The appendable format lives in its own `.jsonl` file. The previous version
+// parsed `<hash>.json` as one JSON document, so it must never find appended
+// lines there: after a downgrade it sees no history (and writes its own file
+// beside ours) instead of misreading and overwriting what it cannot parse.
 function changesPath(sessionId) {
-  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
-  return join(changesRoot(), `${hash}.json`);
+  return join(changesRoot(), `${changesHash(sessionId)}.jsonl`);
 }
 
-/** The session's changes file; null when it is not a changes file of this
- *  session. An unreadable or unparsable file throws. */
-async function parseChangesFile(sessionId) {
-  const parsed = JSON.parse(await readFile(changesPath(sessionId), 'utf8'));
-  if (parsed?.version !== CHANGES_VERSION || parsed.sessionId !== sessionId) return null;
-  return Array.isArray(parsed.records) ? parsed : null;
+/** The previous format's file, read as-is until the first write migrates it. */
+function legacyChangesPath(sessionId) {
+  return join(changesRoot(), `${changesHash(sessionId)}.json`);
 }
 
-async function readChangesFile(sessionId) {
+// A changes file is one JSON line of records (what a full write produces, and
+// what older versions wrote) optionally followed by delta lines, each starting
+// on a new line: a record that replaces its checkpoint's earlier one, or
+// `{"checkpointId":…,"evicted":true}`. An upsert appends its one record
+// instead of rewriting the session's history; the file is rewritten whole only
+// once the superseded bytes outgrow the live ones. A line that does not parse
+// (a torn tail, or damage in the middle) is skipped, deliberately: it costs
+// only that one upsert, where failing the read as the old single-document
+// format did would hide every other turn too.
+const COMPACT_DEAD_FLOOR_BYTES = 1024 * 1024;
+
+const recordBytes = (record) => Buffer.byteLength(JSON.stringify(record), 'utf8');
+
+const changesBasePrefix = (sessionId) => `{"version":${CHANGES_VERSION},"sessionId":${JSON.stringify(sessionId)},"records":[`;
+
+/** The session's parsed changes state: its records by checkpoint (file order),
+ *  `live` (their summed JSON bytes) and `dead` (superseded bytes still in the
+ *  file). Null when it is not a changes file of this session. An unreadable or
+ *  unparsable file throws. */
+async function parseChangesFile(sessionId, path, stored) {
+  const text = await readFile(path, 'utf8');
+  const cut = text.indexOf('\n');
+  const baseText = cut < 0 ? text : text.slice(0, cut);
+  const base = JSON.parse(baseText);
+  if (base?.version !== CHANGES_VERSION || base.sessionId !== sessionId || !Array.isArray(base.records)) return null;
+  const records = new Map();
+  for (const record of base.records) if (record) records.set(record.checkpointId, deepFreeze(record));
+  const prefix = changesBasePrefix(sessionId);
+  let live;
+  if (base.records.every(Boolean) && baseText.startsWith(prefix) && baseText.endsWith(']}')) {
+    // Exactly what JSON.stringify wrote: the records' bytes without re-measuring each.
+    const count = base.records.length;
+    live = count ? Buffer.byteLength(baseText, 'utf8') - Buffer.byteLength(prefix, 'utf8') - 2 - (count - 1) : 0;
+  } else {
+    live = [...records.values()].reduce((sum, record) => sum + recordBytes(record), 0);
+  }
+  let dead = 0;
+  if (cut >= 0) {
+    for (const line of text.slice(cut + 1).split('\n')) {
+      if (!line) continue;
+      let item;
+      try {
+        item = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      // One line is one upsert: the turn's record and the turns it evicts.
+      if (!item || typeof item.put?.checkpointId !== 'string' || !Array.isArray(item.evict)) continue;
+      const gone = (checkpointId) => {
+        if (!records.has(checkpointId)) return;
+        const size = recordBytes(records.get(checkpointId));
+        live -= size;
+        dead += size;
+      };
+      for (const checkpointId of item.evict) {
+        gone(checkpointId);
+        records.delete(checkpointId);
+      }
+      gone(item.put.checkpointId);
+      records.set(item.put.checkpointId, deepFreeze(item.put));
+      live += recordBytes(item.put);
+    }
+  }
+  return { records, live, dead, stored };
+}
+
+/** Runs `task` with every other writer of the session's changes files — in this
+ *  process (write chain) and in any other (file lock) — held off. Whatever the
+ *  task reads of the files is what they hold while it writes. */
+function changesExclusive(sessionId, task) {
+  return chain(`changes:${sessionId}`, async () => {
+    await mkdir(changesRoot(), { recursive: true });
+    return await withFileLock(join(changesRoot(), `${changesHash(sessionId)}.lock`), task, { timeoutMs: 30_000 });
+  });
+}
+
+/** The session id of a changes file, read from its first bytes. */
+async function changesFileSessionId(path) {
+  let handle;
   try {
-    return await parseChangesFile(sessionId);
+    handle = await open(path, 'r');
+    const buffer = Buffer.alloc(4096);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const match = /^\{"version":\d+,"sessionId":("(?:[^"\\]|\\.)*")/.exec(buffer.toString('utf8', 0, bytesRead));
+    return match ? clean(JSON.parse(match[1])) : '';
   } catch {
-    return null;
+    return '';
+  } finally {
+    await handle?.close().catch(() => {});
   }
 }
 
@@ -523,23 +608,28 @@ function deepFreeze(value) {
   return value;
 }
 
-/** Evict the oldest turns until the session fits its byte budget; a turn that
- *  alone exceeds it drops its largest patches (those files stop being
- *  revertable) instead of the whole record. */
-function boundChangeRecords(records, keepCheckpointId) {
-  const sizes = records.map((record) => Buffer.byteLength(JSON.stringify(record), 'utf8'));
-  let total = sizes.reduce((sum, size) => sum + size, 0);
-  for (let index = 0; total > MAX_CHANGE_BYTES_PER_SESSION && index < records.length; ) {
-    if (records[index].checkpointId === keepCheckpointId) {
-      index += 1;
-      continue;
-    }
-    total -= sizes[index];
-    records.splice(index, 1);
-    sizes.splice(index, 1);
+/** What it takes to store `record` (replacing `priorBytes` of its checkpoint's
+ *  earlier record) within the session's byte budget: the oldest other turns to
+ *  evict until it fits; a turn that alone exceeds the budget drops its largest
+ *  patches (those files stop being revertable) instead of the whole record. */
+function boundChangeRecord(state, record, priorBytes) {
+  const keepCheckpointId = record.checkpointId;
+  let total = state.live - priorBytes + recordBytes(record);
+  const evict = [];
+  for (const [checkpointId, other] of state.records) {
+    if (total <= MAX_CHANGE_BYTES_PER_SESSION) break;
+    if (checkpointId === keepCheckpointId) continue;
+    const size = recordBytes(other);
+    total -= size;
+    evict.push([checkpointId, size]);
   }
-  if (total <= MAX_CHANGE_BYTES_PER_SESSION) return;
-  const kept = records.find((record) => record.checkpointId === keepCheckpointId);
+  if (total <= MAX_CHANGE_BYTES_PER_SESSION) return { record, evict };
+  // Stored records are frozen and the caller's files are not ours to edit.
+  const kept = {
+    ...record,
+    files: (record.files || []).map((file) => ({ ...file })),
+    ...(record.outside ? { outside: record.outside.map((file) => ({ ...file })) } : {}),
+  };
   // Replay patches and display patches share one budget, measured in UTF-8 bytes.
   const weight = (file) =>
     ['patch', 'viewPatch'].reduce(
@@ -559,25 +649,113 @@ function boundChangeRecords(records, keepCheckpointId) {
     file.reason = 'change is too large to keep for undo';
     file.patchOmitted = true;
   }
+  return { record: kept, evict };
 }
 
 // Test seam: runs before every change-record write; a throw fails the write.
 let changeWriteHookForTest = null;
 
-async function writeChangeRecords(sessionId, records) {
-  await changeWriteHookForTest?.(sessionId, records);
-  changeRecordsCache.delete(sessionId);
+async function writeChangeFile(sessionId, records) {
   await mkdir(changesRoot(), { recursive: true });
   if (!changesSweepDone) {
     changesSweepDone = true;
     void sweepDirectory(changesRoot(), CHANGE_RECORD_TTL_MS, MAX_CHANGE_RECORD_FILES);
   }
+  await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
+  // The previous format's file is superseded; leaving it would let a downgrade
+  // resurrect an old history and a later upgrade never read it again.
+  await rm(legacyChangesPath(sessionId), { force: true });
+}
+
+/** Rewrite the whole file with `records`: the appendable file by default, or
+ *  the previous format's file in place when `path` names it. */
+async function writeChangeRecords(sessionId, records, path = changesPath(sessionId)) {
+  await changeWriteHookForTest?.(sessionId, records);
+  changeRecordsCache.delete(sessionId);
   try {
-    await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
+    if (path === legacyChangesPath(sessionId)) {
+      await writeJsonAtomically(path, { version: CHANGES_VERSION, sessionId, records });
+    } else {
+      await writeChangeFile(sessionId, records);
+    }
   } finally {
     // A read between the drop above and the rename may have cached the old file.
     changeRecordsCache.delete(sessionId);
   }
+}
+
+/** Store one turn's `record` — replacing `priorBytes` of its checkpoint's
+ *  earlier one — and evict `evict` ([checkpointId, bytes]): appended to the
+ *  file, or the file rewritten when it holds no valid state yet or its dead
+ *  bytes outgrew the live ones. The cached state follows the file, so the next
+ *  read parses nothing. Resolves to the stored (frozen) record. */
+async function storeChangeRecord(sessionId, state, record, priorBytes, evict) {
+  await changeWriteHookForTest?.(sessionId, [record]);
+  const line = JSON.stringify(record);
+  const evictedBytes = evict.reduce((sum, [, size]) => sum + size, 0);
+  const live = state.live - priorBytes - evictedBytes + Buffer.byteLength(line, 'utf8');
+  const dead = state.dead + priorBytes + evictedBytes;
+  const stored = deepFreeze(JSON.parse(line));
+  const records = new Map(state.records);
+  for (const [checkpointId] of evict) records.delete(checkpointId);
+  records.set(record.checkpointId, stored);
+  changeRecordsCache.delete(sessionId);
+  let fresh = null;
+  try {
+    if (!state.stored || dead > Math.max(live / 2, COMPACT_DEAD_FLOOR_BYTES)) {
+      await writeChangeFile(sessionId, [...records.values()]);
+      return stored;
+    }
+    // One line, one write: the record and its evictions become visible together
+    // or (a torn last line is skipped on read) not at all. The caller holds the
+    // session's cross-process lock, so no other locked writer's bytes can land
+    // inside this line; the line is read back, and an upsert that cannot show
+    // its whole line in the file fails instead of reporting success.
+    const text = `\n${JSON.stringify({ put: record, evict: evict.map(([checkpointId]) => checkpointId) })}`;
+    const expected = Buffer.from(text, 'utf8');
+    const handle = await open(changesPath(sessionId), 'a+');
+    let info;
+    try {
+      const prior = await handle.stat();
+      try {
+        await handle.appendFile(expected);
+        const held = Buffer.alloc(expected.length);
+        const { bytesRead } = await handle.read(held, 0, held.length, prior.size);
+        if (bytesRead !== held.length || !held.equals(expected)) {
+          throw new Error('turn change record was not written whole');
+        }
+      } catch (error) {
+        // A line this upsert does not report stored is cut away: a later read
+        // must not apply it, and a partial one must not sit in the middle of
+        // the file. By the path: Windows refuses (EPERM) to truncate through a
+        // handle opened to append.
+        await truncate(changesPath(sessionId), prior.size).catch((cut) => {
+          error.message += ` (the file was not cut back: ${cut?.message || cut})`;
+        });
+        throw error;
+      }
+      info = await handle.stat();
+      // Cache what we wrote only if the file is exactly the one we read plus our
+      // bytes: any other writer in between changes the size (or replaces the
+      // file), and then the next read parses the file instead.
+      if (!(state.file && prior.ino === state.file.ino && prior.size === state.file.size)) info = null;
+    } finally {
+      await handle.close().catch(() => {});
+    }
+    if (info && info.size === state.file.size + expected.length) {
+      fresh = {
+        signature: `${changesPath(sessionId)}:${info.mtimeMs}:${info.size}`,
+        bytes: info.size,
+        records: Promise.resolve({ records, live, dead, stored: true, file: { ino: info.ino, size: info.size } }),
+      };
+      changeRecordsCache.set(sessionId, fresh);
+      trimChangeRecordsCache();
+    }
+  } finally {
+    // Whatever was cached before this write no longer describes the file.
+    if (changeRecordsCache.get(sessionId) !== fresh) changeRecordsCache.delete(sessionId);
+  }
+  return stored;
 }
 
 const changeContent = (record) =>
@@ -601,10 +779,9 @@ export async function upsertTurnChangeRecord(sessionId, next) {
   const id = clean(sessionId);
   const checkpointId = clean(next?.checkpointId);
   if (!id || !checkpointId) return null;
-  return await chain(`changes:${id}`, async () => {
-    const records = (await readChangesFile(id))?.records || [];
-    const index = records.findIndex((record) => record?.checkpointId === checkpointId);
-    const prior = index >= 0 ? records[index] : null;
+  return await changesExclusive(id, async () => {
+    const state = (await loadChangeState(id)) || { records: new Map(), live: 0, dead: 0, stored: false };
+    const prior = state.records.get(checkpointId) || null;
     const files = (Array.isArray(next.files) ? next.files : []).map((file) => ({ ...file, state: 'applied' }));
     const present = new Set(files.map((file) => rootKey(file.path)));
     for (const file of prior?.files || []) {
@@ -633,13 +810,11 @@ export async function upsertTurnChangeRecord(sessionId, next) {
       createdAt: Number(prior?.createdAt) || now,
       updatedAt: now,
     };
-    if (index >= 0) records[index] = record;
-    else records.push(record);
-    boundChangeRecords(records, checkpointId);
-    await writeChangeRecords(id, records);
+    const bounded = boundChangeRecord(state, record, prior ? recordBytes(prior) : 0);
+    const stored = await storeChangeRecord(id, state, bounded.record, prior ? recordBytes(prior) : 0, bounded.evict);
     // Any new turn record (Git or not) starts the history again.
     await endClearedHistory(id);
-    return records.find((entry) => entry.checkpointId === checkpointId) || null;
+    return stored;
   });
 }
 
@@ -649,20 +824,19 @@ export async function updateTurnChangeRecord(sessionId, checkpointId, mutate) {
   const id = clean(sessionId);
   const key = clean(checkpointId);
   if (!id || !key) return null;
-  return await chain(`changes:${id}`, async () => {
-    const records = (await readChangesFile(id))?.records || [];
-    const index = records.findIndex((record) => record?.checkpointId === key);
-    if (index < 0) return null;
-    const files = mutate(records[index]);
-    if (!files) return records[index];
-    records[index] = {
-      ...records[index],
+  return await changesExclusive(id, async () => {
+    const state = await loadChangeState(id);
+    const prior = state?.records.get(key);
+    if (!prior) return null;
+    const files = mutate(prior);
+    if (!files) return prior;
+    const record = {
+      ...prior,
       files,
-      revision: (Number(records[index].revision) || 0) + 1,
+      revision: (Number(prior.revision) || 0) + 1,
       updatedAt: Date.now(),
     };
-    await writeChangeRecords(id, records);
-    return records[index];
+    return await storeChangeRecord(id, state, record, recordBytes(prior), []);
   });
 }
 
@@ -671,8 +845,13 @@ export async function loadTurnChangeRecord(sessionId, checkpointId) {
   const id = clean(sessionId);
   const key = clean(checkpointId);
   if (!id || !key) return null;
-  const records = await loadTurnChangeRecords(id);
-  return records.find((record) => record?.checkpointId === key) || null;
+  return (await loadChangeState(id))?.records.get(key) || null;
+}
+
+/** How many turn records the session retains; parses nothing once cached. */
+export async function countTurnChangeRecords(sessionId) {
+  const id = clean(sessionId);
+  return id ? (await loadChangeState(id))?.records.size || 0 : 0;
 }
 
 // Parsed change records by session, valid while the file's mtime and size are
@@ -703,14 +882,26 @@ function trimChangeRecordsCache() {
 export async function loadTurnChangeRecords(sessionId) {
   const id = clean(sessionId);
   if (!id) return [];
+  const state = await loadChangeState(id);
+  return state ? [...state.records.values()].sort((left, right) => (Number(left.createdAt) || 0) - (Number(right.createdAt) || 0)) : [];
+}
+
+/** The session's cached changes state, or null when it has none readable. */
+async function loadChangeState(id) {
   let info;
+  let path = changesPath(id);
+  let stored = true;
   try {
-    info = await stat(changesPath(id));
+    info = await stat(path).catch(async () => {
+      stored = false;
+      path = legacyChangesPath(id);
+      return await stat(path);
+    });
   } catch {
     changeRecordsCache.delete(id);
-    return [];
+    return null;
   }
-  const signature = `${info.mtimeMs}:${info.size}`;
+  const signature = `${path}:${info.mtimeMs}:${info.size}`;
   const cached = changeRecordsCache.get(id);
   changeRecordsCache.delete(id);
   if (cached?.signature === signature) {
@@ -719,19 +910,15 @@ export async function loadTurnChangeRecords(sessionId) {
       return await cached.records;
     } catch {
       if (changeRecordsCache.get(id) === cached) changeRecordsCache.delete(id);
-      return [];
+      return null;
     }
   }
   const entry = {
     signature,
     bytes: info.size,
-    records: parseChangesFile(id).then((file) =>
-      deepFreeze(
-        (file?.records || [])
-          .filter(Boolean)
-          .sort((left, right) => (Number(left.createdAt) || 0) - (Number(right.createdAt) || 0))
-      )
-    ),
+    // `file` is what the stat above saw; a parse that read newer bytes only
+    // makes the append check in storeChangeRecord refuse to cache.
+    records: parseChangesFile(id, path, stored).then((state) => state && { ...state, file: { ino: info.ino, size: info.size } }),
   };
   changeRecordsCache.set(id, entry);
   trimChangeRecordsCache();
@@ -740,7 +927,7 @@ export async function loadTurnChangeRecords(sessionId) {
   } catch {
     // A failed read is not remembered: the next call reads the file again.
     if (changeRecordsCache.get(id) === entry) changeRecordsCache.delete(id);
-    return [];
+    return null;
   }
 }
 

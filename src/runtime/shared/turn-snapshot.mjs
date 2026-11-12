@@ -11,6 +11,7 @@ import {
 } from './turn-worktree-snapshot.mjs';
 import {
   clearSessionChangeHistory as clearStoredChangeHistory,
+  countTurnChangeRecords,
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
   loadTurnChangeRecords,
@@ -1403,8 +1404,8 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   if (DISABLED) return { supported: false, files: [], patch: '', agents: [], historyTurns: 0 };
   const ownerSessionId = clean(sessionId);
   const review = await readTurnReview(ownerSessionId, options);
-  const records = await loadTurnChangeRecords(ownerSessionId).catch(() => []);
-  return { ...review, historyTurns: records.length };
+  const historyTurns = await countTurnChangeRecords(ownerSessionId).catch(() => 0);
+  return { ...review, historyTurns };
 }
 
 async function readTurnReview(ownerSessionId, options) {
