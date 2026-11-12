@@ -128,14 +128,65 @@ fn minted(outcome: Value, copies: &mut Vec<String>) -> Value {
     json!({ "ok": serde_json::to_string_pretty(&answer).expect("json") })
 }
 
-/// `[source, compacted]` of each copy the forks made: the copy's own header names its source, and the compactor was asked for
-/// the heir's conversation (`inheritFrom`'s `fitConversationForHeir`, summarizing as `compact` says) once the fork answered.
-async fn forks_made(threads: &SessionThreads, rig: &Rig, copies: &[String]) -> Vec<Value> {
-    let compacted = mixdog_core_session::session::testing::lock(&rig.compaction.heir_asked).first().is_some_and(|(_, summarize)| *summarize);
+/// The heir-route policy's reads (`HostInheritanceFit`, the product's): the heir's header as the store holds it; the heir sends no
+/// tools and its conversation is text.
+struct StoredHeirs(Arc<mixdog_core_session::session::testing::MemStore>);
+
+#[async_trait]
+impl mixdog_core::run_host::inheritance_fit::MeasuredThreads for StoredHeirs {
+    async fn header(&self, thread: &ThreadId) -> Option<Header> {
+        self.0.stored_header(thread)
+    }
+    async fn tools(&self, _: &ThreadId) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+        Vec::new()
+    }
+    async fn media(&self, _: &ThreadId, _: &[Value]) -> Option<Arc<dyn mixdog_agent::compact::estimate::MediaMeter>> {
+        Some(Arc::new(super::super::inheritance_fit::TextOnly))
+    }
+}
+
+/// The heir's route carries its own windows, never the catalog's.
+struct NoCatalogWindows;
+
+impl mixdog_core::run_host::inheritance_fit::RouteWindows for NoCatalogWindows {
+    fn window(&self, _: &str, _: &str, _: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+        None
+    }
+}
+
+/// `[source, compacted]` of each copy the forks made, whole against the recording's (`forks`: the source and the options `compact`).
+/// The copy's own header names its source; the compactor was asked once, for the source's conversation, summarizing as `compact`
+/// says, with the budget the product's heir-route policy gives the copy (`inheritanceCompactionPlan`); and the copy holds the
+/// conversation the compactor answered, which is what the recording's `compacted: true` stands for.
+async fn forks_made(directory: &SessionDirectory, threads: &SessionThreads, rig: &Rig, copies: &[String], source_rows: &[Value]) -> Vec<Value> {
+    let asked = mixdog_core_session::session::testing::lock(&rig.compaction.heir_asked).clone();
+    assert_eq!(asked.len(), copies.len(), "the compactor is asked once for each fork");
     let mut forks = Vec::new();
-    for copy in copies {
-        let header = threads.header(&ThreadId::from(copy.as_str())).await.expect("the copy");
-        forks.push(json!([header["inheritedFromSessionId"], compacted]));
+    for (copy, (budget, summarize)) in copies.iter().zip(asked) {
+        let id = ThreadId::from(copy.as_str());
+        let header = threads.header(&id).await.expect("the copy");
+        let (_config_dir, config) = super::super::inheritance_fit::seams().await;
+        let fit = mixdog_core::run_host::inheritance_fit::HostInheritanceFit::new(Arc::new(NoCatalogWindows), config, Arc::new(StoredHeirs(rig.store.clone())));
+        let target = mixdog_core_session::session::inheritance::InheritTarget {
+            provider: header["provider"].as_str().unwrap_or_default().to_owned(),
+            model: header["model"].as_str().unwrap_or_default().to_owned(),
+            selected_context_window: None,
+            session: Some(id.clone()),
+            tools_of: Some(id.clone()),
+            source: None,
+        };
+        let want = mixdog_core_session::session::inheritance::InheritanceFit::compaction_budget(&fit, &target).await.expect("the heir's route has a compaction boundary");
+        assert_eq!(budget, want, "the budget the compactor was asked to fit is the heir route's");
+        let handle = directory.open_handle(&id, &CallContext::internal("replay")).await.expect("opens");
+        let request = CoreRequest { method: Method("thread/messages/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("replay") };
+        let read = match handle.request(request).await {
+            Ok(Reply::Value(read)) => read,
+            other => panic!("thread/messages/read answers a value, not {other:?}"),
+        };
+        let held: Vec<(Value, Value)> = read["messages"].as_array().expect("messages").iter().filter(|row| row["role"] != "system").map(|row| (row["role"].clone(), row["content"].clone())).collect();
+        let carried: Vec<(Value, Value)> = source_rows.iter().filter(|row| row["role"] != "system").map(|row| (row["role"].clone(), row["content"].clone())).collect();
+        assert_eq!(held, carried, "the copy holds the conversation the compactor answered");
+        forks.push(json!([header["inheritedFromSessionId"], summarize]));
     }
     forks
 }
@@ -203,20 +254,33 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
     for case in golden["cases"].as_array().unwrap() {
         let rig = Rig::new();
         *mixdog_core_session::session::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
-        // A fork that compacts measures the conversation against the heir's route first (`inheritFrom`).
-        *mixdog_core_session::session::testing::lock(&rig.inherit.basis) = Some((100_000, 10, false));
-        *mixdog_core_session::session::testing::lock(&rig.inherit.budget) = Some(50_000);
-        *mixdog_core_session::session::testing::lock(&rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "summary of the conversation" })]);
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        // A fork that compacts measures the conversation against the heir's route (`inheritFrom`): the product's policy over the
+        // heir's header (`HostInheritanceFit`), whose budget and fit nothing here states.
+        let (_config_dir, config) = super::super::inheritance_fit::seams().await;
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.inherit = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::new(Arc::new(NoCatalogWindows), config, Arc::new(StoredHeirs(rig.store.clone()))));
+        let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         for id in ["sess-1", "worker-1", "w"] {
             // The runtime session's fields the case set (`rt.session.title`, its route), or the session store the test's
             // session manager holds, as the thread's stored header.
-            let header = if id == "sess-1" { case["recorded"]["session"].as_object().or(case["recorded"]["store"].as_object()).cloned().unwrap_or_default() } else { Map::new() };
+            let mut header = if id == "sess-1" { case["recorded"]["session"].as_object().or(case["recorded"]["store"].as_object()).cloned().unwrap_or_default() } else { Map::new() };
+            if id == "sess-1" && case["recorded"].get("forks").is_some() {
+                // The recording's lifecycle double names no route; the session being forked holds one with room to spare, whose
+                // windows its heir keeps (a copy opens on its source's route).
+                for (key, value) in [("provider", json!("openai-oauth")), ("model", json!("gpt-6-astra")), ("contextWindow", json!(400_000)), ("rawContextWindow", json!(400_000)), ("effectiveContextWindowPercent", json!(100)), ("autoCompactTokenLimit", json!(300_000)), ("compactBoundaryTokens", json!(300_000))] {
+                    header.insert(key.to_owned(), value);
+                }
+            }
             directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the thread");
         }
+        // What the compactor answers a fork: the source's model context as the product reads it (nothing summarised away).
+        let mut source_rows = Vec::new();
         if case["recorded"].get("forks").is_some() {
             converse(&directory, "sess-1").await;
+            let context = directory.model_context(&ThreadId::from("sess-1")).read().await.expect("the source's model context");
+            source_rows = context.iter().map(|(_, row)| row.clone()).collect();
+            *mixdog_core_session::session::testing::lock(&rig.compaction.heir_rows) = Some(source_rows.clone());
         }
         let racing: Arc<dyn ThreadState> = Arc::new(Racing { threads: threads.clone(), armed: case["recorded"]["store"]["title"] == "old" });
         let titles_on = Arc::new(Toggle(std::sync::atomic::AtomicBool::new(true)));
@@ -328,7 +392,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
             want["live"] = want_live.clone();
         }
         if let Some(forks) = case["recorded"].get("forks") {
-            got["forks"] = json!(forks_made(&threads, &rig, &copies).await);
+            got["forks"] = json!(forks_made(&directory, &threads, &rig, &copies, &source_rows).await);
             want["forks"] = json!(forks.as_array().unwrap().iter().map(|f| json!([f[0], f[1]["compact"]])).collect::<Vec<_>>());
         }
         if let Some(touched) = case["recorded"].get("touched") {
