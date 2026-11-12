@@ -55,6 +55,15 @@ fn the_hold_and_the_run_limit_are_planned_as_node_plans_them() {
         if promote != plan["promoteAtTimeout"].as_bool().unwrap() {
             failures.push(format!("promoteAtTimeout for {} {} (background {enabled}): Node {}, here {promote}", call["env"], call["args"], plan["promoteAtTimeout"]));
         }
+        // The hold's own timer as Node armed it (`armed`, the `autoBackground` entries): there exactly when the hold ends by
+        // promoting, and due at the hold. The limit's timer (`timeout`) carries Node's `timeout`, which is not compared (manifest).
+        let node_hold_timer: Vec<u64> =
+            call["armed"].as_array().unwrap().iter().filter(|timer| timer["timer"] == "autoBackground").map(|timer| timer["delay"].as_u64().unwrap()).collect();
+        let promotes = enabled && hold > 0 && matches!(hold_end(call["args"]["background"] == true, limit, hold, &env), Some(PromotionReason::Background | PromotionReason::Threshold));
+        let here_hold_timer: Vec<u64> = if promotes { vec![hold] } else { Vec::new() };
+        if here_hold_timer != node_hold_timer {
+            failures.push(format!("the hold's timer for {} {} (background {enabled}): Node {node_hold_timer:?}, here {here_hold_timer:?}", call["env"], call["args"]));
+        }
         // What the end of the hold does is decided by `hold_end`, the function the shell run waits and words its promotion by.
         // A call with no hold never reaches that decision.
         if enabled && hold > 0 {
