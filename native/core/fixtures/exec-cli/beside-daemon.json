@@ -42,7 +42,7 @@
   "output": [
     {
       "stream": "stderr",
-      "text": "(node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[anthropic] listModels fetch failed (list_models 404)\n[anthropic] listModels fetch failed (list_models 404)\n[mixdog] llm-title start id=<session> stage=first chars=2\n[mixdog] llm-title disabled stage=first (maintenance route unresolved; llm titling off)\n[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock\n"
+      "text": "(node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[anthropic] listModels fetch failed (list_models 404)\n[anthropic] listModels fetch failed (list_models 404)\n[mixdog] llm-title start id=<session> stage=first chars=2\n[mixdog] llm-title disabled stage=first (maintenance route unresolved; llm titling off)\n"
     },
     {
       "stream": "stdout",
@@ -649,6 +649,7 @@
     "GET https://api.anthropic.com/v1/models",
     "GET https://github.com/tribgames/mixdog/releases/download/graph-v0.1.35/mixdog-graph-win32-x64.exe",
     "GET https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-x64.exe",
+    "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
     "GET https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.12/mixdog-spawn-win32-x64.exe",
     "GET https://registry.npmjs.org/mixdog/latest"
   ],
