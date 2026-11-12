@@ -2634,7 +2634,54 @@ impl FileService for SilentServer {
         if self.silent.load(std::sync::atomic::Ordering::SeqCst) {
             return Box::new(Held(std::marker::PhantomData));
         }
-        self.inner.search_text(lane, request)
+        Box::new(RegexSearch { inner: self.inner.clone(), walk_lane: lane, request, found: None })
+    }
+}
+
+/// The recorder's server once it answers: a content search of the files under the root by the request's regex, in path order,
+/// without the request's globs (the files of these scenarios have none of the names they exclude). The in-memory service
+/// matches its pattern as a literal, and a fan-out's combined pattern is an alternation.
+struct RegexSearch {
+    inner: Arc<dyn FileService>,
+    walk_lane: mixdog_rt::MaintenanceIo,
+    request: mixdog_core_api::domain::fs::SearchRequest,
+    found: Option<std::collections::VecDeque<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>> for RegexSearch {
+    async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>> {
+        use mixdog_core_api::domain::fs::{FsError, FsErrorKind, ReadRange, SearchMatch, WalkRequest};
+        if self.found.is_none() {
+            let mut out = std::collections::VecDeque::new();
+            match regex::RegexBuilder::new(&self.request.pattern).case_insensitive(!self.request.case_sensitive).build() {
+                Err(e) => out.push_back(Err(FsError::new(FsErrorKind::InvalidPattern { message: e.to_string() }, None))),
+                Ok(re) => {
+                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false, prune: Vec::new(), server: None };
+                    let mut walk = self.inner.walk(self.walk_lane, walk);
+                    let mut paths = Vec::new();
+                    while let Some(Ok(entry)) = walk.next().await {
+                        paths.push(entry.path);
+                    }
+                    paths.sort();
+                    let read_lane = mixdog_rt::testing::tokens().interactive_io;
+                    'files: for path in paths {
+                        let bytes = self.inner.read(read_lane, path.clone(), ReadRange::default()).await.unwrap().bytes;
+                        for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+                            if let Some(hit) = re.find(line) {
+                                out.push_back(Ok(SearchMatch { path: path.clone(), line: index as u64 + 1, column: hit.start() as u64 + 1, text: line.to_owned() }));
+                                if self.request.first_per_file {
+                                    continue 'files;
+                                }
+                            }
+                        }
+                    }
+                    out.truncate(self.request.limit.unwrap_or(usize::MAX));
+                }
+            }
+            self.found = Some(out);
+        }
+        self.found.as_mut().and_then(|found| found.pop_front())
     }
 }
 
@@ -2646,6 +2693,8 @@ struct Pending<'a> {
     outcome: Option<(bool, String)>,
     /// The call ended as a cancelled one.
     cancelled: bool,
+    /// The local-search telemetry the call's answer carries for the trace row.
+    telemetry: Option<JsonValue>,
 }
 
 struct Woken(std::sync::atomic::AtomicBool);
@@ -2659,15 +2708,17 @@ impl std::task::Wake for Woken {
 /// Runs every call woken since it was last polled, until none is: every call that can go on has gone on, so a call
 /// that is still pending is waiting for the clock, a cancel or another call's end. A single task is the whole replay, so
 /// the runtime never sees it idle and moves no clock by itself.
-fn settle(calls: &mut [Pending<'_>]) {
+fn settle(calls: &mut [Pending<'_>], done: &mut Vec<usize>) {
     loop {
         let mut polled = false;
-        for call in calls.iter_mut().filter(|c| c.outcome.is_none()) {
+        for (index, call) in calls.iter_mut().enumerate().filter(|(_, c)| c.outcome.is_none()) {
             if call.woken.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 let waker = std::task::Waker::from(call.woken.clone());
                 if let std::task::Poll::Ready(outcome) = call.future.as_mut().poll(&mut std::task::Context::from_waker(&waker)) {
                     call.cancelled = matches!(&outcome, Err(e) if matches!(e.code, ToolErrorCode::Cancelled));
+                    call.telemetry = outcome.as_ref().ok().and_then(|out| out.meta.as_ref()).and_then(|meta| meta.get(super::common::LOCAL_SEARCH_META)).cloned();
                     call.outcome = Some(recorded_form(outcome));
+                    done.push(index);
                 }
                 polled = true;
             }
@@ -2689,15 +2740,21 @@ async fn replay_admission(scenario: &str, fixture: &str) {
     let reached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let files: Arc<dyn FileService> = Arc::new(SilentServer { inner: Arc::new(MockFileService::default()), silent: silent.clone(), reached: reached.clone() });
     let steps = fixture["admission"].as_array().unwrap();
-    // A context of its own for each call, over the one disk.
+    // A context of its own for each call, over the one disk, for the session (`owner`) the call ran for.
     let mut contexts = Vec::new();
     for step in steps.iter().filter(|s| s.get("start").is_some()) {
-        contexts.push((step["start"].as_str().unwrap(), context_seeded(&root, files.clone(), if contexts.is_empty() { seeds.clone() } else { Vec::new() }).await));
+        let mut ctx = context_seeded(&root, files.clone(), if contexts.is_empty() { seeds.clone() } else { Vec::new() }).await;
+        if let Some(owner) = step["owner"].as_str() {
+            ctx.thread_id = ThreadId::from(owner);
+        }
+        contexts.push((step["start"].as_str().unwrap(), ctx));
     }
-    let tools: [(&str, Box<dyn Tool>); 3] = [("glob", Box::new(GlobTool::new())), ("find", Box::new(FindTool::new())), ("grep", Box::new(GrepTool::new()))];
+    let tools: [(&str, Box<dyn Tool>); 4] = [("glob", Box::new(GlobTool::new())), ("find", Box::new(FindTool::new())), ("grep", Box::new(GrepTool::new())), ("list", Box::new(ListTool::new()))];
     let ctx_of = |name: &str| &contexts.iter().find(|(n, _)| *n == name).unwrap().1;
     let mut calls: Vec<Pending<'_>> = Vec::new();
     let mut names: Vec<&str> = Vec::new();
+    // The calls, by index, in the order they were answered.
+    let mut done: Vec<usize> = Vec::new();
     let mut failures = Vec::new();
     let raw = root.as_path().to_string_lossy().into_owned();
     let fwd = raw.replace('\\', "/");
@@ -2714,31 +2771,38 @@ async fn replay_admission(scenario: &str, fixture: &str) {
             let tool = &tools.iter().find(|(n, _)| *n == call["tool"].as_str().unwrap()).unwrap().1;
             let ctx = ctx_of(name);
             let cancel = ctx.cancel.clone();
-            calls.push(Pending { future: Box::pin(tool.call(ctx, call["input"].clone())), woken: Arc::new(Woken(true.into())), cancel, outcome: None, cancelled: false });
+            calls.push(Pending { future: Box::pin(tool.call(ctx, call["input"].clone())), woken: Arc::new(Woken(true.into())), cancel, outcome: None, cancelled: false, telemetry: None });
             names.push(name);
-            settle(&mut calls);
+            settle(&mut calls, &mut done);
             reached_now(&mut failures);
             if step["until"] == "answered" {
                 match calls.last().unwrap() {
-                    Pending { outcome: Some(got), cancelled, .. } => compare(&mut failures, index, name, (got, *cancelled), &step["answer"], &said),
+                    Pending { outcome: Some(got), cancelled, telemetry, .. } => compare(&mut failures, index, name, (got, *cancelled), telemetry, step, &said),
                     _ => failures.push(format!("step #{index}: {name} did not answer")),
                 }
             }
         } else if let Some(ms) = step["tick"].as_u64() {
             tokio::time::advance(std::time::Duration::from_millis(ms)).await;
-            settle(&mut calls);
+            settle(&mut calls, &mut done);
         } else if step.get("script").is_some() {
             silent.store(false, SeqCst);
         } else if let Some(name) = step["abort"].as_str() {
             calls[names.iter().position(|n| *n == name).unwrap()].cancel.cancel();
-            settle(&mut calls);
+            settle(&mut calls, &mut done);
         } else {
             let name = step["settle"].as_str().unwrap();
             reached_now(&mut failures);
             match &calls[names.iter().position(|n| *n == name).unwrap()] {
-                Pending { outcome: Some(got), cancelled, .. } => compare(&mut failures, index, name, (got, *cancelled), &step["answer"], &said),
+                Pending { outcome: Some(got), cancelled, telemetry, .. } => compare(&mut failures, index, name, (got, *cancelled), telemetry, step, &said),
                 _ => failures.push(format!("step #{index}: {name} had not answered")),
             }
+        }
+    }
+    // The order the calls were answered in is the order the gate admitted them in, as it admits one at a time.
+    if let Some(want) = fixture.get("answeredOrder") {
+        let got: Vec<&str> = done.iter().map(|&i| names[i]).collect();
+        if want != &serde_json::json!(got) {
+            failures.push(format!("answered in the order {got:?}, Node's {want}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -2746,8 +2810,20 @@ async fn replay_admission(scenario: &str, fixture: &str) {
 
 /// A call's outcome beside Node's: its text and failure flag. An exception Node's tool threw for the call's cancel (an
 /// abort reason's text, which is Node's runtime's) is a call the core's runtime states as cancelled: that is compared.
-fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled): (&(bool, String), bool), want: &JsonValue, said: &dyn Fn(&str) -> String) {
+fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled): (&(bool, String), bool), telemetry: &Option<JsonValue>, step: &JsonValue, said: &dyn Fn(&str) -> String) {
     const ABORTS: [&str; 2] = ["This operation was aborted", "operation aborted"];
+    let want = &step["answer"];
+    // The local-search telemetry of the answer (the trace row's `local_search`): the same counters, each duration a number
+    // (`<ms>`: the recording machine's own time).
+    if let Some(want) = want.get("telemetry") {
+        let same = telemetry.as_ref().is_some_and(|got| {
+            let (want, got) = (want.as_object().unwrap(), got.as_object().unwrap());
+            want.len() == got.len() && want.iter().all(|(key, value)| got.get(key).is_some_and(|g| if value == "<ms>" { g.is_number() } else { g == value }))
+        });
+        if !same {
+            failures.push(format!("step #{index} {name}: telemetry {telemetry:?}, Node's {want}"));
+        }
+    }
     if let Some(thrown) = want.get("thrown").and_then(JsonValue::as_str).filter(|t| ABORTS.contains(t)) {
         if !cancelled {
             failures.push(format!("step #{index} {name}: Node threw {thrown:?} for the cancel; the core answered ({}) {:?}", got.0, got.1));
@@ -2792,4 +2868,56 @@ async fn a_cancelled_holder_frees_the_gate_as_in_node() {
 #[tokio::test(start_paused = true)]
 async fn a_point_search_passes_a_held_gate_as_in_node() {
     replay_admission("search-admission-point-search-passes", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-point-search-passes.json")).await;
+}
+
+/// A grep of several patterns sends its prefilter and its combined scan as bulk searches, which wait for the gate as a find
+/// does: the combined scan is refused when its wait is over, the prefilter takes the free gate, and the per-pattern greps
+/// that follow are not broad.
+#[tokio::test(start_paused = true)]
+async fn a_grep_fan_out_behind_a_held_gate_is_refused_after_its_wait_as_in_node() {
+    replay_admission("search-admission-grep-fanout-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-grep-fanout-refused.json")).await;
+}
+
+/// The holder's end admits the fan-out's combined scan, which the server answers.
+#[tokio::test(start_paused = true)]
+async fn a_grep_fan_out_is_admitted_when_the_holder_ends_as_in_node() {
+    replay_admission("search-admission-grep-fanout-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-grep-fanout-admitted.json")).await;
+}
+
+/// Two sessions with two searches each behind a held gate are admitted by turns, not in arrival order.
+#[tokio::test(start_paused = true)]
+async fn waiters_of_two_sessions_are_admitted_by_turns_as_in_node() {
+    replay_admission("search-admission-two-owners", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-two-owners.json")).await;
+}
+
+/// A search that waited reports no admission of its own: Node tells it to the call that handed the turn over.
+#[tokio::test(start_paused = true)]
+async fn a_waiter_reports_the_telemetry_node_reports_for_it() {
+    replay_admission("search-admission-waiter-telemetry", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-waiter-telemetry.json")).await;
+}
+
+/// A list below the first level is a broad search: refused after its wait it is answered by a walk of the folder, which leaves
+/// a noise folder out; a list of the first level passes the gate.
+#[tokio::test(start_paused = true)]
+async fn a_deep_list_behind_a_held_gate_is_refused_then_walked_as_in_node() {
+    replay_admission("search-admission-list-deep-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-list-deep-refused.json")).await;
+}
+
+/// The holder's end admits the deep list, which the search server answers, listing the noise folder as an entry.
+#[tokio::test(start_paused = true)]
+async fn a_deep_list_is_admitted_when_the_holder_ends_as_in_node() {
+    replay_admission("search-admission-list-deep-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-list-deep-admitted.json")).await;
+}
+
+/// The public `list` with `depth`: rows below the first level as paths under the folder, in the locale's order, through the
+/// same window, hidden and noise rules; depths read as `parseInt` reads them, from 1 to 10.
+#[tokio::test]
+async fn list_goes_deeper_with_depth_as_node_does() {
+    replay_fs_search("list-depth").await;
+}
+
+/// A list is cut at 50,000 rows and says so; the search server's inventory that is cut falls back to the walk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deep_list_past_fifty_thousand_rows_answers_as_node_does() {
+    replay_fs_search("list-depth-past-cap").await;
 }
