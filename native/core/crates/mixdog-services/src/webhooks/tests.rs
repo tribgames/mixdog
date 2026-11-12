@@ -288,6 +288,59 @@ async fn oversized_body_is_413_and_listener_counts_as_work() {
     assert!(f.work.is_idle());
 }
 
+/// Node's request parsing, recorded by `record-webhook-endpoint-name.mjs` (`fixtures/webhook-endpoint-name`): the
+/// raw and decoded endpoint name of every recorded path, the strict name gate's answer for the paths it refuses
+/// (`handle_post` with no store entry), and the body reader fed the recorded chunks: where the 413 comes, what it says,
+/// and the bytes (length and sha256) it hands over. The transport's `destroy` of the request is not observable here.
+#[tokio::test]
+async fn request_parsing_answers_as_node_answers_it() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap();
+    assert_eq!(golden["maxBodyBytes"], MAX_BODY_BYTES);
+    let f = fx(WebhookConfig::default());
+    for case in golden["paths"].as_array().unwrap() {
+        let url = case["url"].as_str().unwrap();
+        assert_eq!(handler::raw_endpoint_name(url), case["parsed"]["rawName"].as_str().unwrap(), "rawName of {url}");
+        assert_eq!(handler::parse_endpoint_name(url), case["parsed"]["name"].as_str().unwrap(), "name of {url}");
+        if let Some(gate) = case.get("gate") {
+            let reply = f.svc.handle_post(url, &headers(&[]), b"{}").await;
+            let recorded: Value = serde_json::from_str(gate["body"].as_str().unwrap()).unwrap();
+            assert_eq!((u64::from(reply.status), reply.body), (gate["status"].as_u64().unwrap(), recorded), "gate of {url}");
+        }
+    }
+    for case in golden["bodies"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let mut collector = BodyCollector::default();
+        let mut reply = None;
+        for (index, chunk) in case["chunks"].as_array().unwrap().iter().enumerate() {
+            let bytes = match chunk["hex"].as_str() {
+                Some(hex) => (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect(),
+                None => vec![chunk["fill"].as_u64().unwrap() as u8; chunk["length"].as_u64().unwrap() as usize],
+            };
+            if let Err(refusal) = collector.push(&bytes) {
+                reply = Some(refusal);
+            }
+            assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
+        }
+        match (collector.finish(), case["received"].as_object()) {
+            (None, None) => {}
+            (Some(bytes), Some(recorded)) => {
+                use sha2::Digest;
+                let sha: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+                assert_eq!((bytes.len() as u64, sha.as_str()), (recorded["length"].as_u64().unwrap(), recorded["sha256"].as_str().unwrap()), "{name}");
+            }
+            (got, recorded) => panic!("{name}: got {:?} bytes, recorded {recorded:?}", got.map(|b| b.len())),
+        }
+        match (reply, case["status"].as_u64().unwrap()) {
+            (None, 0) => {}
+            (Some(reply), status) => {
+                let recorded: Value = serde_json::from_str(case["body"].as_str().unwrap()).unwrap();
+                assert_eq!((u64::from(reply.status), reply.body), (status, recorded), "{name}");
+            }
+            (None, status) => panic!("{name}: recorded status {status}, none answered"),
+        }
+    }
+}
+
 // ---- transport: the real listener over loopback ----
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

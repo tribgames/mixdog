@@ -133,8 +133,12 @@ fn percent_decode(raw: &str) -> Option<String> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            let hex = raw.get(i + 1..i + 3)?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
+            // Two hex digits exactly: `from_str_radix` alone would take a sign ("%+1").
+            let hex = bytes.get(i + 1..i + 3)?;
+            if !hex.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
             i += 3;
         } else {
             out.push(bytes[i]);
@@ -151,7 +155,7 @@ pub fn parse_endpoint_name(path: &str) -> String {
 }
 
 /// `rawName` of Node's `parseEndpointName`: the path after `/webhook/`, undecoded, without its query.
-fn raw_endpoint_name(path: &str) -> &str {
+pub(super) fn raw_endpoint_name(path: &str) -> &str {
     path.strip_prefix("/webhook/").unwrap_or("").split('?').next().unwrap_or("")
 }
 

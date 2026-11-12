@@ -1,0 +1,624 @@
+{
+  "maxBodyBytes": 5242880,
+  "paths": [
+    {
+      "url": "/webhook/demo?source=test",
+      "parsed": {
+        "rawName": "demo",
+        "name": "demo"
+      }
+    },
+    {
+      "url": "/webhook/demo",
+      "parsed": {
+        "rawName": "demo",
+        "name": "demo"
+      }
+    },
+    {
+      "url": "/webhook/%E2%9C%93",
+      "parsed": {
+        "rawName": "%E2%9C%93",
+        "name": "✓"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/",
+      "parsed": {
+        "rawName": "",
+        "name": ""
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/?x=1",
+      "parsed": {
+        "rawName": "",
+        "name": ""
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/a%2Fb",
+      "parsed": {
+        "rawName": "a%2Fb",
+        "name": "a/b"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/..%2Fx",
+      "parsed": {
+        "rawName": "..%2Fx",
+        "name": "../x"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%2e%2e",
+      "parsed": {
+        "rawName": "%2e%2e",
+        "name": ".."
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%41%62",
+      "parsed": {
+        "rawName": "%41%62",
+        "name": "Ab"
+      }
+    },
+    {
+      "url": "/webhook/%61bc_D-1?x=%",
+      "parsed": {
+        "rawName": "%61bc_D-1",
+        "name": "abc_D-1"
+      }
+    },
+    {
+      "url": "/webhook/%",
+      "parsed": {
+        "rawName": "%",
+        "name": "%"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%4",
+      "parsed": {
+        "rawName": "%4",
+        "name": "%4"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%zz",
+      "parsed": {
+        "rawName": "%zz",
+        "name": "%zz"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%+1",
+      "parsed": {
+        "rawName": "%+1",
+        "name": "%+1"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%+f",
+      "parsed": {
+        "rawName": "%+f",
+        "name": "%+f"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%-1",
+      "parsed": {
+        "rawName": "%-1",
+        "name": "%-1"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/% 1",
+      "parsed": {
+        "rawName": "% 1",
+        "name": "% 1"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%00",
+      "parsed": {
+        "rawName": "%00",
+        "name": "\u0000"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%C0%80",
+      "parsed": {
+        "rawName": "%C0%80",
+        "name": "%C0%80"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%ff",
+      "parsed": {
+        "rawName": "%ff",
+        "name": "%ff"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%e2%9c",
+      "parsed": {
+        "rawName": "%e2%9c",
+        "name": "%e2%9c"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%ED%A0%80",
+      "parsed": {
+        "rawName": "%ED%A0%80",
+        "name": "%ED%A0%80"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/%F0%9F%98%80",
+      "parsed": {
+        "rawName": "%F0%9F%98%80",
+        "name": "😀"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/café",
+      "parsed": {
+        "rawName": "café",
+        "name": "café"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parsed": {
+        "rawName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "url": "/webhook/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parsed": {
+        "rawName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/a b",
+      "parsed": {
+        "rawName": "a b",
+        "name": "a b"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/a?b?c",
+      "parsed": {
+        "rawName": "a",
+        "name": "a"
+      }
+    },
+    {
+      "url": "/webhook/a%3Fb",
+      "parsed": {
+        "rawName": "a%3Fb",
+        "name": "a?b"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    },
+    {
+      "url": "/webhook/a#b",
+      "parsed": {
+        "rawName": "a#b",
+        "name": "a#b"
+      },
+      "gate": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"error\":\"invalid endpoint name\"}",
+        "destroyed": true
+      }
+    }
+  ],
+  "bodies": [
+    {
+      "name": "no chunk",
+      "chunks": [],
+      "answeredAfter": [],
+      "received": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "one chunk",
+      "chunks": [
+        {
+          "hex": "e282ac00ff"
+        }
+      ],
+      "answeredAfter": [
+        false
+      ],
+      "received": {
+        "length": 5,
+        "sha256": "1ef312192b703dec029266383a7a4b9168a07461d8877a56d56e2702531104b0"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "a chunk split inside a multi-byte character",
+      "chunks": [
+        {
+          "hex": "e282"
+        },
+        {
+          "hex": "ac00ff"
+        }
+      ],
+      "answeredAfter": [
+        false,
+        false
+      ],
+      "received": {
+        "length": 5,
+        "sha256": "1ef312192b703dec029266383a7a4b9168a07461d8877a56d56e2702531104b0"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "an empty chunk between two",
+      "chunks": [
+        {
+          "hex": "6162"
+        },
+        {
+          "hex": ""
+        },
+        {
+          "hex": "6364"
+        }
+      ],
+      "answeredAfter": [
+        false,
+        false,
+        false
+      ],
+      "received": {
+        "length": 4,
+        "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "exactly the cap",
+      "chunks": [
+        {
+          "fill": 97,
+          "length": 5242880
+        }
+      ],
+      "answeredAfter": [
+        false
+      ],
+      "received": {
+        "length": 5242880,
+        "sha256": "a29968fad2e782aa9f2040a35f05adb97ed8979eb1f572c8c8ea78637e275f3c"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "the cap in five chunks and an empty one",
+      "chunks": [
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 98,
+          "length": 0
+        }
+      ],
+      "answeredAfter": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "received": {
+        "length": 5242880,
+        "sha256": "a29968fad2e782aa9f2040a35f05adb97ed8979eb1f572c8c8ea78637e275f3c"
+      },
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "one byte past the cap in one chunk",
+      "chunks": [
+        {
+          "fill": 97,
+          "length": 5242881
+        }
+      ],
+      "answeredAfter": [
+        true
+      ],
+      "received": null,
+      "status": 413,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"error\":\"payload too large\",\"limit\":5242880}",
+      "destroyed": true
+    },
+    {
+      "name": "one byte past the cap over six chunks, then one more",
+      "chunks": [
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 97,
+          "length": 1048576
+        },
+        {
+          "fill": 98,
+          "length": 1
+        },
+        {
+          "fill": 99,
+          "length": 1048576
+        }
+      ],
+      "answeredAfter": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "received": null,
+      "status": 413,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"error\":\"payload too large\",\"limit\":5242880}",
+      "destroyed": true
+    }
+  ]
+}
