@@ -935,9 +935,27 @@ async fn a_pinned_model_spawn_equals_nodes() {
         // The configuration moved after the spawn, then a send (or a resume) to the worker it created.
         if let Some(follow) = recorded_scenario.get("followUp") {
             let want = &case["result"]["send"];
+            // The session the send goes to is the one this spawn created, not the recording's:
+            // a spawn that created another identity then sends as that identity.
+            let made = lock(&rig.shared.log)
+                .iter()
+                .find(|entry| entry[0] == "createChild")
+                .map(|entry| entry[1]["spec"].clone())
+                .unwrap_or_else(|| panic!("{name}: the spawn created no session"));
+            let session = json!({
+                "id": "sess_w1",
+                "agent": made["agent"],
+                "cwd": "/work",
+                "presetName": made["presetName"],
+                "provider": made["preset"]["provider"],
+                "model": made["preset"]["model"],
+                "effort": made["preset"]["effort"],
+                "fast": made["preset"]["fast"],
+            });
+            assert_eq!(session, want["session"], "{name}: the session the send goes to");
             let moved = json!({
                 "config": follow["config"],
-                "session": want["session"],
+                "session": session.clone(),
                 "surface": "canonical",
                 "busy": true,
                 "enqueueReturns": { "queueDepth": 1 },
@@ -946,7 +964,7 @@ async fn a_pinned_model_spawn_equals_nodes() {
             let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
             let prepared = Prepared {
                 args: json!({ "tag": "scout", "prompt": "follow up" }),
-                session: SessionFacts { id: "sess_w1".into(), agent: s(&want["session"], "agent"), cwd: s(&want["session"], "cwd"), ..SessionFacts::default() },
+                session: SessionFacts { id: "sess_w1".into(), agent: s(&session, "agent"), cwd: s(&session, "cwd"), ..SessionFacts::default() },
                 session_id: "sess_w1".into(),
                 prompt: Some("follow up".into()),
                 route: None,
