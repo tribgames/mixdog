@@ -212,6 +212,22 @@ impl ScopeRuntime {
         if self.hub.is_released(&cell.scope) { Err(ScopeReleased) } else { Ok(()) }
     }
 
+    /// [`open`](Self::open) that does not wait for the first connect: Node's runtime boot starts it unawaited
+    /// (`boot/tools.mjs:56`) and a turn's grace for it is zero, so a server still connecting when the first turn
+    /// runs is not in that turn's tool surface.
+    pub fn start(self: &Arc<Self>, scope: &str, owner: &str, cwd: &str) -> Result<(), ScopeReleased> {
+        self.begin(scope, owner, cwd).map(drop)
+    }
+
+    /// Returns once the first connect of every open scope settled (connected or failed): the point at which Node's
+    /// `mcp:ready` / `mcp:failed` boot lines of those scopes have been written.
+    pub async fn all_settled(&self) {
+        let cells: Vec<Arc<Cell>> = lock(&self.table).cells.values().cloned().collect();
+        for cell in cells {
+            Self::ready(&cell).await;
+        }
+    }
+
     /// [`open`](Self::open) without the wait: the scope is registered and its first connect started
     /// (by the first caller only), and the cell is handed back while that connect may still be pending.
     fn begin(self: &Arc<Self>, scope: &str, owner: &str, cwd: &str) -> Result<Arc<Cell>, ScopeReleased> {

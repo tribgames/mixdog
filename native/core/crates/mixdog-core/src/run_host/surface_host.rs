@@ -867,7 +867,9 @@ impl NewThreadTools for LeadSurfaceHost {
         // Each session is created with a scope of its own, as each `createSession` boots a runtime of its
         // own (`session-service/entries/lifecycle.mjs:47`, `begin.mjs:24`); the runtime scope is never handed on.
         let scope = uuid::Uuid::new_v4().to_string();
-        s.scopes.open(&scope, thread.as_str(), &cwd).await.map_err(|error| format!("mcp scope {scope}: {error}"))?;
+        // The connect is started and not awaited: Node's boot runs `connectConfiguredMcp()` unawaited (`boot/tools.mjs:56`), so a
+        // server slow to connect is not in the first turn's tool surface and joins through the late-tool announcement.
+        s.scopes.start(&scope, thread.as_str(), &cwd).map_err(|error| format!("mcp scope {scope}: {error}"))?;
         let mut scoped = header.clone();
         scoped.insert("mcpScopeId".to_owned(), json!(scope));
         self.seed_scoped(thread, &scoped, &scope).await
