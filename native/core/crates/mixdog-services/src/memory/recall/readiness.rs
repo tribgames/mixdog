@@ -61,7 +61,7 @@ pub trait ColdEmbed: Send + Sync + 'static {
     /// `embed(clean, { priority: true, inputType: 'query' })`.
     async fn embed(&self, text: &str, request: EmbedRequest) -> Result<Vec<f32>, Self::Error>;
     fn on_warmup_error(&self, error: &Self::Error);
-    /// How a recall's embedding ended in failure or panic after its request was cancelled and nobody awaited it.
+    /// How a recall's embedding panicked after its request was cancelled and nobody awaited it.
     fn on_cancelled_embed_failure(&self, what: &str) {
         tracing::warn!("[memory-service] recall embedding after its request was cancelled {what}");
     }
@@ -176,16 +176,16 @@ async fn embed_owned<E: ColdEmbed>(
     }
 }
 
-/// What a cancelled recall's embedding ends with, as the awaited path would have surfaced it: an error or a panic is a warning.
+/// What a cancelled recall's embedding ends with, as the awaited path surfaces it: an embedding error is silent there (the
+/// recall goes on lexical, `query_vector`) and here; a panic, which the awaited path resumes in its caller, is a warning.
 fn report_detached_embedding<E: ColdEmbed, T>(embedder: &E, joined: Result<Result<T, E::Error>, tokio::task::JoinError>) {
     match joined {
-        Ok(Err(error)) => embedder.on_cancelled_embed_failure(&format!("failed: {error:?}")),
         Err(error) if error.is_panic() => {
             let payload = error.into_panic();
             let text = payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_default();
             embedder.on_cancelled_embed_failure(&format!("panicked: {text}"));
         }
-        Ok(Ok(_)) | Err(_) => {}
+        Ok(_) | Err(_) => {}
     }
 }
 
@@ -344,11 +344,6 @@ mod tests {
         assert_eq!(call.await, Err("aborted".to_owned()));
         release.send(answer).expect("the embedding is running");
         mixdog_rt::time::timeout(Duration::from_secs(5), reports).await.expect("a report for the cancelled embedding").expect("report")
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_embedding_error_after_the_cancel_is_reported() {
-        assert_eq!(cancelled_embedding(None, Err("model gone".to_owned())).await, "failed: \"model gone\"");
     }
 
     #[tokio::test(flavor = "current_thread")]
