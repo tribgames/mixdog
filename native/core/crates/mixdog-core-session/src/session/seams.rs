@@ -578,6 +578,11 @@ pub trait NewThreadTools: Send + Sync + 'static {
         self.seed(thread, header).await
     }
 
+    /// `thread` is about to be created, before its route is adopted: the config the session is created against is the one
+    /// now (Node's `createSession` runs before the draft's `setRoute` saves the route, so the draft's change reaches the
+    /// session as a change of settings at its first turn).
+    fn creating(&self, _thread: &ThreadId) {}
+
     /// `thread` was seeded and then not created (`thread/start` failed in between): whatever the
     /// seed opened for it is released. Called once per such thread, never for a created one.
     fn abandon(&self, _thread: &ThreadId) {}
