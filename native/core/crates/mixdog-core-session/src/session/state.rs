@@ -503,6 +503,7 @@ impl SessionState {
             display_context_window: Some(0),
             auto_compact_token_limit: Some(0),
             compact_boundary_tokens: Some(0),
+            context_window: header_number("contextWindow"),
             raw_context_window: header_number("rawContextWindow"),
             effective_context_window_percent: header_number("effectiveContextWindowPercent"),
             stats: Some(super::stats::SessionStats::default().json(0)),

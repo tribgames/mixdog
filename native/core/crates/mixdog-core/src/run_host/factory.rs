@@ -1581,9 +1581,20 @@ mod tests {
             };
             deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
             let directory = SessionDirectory::new(Arc::new(deps));
-            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
-            let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
-            let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+            // The session as Node's run had it: the route's provider and model, and the window the catalog gave the model
+            // (the recording's first publication: 500000, 500000, 100).
+            let published = &recorded["client"]["published"][0];
+            let mut header = mixdog_store::schema::record::Header::new();
+            for (key, value) in [("provider", json!("anthropic")), ("model", json!(model)), ("kind", json!("task")), ("cwd", json!("/ws"))] {
+                header.insert(key.into(), value);
+            }
+            for key in ["contextWindow", "rawContextWindow", "effectiveContextWindowPercent"] {
+                header.insert(key.into(), published[key].clone());
+            }
+            assert_eq!(published["sessionProvider"], "anthropic", "{name}: the recording's route");
+            let id = ThreadId::from(format!("effort-{name}"));
+            directory.create_with_id(id.clone(), header, json!({})).await.expect("the session");
+            directory.open(&id, &CallContext::internal("test")).await.expect("the session opens");
             let handle = directory.handle(&id).expect("loaded");
             let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
             // `initial` and `atStart`: the route state before the turn, and what was published before it.
@@ -1619,15 +1630,18 @@ mod tests {
                 core.push(serde_json::Map::new());
             }
             core[0].extend(first_context);
+            // The session's route as the thread's state holds it (`thread/read`): its provider and model.
+            let Reply::Value(read) = handle.request(CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") }).await.expect("thread/read") else { panic!("thread/read answers a value") };
+            for key in ["sessionProvider", "sessionModel"] {
+                core[0].insert(key.to_owned(), read["state"]["route"][key].clone());
+            }
             let node = recorded["client"]["published"].as_array().unwrap();
             assert_eq!(core.len(), node.len(), "{name}: one publication for each of Node's");
-            // Each publication compared whole, key by key. The keys that differ are the named absences, asserted exactly: the
-            // core's frames carry no `sessionId` and no `agentScope` (the frame's `threadId` names the thread), this rig's
-            // thread stores no route (`sessionProvider`, `sessionModel`) and its route has no catalog window (the core's
-            // `contextWindow`, `rawContextWindow` and `effectiveContextWindowPercent` are null where Node's recording had the
-            // catalog's 500000, 500000 and 100). A publication without `turnEffort` (scenario `none`: a route that never
-            // changed) is compared as it is: the core has no route frame, and no such key.
-            const NAMED_ABSENCES: [&str; 7] = ["agentScope", "contextWindow", "effectiveContextWindowPercent", "rawContextWindow", "sessionId", "sessionModel", "sessionProvider"];
+            // Each publication compared whole, key by key, over the route, provider, model and catalog window the recording
+            // ran with. The only keys that differ are the identity keys, asserted exactly: the core's frames carry no `sessionId`
+            // and no `agentScope` (the frame's `threadId` names the thread). A publication without `turnEffort` (scenario
+            // `none`: a route that never changed) is compared as it is: the core has no route frame, and no such key.
+            const NAMED_ABSENCES: [&str; 2] = ["agentScope", "sessionId"];
             for (n, (node, core)) in node.iter().zip(&core).enumerate() {
                 let node = node.as_object().unwrap();
                 let mut differing: Vec<&str> = node.keys().chain(core.keys()).filter(|k| node.get(*k) != core.get(*k)).map(String::as_str).collect();
