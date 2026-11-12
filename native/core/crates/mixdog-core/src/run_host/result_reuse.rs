@@ -905,14 +905,11 @@ impl LiveReuses {
     }
 
     /// `clearReadDedupSession(session_id)`: the read and scoped caches of the session are empty, for the run in
-    /// progress too. A session no run holds loses its entry.
+    /// progress too. The entry leaves the map at once, so a run still going keeps only a cache no later run of the
+    /// id can reach, and the last owner (that run) frees it when it ends.
     pub fn clear_session(&self, session_id: &str) {
-        let mut sessions = self.lock();
-        let Some(cache) = sessions.get(session_id) else { return };
+        let Some(cache) = self.lock().remove(session_id) else { return };
         *cache.lock().unwrap_or_else(|e| e.into_inner()) = Inner::new();
-        if Arc::strong_count(cache) == 1 {
-            sessions.remove(session_id);
-        }
     }
 
     /// `resetReadStateAfterCompaction(session_id)`, for a compaction that ran outside a turn.
@@ -1067,11 +1064,24 @@ mod tests {
         assert!(mine.lookup(&read, true).await.is_none(), "the read cache is cleared");
         assert!(mine.lookup(&list, true).await.is_none(), "so is the scoped cache");
         assert!(other.lookup(&read, true).await.is_some() && other.lookup(&list, true).await.is_some(), "another session keeps its entries");
-        // A session no run holds loses its entry; one that is held keeps it, so the run goes on in the session's cache.
-        assert!(live.lock().contains_key("sess_1"));
-        drop(mine);
+    }
+
+    #[tokio::test]
+    async fn a_session_cleared_while_its_run_goes_leaves_no_entry_and_no_shared_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "one").unwrap();
+        let live = LiveReuses::default();
+        let old = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
         live.clear_session("sess_1");
-        assert!(!live.lock().contains_key("sess_1"));
+        assert!(!live.lock().contains_key("sess_1"), "the entry goes with the release, the run still going");
+        let read = call("read", json!({"path": "a.txt"}));
+        let fresh = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
+        old.store_with_roots(&read, "one", "t1", None).await;
+        assert!(fresh.lookup(&read, true).await.is_none(), "a run after the close never sees the old run's fills");
+        drop(old);
+        drop(fresh);
+        live.clear_session("sess_1");
+        assert!(live.lock().is_empty(), "the run's end leaves nothing behind");
     }
 
     #[test]
