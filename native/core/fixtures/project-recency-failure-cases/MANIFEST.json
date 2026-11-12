@@ -5,7 +5,12 @@
     "notRun": "no daemon, no Electron",
     "runs": "apps/desktop SessionHost + DesktopProjectRegistry over shared/projects.mjs with a scripted daemon client; fs.renameSync / fs.readFileSync patched to fail on the registry file"
   },
-  "exclusions": {},
+  "exclusions": {
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.items": "the desktop host's transcript items of the session; the core answers the thread summary, which carries no transcript (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.queued": "the desktop host's queued submissions of the session; the core answers no queue in the thread summary (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteEnabled": "the desktop host's remote-control flag; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteSessionId": "the desktop host's remote session id; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -21,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -41,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -108,7 +113,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-project-recency-failure-cases.mjs",
-  "recorderSha256": "f57d764394bc57520614f25683488ff2883b6da73d346aeae166d8fb53888d6d",
+  "recorderSha256": "e2ba6b50dec8c39edfa2ac2ee8c5ee6edea6b4302f6cafa30ef8e37bd231abc8",
   "replay": {
     "compare": "mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside",
     "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename; startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222).",
