@@ -20,8 +20,8 @@
 //!   instead (see the manifest), and its dispatched and returned lists are compared whole like every other case's.
 //! - A recovered call's id is minted from a random source on both sides (Node's recording holds the one its seeded source
 //!   gave), so those ids are compared by their shape (`call_leaked_` and 16 hex digits), the rest of the call whole.
-//! - A truncated stream's error is the transport fault `TruncatedStream` and its exposure flags; Node's message carries
-//!   the provider label (`gateway `) the core's does not, and its `streamOutcome` / `partialToolCalls` are Node's own
+//! - A truncated stream's error is the transport fault `TruncatedStream` and its exposure flags; Node's message (provider label
+//!   first) is compared whole; its `streamOutcome` / `partialToolCalls` are Node's own
 //!   retry bookkeeping.
 
 use std::collections::HashSet;
@@ -102,7 +102,7 @@ fn every_recorded_chunk_list_is_decoded_and_dispatched_as_node_does() {
         if let Some(node_error) = node.get("error") {
             let error = failure.unwrap_or_else(|| panic!("{id}: Node failed, the decoder succeeded"));
             assert_eq!(error.transport, Some(TransportFault::TruncatedStream), "{id}: {error:?}");
-            assert_eq!(format!("gateway {}", error.message), node_error["message"], "{id}: message");
+            assert_eq!(error.message, node_error["message"], "{id}: message");
             assert_eq!(error.exposure.text_emitted, node_error["props"]["partialContent"].as_str().is_some_and(|t| !t.is_empty()), "{id}: text exposed");
             assert_eq!(error.exposure.tool_dispatched, node_error["props"]["emittedToolCall"], "{id}: a call dispatched");
             assert_eq!(minted_ids_by_shape(Value::Array(dispatched)), minted_ids_by_shape(node["dispatched"].clone()), "{id}: dispatched before the failure");

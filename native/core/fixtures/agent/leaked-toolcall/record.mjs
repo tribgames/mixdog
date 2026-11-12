@@ -475,8 +475,13 @@ async function runCursor(entry) {
 // The stored side: the real agent loop over a provider whose send runs the route's real decoder (its live calls reach the
 // loop's eager dispatcher, its returned result is what the loop executes and stores) with the real read tool on a
 // file. `executed` lists the ids a tool ran for (a run whose result nothing consumed shows only as a UI early notice).
-const loopCwd = mkdtempSync(join(scratch, 'loop-cwd-'));
+// The sandbox the real read tool resolves paths against. Its location differs per run and machine, so what the recorder
+// writes names it as `<ROOT>` (the tool's "[path absent]" answer prints it).
+const loopCwd = join(scratch, 'sandbox');
+mkdirSync(loopCwd);
 writeFileSync(join(loopCwd, 'a.txt'), 'hello probe\n');
+const rootForms = [loopCwd, loopCwd.replaceAll('\\', '/')];
+const rooted = (text) => (typeof text === 'string' ? rootForms.reduce((out, form) => out.split(form).join('<ROOT>'), text) : text);
 let loopRuns = 0;
 // `normalize`: the step a chat send runs on the collector's result (`normalizeCompatChatResponse`), which rejects a turn cut
 // by `length` (with calls) or `content_filter`; the loop then gets the error the product's send throws, never the raw result.
@@ -520,7 +525,7 @@ async function recordStored(run, { failing = false, denying = false, normalize =
       : {}),
   }).catch((error) => {
     // The turn failed: the error the caller (and the session's error mark) gets, and what the loop had stored.
-    turnError = String(error?.message ?? error);
+    turnError = rooted(String(error?.message ?? error));
     return { content: null };
   });
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -530,18 +535,18 @@ async function recordStored(run, { failing = false, denying = false, normalize =
     sends,
     messages: committed.map((m) => ({
       role: m.role,
-      content: m.content,
+      content: rooted(m.content),
       ...(m.toolCalls ? { toolCalls: m.toolCalls.map(shapeCall) } : {}),
       ...(m.thinkingBlocks ? { thinkingBlocks: m.thinkingBlocks } : {}),
     })),
     toolResults: results
       .filter((m) => !m.__earlyNotify)
-      .map((m) => ({ toolCallId: idShape(m.toolCallId), content: m.content, isError: m.isError === true })),
+      .map((m) => ({ toolCallId: idShape(m.toolCallId), content: rooted(m.content), isError: m.isError === true })),
     executed: [...new Set(results.map((m) => idShape(m.toolCallId)))].sort(),
     // The early notices (`onToolResult` with `__earlyNotify`): one per streamed call that settled, in completion order.
     early: results
       .filter((m) => m.__earlyNotify)
-      .map((m) => ({ toolCallId: idShape(m.toolCallId), content: m.content, isError: m.isError === true })),
+      .map((m) => ({ toolCallId: idShape(m.toolCallId), content: rooted(m.content), isError: m.isError === true })),
   };
 }
 

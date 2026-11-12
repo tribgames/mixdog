@@ -268,7 +268,7 @@ impl ChatDecoder {
 
     fn truncated(&self, why: &str) -> ProviderError {
         let mut err = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-        err.message = format!("SSE stream truncated: {why}");
+        err.message = format!("{} SSE stream truncated: {why}", self.owner);
         self.error(err)
     }
 

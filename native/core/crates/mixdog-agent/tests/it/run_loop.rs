@@ -3914,16 +3914,22 @@ impl Tool for Reader {
     fn spec(&self) -> &ToolSpec {
         &self.spec
     }
-    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.ran.lock().unwrap().push(ctx.call_id.as_str().to_owned());
         self.finished.add_permits(1);
         if self.fail {
             return Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"));
         }
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Text("[lines 1-1]\nhello probe\n[lines 1-1 of 1]".into())],
-            ..ToolOutput::default()
-        })
+        // The recorder's sandbox holds `a.txt` only; any other path is Node's "[path absent]" answer, which names the sandbox
+        // root as the token the recorder wrote for it.
+        let body = match args["path"].as_str() {
+            Some("a.txt") => "[lines 1-1]\nhello probe\n[lines 1-1 of 1]".to_owned(),
+            other => format!(
+                "[path absent] ENOENT: no such file or directory, stat '{}' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
+                other.unwrap_or_default()
+            ),
+        };
+        Ok(ToolOutput { parts: vec![ToolPart::Text(body)], ..ToolOutput::default() })
     }
 }
 
@@ -4159,10 +4165,13 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
         let want_results = stored["toolResults"].as_array().unwrap();
         assert_eq!(results.len(), want_results.len(), "{label}: tool results");
+        // A repeated read's body is Node's read-dedup stub (`[file unchanged`), and which of several `a.txt` reads gets the
+        // file's lines depends on Node's run order: neither is the loop's, so those bodies are not compared (manifest).
+        let executed_runs = stored["executed"].as_array().unwrap().len();
+        let body_comparable = |body: &str| !body.starts_with("[file unchanged") && (!body.starts_with("[lines 1-1]") || executed_runs == 1);
         for (message, want) in results.iter().zip(want_results) {
             assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
-            // The body of a repeated read is Node's read-dedup stub, a tool's answer, not the loop's.
-            if stored["executed"].as_array().unwrap().len() == 1 && want["content"].as_str().unwrap().starts_with("[lines 1-1]") {
+            if body_comparable(want["content"].as_str().unwrap()) {
                 assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: result body");
             }
         }
@@ -4210,8 +4219,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored denial text");
             }
         }
-        if want_early.len() == 1 && want_early[0]["content"].as_str().unwrap().starts_with("[lines 1-1]") {
-            assert_eq!(got_early[0].1, want_early[0]["content"].as_str().unwrap(), "{label}: early notice body");
+        // Minted ids share one shape, so the bodies are compared per id as sorted lists.
+        let mut early_ids: Vec<&str> = want_early.iter().map(|e| e["toolCallId"].as_str().unwrap()).collect();
+        early_ids.dedup();
+        for id in early_ids {
+            let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
+            if want_bodies.iter().all(|body| body_comparable(body)) {
+                let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
+                want_bodies.sort();
+                got_bodies.sort();
+                assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
+            }
         }
         let mut ran: Vec<String> = reader.ran.lock().unwrap().iter().map(|id| id_shape(id)).collect();
         ran.sort();
