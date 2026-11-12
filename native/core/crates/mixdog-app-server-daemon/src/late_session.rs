@@ -878,21 +878,55 @@ impl Bound for LateDraftSettings {
     }
 }
 
+/// A late cell a session's load reads off its actor. The directory loads sessions while the rest of the core is still composed (the
+/// rooms' start-up recovery, a restored turn), so such a read can come before the bind: it waits for the bind, as the read of a
+/// session loaded later finds it bound.
+struct Awaited<T: ?Sized> {
+    value: OnceLock<Arc<T>>,
+    bound: tokio::sync::Notify,
+}
+
+impl<T: ?Sized> Default for Awaited<T> {
+    fn default() -> Self {
+        Self { value: OnceLock::new(), bound: tokio::sync::Notify::new() }
+    }
+}
+
+impl<T: ?Sized> Awaited<T> {
+    /// Binds the cell and lets its waiting reads go; `false`: it was bound already.
+    fn bind(&self, value: Arc<T>) -> bool {
+        let first = self.value.set(value).is_ok();
+        self.bound.notify_waiters();
+        first
+    }
+
+    async fn get(&self) -> &Arc<T> {
+        loop {
+            // Created before the read: a bind between the read and the wait still wakes it.
+            let bound = self.bound.notified();
+            if let Some(value) = self.value.get() {
+                return value;
+            }
+            bound.await;
+        }
+    }
+}
+
 /// `SessionDeps.agent_status`: the agent tool's status rows (`AgentToolStatus`), which need the session directory the deps build. Bound once the directory, the agent registry and the
-/// shell jobs exist; `verify_bound` makes an unbound read unreachable.
+/// shell jobs exist; a read before that waits for it.
 #[derive(Default)]
-pub struct LateAgentStatus(OnceLock<Arc<dyn mixdog_core_session::session::agent_activity::AgentStatus>>);
+pub struct LateAgentStatus(Awaited<dyn mixdog_core_session::session::agent_activity::AgentStatus>);
 
 impl LateAgentStatus {
     pub fn bind(&self, status: Arc<dyn mixdog_core_session::session::agent_activity::AgentStatus>) -> Result<(), &'static str> {
-        self.0.set(status).map_err(|_| "agent status")
+        self.0.bind(status).then_some(()).ok_or("agent status")
     }
 }
 
 #[async_trait]
 impl mixdog_core_session::session::agent_activity::AgentStatus for LateAgentStatus {
     async fn status(&self, thread: &ThreadId) -> mixdog_app_protocol::v2::thread::ThreadAgents {
-        self.0.get().expect("agent status bound (compose::verify_bound)").status(thread).await
+        self.0.get().await.status(thread).await
     }
 }
 
@@ -902,24 +936,25 @@ impl Bound for LateAgentStatus {
     }
 
     fn is_bound(&self) -> bool {
-        self.0.get().is_some()
+        self.0.value.get().is_some()
     }
 }
 
-/// `SessionDeps.live_workspace`: the session workspaces' live workspace, built after the directory the deps build. Bound with the workspaces.
+/// `SessionDeps.live_workspace`: the session workspaces' live workspace, built after the directory the deps build. Bound with the
+/// workspaces; a read before that waits for it.
 #[derive(Default)]
-pub struct LateLiveWorkspace(OnceLock<Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace>>);
+pub struct LateLiveWorkspace(Awaited<dyn mixdog_core_session::session::worktree::LiveWorkspace>);
 
 impl LateLiveWorkspace {
     pub fn bind(&self, live: Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace>) -> Result<(), &'static str> {
-        self.0.set(live).map_err(|_| "live workspace")
+        self.0.bind(live).then_some(()).ok_or("live workspace")
     }
 }
 
 #[async_trait]
 impl mixdog_core_session::session::worktree::LiveWorkspace for LateLiveWorkspace {
     async fn live(&self, session: &str) -> Option<serde_json::Value> {
-        self.0.get().expect("live workspace bound (compose::verify_bound)").live(session).await
+        self.0.get().await.live(session).await
     }
 }
 
@@ -929,7 +964,7 @@ impl Bound for LateLiveWorkspace {
     }
 
     fn is_bound(&self) -> bool {
-        self.0.get().is_some()
+        self.0.value.get().is_some()
     }
 }
 
