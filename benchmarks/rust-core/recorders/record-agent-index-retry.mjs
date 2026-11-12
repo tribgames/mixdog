@@ -222,7 +222,12 @@ writeSetManifest(out, {
     syntheticInputs: [
       `node:test mock.timers on setTimeout and Date from ${T0}; setImmediate and file I/O real`,
       'one createIndexWriteQueue over a JSON file whose rewrite throws for its first N persist attempts, then recovers',
+      "the refusal itself: the store throws the recorder's own `new Error('store refused')`",
     ],
+    exclusions: {
+      'settled[].error (the text of a rejected flush)':
+        "Node's flush rejects with the store's own Error, so the recorded text is the recorder's injected 'store refused' passed through. The core's store refuses with a typed error, and its flush answers with the round's refusal as the core words it (how many writes stay queued, which row, the typed refusal); that text reaches only the daemon's log line of a failed drain. The replay gives its store the recorded text to refuse with and requires the flush's answer to carry it; that a flush is rejected, when, and by which round are compared whole",
+    },
     keptWhole: 'per scenario: every persist attempt time, every delay armed, each flush outcome and time, the rows in the file, and whether the queue still holds unpersisted writes',
   },
 });

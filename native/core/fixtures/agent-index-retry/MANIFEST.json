@@ -1,5 +1,8 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-agent-index-retry.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "settled[].error (the text of a rejected flush)": "Node's flush rejects with the store's own Error, so the recorded text is the recorder's injected 'store refused' passed through. The core's store refuses with a typed error, and its flush answers with the round's refusal as the core words it (how many writes stay queued, which row, the typed refusal); that text reaches only the daemon's log line of a failed drain. The replay gives its store the recorded text to refuse with and requires the flush's answer to carry it; that a flush is rejected, when, and by which round are compared whole"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -38,11 +41,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-index-retry.mjs",
-  "recorderSha256": "3eae00b6825c7740ce7f34c8bd91c81c3ddd44b0ddde06ef8ffe543b8a5c7e23",
+  "recorderSha256": "e97b39d92f959256cf47d096daa53c670f0d0eb77cb4d1a7017bb11f67ca6dea",
   "set": "agent-index-retry",
   "syntheticInputs": [
     "node:test mock.timers on setTimeout and Date from 1793923200000; setImmediate and file I/O real",
-    "one createIndexWriteQueue over a JSON file whose rewrite throws for its first N persist attempts, then recovers"
+    "one createIndexWriteQueue over a JSON file whose rewrite throws for its first N persist attempts, then recovers",
+    "the refusal itself: the store throws the recorder's own `new Error('store refused')`"
   ],
   "totalBytes": 33243
 }

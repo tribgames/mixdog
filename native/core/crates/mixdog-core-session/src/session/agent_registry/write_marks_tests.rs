@@ -108,8 +108,9 @@ impl Scene {
         self.started.elapsed().as_millis() as u64
     }
 
-    /// The recorded step's fields (`attempts` made, rows `indexed`, flushes `settled`) as this store saw them; a refusal's text
-    /// is the recorded one when it contains it (the core wraps the store's error).
+    /// The recorded step's fields (`attempts` made, rows `indexed`, flushes `settled`) as this store saw them. A rejected
+    /// flush's text is the one declared difference (the set's manifest, `settled[].error`): the recorded text is the refusal
+    /// the recorder's store threw, which this store refuses with too, and the core's answer must carry it.
     fn observed(&self, want: &Value) -> Value {
         let mut indexed: Vec<String> = Vec::new();
         for (_, session, _) in self.written.lock().unwrap().iter() {
