@@ -1,5 +1,20 @@
 {
   "recorder": "benchmarks/rust-core/recorders/record-harness-request-tools.mjs",
+  "node": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a",
+      "paths": [
+        "src/session-runtime/services/agent-tool/model-select.mjs",
+        "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+        "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+        "src/session-runtime/services/agent-tool/tool-def.mjs",
+        "src/tui/app/model-picker/route-selection/effort.mjs"
+      ]
+    }
+  },
   "provider": "custom-harness",
   "model": "harness-model",
   "toolSpec": "full",
@@ -608,6 +623,10 @@
           "effort": {
             "description": "Reasoning effort for an explicit model.",
             "type": "string"
+          },
+          "fast": {
+            "description": "Fast mode for an explicit model; needs model.",
+            "type": "boolean"
           },
           "file": {
             "description": "Path to task text; used instead of prompt/message.",

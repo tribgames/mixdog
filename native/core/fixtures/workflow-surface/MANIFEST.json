@@ -70,7 +70,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
     },
     "patches": [
       {
@@ -82,7 +82,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
       }
     ],
     "refComparison": {
@@ -91,7 +91,7 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "cec629a2f6a0695e1310d5262b254be09b57f991d37f65fd6024b6fab087dca2",
+    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

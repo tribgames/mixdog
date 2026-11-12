@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2454526,
+      "bytes": 2453602,
       "path": "golden.json",
-      "sha256": "dab1074a4f95612a58f07c07029dbdf7e09a95fc946f4aa4516c5b7f2c312e9b"
+      "sha256": "c050c7260dab9d77ee153fcebe4dfef1a2b65669d063eb360df98d7ea22af6e3"
     }
   ],
   "inputs": [
@@ -19,6 +19,12 @@
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": [
+    "uuids, `msg_`, `it_` and scratch-folder ids: numbered in order of first appearance, same length",
+    "epoch-millisecond times: rebased on one origin, distances kept",
+    "`mcpPid`, `clientHostPid` and `elapsedMs`: one constant each",
+    "the run folder of the recording: named as the integration recordings name it (RECORDED_ROOT), after checking it is as long"
+  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -35,7 +41,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
     },
     "patches": [
       {
@@ -47,7 +53,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
       }
     ],
     "refComparison": {
@@ -56,13 +62,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "cec629a2f6a0695e1310d5262b254be09b57f991d37f65fd6024b6fab087dca2",
+    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/context-status-route/record.mjs",
-  "recorderSha256": "1da988c69323bc694313bf3a7be99e1b9238039fb118dcf341e6c1fa580955f8",
+  "recorderSha256": "172a175fb434b7f444db0ed5e986e3095e84ede9d78617e929b23a65269181b7",
   "set": "context-status-route",
-  "totalBytes": 2454526
+  "totalBytes": 2453602
 }
