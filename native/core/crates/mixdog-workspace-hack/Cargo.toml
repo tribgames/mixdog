@@ -75,7 +75,6 @@ tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tungstenite = { version = "0.28", default-features = false, features = ["__rustls-tls", "handshake"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-unicode-normalization = { version = "0.1" }
 uuid = { version = "1", features = ["v4", "v7"] }
 writeable = { version = "0.6", default-features = false, features = ["alloc"] }
 yoke = { version = "0.8", default-features = false, features = ["alloc", "derive"] }

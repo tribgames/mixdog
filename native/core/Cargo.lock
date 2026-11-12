@@ -5060,6 +5060,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "unicode-normalization",
  "url",
  "windows-sys 0.61.2",
 ]
@@ -5433,7 +5434,6 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite",
  "typenum",
- "unicode-normalization",
  "uuid",
  "windows",
  "windows-core",
