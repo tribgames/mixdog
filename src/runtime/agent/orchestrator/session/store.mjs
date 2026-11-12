@@ -40,7 +40,6 @@ import {
 import {
   acceptSessionCopy,
   flushAllRecordersSync,
-  rebaseSessionLog,
   recorderFor,
   redactSessionFiles,
   redactSessionFilesSync,
@@ -159,23 +158,6 @@ function _dropsAgainst(recorder, opts) {
   return generation > expected;
 }
 
-// A log that outgrew its base (recorder.rebaseDue) takes this save as a fresh
-// base instead of as more records; the rewrite is queued in the caller's turn,
-// as the save's records would be. A rebase that did not land leaves the log
-// the one it was: the save is then recorded on it like any other, and the
-// next try waits until the log doubled.
-async function _rebaseOrRecord(recorder, session, opts) {
-  try {
-    await rebaseSessionLog(recorder, session);
-  } catch (err) {
-    // The recorder is gone (deleted, claim lost): the save fails as it would have.
-    if (recorder.finished) throw err;
-    recorder.deferRebase();
-    process.stderr.write(`[session-store] ${session.id}: log not rebased: ${err?.message || err}\n`);
-    await recorder.record(session, { compacted: opts?.compacted === true });
-  }
-}
-
 /** The write of an admitted copy: its records, fsynced. */
 async function _write(session, opts, summaryVersion) {
   const id = session.id;
@@ -210,7 +192,6 @@ async function _write(session, opts, summaryVersion) {
     // A value marked sensitive since the files were last written must leave
     // every stored copy, not only the records still to come.
     if (redacting) await redactSessionFiles(recorder, session);
-    else if (recorder.rebaseDue) await _rebaseOrRecord(recorder, session, opts);
     else await recorder.record(session, { compacted: opts?.compacted === true });
   } catch (err) {
     rollback();
