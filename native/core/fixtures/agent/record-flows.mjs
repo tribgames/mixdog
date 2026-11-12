@@ -158,6 +158,7 @@ const { AgentStallAbortError } = await load('src/runtime/agent/orchestrator/agen
 const { armTurnTimeout, reapTurnShellJobs, takeStoppedShellJobs } = await load('src/runtime/agent/orchestrator/session/manager/turn-reap.mjs');
 const { runtimeState } = await load('src/runtime/agent/orchestrator/session/manager/runtime-state.mjs');
 const { createAgentTree } = await load('src/standalone/session-service/agent-tree.mjs');
+const { createCloseFlow } = await load('src/session-runtime/services/agent-tool/close-flow.mjs');
 
 /** The loader hook's report of the real review store's calls (see flow-hooks.mjs). */
 const reviewSpy = (calls) => (kind, args, result) => {
@@ -273,6 +274,13 @@ async function dryReap(scenario) {
   return { stopped: alias(taken.stopped), stopping: alias(taken.stopping) };
 }
 
+/** The agents below the worker (sess_c1 and sess_c3 under it, sess_c2 under sess_c1) and the jobs of the tree-cancel scenarios. */
+const TREE_WITH_JOBS = {
+  children: [{ id: 'sess_c1', parent: 'sess_w1' }, { id: 'sess_c2', parent: 'sess_c1' }, { id: 'sess_c3', parent: 'sess_w1' }],
+  jobs: [{ as: 'owned', tag: 'grandkid', caller: 'sess_c1' }, { as: 'bound', tag: 'kid', sessionId: 'sess_c1', caller: 'sess_w1' }, { as: 'other', tag: 'stranger', caller: 'sess_x' }],
+};
+const TREE_CANCEL_STEPS = [{ say: 'partial review' }, { cancelTree: 'agent session cancelled' }, { say: 'late words' }, { return: { content: 'late' } }];
+
 const spawnScenarios = [
   { name: 'a_spawn_runs_to_completion', args: { agent: 'worker', prompt: 'do it', tag: 'scout' }, steps: [{ tool: 'diff-1' }, { terminal: { content: 'done' } }, { return: { content: 'done' } }] },
   { name: 'a_generated_tag_is_used', args: { agent: 'worker', prompt: 'do it' }, nextTag: 'worker-7', steps: [{ return: { content: 'ok' } }] },
@@ -310,6 +318,10 @@ const spawnScenarios = [
   { name: 'an_agent_tree_cancel_reports_the_partial_output_once', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'partial review' }, { cancelTree: 'agent session cancelled' }, { say: 'late words' }, { return: { content: 'late' } }] },
   // The same cancel with agents below the worker (sess_c1 and sess_c3 under it, sess_c2 under sess_c1) and jobs: the agents close descendants first, each after the jobs it started and those bound to it; a job another session started is left running.
   { name: 'an_agent_tree_cancel_closes_the_descendants_and_cancels_their_jobs', args: { agent: 'worker', prompt: 'p', tag: 't' }, tree: { children: [{ id: 'sess_c1', parent: 'sess_w1' }, { id: 'sess_c2', parent: 'sess_c1' }, { id: 'sess_c3', parent: 'sess_w1' }], jobs: [{ as: 'owned', tag: 'grandkid', caller: 'sess_c1' }, { as: 'bound', tag: 'kid', sessionId: 'sess_c1', caller: 'sess_w1' }, { as: 'other', tag: 'stranger', caller: 'sess_x' }] }, steps: [{ say: 'partial review' }, { cancelTree: 'agent session cancelled' }, { say: 'late words' }, { return: { content: 'late' } }] },
+  // The same cancel where the canonical close of a member fails (its runtime answers false): every member is still attempted, jobs included, and the cancel then throws: the one failure itself, or for several an AggregateError naming how many of the tree's sessions failed.
+  { name: 'an_agent_tree_cancel_with_a_failing_descendant_still_closes_the_rest_then_throws', args: { agent: 'worker', prompt: 'p', tag: 't' }, tree: { ...TREE_WITH_JOBS, failClose: ['sess_c2'] }, steps: TREE_CANCEL_STEPS },
+  { name: 'an_agent_tree_cancel_with_two_failing_members_throws_one_aggregate', args: { agent: 'worker', prompt: 'p', tag: 't' }, tree: { ...TREE_WITH_JOBS, failClose: ['sess_c2', 'sess_c3'] }, steps: TREE_CANCEL_STEPS },
+  { name: 'an_agent_tree_cancel_whose_target_fails_to_close_throws_after_the_descendants', args: { agent: 'worker', prompt: 'p', tag: 't' }, tree: { ...TREE_WITH_JOBS, failClose: ['sess_w1'] }, steps: TREE_CANCEL_STEPS },
   // The completion goes to the caller that started the job: a routing id or a notify callback on the context does not take it.
   { name: 'a_completion_goes_to_the_immutable_caller_owner', args: { agent: 'worker', prompt: 'p', tag: 't' }, staleContext: true, steps: [{ return: { content: 'owner handoff' } }] },
   // A host-set skill selection reaches the worker's turn on both runtimes, an empty one as an empty selection; none is invented.
@@ -359,14 +371,18 @@ function newSpawnWorld(scenario) {
         },
         readModelMessages: () => ({ messageCount: 0, messages: [] }),
         async closeCanonicalSession(reason) {
-          this.terminal = true;
           calls.push(`close:${id}:${reason}`);
+          // A close that does not land answers false and leaves the session open.
+          if (scenario.tree?.failClose?.includes(id)) return false;
+          this.terminal = true;
           return true;
         },
       });
     }
     return runtimes.get(id);
   };
+  // What the tree's cancel answered, or the message it threw.
+  const treeCancel = { returned: null, threw: null };
   const tree = (scenario.steps || []).some((step) => step.cancelTree !== undefined)
     ? createAgentTree({ listSessions: async () => [], readStoredSession: async () => null, sessionOwner: (id) => ({ runtime: runtimeFor(id) }), stateBusy: () => false, entryForSession: async (id) => ({ runtime: runtimeFor(id) }), retainUnwatched() {}, createSession: async () => ({ sessionId: 'sess_w1' }) })
     : null;
@@ -407,7 +423,11 @@ function newSpawnWorld(scenario) {
         else if (step.say !== undefined) session.messages.push({ role: 'assistant', content: step.say });
         else if (step.cancelTask !== undefined) bg.cancelBackgroundTask(job.taskId, step.cancelTask);
         else if (step.cancelTree !== undefined) {
-          await tree.cancelAgentTree(id, step.cancelTree);
+          try {
+            treeCancel.returned = await tree.cancelAgentTree(id, step.cancelTree);
+          } catch (error) {
+            treeCancel.threw = error.message;
+          }
         }
         else if (step.stall !== undefined) {
           if (scenario.shellJobs) reapStalledTurn();
@@ -506,7 +526,7 @@ function newSpawnWorld(scenario) {
     prepareSpawn,
     runSpawn: runner.runSpawn,
   });
-  return { root, source, agents, config, calls, notices, session, shellIds, mgr, selections, staleNotify, startJob, stays: stays.promise, endStays: stays.resolve, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
+  return { root, source, agents, config, calls, notices, session, shellIds, mgr, selections, staleNotify, treeCancel, startJob, stays: stays.promise, endStays: stays.resolve, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
 }
 
 /** What the real helpers answer about an agent, which the Rust side takes as its host's answers. */
@@ -628,12 +648,117 @@ for (const scenario of spawnScenarios) {
       ...(shellStatuses ? { shellTasks: shellStatuses } : {}),
       ...(scenario.trackSelection ? { selections: w.selections } : {}),
       ...(scenario.staleContext ? { staleNotifyCalls: w.staleNotify.calls } : {}),
+      ...(scenario.tree?.failClose ? { treeCancel: w.treeCancel } : {}),
       ...(scenario.tree?.jobs ? { extraJobs: Object.fromEntries(Object.entries(extraJobs).map(([alias, job]) => [alias, idOf({ status: job.status, error: job.error ?? null, terminalReason: job.terminalReason ?? null, meta: publicMeta(job.meta), label: job.label, notified: job.notified === true }, null)])) } : {}),
     },
   });
   w.endStays();
 }
 write('spawn.json', spawn);
+
+// ---- a member of the tree fails to close: the tree's cancel, `close` and `closeAll` ----------------
+
+const CLOSE_MEMBERS = ['sess_w1', 'sess_c1', 'sess_c2', 'sess_c3'];
+const CLOSE_LINKS = [{ id: 'sess_c1', parent: 'sess_w1' }, { id: 'sess_c2', parent: 'sess_c1' }, { id: 'sess_c3', parent: 'sess_w1' }];
+const CLOSE_CONTEXT = { callerSessionId: 'lead' };
+const CLOSE_OPS = {
+  cancelTree: (world) => world.tree.cancelAgentTree('sess_w1', 'agent session cancelled', {}),
+  close: (world) => world.flow.close({ tag: 'w1' }, CLOSE_CONTEXT),
+  closeAll: (world) => world.flow.closeAll('cli-agent-close-all', CLOSE_CONTEXT),
+};
+const CLOSE_CASES = [
+  { name: 'every_member_closes', failClose: [] },
+  { name: 'a_failing_descendant_under_a_parent_that_closes', failClose: ['sess_c2'] },
+  { name: 'two_failing_members', failClose: ['sess_c2', 'sess_c3'] },
+  { name: 'the_target_itself_fails', failClose: ['sess_w1'] },
+];
+
+/** The real agent tree and close flow over runtimes whose canonical close answers false for `failClose`. The worker
+ *  index (the registry) is scripted: it knows the four sessions, tag `w1` for `sess_w1` and so on, lists the Lead's own worker only, and logs the rows it is told to drop. */
+function closeWorld(failClose) {
+  const calls = [];
+  const runtimes = new Map();
+  const runtimeFor = (id) => {
+    if (!runtimes.has(id)) {
+      runtimes.set(id, {
+        terminal: false,
+        isSessionTerminal() {
+          return this.terminal;
+        },
+        readModelMessages: () => ({ messageCount: 0, messages: [] }),
+        async closeCanonicalSession(reason, options) {
+          calls.push(['close', id, reason, options]);
+          if (failClose.includes(id)) return false;
+          this.terminal = true;
+          return true;
+        },
+      });
+    }
+    return runtimes.get(id);
+  };
+  const tree = createAgentTree({
+    listSessions: async () => [],
+    readStoredSession: async () => null,
+    sessionOwner: (id) => ({ runtime: runtimeFor(id) }),
+    stateBusy: () => false,
+    entryForSession: async (id) => ({ runtime: runtimeFor(id) }),
+    retainUnwatched() {},
+    createSession: async () => ({ sessionId: 'sess_w1' }),
+    markOwnerClosed: async (id, reason) => {
+      calls.push(['ownerClosed', id, reason]);
+      return 1;
+    },
+  });
+  tree.linkAgentDescriptor({ id: 'sess_w1', parentSessionId: 'lead', ownerSessionId: 'lead', status: 'idle' });
+  for (const link of CLOSE_LINKS) tree.linkAgentDescriptor({ id: link.id, parentSessionId: link.parent, status: 'idle' });
+  const tagOf = (id) => id.slice('sess_'.length);
+  const parentOf = (id) => CLOSE_LINKS.find((link) => link.id === id)?.parent ?? 'lead';
+  const tags = new Map(CLOSE_MEMBERS.map((id) => [tagOf(id), id]));
+  const registry = {
+    tags,
+    tagAgents: new Map(),
+    tagCwds: new Map(),
+    refreshTagsFromSessions() {},
+    wantsSessionScan: () => false,
+    resolveTag: (target) => tags.get(target) ?? (CLOSE_MEMBERS.includes(target) ? target : null),
+    getLiveSession: (id) => (CLOSE_MEMBERS.includes(id) ? { id, agent: 'worker' } : null),
+    tagForSession: (id) => [...tags].find(([, session]) => session === id)?.[0] ?? null,
+    forgetTerminalSession: (tag, id) => calls.push(['forgetTerminalSession', tag, id]),
+    removeWorkerRow: (row) => calls.push(['removeWorkerRow', row.sessionId]),
+    markReleased: (ids) => calls.push(['markReleased', ids]),
+    // The agents of the caller's scope: those it is the parent of, strictly (the real index lists the Lead's own workers, not theirs).
+    agentSessionEntries: () => CLOSE_MEMBERS.filter((id) => parentOf(id) === CLOSE_CONTEXT.callerSessionId).map((id) => ({ tag: tagOf(id), session: { id } })),
+    flushWorkerIndexMutations() {},
+    writeWorkerRows: () => calls.push(['purgeWorkerRows']),
+  };
+  const mgr = { closeSession: tree.agentManager.closeSession, descendantSessionIds: tree.agentDescendantSessionIds };
+  const flow = createCloseFlow({ mgr, registry, views: {} });
+  return { calls, runtimes, tree, flow };
+}
+
+const closeFailures = [];
+for (const scenario of CLOSE_CASES) {
+  const runs = {};
+  for (const [op, run] of Object.entries(CLOSE_OPS)) {
+    const world = closeWorld(scenario.failClose);
+    let returned = null;
+    let threw = null;
+    try {
+      returned = await run(world);
+    } catch (error) {
+      threw = { message: error.message, aggregate: error instanceof AggregateError, parts: (error.errors ?? []).map((part) => part.message) };
+    }
+    runs[op] = {
+      returned,
+      threw,
+      calls: world.calls,
+      terminal: Object.fromEntries(CLOSE_MEMBERS.map((id) => [id, world.runtimes.get(id)?.terminal === true])),
+      status: Object.fromEntries(CLOSE_MEMBERS.map((id) => [id, world.tree.agentDescriptor(id)?.status ?? null])),
+    };
+  }
+  closeFailures.push({ name: scenario.name, failClose: scenario.failClose, members: CLOSE_MEMBERS, links: CLOSE_LINKS, runs });
+}
+write('close_failures.json', closeFailures);
 
 // ---- send: a follow-up to an existing worker ------------------------------------------------
 
@@ -1019,6 +1144,8 @@ const manifest = JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8'));
 refreshSetManifest(stage, nodeRoot, 'HEAD', {
   exclusions: {
     ...manifest.exclusions,
+    'flows/close_failures.json "calls" entries other than "close" and "ownerClosed"': 'forgetTerminalSession, removeWorkerRow, markReleased and purgeWorkerRows are the scripted worker index\'s own log of the rows it was told to drop; the Rust registry that takes them is replayed by its own sets, so the replay compares the closes attempted and the owner closes recorded, whole and in order',
+    'flows/close_failures.json "terminal" and "status" (per member)': 'Node\'s runtime flag and tree descriptor; the Rust session keeps no descriptor, so the replay compares what the same close leaves durably on each member (a detach stamp, an owner-close stamp) with the members whose runtime was recorded terminal',
     'flows/spawn.json "staleNotifyCalls" (the stale-context scenario)': 'the context Node is handed carries a routing session id (routingSessionId) and a notify callback (notifyFn) that the core\'s SpawnContext has no field for: neither input exists on the Rust side. The number of calls Node\'s callback got (recorded 0) is compared with the notices the replay delivered to the stale session id it passes in the context\'s session id (sessionId, which Node ignores while a caller session id is set); the completion reaching the caller alone is compared through the notices, whole',
   },
 });
