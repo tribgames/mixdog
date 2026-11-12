@@ -2571,3 +2571,225 @@ fn every_recorded_sequence_has_its_session_memory_test() {
     let recorded: Vec<&str> = doc["sequences"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(recorded, SEQUENCE_TESTS);
 }
+
+// ---------------------------------------------------------------------------
+// One broad search at a time (`search-admission-*`, `record-tools-fs-search.mjs` `recordAdmission`)
+
+/// The recorder's disk: its search server takes every search it is given and never answers (the silent stand-in) until
+/// `answer` is set, then answers what it is asked; `reached` counts the searches that got to it.
+struct SilentServer {
+    inner: Arc<dyn FileService>,
+    silent: Arc<std::sync::atomic::AtomicBool>,
+    reached: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// A search the server holds: it ends when its consumer lets it go.
+struct Held<T>(std::marker::PhantomData<fn() -> T>);
+
+#[async_trait::async_trait]
+impl<T: Send + 'static> mixdog_core_api::domain::common::EventSource<T> for Held<T> {
+    async fn next(&mut self) -> Option<T> {
+        std::future::pending().await
+    }
+}
+
+#[async_trait::async_trait]
+impl FileService for SilentServer {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.inner.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.list_dir(lane, path).await
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        self.reached.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.silent.load(std::sync::atomic::Ordering::SeqCst) {
+            return Box::new(Held(std::marker::PhantomData));
+        }
+        self.inner.walk(lane, request)
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.reached.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.silent.load(std::sync::atomic::Ordering::SeqCst) {
+            return Box::new(Held(std::marker::PhantomData));
+        }
+        self.inner.search_text(lane, request)
+    }
+}
+
+/// A call of a replay: its future, polled by [`settle`] only when it was woken, and what it answered.
+struct Pending<'a> {
+    future: std::pin::Pin<Box<dyn Future<Output = mixdog_core_api::domain::tool::ToolOutcome> + 'a>>,
+    woken: Arc<Woken>,
+    cancel: CancellationToken,
+    outcome: Option<(bool, String)>,
+    /// The call ended as a cancelled one.
+    cancelled: bool,
+}
+
+struct Woken(std::sync::atomic::AtomicBool);
+
+impl std::task::Wake for Woken {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Runs every call woken since it was last polled, until none is: every call that can go on has gone on, so a call
+/// that is still pending is waiting for the clock, a cancel or another call's end. A single task is the whole replay, so
+/// the runtime never sees it idle and moves no clock by itself.
+fn settle(calls: &mut [Pending<'_>]) {
+    loop {
+        let mut polled = false;
+        for call in calls.iter_mut().filter(|c| c.outcome.is_none()) {
+            if call.woken.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                let waker = std::task::Waker::from(call.woken.clone());
+                if let std::task::Poll::Ready(outcome) = call.future.as_mut().poll(&mut std::task::Context::from_waker(&waker)) {
+                    call.cancelled = matches!(&outcome, Err(e) if matches!(e.code, ToolErrorCode::Cancelled));
+                    call.outcome = Some(recorded_form(outcome));
+                }
+                polled = true;
+            }
+        }
+        if !polled {
+            return;
+        }
+    }
+}
+
+/// `scenario`'s steps (`recordAdmission`) replayed through the public tools on the paused clock, which moves only by the
+/// recorded ticks: every call's answer, and at each step the searches that had reached the server, must be Node's.
+async fn replay_admission(scenario: &str, fixture: &str) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture: JsonValue = serde_json::from_str(fixture).unwrap();
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-search-admission").join(scenario)).unwrap();
+    let seeds: Vec<(String, Vec<u8>)> = fixture["files"].as_object().unwrap().iter().map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec())).collect();
+    let silent = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let reached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let files: Arc<dyn FileService> = Arc::new(SilentServer { inner: Arc::new(MockFileService::default()), silent: silent.clone(), reached: reached.clone() });
+    let steps = fixture["admission"].as_array().unwrap();
+    // A context of its own for each call, over the one disk.
+    let mut contexts = Vec::new();
+    for step in steps.iter().filter(|s| s.get("start").is_some()) {
+        contexts.push((step["start"].as_str().unwrap(), context_seeded(&root, files.clone(), if contexts.is_empty() { seeds.clone() } else { Vec::new() }).await));
+    }
+    let tools: [(&str, Box<dyn Tool>); 3] = [("glob", Box::new(GlobTool::new())), ("find", Box::new(FindTool::new())), ("grep", Box::new(GrepTool::new()))];
+    let ctx_of = |name: &str| &contexts.iter().find(|(n, _)| *n == name).unwrap().1;
+    let mut calls: Vec<Pending<'_>> = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    let mut failures = Vec::new();
+    let raw = root.as_path().to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let said = |text: &str| text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+    for (index, step) in steps.iter().enumerate() {
+        let reached_now = |failures: &mut Vec<String>| {
+            let want = step.get("requests").and_then(JsonValue::as_u64);
+            if let Some(want) = want.filter(|w| *w as usize != reached.load(SeqCst)) {
+                failures.push(format!("step #{index} {step}: {} search(es) reached the server, Node's {want}", reached.load(SeqCst)));
+            }
+        };
+        if let Some(name) = step["start"].as_str() {
+            let call = &step["call"];
+            let tool = &tools.iter().find(|(n, _)| *n == call["tool"].as_str().unwrap()).unwrap().1;
+            let ctx = ctx_of(name);
+            let cancel = ctx.cancel.clone();
+            calls.push(Pending { future: Box::pin(tool.call(ctx, call["input"].clone())), woken: Arc::new(Woken(true.into())), cancel, outcome: None, cancelled: false });
+            names.push(name);
+            settle(&mut calls);
+            reached_now(&mut failures);
+            if step["until"] == "answered" {
+                match calls.last().unwrap() {
+                    Pending { outcome: Some(got), cancelled, .. } => compare(&mut failures, index, name, (got, *cancelled), &step["answer"], &said),
+                    _ => failures.push(format!("step #{index}: {name} did not answer")),
+                }
+            }
+        } else if let Some(ms) = step["tick"].as_u64() {
+            tokio::time::advance(std::time::Duration::from_millis(ms)).await;
+            settle(&mut calls);
+        } else if step.get("script").is_some() {
+            silent.store(false, SeqCst);
+        } else if let Some(name) = step["abort"].as_str() {
+            calls[names.iter().position(|n| *n == name).unwrap()].cancel.cancel();
+            settle(&mut calls);
+        } else {
+            let name = step["settle"].as_str().unwrap();
+            reached_now(&mut failures);
+            match &calls[names.iter().position(|n| *n == name).unwrap()] {
+                Pending { outcome: Some(got), cancelled, .. } => compare(&mut failures, index, name, (got, *cancelled), &step["answer"], &said),
+                _ => failures.push(format!("step #{index}: {name} had not answered")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A call's outcome beside Node's: its text and failure flag. An exception Node's tool threw for the call's cancel (an
+/// abort reason's text, which is Node's runtime's) is a call the core's runtime states as cancelled: that is compared.
+fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled): (&(bool, String), bool), want: &JsonValue, said: &dyn Fn(&str) -> String) {
+    const ABORTS: [&str; 2] = ["This operation was aborted", "operation aborted"];
+    if let Some(thrown) = want.get("thrown").and_then(JsonValue::as_str).filter(|t| ABORTS.contains(t)) {
+        if !cancelled {
+            failures.push(format!("step #{index} {name}: Node threw {thrown:?} for the cancel; the core answered ({}) {:?}", got.0, got.1));
+        }
+        return;
+    }
+    let (want_error, want_text) = match want.get("thrown") {
+        Some(thrown) => (true, thrown.as_str().unwrap()),
+        None => (want["isError"] == true, want["text"].as_str().unwrap()),
+    };
+    let text = said(&got.1);
+    if text != want_text || got.0 != want_error || cancelled {
+        failures.push(format!("step #{index} {name}:\n  want ({want_error}) {want_text:?}\n  got  ({}) {text:?} cancelled={cancelled}", got.0));
+    }
+}
+
+/// A waiter is refused once its wait, the search's 17.5 s budget, has passed; the holder meets its own deadline.
+#[tokio::test(start_paused = true)]
+async fn a_broad_search_waiting_past_its_budget_is_refused_as_node_refuses_it() {
+    replay_admission("search-admission-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-refused.json")).await;
+}
+
+/// The holder's end admits the waiter, which then has what its wait left of the budget.
+#[tokio::test(start_paused = true)]
+async fn a_broad_search_is_admitted_when_the_holder_ends_as_node_admits_it() {
+    replay_admission("search-admission-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-admitted.json")).await;
+}
+
+/// A cancelled waiter leaves the queue and its place with it; the holder goes on, and the next waiter is admitted at its end.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_waiter_leaves_the_gate_as_in_node() {
+    replay_admission("search-admission-waiter-cancelled", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-waiter-cancelled.json")).await;
+}
+
+/// A cancelled holder gives up the gate at once.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_holder_frees_the_gate_as_in_node() {
+    replay_admission("search-admission-holder-cancelled", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-holder-cancelled.json")).await;
+}
+
+/// A search that is not broad passes a held gate.
+#[tokio::test(start_paused = true)]
+async fn a_point_search_passes_a_held_gate_as_in_node() {
+    replay_admission("search-admission-point-search-passes", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-point-search-passes.json")).await;
+}

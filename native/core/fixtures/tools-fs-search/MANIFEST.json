@@ -7,9 +7,10 @@
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)",
     "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order",
     "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request; search-queue-burst fills the real server's queue and records its refusals and answer order",
+    "search-admission-*: a call Node ended with an exception for its cancel (`thrown`: \"This operation was aborted\", a waiter's abort reason, and \"operation aborted\", a running search's) is a call whose cancel the core answers as its Cancelled outcome: the text of an abort exception is Node's runtime's, and the core's runtime states a cancel as its own outcome; the replay compares the outcome's kind, not that text. The search server of these scenarios is a stand-in (lib/search-server-standin.mjs, silent until a step sets `observe`), and the searches that reached it are counted (`requests`); the core's counterpart counts the walks and text searches that reached its file service",
     "search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call's request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait): when made, when admitted from the queue, or before its walk or a file open would read on that volume (a volume by the filesystem's identity: on Windows the volume GUID of the path's volume mount point, through junctions; on Unix the mount's device, a mount point below the root its own volume); Node has no answer for one stalled subtree, as a stalled read stalls its whole request, so the whole search gets that answer; the given-up threads one volume holds stay within 8 - 1 plus the searches that run at once (80 with the defaults: 8 + 1 interactive + 64 local walks), the searches already reading on the volume when it reached 8 being given up too; a refusal is by the root's volume as it is now: one fixed by the root's text (no junction, mounted folder, link, subst or mapped drive between) is refused at once, any other search is admitted and refused once its producer told its root's volume afresh, so a junction retargeted to a healthy volume is served; a stall while a root's volume is told is charged to that root's telling, which only searches of that root are admitted by; and the process as a whole holds at most 24 given-up threads (three volumes' worth) before every search, on any volume, gets that answer, which keeps the given-up threads of the process within 24 - 1 plus the searches that run at once (23 + 8 + 1 + 64 = 96 with the defaults); at 24 stranded threads every search is refused: this protects the process, and Node's server would be dead in that state"
   ],
-  "fileCount": 36,
+  "fileCount": 41,
   "files": [
     {
       "bytes": 5739,
@@ -177,6 +178,31 @@
       "sha256": "9f92c6db24533d394e3f15177f7effad16c8f20ac6caae2770a9ddc248ab482f"
     },
     {
+      "bytes": 1182,
+      "path": "search-admission-admitted.json",
+      "sha256": "8a12ea311c990f70107c41a59ba6625ecf12e1737b983468e62075f703504bad"
+    },
+    {
+      "bytes": 1099,
+      "path": "search-admission-holder-cancelled.json",
+      "sha256": "781d6342270c373bc8185a3ed39d47afe89a5b62b4ab19ad0e0f24f5003ff06f"
+    },
+    {
+      "bytes": 1561,
+      "path": "search-admission-point-search-passes.json",
+      "sha256": "255d6afcd034467455609319120c3e2593d7d5d3d35cdf537343aa620b50a23a"
+    },
+    {
+      "bytes": 1189,
+      "path": "search-admission-refused.json",
+      "sha256": "eb49cac3d71d8877b44000f567292e9b54274e17a4ccb512e3aa2fa0a3158bac"
+    },
+    {
+      "bytes": 1564,
+      "path": "search-admission-waiter-cancelled.json",
+      "sha256": "394f4a44dc5cfe4da486e5f46c89ba04d94f9f3423511782998d7a2c77af9e91"
+    },
+    {
       "bytes": 7107,
       "path": "search-cancel-stalled.json",
       "sha256": "ac730c3d968cf19836ec1e509623d506ea977f7cfdde70b04084b5916a97d2f2"
@@ -194,7 +220,7 @@
   ],
   "graphBinary": {
     "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)",
-    "sha256": "1fbb5025d3bbe8ccecf83f1e3141e4c124791d017ee781fca1723613326854f6"
+    "sha256": "6bd2206f4af7ab867f89619046568e3e86f61e15582721dbdd93f08b3e058ec8"
   },
   "inputs": [
     {
@@ -256,7 +282,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "fd5e40e0167e5815cd6db0f5d9bc8e22001e6da51fb8c502ef9a1716082a2cfb",
+  "recorderSha256": "26764840b85d242852960a5d7ec9b64014bffe4e68d7f070de52dae7b98366a6",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -293,8 +319,13 @@
     "glob-fs-root",
     "glob-mtime-page",
     "grep-fanout-nested",
-    "grep-fanout-partial"
+    "grep-fanout-partial",
+    "search-admission-refused",
+    "search-admission-admitted",
+    "search-admission-waiter-cancelled",
+    "search-admission-holder-cancelled",
+    "search-admission-point-search-passes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 4038899
+  "totalBytes": 4045494
 }

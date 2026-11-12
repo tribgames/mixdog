@@ -1093,6 +1093,28 @@ const SCENARIOS = [
       ],
     },
   },
+  // gaps-tools row 45: one broad search at a time per process (search-admission.mjs, tool-workload-gates.mjs `searchIoAdmission`,
+  // owner-fair-gate.mjs). A glob is held at a search server that never answers; what the calls beside it answer is recorded
+  // (`recordAdmission`): a step list, each step with the requests that had reached the server when it ended (`requests`) and
+  // each call's answer. `until`: `server` (the call's request reached the server), `queued` (the call reached the gate),
+  // `answered`. A `find` is a fuzzy search and a `glob` a `--files` one: both broad; a `grep` of one pattern is not.
+  ...(() => {
+    const warm = { standin: true, env: { MIXDOG_SEARCH_CANCEL_GRACE_MS: '1000' }, files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n' }, warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }] };
+    const hold = { start: 'holder', call: { tool: 'glob', input: { pattern: '*.ts', path: 't' } }, until: 'server' };
+    const wait = (name, query, path, extra = {}) => ({ start: name, call: { tool: 'find', input: { query, path } }, until: 'queued', ...extra });
+    return [
+      // The waiter is refused once its wait (the search's 17.5 s budget) has passed; the holder meets its own deadline.
+      { name: 'search-admission-refused', ...warm, admission: [hold, wait('waiter', 'a', 't'), { tick: 17_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // The holder's end (its deadline) admits the waiter, which has waited 12.5 s of its 17.5 s; the server answers it.
+      { name: 'search-admission-admitted', ...warm, admission: [hold, { tick: 5_000 }, { start: 'waiter', call: { tool: 'glob', input: { pattern: '*.ts', path: 'u' } }, until: 'queued' }, { script: 'observe' }, { tick: 12_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // A waiter whose call is cancelled leaves the queue at once, and its place with it: the next waiter is admitted at the holder's end.
+      { name: 'search-admission-waiter-cancelled', ...warm, admission: [hold, wait('waiter', 'a', 't', { cancellable: true }), { abort: 'waiter' }, { settle: 'waiter' }, { tick: 5_000 }, wait('third', 'd', 'u'), { script: 'observe' }, { tick: 12_500 }, { settle: 'holder' }, { settle: 'third' }] },
+      // A cancelled holder gives up the gate at once: the waiter is admitted without a clock moving.
+      { name: 'search-admission-holder-cancelled', ...warm, admission: [{ ...hold, cancellable: true }, wait('waiter', 'a', 't'), { script: 'observe' }, { abort: 'holder' }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // A search that is not broad (a grep of one pattern) passes a held gate; the waiter behind it still waits.
+      { name: 'search-admission-point-search-passes', ...warm, admission: [hold, wait('waiter', 'a', 't'), { script: 'observe' }, { start: 'point', call: { tool: 'grep', input: { pattern: 'needle', path: 't' } }, until: 'answered' }, { tick: 17_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+    ];
+  })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
@@ -1424,6 +1446,72 @@ async function recordStalled(scenario, standin, runOf, settle) {
   return { calls };
 }
 
+/** Node's answers to the calls of `admission` (see SCENARIOS, search-admission-*), on Node's mock clock. The server is silent
+ *  (it takes a search and never answers, ignoring cancels) until a step says `script: 'observe'`, then it answers what it is
+ *  asked. A call that reaches the gate is seen through `searchIoAdmission.run`, which is wrapped here to count its calls: the
+ *  gate queues the call within that call, so a count past the one before it means the call is queued (or running). Recorded,
+ *  per step: the step, the searches that had reached the server when it ended (`requests`; at the last step, and at a call's
+ *  start), and for a `settle` the call's outcome (its text and failure flag, or the exception it threw). The clock moves
+ *  only at a tick step. */
+async function recordAdmission(scenario, standin, runOf, outcomeOf, scrub, gates) {
+  const { mock } = await import('node:test');
+  let gated = 0;
+  const run = gates.searchIoAdmission.run;
+  gates.searchIoAdmission.run = (...args) => {
+    gated += 1;
+    standin.poke();
+    return run(...args);
+  };
+  await standin.script({ silent: true });
+  const base = standin.count('request');
+  const requests = () => standin.count('request') - base;
+  const calls = new Map();
+  const steps = [];
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
+  try {
+    for (const step of scenario.admission) {
+      if ('start' in step) {
+        const abort = step.cancellable ? new AbortController() : null;
+        const entry = { abort, answer: null };
+        const gatedBefore = gated;
+        const requestsBefore = requests();
+        entry.done = runOf(step.call, abort ? { signal: abort.signal } : {})().then(
+          (raw) => outcomeOf(raw, step.call.tool),
+          (error) => ({ thrown: scrub(String(error?.message ?? error)) }),
+        ).then((answer) => {
+          entry.answer = answer;
+          standin.poke();
+          return answer;
+        });
+        calls.set(step.start, entry);
+        const what = `${scenario.name}: ${step.start}'s ${step.until}`;
+        if (step.until === 'server') await standin.waitFor(() => requests() > requestsBefore, what);
+        else if (step.until === 'queued') await standin.waitFor(() => gated > gatedBefore, what);
+        else await standin.waitFor(() => entry.answer, what);
+        steps.push({ ...step, requests: requests(), ...(step.until === 'answered' ? { answer: entry.answer } : {}) });
+      } else if ('tick' in step) {
+        mock.timers.tick(step.tick);
+        steps.push({ ...step });
+      } else if ('script' in step) {
+        await standin.script({ observe: true });
+        steps.push({ ...step });
+      } else if ('abort' in step) {
+        calls.get(step.abort).abort.abort();
+        steps.push({ ...step });
+      } else {
+        const entry = calls.get(step.settle);
+        const answer = await standin.waitFor(() => entry.answer, `${scenario.name}: ${step.settle}'s answer`);
+        // The searches that reached the server are counted at the end only: a holder's end admits the waiter behind it a
+        // turn of Node's loop later, so the count at the holder's own answer is not fixed.
+        steps.push({ ...step, ...(step === scenario.admission.at(-1) ? { requests: requests() } : {}), answer });
+      }
+    }
+  } finally {
+    mock.timers.reset();
+  }
+  return { admission: steps };
+}
+
 // A free drive letter standing for `dir`; released when this process exits.
 function mountDrive(dir) {
   for (const letter of 'ZYXWVUTSRQ') {
@@ -1557,6 +1645,11 @@ if (process.argv[2] === '--child') {
   }
   if (scenario.stalled) {
     writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(await recordStalled(scenario, standin, runOf, settle)));
+    process.exit(0);
+  }
+  if (scenario.admission) {
+    const gates = await imp('src/runtime/shared/tool-workload-gates.mjs');
+    writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(await recordAdmission(scenario, standin, runOf, outcomeOf, scrub, gates)));
     process.exit(0);
   }
   for (const call of scenario.calls) {
@@ -1710,6 +1803,7 @@ try {
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
           'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
           'a comparison of the stand-in\'s saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal\'s fields as server.rs writes them, the scheduler telemetry taken from the real server\'s answer to the same request; search-queue-burst fills the real server\'s queue and records its refusals and answer order',
+          'search-admission-*: a call Node ended with an exception for its cancel (`thrown`: "This operation was aborted", a waiter\'s abort reason, and "operation aborted", a running search\'s) is a call whose cancel the core answers as its Cancelled outcome: the text of an abort exception is Node\'s runtime\'s, and the core\'s runtime states a cancel as its own outcome; the replay compares the outcome\'s kind, not that text. The search server of these scenarios is a stand-in (lib/search-server-standin.mjs, silent until a step sets `observe`), and the searches that reached it are counted (`requests`); the core\'s counterpart counts the walks and text searches that reached its file service',
           'search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call\'s request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait): when made, when admitted from the queue, or before its walk or a file open would read on that volume (a volume by the filesystem\'s identity: on Windows the volume GUID of the path\'s volume mount point, through junctions; on Unix the mount\'s device, a mount point below the root its own volume); Node has no answer for one stalled subtree, as a stalled read stalls its whole request, so the whole search gets that answer; the given-up threads one volume holds stay within 8 - 1 plus the searches that run at once (80 with the defaults: 8 + 1 interactive + 64 local walks), the searches already reading on the volume when it reached 8 being given up too; a refusal is by the root\'s volume as it is now: one fixed by the root\'s text (no junction, mounted folder, link, subst or mapped drive between) is refused at once, any other search is admitted and refused once its producer told its root\'s volume afresh, so a junction retargeted to a healthy volume is served; a stall while a root\'s volume is told is charged to that root\'s telling, which only searches of that root are admitted by; and the process as a whole holds at most 24 given-up threads (three volumes\' worth) before every search, on any volume, gets that answer, which keeps the given-up threads of the process within 24 - 1 plus the searches that run at once (23 + 8 + 1 + 64 = 96 with the defaults); at 24 stranded threads every search is refused: this protects the process, and Node\'s server would be dead in that state',
         ],
       },

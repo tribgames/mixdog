@@ -1,0 +1,69 @@
+{
+  "name": "search-admission-admitted",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "requests": 1
+    },
+    {
+      "tick": 5000
+    },
+    {
+      "start": "waiter",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "u"
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "tick": 12500
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "text": "Error: rg failed for t: native file inventory search timed out after 17500ms.",
+        "isError": true
+      }
+    },
+    {
+      "settle": "waiter",
+      "requests": 2,
+      "answer": {
+        "text": "u/d.ts",
+        "isError": false
+      }
+    }
+  ]
+}
