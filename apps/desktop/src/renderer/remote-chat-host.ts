@@ -1,10 +1,10 @@
 // PH-2 "Chat" calls that need more than a request mapping, over `mixdogd`: the three start calls (Node's blank snapshot, no
 // thread), the remote-session fields every snapshot carries, transcript paging, the stale-view refusal, and the refusal
 // texts. Each answers what Node's host (b6f10295a) answered the phone; the expectations are its recordings
-// (native/core/fixtures/phone-chat/host.json, remote-protocol-chat-host.test.mjs).
+// (native/core/fixtures/phone-chat/host.json, remote-chat-host.test.mjs).
 //
 // It wraps the base adapter of remote-protocol-chat.ts (`createChatApi`) and replaces only the calls it owns:
-//   import { createChatHostApi } from './remote-protocol-chat-host.ts';
+//   import { createChatHostApi } from './remote-chat-host.ts';
 //   const api = createChatHostApi(client, shared, createChatApi(client, shared, options), hostOptions);
 import type {
   DesktopNewTaskSubmitResult,
@@ -17,14 +17,15 @@ import type {
 import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from '../shared/blank-snapshot.ts';
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
+// Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
-import { READ_NOT_VIEWED } from './remote-protocol-chat.ts';
+
+// remote-session-methods.ts READ_NOT_VIEWED / READ_NOT_HELD
+export const READ_NOT_VIEWED = 'This session is not open on this device.';
+export const READ_NOT_HELD = 'This row is not in the transcript this device holds.';
 
 /** remote-methods.ts STALE_SESSION_VIEW_MESSAGE. */
 export const STALE_SESSION_VIEW_MESSAGE = 'This conversation changed on another device. Review the latest messages, then send again.';
-
-/** The core's code for a submit Node refused (empty text, a closed or terminal session, a failed steering mirror, a retired agent home). */
-export const SUBMIT_REFUSED = 'SUBMIT_REFUSED';
 
 /** ipc-validation.ts: the page size of a historical-position read. */
 const HISTORY_PAGE_ITEMS = 512;
@@ -84,8 +85,26 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
   } as DesktopTranscriptHistoryRequest;
 }
 
+/** Whether Node's submission intake would take this prompt: `promptDisplayText` (queue-helpers.mjs:89) of it is not blank, or the submit names a
+ *  display text (submission.mjs:14-15 answers `false` otherwise, and the host's reply is `false` / `accepted: false`). The text is
+ *  `promptContentText` (prompt-utils.mjs:10) of the content without its attachment-reference parts. The core takes a blank prompt and
+ *  starts an empty turn, so the refusal is made here, before anything is sent. */
+function showsText(prompt: unknown, submit: unknown): boolean {
+  const displayText = (submit as { displayText?: unknown } | null)?.displayText;
+  if (typeof displayText === 'string' && displayText.trim()) return true;
+  const shown = Array.isArray(prompt)
+    ? prompt.filter((part) => !(part?.type === 'text' && part.attachmentReference && typeof part.text === 'string'))
+    : prompt;
+  const text = Array.isArray(shown)
+    ? shown
+        .map((part) => (typeof part === 'string' ? part : part?.type === 'image' ? '[Image]' : part?.text || ''))
+        .filter(Boolean)
+        .join('\n')
+    : String(shown ?? '');
+  return text.trim() !== '';
+}
+
 const reasonOf = (error: unknown): unknown => (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
-const refused = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === SUBMIT_REFUSED;
 
 export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
   const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
@@ -122,24 +141,17 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     startProjectTask: (projectPath: string): Promise<SessionSnapshot> => start('startProjectTask', requiredString(projectPath, 'projectPath')),
     submitToSession: async (sessionId: string, prompt: DesktopPromptContent, submit: DesktopSubmitOptions = {}): Promise<boolean> => {
       if (await staleView(sessionId)) throw new Error(STALE_SESSION_VIEW_MESSAGE);
-      try {
-        return await base.submitToSession(sessionId, prompt, submit);
-      } catch (error) {
-        if (refused(error)) return false;
-        throw error;
-      }
+      if (!showsText(prompt, submit)) return false;
+      return base.submitToSession(sessionId, prompt, submit);
     },
     submitNewTask: async (
       prompt: DesktopPromptContent,
       submit: DesktopSubmitOptions = {},
       draft: Parameters<ChatApi['submitNewTask']>[2] = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
-      try {
-        return decorated(await base.submitNewTask(prompt, submit, draft)) as DesktopNewTaskSubmitResult;
-      } catch (error) {
-        if (!refused(error)) throw error;
-        return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
-      }
+      if (!showsText(prompt, submit)) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
+      const started = await base.submitNewTask(prompt, submit, draft);
+      return (started.snapshot ? { ...started, snapshot: decorated(started.snapshot) } : started) as DesktopNewTaskSubmitResult;
     },
     inheritSession: async (...args: Parameters<ChatApi['inheritSession']>) => {
       const forked = await base.inheritSession(...args);

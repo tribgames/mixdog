@@ -127,6 +127,7 @@ impl ListOverlay for Live {
             awaiting_approval: live["awaitingApproval"].as_bool(),
             awaiting_question: live["awaitingQuestion"].as_bool(),
             handed_by: live["handedBy"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("agent id").to_owned()).collect()),
+            ..RowOverlay::default()
         }
     }
 }

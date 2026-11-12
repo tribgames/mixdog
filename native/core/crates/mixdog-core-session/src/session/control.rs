@@ -152,6 +152,11 @@ pub(crate) struct ActiveRun {
     pub steers: Mutex<VecDeque<QueuedId>>,
     /// The prompt that started the run: what a stop may hand back (`flags.activePromptRestore`).
     pub prompt: Arc<super::stop::PromptState>,
+    /// The `user`/`assistant` context rows the run committed after its input. Node's saved `session.messages` (what the catalog
+    /// row's `messageCount` counts) holds the history and the turn's prompt while the turn runs (`precommitUserTurn`,
+    /// `ask-turn-execute.mjs:121-123`: the loop works on `liveTurnMessages`) and takes the turn's other rows when it settles
+    /// (`ask-turn-settle.mjs:113`); the listed row leaves these out until the run ends.
+    pub unsaved_messages: std::sync::atomic::AtomicU64,
 }
 
 /// Whether a thread, or the control start that becomes it, has not ended. Every end (a close of the thread's cell, an abandoned
@@ -274,6 +279,8 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// Where the thread's moved live facts republish its roster row (the directory's, bound once by the composition).
+    pub live_rows: LiveRowsCell,
     /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub recovered: std::sync::atomic::AtomicBool,
@@ -296,7 +303,17 @@ pub(crate) struct ControlCell {
     pub record_marks: Arc<mixdog_rt::WriteMarks>,
 }
 
+/// The directory's binding of [`super::thread_edges::LiveRows`], shared by every cell.
+pub(crate) type LiveRowsCell = Arc<std::sync::OnceLock<Arc<super::thread_edges::LiveRows>>>;
+
 impl ControlCell {
+    /// The live facts the roster lays over the thread's row moved (its turn, the approval it shows).
+    pub fn live_changed(&self) {
+        if let Some(rows) = self.live_rows.get() {
+            rows.changed(&self.thread);
+        }
+    }
+
     /// The attaches counted now.
     pub fn attached(&self) -> usize {
         self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & COUNT
@@ -446,7 +463,7 @@ impl ControlCell {
     }
 
     /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
-    /// (`abortRuntime`, `cli-abort`). The cancel is fired before this returns and a full control lane cannot
+    /// (`abortRuntime`, `user-cancel`). The cancel is fired before this returns and a full control lane cannot
     /// refuse it; the run stops at its next poll and its `run{interrupted}` record follows through the control
     /// reserve.
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
@@ -460,7 +477,7 @@ impl ControlCell {
         } else if restore_prompt == Some(false) {
             "user-cancel-keep-prompt"
         } else {
-            mixdog_agent::cancel::CLI_ABORT
+            mixdog_agent::cancel::USER_CANCEL
         };
         self.abort(turn, &mixdog_agent::cancel::Abort::runtime_abort(self.thread.as_str(), name))
     }
@@ -537,6 +554,7 @@ impl ControlCell {
 
     pub fn publish_run(&self, run: Option<Arc<ActiveRun>>) {
         self.run.store(run);
+        self.live_changed();
     }
 }
 

@@ -12,6 +12,9 @@ mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
+# The phone's streaming mailbox (stream_mailbox.rs) judges a text append on the session state's JSON, with JS string rules.
+mixdog-js = { workspace = true }
+serde_json = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 thiserror = { workspace = true }
@@ -25,7 +28,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 # The relay-only grant is judged by the real server's origin gate, behind the real listener.
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
-serde_json = { workspace = true }
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros", "test-util"] }

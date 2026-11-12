@@ -150,19 +150,20 @@ impl SessionDirectory {
             return Err(CoreError::InvalidParams { path: "caller".into(), expected: "a client connection".into() });
         };
         let handle = self.handle(&params.thread_id);
-        let shown = handle.as_ref().and_then(|handle| handle.cell.shown_approval.load_full()).filter(|request| request.id.0.to_string() == id);
+        // The phone names the approval by the id its card shows (`room_approval::card_id`).
+        let shown = handle.as_ref().and_then(|handle| handle.cell.shown_approval.load_full()).filter(|request| super::room_approval::card_id(&request.id.0.to_string()) == id);
         let decision = match params.action {
             ApprovalNotificationAction::Allow => shown.as_ref().and_then(|request| allow_once_decision(&tool_approval(request))),
             ApprovalNotificationAction::Deny => Some(json!({ "approved": false })),
         };
         let Some(decision) = decision else { return reply(ApprovalNotificationOutcome::Open) };
-        let (Some(handle), Some(_)) = (handle, shown) else { return reply(ApprovalNotificationOutcome::Settled) };
+        let (Some(handle), Some(shown)) = (handle, shown) else { return reply(ApprovalNotificationOutcome::Settled) };
         let device = handle.deps.devices.describe(connection);
         // Answered once the session took it: a decision another connection got in first is `settled`, as Node's `accepted` false
         // (remote-session-methods.ts:207-214).
         let accepted = handle
             .decide_arbitrated(Decision {
-                request: ServerRequestId(id.to_owned()),
+                request: ServerRequestId(shown.id.0.to_string()),
                 connection,
                 device: device.device,
                 connection_kind: device.kind,

@@ -119,6 +119,8 @@ pub(crate) struct SessionState {
     pub queue: Vec<Queued>,
     pub window: VecDeque<WindowItem>,
     pub has_older: bool,
+    /// The newest acked user row that shows no row (a kickoff): its iid and ordinal, so its turn's own rewind finds it.
+    pub hidden_prompt: Option<(String, u64)>,
     pub live: Vec<LiveItem>,
     pub sections: ThreadState,
     pub view_items: usize,
@@ -126,6 +128,8 @@ pub(crate) struct SessionState {
     pub prompt_session: Vec<String>,
     pub prompt_persisted: Vec<String>,
     pub prompt_history: Vec<String>,
+    /// A thread created here, before its first status pass (a status signal tells no listener before it).
+    pub status_pending: bool,
 }
 
 impl SessionState {
@@ -265,6 +269,11 @@ impl SessionState {
                     self.remerge_prompts();
                 }
                 let mut messages = u32::from(item.model);
+                if item.role.as_ref().is_some_and(|role| role.as_str() == "user") &&(!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_))))) {
+                    if let Some(ordinal) = ordinal {
+                        self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
+                    }
+                }
                 let Display::Items(shown) = display else {
                     if let Some(last) = self.window.back_mut() {
                         last.messages += messages;
@@ -327,8 +336,15 @@ impl SessionState {
                 RunPhase::Started => {
                     let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
                     self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
-                    // Node's `state.busy` is set when `runTurn` begins; the run's end clears the section below.
-                    self.sections.runtime.get_or_insert_with(ThreadRuntime::default).busy = true;
+                    // `turn.mjs` `runTurn`: the turn begins busy, its spinner requesting (the session's toasts, running tools and
+                    // `setupChanged` stay the session's own); the run's end clears the section below.
+                    let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                    runtime.busy = true;
+                    if let Some(at) = run.at {
+                        let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
+                        let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                        runtime.spinner = Some(super::spinner::started(turns, at));
+                    }
                 }
                 RunPhase::Attempt => {}
                 RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
@@ -460,6 +476,11 @@ impl SessionState {
             }
             Section::Toasts(toasts) => s.runtime.get_or_insert_with(ThreadRuntime::default).toasts = toasts,
             Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
+            Section::Spinner(fields) => {
+                if let Some(Value::Object(spinner)) = s.runtime.as_mut().and_then(|runtime| runtime.spinner.as_mut()) {
+                    spinner.extend(fields);
+                }
+            }
             // `turn-quiet.mjs`: no spinner (the turn has ended) takes no quiet state.
             Section::SpinnerQuiet(quiet) => {
                 if let Some(Value::Object(spinner)) = s.runtime.as_mut().and_then(|runtime| runtime.spinner.as_mut()) {
@@ -490,11 +511,13 @@ impl SessionState {
         }
     }
 
-    /// The queued prompts the composer shows; a queued completion is runtime input, not one.
+    /// The queued prompts the composer shows; a queued completion is runtime input, not one, nor is a kickoff put back by a stop
+    /// (`isMeta`, `isQueuedEntryVisible`, queue-helpers.mjs).
     pub fn queued_rows(&self) -> Vec<Value> {
         self.queue
             .iter()
             .filter(|q| !super::completions::is_notification(&q.entry))
+            .filter(|q| q.entry.pointer("/options/kickoff") != Some(&Value::Bool(true)))
             .map(|q| q.display.clone())
             .collect()
     }
@@ -659,7 +682,8 @@ pub(crate) fn title_of(header: &Header) -> Option<String> {
 /// Today's `toolApprovalResult` for a resolution.
 pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> ToolApprovalResult {
     let mut result = ToolApprovalResult {
-        id: aid.to_owned(),
+        // The id the card showed (`room_approval::card_id`), as Node's result named its card's.
+        id: super::room_approval::card_id(aid),
         approved: false,
         device: String::new(),
         at: 0,

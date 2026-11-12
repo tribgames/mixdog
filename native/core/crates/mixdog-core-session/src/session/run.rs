@@ -400,6 +400,24 @@ pub(crate) enum RunShown {
     ModelRequest { request_index: u32, phase: mixdog_app_protocol::v2::thread::ModelRequestPhase, tool_calls: Option<Vec<Value>> },
     /// The tool batch of a request (`thread/toolBatch/updated`).
     ToolBatch { request_index: u32, phase: mixdog_app_protocol::v2::thread::ToolBatchPhase, iteration: Option<u32>, calls: Option<u32>, duration_ms: Option<u64> },
+    /// A mark of the model call the spinner follows (`streamHandlers`, `turn-live-call.mjs`).
+    Call(CallMark),
+}
+
+/// A step of one model call, as the spinner hears it (`turn.mjs` `streamHandlers` at b6f10295a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallMark {
+    /// The `streaming` stage: the response began.
+    Streaming,
+    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`), and its batch opens
+    /// (`openToolCalls`: `closeThinkingForToolBatch` with `taskWaitSpinnerMode`).
+    ToolCall,
+    /// A call waits for the person's answer (`approveToolRequest`: the spinner's `tool-approval` mode).
+    ToolApproval,
+    /// A call passed its gate without an ask: the step's held publication goes out (see `Actor::step_hold`).
+    Authorized,
+    /// The tool batch is over and the turn goes back to the model (`onToolPhaseCompleted`: `requesting`).
+    ToolPhaseCompleted,
 }
 
 /// What a compaction pass's summary model used (ccumulateCompactUsage).
@@ -523,6 +541,9 @@ pub struct RunPort {
     /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters
     /// are prepared for the provider the reports will be priced on.
     pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    /// The run a replay's settled signal counts this port's waits on (a tool's approval waits on the tool's task).
+    #[cfg(feature = "replay-settled")]
+    pub(crate) replay_run: mixdog_ai::transport::replay_bytes::Run,
 }
 
 impl RunPort {
@@ -714,6 +735,11 @@ impl RunPort {
         self.shown(RunShown::SearchUsage(delta)).await
     }
 
+    /// A step of the model call the spinner follows.
+    pub async fn call_mark(&self, mark: CallMark) -> Result<(), RunError> {
+        self.shown(RunShown::Call(mark)).await
+    }
+
     /// A stage the client shows as its status, never a transcript row: `thread/stage/updated`.
     pub async fn stage(&self, stage: String, detail: Option<Value>) -> Result<(), RunError> {
         self.shown(RunShown::Stage { stage, detail }).await
@@ -817,7 +843,12 @@ impl ApprovalGate for RunPort {
         let asked = self
             .scoped(async {
                 self.ctl.send(msg).await.map_err(|_| RunError::Closed)?;
-                (&mut rx).await.map_err(|_| RunError::Closed)
+                // The user's decision is a replay's input (its settled signal).
+                #[cfg(feature = "replay-settled")]
+                let decided = mixdog_ai::transport::replay_bytes::turn_parked(Some(&self.replay_run), &mut rx).await;
+                #[cfg(not(feature = "replay-settled"))]
+                let decided = (&mut rx).await;
+                decided.map_err(|_| RunError::Closed)
             })
             .await;
         match asked {
@@ -854,6 +885,8 @@ mod cancel_tests {
             provider: None,
             meters: Arc::new(crate::session::testing::TestCompaction::default()),
             meters_provider: Arc::new(String::new),
+            #[cfg(feature = "replay-settled")]
+            replay_run: Default::default(),
         };
         (port, rx, ctl_rx, cancel)
     }

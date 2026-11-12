@@ -103,6 +103,13 @@ pub trait ThreadHandle: FeedSource + RunControl {
     /// durable in the actor (P §7.2), never after model or tool work. A full actor inbox
     /// answers `queueFull` to a connection caller at once.
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError>;
+
+    /// `turn/interrupt` of a client that names no turn (Node's `abortSession({sessionId})`: the user's Stop of whatever the session
+    /// runs): the same as `interrupt` for the turn running now, whose id the reply carries. `turnNotActive` when none runs. A handle
+    /// with no run state of its own (a mock) never has one.
+    fn interrupt_active(&self, _restore_prompt: Option<bool>) -> Result<Value, CoreError> {
+        Err(CoreError::TurnNotActive { thread_id: self.id().clone(), turn_id: None })
+    }
 }
 
 /// The C0 control plane of a thread. Every method returns without waiting.

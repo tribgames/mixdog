@@ -62,6 +62,8 @@ use mixdog_core_api::sink::SnapshotSlot;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+use crate::append_batch::Appends;
+use crate::append_batch::Out;
 use crate::connection::ConnectionOrigin;
 use crate::socket::SocketWrite;
 
@@ -410,10 +412,15 @@ struct State {
     lagged: VecDeque<u64>,
     recovering: Option<u64>,
     next_slot: u64,
+    /// A `feedRanges` peer's text appends being coalesced ([`crate::append_batch`]).
+    appends: Appends<Reservation>,
+    /// Frames out of the coalescing, in write order, ahead of anything picked after them.
+    ready: VecDeque<Out<Reservation>>,
 }
 
 impl State {
     fn lag(&mut self, serial: u64) -> usize {
+        self.appends.drop_lane(serial);
         let Some(lane) = self.lanes.get_mut(&serial) else {
             return 0;
         };
@@ -435,6 +442,7 @@ impl State {
     /// Removes a lane and every trace of it; the lane (and its reservations) is returned so
     /// the caller drops it outside the lock.
     fn remove_lane(&mut self, serial: u64) -> Option<LaneQueue> {
+        self.appends.drop_lane(serial);
         let lane = self.lanes.remove(&serial)?;
         lane.budget.void();
         if self.by_sub.get(&lane.sub) == Some(&serial) {
@@ -531,6 +539,8 @@ pub(crate) struct Shared {
     /// Cancelled to stop the socket tasks without waiting for the peer.
     pub(crate) abort: CancellationToken,
     media: OnceLock<Arc<dyn HostMediaSink>>,
+    /// The peer announced `feedRanges`: text appends are coalesced ([`crate::append_batch`]).
+    appends_on: AtomicBool,
 }
 
 impl Shared {
@@ -564,7 +574,26 @@ impl Shared {
             gone: CancellationToken::new(),
             abort: CancellationToken::new(),
             media: OnceLock::new(),
+            appends_on: AtomicBool::new(false),
         }
+    }
+
+    /// `frame` (of lane `lane`, none for a control frame) is next in write order: through the coalescing for a `feedRanges` peer.
+    fn through(&self, state: &mut State, lane: Option<u64>, frame: Bytes, hold: Reservation) -> Work {
+        if !self.appends_on.load(Ordering::Acquire) {
+            return Work::Text(frame, hold);
+        }
+        let out = state.appends.admit(lane, frame, hold, tokio::time::Instant::now());
+        state.ready.extend(out);
+        match state.ready.pop_front() {
+            Some((frame, holds)) => Work::Batch(frame, holds),
+            None => Work::Held,
+        }
+    }
+
+    /// When the coalescing's window ends, if one is open.
+    fn appends_due(&self) -> Option<tokio::time::Instant> {
+        self.lock().appends.due()
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -689,6 +718,9 @@ impl Shared {
             state.lagged.clear();
             state.recovering = None;
             state.by_sub.clear();
+            // Clear on disconnect: no held append or coalesced frame outlives the connection.
+            state.appends.clear();
+            state.ready.clear();
             let lanes = std::mem::take(&mut state.lanes);
             self.sync_lag_flag(&state);
             lanes
@@ -786,6 +818,15 @@ impl Shared {
                 None => Work::Close(closing),
             };
         }
+        // What the coalescing let go goes before anything picked after it; a window that ended lets its appends go.
+        if self.appends_on.load(Ordering::Acquire) {
+            if let Some(out) = state.appends.fire(tokio::time::Instant::now()) {
+                state.ready.push_back(out);
+            }
+            if let Some((frame, holds)) = state.ready.pop_front() {
+                return Work::Batch(frame, holds);
+            }
+        }
         if state.recovering.is_none()
             && let Some(&serial) = state.lagged.front()
             && let Some(reservation) = self.take_for(&mut state, serial, self.limits.max_snapshot)
@@ -814,7 +855,7 @@ impl Shared {
                     lane.released = true;
                 }
                 // The reserve stays charged until the socket has taken the frame.
-                return Work::Text(queued.frame, queued.hold);
+                return self.through(&mut state, None, queued.frame, queued.hold);
             }
             Some(Pick::Lane(serial)) => serial,
         };
@@ -838,7 +879,7 @@ impl Shared {
         }
         if ordered && !was_slot {
             // An ordered frame holds the ordered reserve, which no lag can void.
-            return Work::Text(frame, reservation);
+            return self.through(&mut state, Some(serial), frame, reservation);
         }
         // From here the frame belongs to the writer, not to the lane: a lag cannot take it
         // back, and it stays charged until the socket has taken it.
@@ -848,7 +889,7 @@ impl Shared {
             self.budget.force_take(bytes);
         }
         let budget: Arc<dyn ByteBudget> = self.budget.clone();
-        Work::Text(frame, Reservation::new(bytes, budget))
+        self.through(&mut state, Some(serial), frame, Reservation::new(bytes, budget))
     }
 
     /// After a recovery attach returned: a lane that is still lagged and still the recovering
@@ -870,6 +911,10 @@ impl Shared {
 enum Work {
     /// A text frame and the bytes it holds until the socket has taken it.
     Text(Bytes, Reservation),
+    /// A frame out of the coalescing (one append, or the appends of a window joined) and what its frames held.
+    Batch(Bytes, Vec<Reservation>),
+    /// The picked frame was held by the coalescing: pick again.
+    Held,
     Ping,
     Recover {
         recovery: Arc<dyn LaneRecovery>,
@@ -891,6 +936,12 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
                 drop(hold);
                 sent
             }
+            Work::Batch(frame, holds) => {
+                let sent = guarded(&shared, socket.text(frame)).await;
+                drop(holds);
+                sent
+            }
+            Work::Held => true,
             Work::Ping => guarded(&shared, socket.ping()).await,
             Work::Recover {
                 recovery,
@@ -907,12 +958,18 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
                 return;
             }
             Work::Close(Closing::Peer) => return,
-            Work::Idle => {
-                tokio::select! {
+            Work::Idle => match shared.appends_due() {
+                // A coalescing window ends on the clock, not on a new frame.
+                Some(due) => tokio::select! {
+                    () = shared.budget.wake.notified() => true,
+                    () = mixdog_rt::time::sleep_until(due) => true,
+                    () = shared.abort.cancelled() => false,
+                },
+                None => tokio::select! {
                     () = shared.budget.wake.notified() => true,
                     () = shared.abort.cancelled() => false,
-                }
-            }
+                },
+            },
         };
         if !step {
             // The socket failed or was abandoned: nothing more can be written.
@@ -986,6 +1043,12 @@ impl ConnectionWriter {
     pub fn grant_host_media(&self, sink: Arc<dyn HostMediaSink>) -> bool {
         self.shared.media.set(sink).is_ok()
     }
+
+    /// A coalescing window is open (a replay compares it with Node's pending batch timer).
+    #[doc(hidden)]
+    pub fn appends_window_open(&self) -> bool {
+        self.shared.appends_due().is_some()
+    }
 }
 
 impl ConnectionSink for ConnectionWriter {
@@ -995,6 +1058,10 @@ impl ConnectionSink for ConnectionWriter {
 
     fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
         self.shared.queue_control(frame, None)
+    }
+
+    fn coalesce_appends(&self) {
+        self.shared.appends_on.store(true, Ordering::Release);
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {

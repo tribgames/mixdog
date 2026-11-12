@@ -432,6 +432,7 @@ async fn run(options: Json, steps: Vec<Json>, net: Arc<dyn Net>) {
                     id: s["id"].as_str().unwrap().into(),
                     epoch: s["epoch"].as_str().unwrap().into(),
                     seq: s["seq"].as_u64().unwrap(),
+                    from: None,
                 };
                 assert_eq!(f, Some(want));
             }

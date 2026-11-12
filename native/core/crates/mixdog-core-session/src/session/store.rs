@@ -166,6 +166,11 @@ impl Projector {
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
         let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
+        #[cfg(feature = "replay-settled")]
+        {
+            let pending = pending.clone();
+            super::replay_settled::watch(move || (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight"));
+        }
         tokio::spawn(async move {
             let _mark = mark;
             while let Some(msg) = rx.recv().await {
@@ -182,6 +187,8 @@ impl Projector {
                             Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
                         }
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        #[cfg(feature = "replay-settled")]
+                        super::replay_settled::changed();
                     }
                     Projecting::Flush(done) => drop(done.send(())),
                     Projecting::Hold { reached, release } => {

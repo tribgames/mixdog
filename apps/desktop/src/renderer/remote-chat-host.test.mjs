@@ -11,9 +11,9 @@ import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
-import { createChatApi } from './remote-protocol-chat.ts';
-import { createChatHostApi } from './remote-protocol-chat-host.ts';
-import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
+import { createChatApi, foldTranscript } from './remote-protocol-chat.ts';
+import { createChatHostApi } from './remote-chat-host.ts';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const recorded = read('../../../../native/core/fixtures/phone-chat/host.json');
@@ -73,7 +73,10 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     coreErrorForWindow,
     normalizedProviderModels: (rows) => rows,
     sessionStateOf: () => state,
-    transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
+    whenFolded: (_threadId, resume) => resume().then(() => undefined),
+    whenSettled: async () => undefined,
+    approvalRequestId: (cardId) => cardId,
+    transcript: foldTranscript(client),
     foldRows,
   };
   const api = createChatHostApi(client, shared, createChatApi(client, shared, {}), { remoteSession: () => remoteSession });
@@ -162,12 +165,10 @@ const requestedPage = (request) => ({
   limit: request.limit,
   ...(request.byteBudget ? { byteBudget: request.byteBudget } : {}),
 });
-const UNMATCHED = {
-  'stored-unsupported-reader': 'a Node daemon without historical positions; mixdogd always answers by cursor',
-};
+// 'stored-unsupported-reader' is a Node daemon older than the phone (no historical-position reader) answering an empty page with `reset: true`. No core
+// is without the reader, but the core answers the same page through cursorInvalidated (a cursor the thread no longer holds), which is what is replayed.
 for (const c of recorded.cases.filter((x) => x.group === 'history')) {
-  test(`${c.name}: the page and its flags are Node's`, async (t) => {
-    if (UNMATCHED[c.name]) return t.skip(UNMATCHED[c.name]);
+  test(`${c.name}: the page and its flags are Node's`, async () => {
     // The phone's page is the wire answer without its sessionId (session-host-transport.ts readTranscriptHistory keeps items, flags, positions, reset).
     const { sessionId: _wire, ...answer } = c.node.result;
     const request = c.args[1];
@@ -251,24 +252,68 @@ for (const c of recorded.cases.filter((x) => x.group === 'home')) {
   });
 }
 
-// ── a submit Node refused answers false ───────────────────────────────────────────────────────────────────────────────────────
-const chatCase = (name) => chat.cases.find((c) => c.name === name);
-test('submitToSession refused: false', async () => {
-  const c = chatCase('submitToSession-refused');
-  const { api } = adapter({ replies: { 'turn/start': domainError('SUBMIT_REFUSED', 'The message is empty.') } });
-  assert.equal(await api.submitToSession(...c.args), c.node.result);
-});
-test('submitNewTask refused: not accepted, no thread, no snapshot', async () => {
-  const c = chatCase('submitNewTask-refused');
-  const { api } = adapter({ replies: { 'thread/start': domainError('SUBMIT_REFUSED', 'The message is empty.') } });
-  assert.deepEqual(await api.submitNewTask(...c.args), c.node.result);
-});
-test('a failure that is not a refusal still throws', async () => {
+// ── a prompt Node's intake refuses answers false ──────────────────────────────────────────────────────────────────────────────
+// roster.recorded.json `refusals`: Node's real host (session-host.ts) asked, on a real session, to submit a blank prompt (submission.mjs:14-15).
+// The phone's answer is the same and nothing is sent: the core takes a blank prompt and starts an empty turn.
+const nodeRefusals = verifiedFixture('roster').recordings[0].refusals;
+for (const [name, node] of Object.entries(nodeRefusals)) {
+  test(`${name}: Node's refusal, and nothing reaches the core`, async () => {
+    const call = name.slice(0, name.indexOf(' '));
+    const prompt = JSON.parse(name.slice(call.length + 1));
+    const { api, sent } = adapter({});
+    const got = call === 'submitToSession' ? await api.submitToSession(S, prompt, { id: 'blank' }) : await api.submitNewTask(prompt, { id: 'blank' }, {});
+    assert.deepEqual(got, node);
+    assert.deepEqual(sent, []);
+  });
+}
+test('a failure of a real send still throws', async () => {
   const { api } = adapter({ replies: { 'turn/start': domainError('OTHER', 'boom') } });
   await assert.rejects(api.submitToSession(S, 'hi', {}), { message: 'boom' });
 });
 
-
+// ── the chat recording's cases this adapter answers (remote-protocol-chat.test.mjs lists them as owned here) ─────────────────────
+// `refusals.recorded.json` holds what a running mixdogd answered to the phone's own requests for them (remote-protocol-chat-refusals.record.mjs).
+const core = verifiedFixture('refusals').recordings[0];
+const coreReply = (name) => {
+  const { reply } = core.cases.find((x) => x.name === name);
+  return reply.error
+    ? Object.assign(new Error(reply.error.message), { detail: { kind: 'rpc', code: reply.error.code, reason: reply.error.data?.reason, message: reply.error.message, data: reply.error.data } })
+    : reply.result;
+};
+const chatCase = (name) => chat.cases.find((c) => c.name === name);
+test('startProjectTask of an unregistered Project: the core\'s refusal reads as Node\'s', async () => {
+  const c = chatCase('startProjectTask-unknown');
+  const { api, sent } = adapter({ replies: { 'project/directory': coreReply('startProjectTask-unknown') } });
+  const got = await outcome(() => api.startProjectTask(...c.args));
+  assert.equal(got.error.message, c.node.error);
+  assert.equal(sent[0].method, core.cases.find((x) => x.name === 'startProjectTask-unknown').request.method);
+});
+test('openAgentHome of an unknown agent: the core\'s refusal reads as Node\'s', async () => {
+  const c = chatCase('openAgentHome-unknown-agent');
+  const { api, sent } = adapter({ replies: { 'agent/home/open': coreReply('openAgentHome-unknown-agent') } });
+  const got = await outcome(() => api.openAgentHome(...c.args));
+  assert.equal(got.error.message, c.node.error);
+  assert.deepEqual(sent, [core.cases.find((x) => x.name === 'openAgentHome-unknown-agent').request].map(({ method, params }) => ({ method, params })));
+});
+test('agentRoomAction of an unknown action: Node\'s text, nothing sent', async () => {
+  const c = chatCase('agentRoomAction-unknown');
+  const { api, sent } = adapter({});
+  const got = await outcome(() => api.agentRoomAction(...c.args));
+  assert.equal(got.error.message, c.node.error);
+  assert.deepEqual(sent, []);
+});
+test('provideSecretInput of an id that is no secret request: false, nothing sent', async () => {
+  const c = chatCase('provideSecretInput-false');
+  const { api, sent } = adapter({});
+  assert.equal(await api.provideSecretInput(...c.args), c.node.result);
+  assert.deepEqual(sent, []);
+});
+test('the three start calls are replayed whole above', () => {
+  for (const name of ['startTask', 'startProject', 'startProjectTask-registered']) {
+    const c = chatCase(name);
+    assert.ok(recorded.cases.some((x) => x.group === 'start' && x.call === c.call), `${name}: no start case replays ${c.call}`);
+  }
+});
 // ── PH-1: every request this module writes carries the call's transmission claim ───────────────────────────────────────────────
 test('every request a host call writes is handed the call\'s claim', async () => {
   const stale = recorded.cases.find((x) => x.group === 'stale' && x.node.result.error);

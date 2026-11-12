@@ -53,13 +53,13 @@ rustls = { workspace = true, features = ["ring", "std"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
-mixdog-core ={ workspace = true, features = ["count-work", "test-support"] }
+mixdog-core ={ workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 futures = { workspace = true, features = ["alloc", "async-await", "std", "executor"] }
 mixdog-agent = { workspace = true, features = ["test-support"] }
-mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-agents = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
@@ -68,13 +68,13 @@ mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-services = { workspace = true, features = ["test-support"] }
+mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
