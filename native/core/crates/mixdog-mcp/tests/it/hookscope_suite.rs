@@ -71,7 +71,7 @@ async fn runs(hub: &McpHub, scope: &str) -> usize {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hook_runs_in_its_runtimes_scope_and_a_gone_runtime_has_none() {
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let dir = tempfile::tempdir().unwrap();
     let hooks = json!({"hooks": {"CwdChanged": [{"hooks": [{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]}]}});
     std::fs::write(dir.path().join("hooks.json"), hooks.to_string()).unwrap();

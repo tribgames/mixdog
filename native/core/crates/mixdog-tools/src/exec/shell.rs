@@ -70,8 +70,10 @@ use super::guard::guard_shell_call;
 use super::hoist::plan_hoist;
 use super::hygiene::preflight_powershell_hygiene;
 use super::invocation::EVAL_SCRIPT;
+use super::invocation::POWERSHELL_BOOTSTRAP;
 use super::invocation::build_powershell_filter_tee_plan;
 use super::invocation::filter_rescue_note;
+use super::invocation::frame_powershell_script;
 use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
 use super::invocation::wrap_with_snapshot;
@@ -323,6 +325,25 @@ fn spawn_failure(error: ProcessError) -> ToolError {
         ),
     };
     failed(code, format!("Error: [shell-tool-failed] [spawn failed]\n\n{detail}"))
+}
+
+/// The shell was ended by its run limit (the answer is the timeout's, as in Node, whose limit runs from the hand-off).
+fn ended_by_run_limit(job: &Job) -> bool {
+    matches!(job.exit(), Some(ProcessExit { killed: Some(KillReason::TimeLimit), .. }))
+}
+
+/// The command could not be handed to the shell whole, so it was ended unrun. Node b6f10295a discards the helper's write
+/// result (`stdinWrite`, `let _ = write_all`) and closed the input after a part, which its bootstrap ran
+/// (`node-fix-partial-script.patch` fixes both); here the call fails instead.
+fn input_failure(error: ProcessError) -> ToolError {
+    let code = match error {
+        ProcessError::Io { os_code } => ToolErrorCode::Io { os_code },
+        other => ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") },
+    };
+    failed(
+        code,
+        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run".to_owned(),
+    )
 }
 
 /// `_exitClassDiagnostic`.
@@ -742,6 +763,9 @@ impl ShellTool {
         )
         .await;
         let mut tee_path: Option<PathBuf> = None;
+        // A PowerShell script is fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh pwsh spawn,
+        // `shell-run-spawn.mjs`).
+        let mut fed_script: Option<String> = None;
         let spec = match direct {
             Some(direct) => CommandSpec::Argv {
                 program: direct.exe.to_string_lossy().into_owned(),
@@ -757,12 +781,11 @@ impl ShellTool {
                     let tee = build_powershell_filter_tee_plan(&command, &spill::fresh_token(), &tmp, '\\');
                     let body = tee.as_ref().map_or_else(|| command.clone(), |t| t.command.clone());
                     tee_path = tee.map(|t| PathBuf::from(t.tee_path));
-                    CommandSpec::Shell { script: prefix_powershell_utf8(&body, skill), shell: Some(shell_program) }
+                    fed_script = Some(prefix_powershell_utf8(&body, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if runtime.config.powershell {
-                    CommandSpec::Shell {
-                        script: prefix_powershell_skill_function(&command, skill),
-                        shell: Some(shell_program),
-                    }
+                    fed_script = Some(prefix_powershell_skill_function(&command, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
@@ -806,7 +829,7 @@ impl ShellTool {
             cwd,
             env,
             pty: None,
-            stdin_piped: false,
+            stdin_piped: fed_script.is_some(),
             output: OutputMode::Separate,
             owner: ProcessOwner::Tool {
                 thread_id: ctx.thread_id.clone(),
@@ -814,8 +837,18 @@ impl ShellTool {
             },
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
+        // A PowerShell script runs in the parked warm standby when it matches (`takeStandby`, `shell-run-spawn.mjs`),
+        // fed what the hand-off sets first; any miss spawns.
+        let fresh = request.handle.clone();
+        let standby = match (&fed_script, &request.command) {
+            (Some(_), CommandSpec::Shell { shell: Some(program), .. }) if runtime.config.warm_standby => {
+                runtime.standby.take(&ctx.processes, program, &request.env)
+            }
+            _ => None,
+        };
+        let hand_off = super::standby::hand_off_prelude(&request.env, &request.cwd.as_path().to_string_lossy());
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone())
+            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone())
             .await;
         let job = match started {
             Ok(job) => job,
@@ -826,15 +859,50 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
+        // The whole script, of any size, then end of input, written while the call holds: Node hands the helper the
+        // whole string in one `stdinWrite` and starts its hold and run limit at once (`shell-run-spawn.mjs`), so they cover
+        // a shell that does not read its input. The bootstrap runs the script only when the length its first line declares
+        // arrived (`frame_powershell_script`), and the input is closed only once all of it was written; a write that failed
+        // ends the tree (the process manager ends it before it lets go of the input) and the call fails, unless the run
+        // limit had ended the shell already.
+        let mut input_failed = None;
+        if let Some(mut script) = fed_script {
+            if job.handle != fresh {
+                script.insert_str(0, &hand_off);
+            }
+            let framed = frame_powershell_script(&script);
+            drop(script);
+            let (failed, failure) = tokio::sync::oneshot::channel();
+            let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
+            drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
+                match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
+                    Ok(()) => {
+                        let _ = processes.close_stdin(&handle);
+                    }
+                    Err(error) => {
+                        // A kill of a process that already exited is not an error.
+                        let _ = processes.kill(&handle);
+                        let _ = failed.send(error);
+                    }
+                }
+            }));
+            input_failed = Some(failure);
+        }
+        let write_failed = async {
+            match input_failed {
+                Some(failure) => match failure.await {
+                    Ok(error) => error,
+                    Err(_) => std::future::pending().await,
+                },
+                None => std::future::pending().await,
+            }
+        };
+        let mut write_failed = std::pin::pin!(write_failed);
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
         if let Some(path) = hoist_path {
-            let (lane, cancel, settled) = (runtime.config.lanes.durability, ctx.cancel.clone(), job.clone());
-            mixdog_rt::spawn("shell-hoist-cleanup", mixdog_rt::TaskClass::Work, async move {
-                settled.settled().await;
-                spill::remove_file(lane, &cancel, &path).await;
-            });
+            runtime.remove_when_settled(&job, path, ctx.cancel.clone());
         }
 
         let reason: PromotionReason;
@@ -878,6 +946,14 @@ impl ShellTool {
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
+                error = &mut write_failed => {
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    if ended_by_run_limit(&job) {
+                        return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                    }
+                    return Err(input_failure(error));
+                }
             }
         } else {
             tokio::select! {
@@ -885,6 +961,13 @@ impl ShellTool {
                 () = ctx.cancel.cancelled() => {
                     let _ = ctx.processes.kill(&job.handle);
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                }
+                error = &mut write_failed => {
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    if !ended_by_run_limit(&job) {
+                        runtime.release(&job.id);
+                        return Err(input_failure(error));
+                    }
                 }
             }
             runtime.release(&job.id);
@@ -894,11 +977,7 @@ impl ShellTool {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
-                let (lane, cancel, settled) = (runtime.config.lanes.durability, ctx.cancel.clone(), job.clone());
-                mixdog_rt::spawn("shell-tee-cleanup", mixdog_rt::TaskClass::Work, async move {
-                    settled.settled().await;
-                    spill::remove_file(lane, &cancel, &tee).await;
-                });
+                runtime.remove_when_settled(&job, tee, ctx.cancel.clone());
             }
             backgrounded(&job, &command, &guard_note, &background_message(reason, runtime.now_ms().saturating_sub(job.started_ms)))
         } else {

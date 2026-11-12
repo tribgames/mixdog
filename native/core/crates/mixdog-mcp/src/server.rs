@@ -13,7 +13,9 @@ use std::time::Instant;
 
 use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolOutput;
+use mixdog_rt::CpuBulk;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::LaneToken;
 use mixdog_rt::SpawnIo;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
@@ -31,6 +33,7 @@ use crate::config::scrub;
 use crate::http::HttpTransport;
 use crate::naming::PROVIDER_TOOL_NAME_MAX;
 use crate::naming::qualified_tool_name;
+use crate::output_schema::OutputValidators;
 use crate::result::OutputPolicy;
 use crate::result::ReportedError;
 use crate::result::Spiller;
@@ -56,6 +59,8 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub struct McpIo {
     pub spawn: SpawnIo,
     pub durability: DurabilityIo,
+    /// Where a result is checked against its tool's output schema.
+    pub cpu: CpuBulk,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -81,6 +86,8 @@ pub struct ToolCatalog {
 pub struct Ready {
     pub client: Arc<RpcClient>,
     pub catalog: Arc<ToolCatalog>,
+    /// The listed tools' `outputSchema` validators, which every `tools/call` result passes.
+    pub outputs: Arc<OutputValidators>,
     pub capabilities: Value,
     pub instructions: Option<String>,
 }
@@ -132,6 +139,9 @@ pub enum CallError {
     Rpc(#[from] RpcError),
     #[error("{}", .0.text)]
     Reported(ReportedError),
+    /// The result could not be checked against its output schema: the lane that checks it is full.
+    #[error("{0}; retry after running work completes")]
+    Overloaded(String),
 }
 
 pub struct McpServer {
@@ -403,8 +413,10 @@ impl McpServer {
         } else {
             Vec::new()
         };
+        let outputs = OutputValidators::of(&tools).map_err(ConnectError::Failed)?;
         Ok(Ready {
             catalog: Arc::new(build_catalog(&self.config.name, &tools)),
+            outputs: Arc::new(outputs),
             client,
             capabilities,
             instructions: init.get("instructions").and_then(Value::as_str).map(str::to_owned),
@@ -443,11 +455,17 @@ impl McpServer {
         if ready.catalog.digest == catalog.digest {
             return;
         }
+        // The SDK's `listTools` throws on schemas that do not resolve: the previous listing stays.
+        let outputs = match OutputValidators::of(&tools) {
+            Ok(outputs) => outputs,
+            Err(error) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+        };
         self.publish(
             generation,
             ServerState::Ready(Arc::new(Ready {
                 client: Arc::clone(&ready.client),
                 catalog: Arc::new(catalog),
+                outputs: Arc::new(outputs),
                 capabilities: ready.capabilities.clone(),
                 instructions: ready.instructions.clone(),
             })),
@@ -523,6 +541,20 @@ impl McpServer {
         self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await
     }
 
+    /// Calls `tool` (the server's own name) and answers as the SDK's `Client.callTool` settles: the server's result once
+    /// its output schema passed, or the error. What [`Self::call_tool`] maps for the model.
+    pub async fn call_tool_settled(
+        &self,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<Value, CallError> {
+        let ready = self.ready()?;
+        self.settle(&ready, owner, tool, arguments, cancel, deadline).await
+    }
+
     async fn call_ready(
         &self,
         ready: &Ready,
@@ -532,6 +564,24 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        let result = self.settle(ready, owner, tool, arguments, cancel, deadline).await?;
+        map_call_result(&result, self.policy, &self.spiller)
+            .await
+            .map_err(|mut reported| {
+                reported.text = scrub(&reported.text, &self.secrets);
+                CallError::Reported(reported)
+            })
+    }
+
+    async fn settle(
+        &self,
+        ready: &Ready,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<Value, CallError> {
         let permit = self.gate.acquire(owner, cancel, self.config.wait_timeout).await?;
         let from_deadline = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let max_total = match (self.config.max_total_timeout, from_deadline) {
@@ -544,13 +594,45 @@ impl McpServer {
             .request("tools/call", json!({"name": tool, "arguments": arguments}), options)
             .await;
         drop(permit);
-        let result = result?;
-        map_call_result(&result, self.policy, &self.spiller)
-            .await
-            .map_err(|mut reported| {
-                reported.text = scrub(&reported.text, &self.secrets);
-                CallError::Reported(reported)
-            })
+        self.checked(ready, tool, result?, cancel).await
+    }
+
+    /// `callTool`'s check of `result` against `tool`'s output schema, as a cpu-bulk lane job: a pattern may backtrack for
+    /// long, and its match ends at its next read of the stop once the call is cancelled or the server closes.
+    async fn checked(&self, ready: &Ready, tool: &str, result: Value, cancel: &CancellationToken) -> Result<Value, CallError> {
+        if !ready.outputs.checks(tool) {
+            return Ok(result);
+        }
+        let outputs = Arc::clone(&ready.outputs);
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let job = {
+            let (tool, stop) = (tool.to_owned(), Arc::clone(&stop));
+            self.io
+                .cpu
+                .submit(cancel, move |_lane| {
+                    let checked = outputs.check(&tool, &result, &stop);
+                    (checked, result)
+                })
+                .map_err(|full| CallError::Overloaded(full.to_string()))?
+        };
+        tokio::pin!(job);
+        let settled = tokio::select! {
+            settled = &mut job => settled,
+            () = cancel.cancelled() => {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                job.await
+            }
+            () = self.shutdown.cancelled() => {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                job.await
+            }
+        };
+        match settled {
+            Ok((checked, result)) => checked.map(|()| result).map_err(CallError::from),
+            // Dropped before it ran: its call was cancelled, or the lane can take no job.
+            Err(dropped) if !cancel.is_cancelled() && !self.shutdown.is_cancelled() => Err(CallError::Overloaded(dropped.to_string())),
+            Err(_) => Err(RpcError::Cancelled.into()),
+        }
     }
 
     /// Removes model-visible secrets from a message about this server.

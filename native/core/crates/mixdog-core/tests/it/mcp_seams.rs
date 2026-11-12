@@ -271,7 +271,7 @@ fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
 
 fn empty_hub() -> Arc<McpHub> {
     let tokens = mixdog_rt::testing::tokens();
-    McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, std::env::temp_dir().join("mcp-seams-artifacts"), OutputPolicy::default())
+    McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, std::env::temp_dir().join("mcp-seams-artifacts"), OutputPolicy::default())
 }
 
 #[tokio::test(flavor = "multi_thread")]
