@@ -2,7 +2,7 @@
 //! recorded from the reference tree (`fixtures/skill-creator-validator-cases`, `record-skill-creator-validator-cases.mjs`): the
 //! collector run over the bundled skills folder as its one built-in root finds the skills Node's `collectSkills` found, in order,
 //! each with its description, trigger text, source, plugin, required features, tool dependencies and where they came from.
-//! (The validator is a shipped script, not Rust: its recorded verdict is only asserted to be the clean one.)
+//! The recorded validator result is compared whole with what the shipped validator script returns under node.
 #![allow(clippy::disallowed_methods, reason = "the bundled skills folder is read from the checkout")]
 
 use std::path::PathBuf;
@@ -15,14 +15,42 @@ use tokio_util::sync::CancellationToken;
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/skill-creator-validator-cases/golden.json");
 
+/// The result the shipped validator (`validateSkillDirectory`, the script the skill-creator skill runs under node) gives for the
+/// bundled skill-creator folder, with the checkout's path written `<tree>` as the recording writes it.
+fn validate_bundled_skill_creator(tree: &std::path::Path) -> Value {
+    let script = tree.join("src/defaults/skills/skill-creator/scripts/validate-skill.mjs");
+    let folder = tree.join("src/defaults/skills/skill-creator");
+    let program = "import { pathToFileURL } from 'node:url'; \
+        const { validateSkillDirectory } = await import(pathToFileURL(process.argv[1]).href); \
+        console.log(JSON.stringify(validateSkillDirectory(process.argv[2])));";
+    let mut command = std::process::Command::new("node");
+    command.args(["--input-type=module", "-e", program]).arg(&script).arg(&folder);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+    let output = command.output().expect("node runs the shipped validator");
+    assert!(output.status.success(), "validator failed: {}", String::from_utf8_lossy(&output.stderr));
+    let mut result: Value = serde_json::from_slice(
+        // the script also runs its own command line (argv[1] is the script here) and prints `Valid skill: <name>` first
+        output.stdout.split(|b| *b == b'\n').rfind(|line| !line.is_empty()).unwrap_or_default(),
+    ).unwrap_or_else(|e| panic!("the validator printed JSON: {e}; stdout {:?}, stderr {:?}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+    let directory = result["skill"]["directory"].as_str().expect("a validated folder").replace('\\', "/");
+    let root = tree.to_string_lossy().replace('\\', "/");
+    result["skill"]["directory"] = Value::String(directory.replacen(&root, "<tree>", 1));
+    result
+}
+
 #[tokio::test]
 async fn the_bundled_skills_are_collected_as_node_collected_them() {
     let recorded = Exact::decode(&serde_json::from_str(&GOLDEN).unwrap()).unwrap();
     let observed = recorded.get("cases").as_array()[0].get("observed");
-    assert_eq!(observed.get("validated").get("ok").as_bool(), true);
-    assert!(observed.get("validated").get("errors").as_array().is_empty());
 
-    let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/skills");
+    let tree = PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap().to_owned();
+    let validated = validate_bundled_skill_creator(&tree);
+    if let Some(difference) = Exact::plain(&validated).difference(observed.get("validated")) {
+        panic!("the validator's result: {difference}");
+    }
+
+    let bundled = tree.join("src/defaults/skills");
     let data = tempfile::tempdir().unwrap();
     let roots = vec![SkillRoot { dir: bundled.clone(), source: SkillSource::Builtin, plugin: None }];
     let data_dir = data.path().to_owned();
@@ -63,13 +91,11 @@ async fn the_bundled_skills_are_collected_as_node_collected_them() {
             "plugin": skill.plugin,
             "requires": skill.requires,
             "toolDependencies": dependencies,
+            "declaredToolDependencies": skill.tool_dependencies.declared,
             "dependencySource": dependency_source,
+            "dependencyIssues": skill.tool_dependencies.issues,
         });
-        let mut want_row = want.to_plain().unwrap();
-        for dropped in ["declaredToolDependencies", "dependencyIssues"] {
-            want_row.as_object_mut().unwrap().remove(dropped);
-        }
-        assert_eq!(row, want_row, "{name}");
+        assert_eq!(row, want.to_plain().unwrap(), "{name}");
     }
     assert!(found.iter().any(|skill| skill.name == "skill-creator"));
 }

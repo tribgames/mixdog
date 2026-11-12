@@ -8,11 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
-import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 
-REPLAY_TARGETS['skill-creator-validator-cases'] = {
-  rust: [{ path: 'native/core/crates/mixdog-mcp/src/skills.rs', line: 218, name: 'collect_skills' }],
-};
 const set = openSet('skill-creator-validator-cases', import.meta.url);
 const { collectSkills } = await set.load('src/runtime/agent/orchestrator/context/collect.mjs');
 const { validateSkillDirectory } = await set.load('src/defaults/skills/skill-creator/scripts/validate-skill.mjs');
@@ -36,7 +32,7 @@ const treePath = /^.*[\\/]src[\\/]defaults[\\/]skills[\\/]([^\\/]+)[\\/]SKILL\.m
 const treeDir = /^.*[\\/]src[\\/]defaults[\\/]skills[\\/]([^\\/]+)$/;
 await set.finish({
   entry: { runs: 'skill-creator/scripts/validate-skill.mjs validateSkillDirectory and context/collect.mjs collectSkills(<tree>) with MIXDOG_DATA_DIR in an empty temp dir', notRun: 'no global or plugin skills: the data dir is empty' },
-  replay: { entry: 'mixdog-mcp skills.rs collect_skills over the bundled skills folder as the one Builtin root: compare each collected skill (name, description, whenToUse, source, plugin, requires, tool dependencies) in order; the validator itself is a shipped script, not Rust', normalised: {} },
+  replay: { entry: 'mixdog-mcp skills.rs collect_skills over the bundled skills folder as the one Builtin root: compare each collected skill (name, description, whenToUse, source, plugin, requires, declared and effective tool dependencies, dependency source and issues) in order; the validator result is compared whole with what the shipped validate-skill.mjs prints under node (the validator is a shipped script, not Rust)', normalised: {} },
   replaceRegex: [[treePath, '<tree>/src/defaults/skills/$1/SKILL.md'], [treeDir, '<tree>/src/defaults/skills/$1']],
   normaliseReason: 'the per-run tree path of each skill file (and of the validated folder) is written <tree>/src/defaults/skills/<folder>[/SKILL.md] (separators as slashes)',
 });
