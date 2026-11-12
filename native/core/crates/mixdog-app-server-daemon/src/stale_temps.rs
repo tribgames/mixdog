@@ -1,17 +1,24 @@
 //! The temp files a 1.4.5 core left in the data folder when it died between creating a temp file and renaming it over its
-//! target, reclaimed at start-up as Node reclaimed them: a crash capture's temp whose writer is gone
+//! target, reclaimed as Node reclaimed them: a crash capture's temp whose writer is gone
 //! (`pruneDaemonCrashCaptures`, `daemon-crash-capture/retention.mjs`) and a session-summary index temp older than ten minutes
-//! (`sweepStaleSummaryTempFiles`, `store-summary-index.mjs`). Other names are never touched.
+//! (`sweepStaleSummaryTempFiles`, `store-summary-index.mjs`), the latter under the index's lock. Other names are never touched.
 
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    reason = "start-up housekeeping before any runtime exists, like the exit record"
+    reason = "housekeeping of a folder's leftovers: the capture reclaim runs before any runtime exists, the summary sweep is a lane job"
 )]
 
 use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
+
+use mixdog_rt::InLane;
+use mixdog_rt::LaneToken;
+use mixdog_rt::LaneTokens;
+use mixdog_statefile::LockOpts;
+use mixdog_statefile::WriteLane;
+use tokio_util::sync::CancellationToken;
 
 /// `SUMMARY_TMP_MIN_AGE_MS`.
 const SUMMARY_TMP_MIN_AGE: Duration = Duration::from_secs(10 * 60);
@@ -61,8 +68,16 @@ pub fn reclaim_dead_capture_temps(dir: &Path, alive: &dyn Fn(u32) -> bool) -> us
     removed
 }
 
-/// Removes the session-summary index temps in `dir` last written at least ten minutes before `now`. Answers how many.
-pub fn sweep_stale_summary_temps(dir: &Path, now: SystemTime) -> usize {
+/// `sweepStaleSummaryTempFiles`: under `session-summaries.json.lock`, which every writer of these temps (full rewrite,
+/// compaction) holds for its whole write, so no live writer owns a temp the sweep sees. The lock is tried once
+/// (`SUMMARY_LOCK_TIMEOUT_MS` 0): a busy lock sweeps nothing. Removes the temps in `dir` last written at least ten minutes
+/// before `now`. Answers how many.
+pub fn sweep_stale_summary_temps<L: WriteLane>(lane: &InLane<L>, dir: &Path, now: SystemTime) -> usize {
+    let opts = LockOpts { timeout: Some(Duration::ZERO), ..LockOpts::default() };
+    mixdog_statefile::with_lock(lane, &dir.join("session-summaries.json"), &opts, || remove_aged_summary_temps(dir, now)).unwrap_or(0)
+}
+
+fn remove_aged_summary_temps(dir: &Path, now: SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
     let mut removed = 0;
     for entry in entries.flatten() {
@@ -80,8 +95,12 @@ pub fn sweep_stale_summary_temps(dir: &Path, now: SystemTime) -> usize {
     removed
 }
 
-/// The reclamation of this start: the data folder's summary temps and the capture folder's dead-writer temps.
-pub fn reclaim_at_start(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
-    sweep_stale_summary_temps(data_dir, SystemTime::now());
-    reclaim_dead_capture_temps(&crate::crash_record::capture_dir(data_dir), alive);
+/// The summary-temp sweep of a serving start, as a maintenance-lane job. Run once the data-directory lock is held. The core
+/// writes no summary index of its own, so there is no flush of its to follow: the sweep is the first thing it does to that file.
+pub async fn sweep_summary_temps_of_start(tokens: &LaneTokens, data_dir: &Path) -> usize {
+    let dir = data_dir.to_path_buf();
+    let Ok(job) = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| sweep_stale_summary_temps(lane, &dir, SystemTime::now())) else {
+        return 0;
+    };
+    job.await.unwrap_or(0)
 }
