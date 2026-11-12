@@ -55,7 +55,12 @@ const notes = {};
 {
   const { planShellDeadlines } = await load(`${bt}/bash-tool/deadline-plan.mjs`);
   const shellSource = readFileSync(join(tree, orch, 'tools/shell-command.mjs'), 'utf8');
-  const between = (from, to) => { const start = shellSource.indexOf(from); return shellSource.slice(start, shellSource.indexOf(to, start)); };
+  const between = (from, to) => {
+    const start = shellSource.indexOf(from);
+    const end = start < 0 ? -1 : shellSource.indexOf(to, start);
+    if (end < 0) throw new Error(`shell-command.mjs no longer holds ${JSON.stringify(from)} as this recorder reads it: the deadline recording cannot take Node's own armDeadlines`);
+    return shellSource.slice(start, end);
+  };
   const armDeadlines = new Function('setTimeout', '_abortReasonIsInterrupt', 'treeKillForceSettle', `${between('const promotable =', '\n\n')};\n${between('function armDeadlines(', '\n}\n')}\n}\nreturn armDeadlines;`);
   const observeDeadlines = (options) => {
     let clock = 0;
@@ -592,7 +597,7 @@ writeSetManifest(out, {
       'exec-env': `the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>`,
       'fs-markers': 'capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them',
       'fs-list-page': 'NaN and Infinity are not recorded as head_limit: JSON carries neither (a client\'s request cannot hold them) and the recording would store null, a different input',
-      'exec-deadline': 'holdEnd and holdEndAt come from Node\'s own armDeadlines (its text is taken from shell-command.mjs of the tree, which does not export it) run on timers and a clock the recorder owns and advances to each due timer; they are compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it;Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
+      'exec-deadline': 'holdEnd and holdEndAt come from Node\'s own armDeadlines (its text is taken from shell-command.mjs of the tree, which does not export it) run on timers and a clock the recorder owns and advances to each due timer; holdEnd is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches that decision in the core; holdEndAt is compared when the hold ends by promoting (background, threshold) and not when it ends at the run limit (enforce, timeout), where the time is Node\'s timeout; of `armed`, the hold\'s timer (autoBackground: whether it was armed, and its delay) is compared for every call, the limit\'s timer (timeout) is not, its delay being Node\'s timeout; Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
       'agent-tool-call-ids': 'a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values',
       'scm-locks': 'the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core\'s `/` separators for the recorded `\\`; the "rejected" outcome of an aborted wait is a list apart from the events, because the order of a promise\'s rejection handler against another task\'s start is a tick of Node\'s promise queue, not a behaviour',
     },
