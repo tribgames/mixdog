@@ -21,6 +21,8 @@ pub mod wire_route;
 pub(crate) mod xai_cache;
 
 #[cfg(test)]
+mod deepseek_replay_tests;
+#[cfg(test)]
 mod tests;
 
 pub use chat::{CompatChatCodec, CompatConfig};
