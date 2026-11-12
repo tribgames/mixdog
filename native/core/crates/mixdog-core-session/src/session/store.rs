@@ -1472,10 +1472,14 @@ impl ThreadStore for StoreThreads {
                 for row in page.iter().take(room) {
                     rows.push(self.history_item(lane, id, row)?);
                 }
+                if page.len() > room {
+                    break false;
+                }
+                // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
+                // next page says whether any row is left (it is read, empty, and ends the history).
                 match next {
-                    Some(_) if rows.len() >= want => break false,
                     Some(next) => cursor = Some(next),
-                    None => break page.len() <= room,
+                    None => break true,
                 }
             };
             // Pages run newest first; the seam returns rows oldest first.
