@@ -42,6 +42,8 @@ mod tool_accept_tests;
 #[cfg(test)]
 mod maas_wire_tests;
 #[cfg(test)]
+mod stream_replay_tests;
+#[cfg(test)]
 mod usage_wire_tests;
 #[cfg(test)]
 mod vertex_claude_cancel_wire_tests;

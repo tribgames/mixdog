@@ -2053,7 +2053,7 @@
     ]
    },
    "result": {
-    "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?}"
+    "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?, tail?}"
    }
   },
   {
@@ -2068,7 +2068,7 @@
     ]
    },
    "result": {
-    "text": "Error: read target 2 must be a path string or {file_path, offset?, limit?}"
+    "text": "Error: read target 2 must be a path string or {file_path, offset?, limit?, tail?}"
    }
   },
   {
@@ -2079,7 +2079,7 @@
     ]
    },
    "result": {
-    "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?}"
+    "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?, tail?}"
    }
   },
   {
@@ -2091,7 +2091,7 @@
     ]
    },
    "result": {
-    "text": "Error: read target 2 must be a path string or {file_path, offset?, limit?}"
+    "text": "Error: read target 2 must be a path string or {file_path, offset?, limit?, tail?}"
    }
   },
   {

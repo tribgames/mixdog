@@ -261,6 +261,80 @@ async fn answers_that_meet_at_the_session_are_arbitrated_as_nodes() {
     }
 }
 
+/// One card decision over the relay (`thread/approval/answer` on `approval`, the shown one when none is named): whether it was taken,
+/// and the settings changes announced for it as the recorded desktop operations. Nothing is announced before the reply is queued;
+/// `expected` announcements are awaited after it.
+async fn announced(input: &Value, approval: Option<&str>, result: Value, expected: usize) -> (Value, Value) {
+    let waiting = waiting_on(input).await;
+    let changes = waiting._rig.settings_changes.clone();
+    let request = CoreRequest {
+        method: Method("thread/approval/answer"),
+        params: json!({ "threadId": waiting.thread, "approvalId": approval.unwrap_or(&waiting.id), "result": result }),
+        op: None,
+        ctx: CallContext::connection(PHONE, Origin::Relay, Default::default()),
+    };
+    let replied = request.ctx.after_answer.clone();
+    let Ok(Reply::Value(value)) = waiting.directory.request(request).await else { panic!("a value reply") };
+    assert!(changes.0.lock().unwrap().is_empty(), "nothing is announced before the answer is queued");
+    replied.release();
+    eventually_on!(&[&changes.1], || (changes.0.lock().unwrap().len() >= expected).then_some(())).await;
+    let ops: Vec<Value> = changes.0.lock().unwrap().iter().map(|scope| json!(["notifySettingsChanged", [scope]])).collect();
+    (value["accepted"].clone(), Value::Array(ops))
+}
+
+/// A remembered grant tells every client its permissions changed (`approval-grant-change-cases`, Node's
+/// `resolveToolApprovalAnnouncingGrant`): `permissions` once the answer was taken and its reply queued; an answer without a remembered
+/// grant (none, or once) or one the session did not take announces nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn a_remembered_grant_announces_the_permissions_change_after_its_answer_as_nodes() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/approval-grant-change-cases/golden.json")).expect("golden.json");
+    let (_, input) = races();
+    for case in golden["cases"].as_array().unwrap() {
+        let name = case["case"].as_str().unwrap();
+        let observed = &case["observed"];
+        if observed.get("withoutRemember").is_none() && !observed.is_array() {
+            // The recipients and the unsaved grant: `a_remembered_grant_is_announced_to_the_recorded_audience_whether_or_not_it_was_saved`.
+            continue;
+        }
+        if let Some(runs) = observed.as_array() {
+            for run in runs {
+                let want = run["ops"].as_array().unwrap().len();
+                let (accepted, ops) = announced(&input, None, json!({ "approved": true, "remember": run["remember"] }), want).await;
+                assert_eq!((accepted, ops), (run["answered"].clone(), run["ops"].clone()), "{name}: remember {}", run["remember"]);
+            }
+        } else {
+            let (accepted, ops) = announced(&input, None, json!({ "approved": true }), 0).await;
+            assert_eq!((accepted, ops), (observed["withoutRemember"].clone(), observed["plainOps"].clone()), "{name}: no remember");
+            let (accepted, ops) = announced(&input, None, json!({ "approved": true, "remember": "once" }), 0).await;
+            assert_eq!((accepted, ops), (observed["once"].clone(), observed["plainOps"].clone()), "{name}: remember once");
+            let (accepted, ops) = announced(&input, Some(STALE), json!({ "approved": true, "remember": "agent" }), 0).await;
+            assert_eq!((accepted, ops), (observed["refusedAnswer"].clone(), observed["refusedOps"].clone()), "{name}: not taken");
+        }
+    }
+}
+
+/// What the recording says about the announcement beyond its content: it is made once per accepted answer whoever answers (this PC's window
+/// or `phone-1`) and whether or not the grant could be saved (the save belongs to the agent loop's connector approval, which the answer does
+/// not wait for: Node accepted and announced in both). Who hears it (the window and every paired phone, the answerer included) is
+/// delivered by the app feed, which knows no origin: `mixdog-app-server` `a_settings_change_reaches_every_app_feed_subscriber_whatever_its_origin`.
+#[tokio::test(flavor = "current_thread")]
+async fn a_remembered_grant_is_announced_to_the_recorded_audience_whether_or_not_it_was_saved() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/approval-grant-change-cases/golden.json")).expect("golden.json");
+    let (_, input) = races();
+    let mut compared = 0;
+    for case in golden["cases"].as_array().unwrap() {
+        let observed = &case["observed"];
+        for answer in observed.as_object().into_iter().flat_map(|runs| runs.values()).filter(|run| run.get("answered").is_some()) {
+            let scopes: Vec<&Value> = answer["window"].as_array().unwrap().iter().map(|change| &change["scope"]).collect();
+            let expected: Vec<Value> = scopes.iter().map(|scope| json!(["notifySettingsChanged", [scope]])).collect();
+            let (accepted, ops) = announced(&input, None, json!({ "approved": true, "remember": "agent" }), expected.len()).await;
+            assert_eq!((accepted, ops), (answer["answered"].clone(), Value::Array(expected)), "{}", case["case"]);
+            compared += 1;
+        }
+    }
+    assert_eq!(compared, 4, "this PC and the phone, the saved grant and the refused one");
+}
+
 /// A room's answer to its member's approval goes the same way (`answer_member_approval`, Node's room `deps.approve`, which is the session
 /// host's `resolveToolApprovalForSession`): in the recorded race where the PC's card got in first, the room's answer, made with the
 /// phone's decision, is not taken (Node's `accepted` false, which the phone was shown as `settled`, remote-session-methods.ts:214).

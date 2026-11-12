@@ -22,11 +22,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
       "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mailbox-scenarios.mjs",
+      "sha256": "db9e8b89337558e23d65b376a57bf0789d483ba6cbc9d946c12b3c02b831d1a6"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -42,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,22 +72,13 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-remote-streaming-mailbox-cases.mjs",
-  "recorderSha256": "8d48e158578c9f053d9f6f155dc12423357ec7b4577cddcd35a439806310b5a1",
+  "recorderSha256": "c9b06016e17e53364ba20f49509794df8eceea6a168c9cfd3170088db3617692",
   "replay": {
     "compare": "mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires",
-    "entry": "NO RUST ENTRY: in K1 the phone is a protocol connection of the core (mixdog-app-server-transport/src/relay.rs) that reads the thread feed; the relay writer (mixdog-app-server-transport/src/writer.rs) sends every feed frame in order and batches none. The phone's frame publication is being changed on branch phone-chat-live (session actor thread/frame, mixdog-core-session session/phone_frame.rs), which is where a 90 ms text batch for the phone belongs; its five frame cases go with that branch. The partial-append parity case is replayed on its desktop half (apps/desktop/src/shared/streaming-partial-replay.test.mjs); the old-decoder case is not applicable (see cases).",
-    "cases": {
-      "the desktop and daemon partial-append suffix checks agree on every input": "replayed, desktop half: apps/desktop/src/shared/streaming-partial-replay.test.mjs runs K1's only maker of the patch (ipc-state-bridge.ts:175 createSnapshotDeltaEncoder({partialAppend}) → state-delta.ts:583 streamingPartialSuffix, desktop main → renderer) over every recorded input and compares the `desktop` answers. Daemon half not applicable: the core makes no snapshot patch; a growing line reaches a client as item/agentMessage/delta (packages/protocol-client/src/session-state.ts:207), so session-state-patch.mjs has no K1 counterpart",
-      "a text burst sends its first append at once, then one latest snapshot per batch window": "not replayed: needs the phone frame publication of branch phone-chat-live",
-      "completion, replay, and unknown approval fields bypass batching and remain critical": "not replayed: needs the phone frame publication of branch phone-chat-live",
-      "backpressure cannot downgrade queued approval state and disconnect clears delayed work": "not replayed: needs the phone frame publication of branch phone-chat-live",
-      "partial-line growth batches as a text append; a partial for another row does not": "not replayed: needs the phone frame publication of branch phone-chat-live",
-      "a decoder that predates streamingPartial keeps painting the line-gated tail": "not applicable: the case is an installed phone build older than streamingPartial decoding Node's compact delta wire. K1 accepts no such build: the phone UI comes from the relay and speaks only the new protocol, old installed builds get no adapter or path (rust-core decisions.md:15), and the K1 phone is a protocol connection reading the thread feed (mixdog-app-server-transport/src/relay.rs:1-4, open_relay :112), never a compact snapshot delta",
-      "batching reduces real compact packet bytes while preserving decoder state": "not replayed: needs the phone frame publication of branch phone-chat-live; its bytes are Node's compact delta wire"
-    },
+    "entry": "NO RUST ENTRY ON o1: the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the remote streaming mailbox (REMOTE_STREAM_BATCH_MS text batching per phone, critical frames): not in the core's relay path"
+      "the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates"
     ],
     "normalised": {},
     "protocolMethods": [],

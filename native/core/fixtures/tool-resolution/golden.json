@@ -10,7 +10,8 @@
       "grep",
       "glob",
       "find",
-      "list"
+      "list",
+      "machine"
     ],
     "tools": [
       {
@@ -60,7 +61,7 @@
         "name": "read",
         "definition": {
           "$tool": "read",
-          "hash": "6cac43e0095bf55a"
+          "hash": "85e1ee9a9396eb04"
         }
       },
       {
@@ -123,6 +124,13 @@
           "$tool": "web_fetch",
           "variant": "internal",
           "hash": "2c0a719b021b2096"
+        }
+      },
+      {
+        "name": "machine",
+        "definition": {
+          "$tool": "machine",
+          "hash": "bcff9e8a3d10e007"
         }
       },
       {
@@ -408,7 +416,7 @@
     },
     "read": {
       "$tool": "read",
-      "hash": "6cac43e0095bf55a"
+      "hash": "85e1ee9a9396eb04"
     },
     "edit": {
       "$tool": "edit",
@@ -500,10 +508,9 @@
       "variant": "internal",
       "hash": "3414ac139f074786"
     },
-    "browser": {
-      "$tool": "browser",
-      "variant": "internal",
-      "hash": "5e076c0fef7896d0",
+    "machine": {
+      "$tool": "machine",
+      "hash": "bcff9e8a3d10e007",
       "override": {
         "deferLoading": true
       }
@@ -562,7 +569,11 @@
       "variant": "internal",
       "hash": "2c0a719b021b2096"
     },
-    "browser#2": {
+    "machine#2": {
+      "$tool": "machine",
+      "hash": "bcff9e8a3d10e007"
+    },
+    "browser": {
       "$tool": "browser",
       "variant": "internal",
       "hash": "5e076c0fef7896d0"
@@ -717,6 +728,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -753,6 +765,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -907,6 +920,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -943,6 +957,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1092,6 +1107,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1128,6 +1144,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1282,6 +1299,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1318,6 +1336,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1668,6 +1687,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1704,6 +1724,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1879,6 +1900,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -1910,6 +1932,7 @@
         "edit",
         "shell",
         "task",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2002,8 +2025,8 @@
           "definition": "todo"
         },
         {
-          "name": "browser",
-          "definition": "browser",
+          "name": "machine",
+          "definition": "machine",
           "deferLoading": true
         }
       ]
@@ -2060,6 +2083,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2096,6 +2120,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2249,6 +2274,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2284,6 +2310,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "agent",
         "ask_user",
         "browser",
@@ -2439,6 +2466,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2629,6 +2657,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -2833,6 +2862,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3032,6 +3062,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3236,6 +3267,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3389,6 +3421,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3469,6 +3502,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3505,6 +3539,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3536,6 +3571,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3610,12 +3646,16 @@
           "definition": "web_fetch#3"
         },
         {
+          "name": "machine",
+          "definition": "machine#2"
+        },
+        {
           "name": "Skill",
           "definition": "Skill"
         },
         {
           "name": "browser",
-          "definition": "browser#2"
+          "definition": "browser"
         },
         {
           "name": "browser_devtools",
@@ -3710,6 +3750,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3746,6 +3787,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3777,6 +3819,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -3851,12 +3894,16 @@
           "definition": "web_fetch#3"
         },
         {
+          "name": "machine",
+          "definition": "machine#2"
+        },
+        {
           "name": "Skill",
           "definition": "Skill"
         },
         {
           "name": "browser",
-          "definition": "browser#2"
+          "definition": "browser"
         },
         {
           "name": "browser_devtools",
@@ -3951,6 +3998,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -3987,6 +4035,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4110,6 +4159,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4146,6 +4196,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4177,6 +4228,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4251,12 +4303,16 @@
           "definition": "web_fetch#3"
         },
         {
+          "name": "machine",
+          "definition": "machine#2"
+        },
+        {
           "name": "Skill",
           "definition": "Skill"
         },
         {
           "name": "browser",
-          "definition": "browser#2"
+          "definition": "browser"
         },
         {
           "name": "browser_devtools",
@@ -4354,6 +4410,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4390,6 +4447,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4522,6 +4580,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4623,6 +4682,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4714,6 +4774,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4791,6 +4852,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -4823,6 +4885,7 @@
         "edit",
         "shell",
         "task",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4848,6 +4911,7 @@
         "edit",
         "shell",
         "task",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -4904,12 +4968,16 @@
           "definition": "task#2"
         },
         {
+          "name": "machine",
+          "definition": "machine#2"
+        },
+        {
           "name": "Skill",
           "definition": "Skill"
         },
         {
           "name": "browser",
-          "definition": "browser#2"
+          "definition": "browser"
         },
         {
           "name": "browser_devtools",
@@ -5009,6 +5077,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -5041,6 +5110,7 @@
         "edit",
         "shell",
         "task",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -6017,6 +6087,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6154,6 +6225,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6301,6 +6373,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6450,6 +6523,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6551,6 +6625,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6642,6 +6717,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6678,6 +6754,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -6808,6 +6885,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6899,6 +6977,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -6940,6 +7019,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7099,6 +7179,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7140,6 +7221,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7308,6 +7390,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7347,6 +7430,7 @@
         "github",
         "shell",
         "task",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7766,6 +7850,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -7807,6 +7892,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -7843,6 +7929,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -7922,12 +8009,16 @@
           "definition": "web_fetch#3"
         },
         {
+          "name": "machine",
+          "definition": "machine#2"
+        },
+        {
           "name": "Skill",
           "definition": "Skill"
         },
         {
           "name": "browser",
-          "definition": "browser#2"
+          "definition": "browser"
         },
         {
           "name": "browser_devtools",
@@ -8042,6 +8133,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",
@@ -8083,6 +8175,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "browser",
         "browser_devtools",
@@ -8216,6 +8309,7 @@
         "task",
         "web_search",
         "web_fetch",
+        "machine",
         "Skill",
         "agent",
         "ask_user",

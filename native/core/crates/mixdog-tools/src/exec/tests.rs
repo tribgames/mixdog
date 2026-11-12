@@ -44,6 +44,23 @@ struct FakeProcesses {
     /// Every handle whose input was closed, and every handle killed, in order.
     closed: Mutex<Vec<ProcessHandle>>,
     killed: Mutex<Vec<ProcessHandle>>,
+    /// Every process ends at once with status 0 and no output, whatever it was asked to run.
+    exit_at_once: std::sync::atomic::AtomicBool,
+    /// The folder of every spawn request, in order.
+    cwds: Mutex<Vec<AbsPath>>,
+    /// The contents, as they were when the command reached the process manager, of every hoisted script file it names
+    /// (the tool removes the file once the process settles).
+    hoisted: Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl FakeProcesses {
+    fn read_hoisted(&self, script: &str) {
+        for part in script.split('"').filter(|part| part.contains("mixdog-inline-")) {
+            if let Ok(contents) = std::fs::read_to_string(part) {
+                self.hoisted.lock().unwrap().insert(part.to_owned(), contents);
+            }
+        }
+    }
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -69,6 +86,8 @@ impl ProcessManager for FakeProcesses {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
+        self.cwds.lock().unwrap().push(request.cwd.clone());
+        self.read_hoisted(script);
         // A script fed on stdin acts when it arrives.
         if !request.stdin_piped {
             self.act(script, &request.handle, &tx, &mut seq);
@@ -93,6 +112,7 @@ impl ProcessManager for FakeProcesses {
         }
         let script = String::from_utf8(bytes).unwrap();
         self.fed.lock().unwrap().push(script.clone());
+        self.read_hoisted(&script);
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let tx = tx.clone();
@@ -129,7 +149,9 @@ impl FakeProcesses {
     /// What the process of `script` prints and how it ends.
     fn act(&self, script: &str, handle: &ProcessHandle, tx: &Chan, seq: &mut u64) {
         let exit = |status, killed| ProcessExit { status, killed };
-        if script == "run-limited" {
+        if self.exit_at_once.load(std::sync::atomic::Ordering::SeqCst) {
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "run-limited" {
             self.limited.lock().unwrap().insert(handle.clone());
         } else if let Some(tee) = script
             .split("-FilePath '")
@@ -248,6 +270,11 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
 }
 
 fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
+    rig_shell(tokens, elevation, notifier, false)
+}
+
+/// The rig of a session whose shell is PowerShell (`powershell`) or a POSIX one.
+fn rig_shell(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>, powershell: bool) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
     let runtime = ExecRuntime::new(ExecConfig {
@@ -272,7 +299,7 @@ fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, noti
         shell: Arc::new(FixedShell("/bin/sh".into())),
         script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
-        powershell: false,
+        powershell,
         warm_standby: false,
         now_ms: Arc::new(golden_ms),
     });
@@ -2290,4 +2317,242 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         assert_eq!(strip(stopping), names(&case["stopping"]), "{name}: stopping");
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
+}
+// ---- the shell's refusal of a command the built-in tools cover, and `machine`: recorded from Node ----
+
+/// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
+fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
+    if let Some(h) = f.get("hex").and_then(JsonValue::as_str) {
+        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
+    }
+    let mut text = f["text"].as_str().unwrap().to_owned();
+    if let Some(times) = f.get("repeat").and_then(JsonValue::as_u64) {
+        text = text.repeat(times as usize);
+    }
+    if let Some(tail) = f.get("tail").and_then(JsonValue::as_str) {
+        text.push_str(tail);
+    }
+    if f.get("enc").and_then(JsonValue::as_str) == Some("utf16le") {
+        let mut out = vec![0xff, 0xfe];
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        return out;
+    }
+    text.into_bytes()
+}
+
+/// The recorded workspace under `dir`, and its path as Node spells it (no verbatim prefix).
+fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonValue>) -> std::path::PathBuf {
+    let root = dir.join("ws");
+    for (rel, f) in files {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if f.get("remove").is_none() {
+            std::fs::write(path, recipe_bytes(f)).unwrap();
+        }
+    }
+    std::path::PathBuf::from(std::fs::canonicalize(&root).unwrap().to_string_lossy().trim_start_matches(r"\\?\"))
+}
+
+/// A call's context over the recorded workspace, offering the tools the case names (null: no session information).
+fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) -> ToolContext {
+    let mut c = ctx(rig, call);
+    c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
+    c.cwd = AbsPath::new(root).unwrap();
+    c.options.offered_tools = offers.as_array().map(|tools| Arc::new(tools.iter().map(|t| t.as_str().unwrap().to_owned()).collect()));
+    c
+}
+
+/// Node's recorded table (`record-shell-cover.mjs`) through the shell tool itself, every command under both shell families:
+/// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
+/// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
+/// so the table is replayed on the platform it was recorded on.
+///
+/// Outcomes are compared whole, by equality: the answer's note lines (the lines between its status line and the blank line
+/// after it) equal the recording's `notes` in order, and the command started equals the recording's `args.command`, in the
+/// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
+/// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
+/// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
+/// `node "<file>"`: that form stands for the recorded command only when the file the tool wrote held exactly the recorded script
+/// (read when the command reached the process manager).
+#[cfg(windows)]
+#[tokio::test]
+async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
+    assert_eq!(doc["platform"], "win32");
+    let dir = tempfile::tempdir().unwrap();
+    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
+    let forward = root.to_string_lossy().replace('\\', "/");
+    let back = root.to_string_lossy().into_owned();
+    let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
+    let spelled = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_ascii_lowercase();
+    let rigs = [("posix", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, false)), ("powershell", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true))];
+    for (_, rig) in &rigs {
+        rig.processes.exit_at_once.store(true, SeqCst);
+    }
+    let mut failures = Vec::new();
+    let cases = doc["cases"].as_array().unwrap();
+    for (n, case) in cases.iter().enumerate() {
+        let rig = &rigs.iter().find(|(shell, _)| case["shellType"] == *shell).unwrap().1;
+        let c = cover_ctx(rig, &root, &case["offers"], &format!("cover{n}"));
+        let mut args = serde_json::json!({ "command": case["args"]["command"].as_str().unwrap().replace("<WS>", &forward) });
+        if let Some(cwd) = case["args"]["cwd"].as_str() {
+            args["cwd"] = cwd.replace("<WS>", &forward).into();
+        }
+        let spawned = rig.processes.cwds.lock().unwrap().len();
+        let spawned_seen = rig.processes.seen.lock().unwrap().len();
+        let fed_before = rig.processes.fed.lock().unwrap().len();
+        let outcome = rig.shell.call(&c, args).await;
+        let want = &case["result"];
+        let mut got = String::new();
+        let same = match (&outcome, want["failure"].as_str()) {
+            (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
+            (Ok(_), None) => {
+                let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
+                let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
+                // An inline `node -e "<body>"` script is the one command the tool itself moves into a file before it starts.
+                let inline_body = command.strip_prefix("node -e \"").and_then(|b| b.strip_suffix('"'));
+                // The command the process manager was handed, as a recorded command (rules in the test's header): a
+                // `node "<file>"` whose file held exactly the recorded script stands for the recorded command.
+                let unhoist = |script: &str| match (inline_body, script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"'))) {
+                    (Some(want_body), Some(file)) if rig.processes.hoisted.lock().unwrap().get(file).is_some_and(|contents| contents == want_body) => command.clone(),
+                    _ => script.to_owned(),
+                };
+                let handed = if case["shellType"] == "posix" {
+                    let seen = rig.processes.seen.lock().unwrap();
+                    match (seen.len() - spawned_seen, seen.last()) {
+                        (1, Some((CommandSpec::Shell { script, .. }, _))) => Some(unhoist(script)),
+                        _ => None,
+                    }
+                } else {
+                    let fed = rig.processes.fed.lock().unwrap();
+                    let framed = if fed.len() - fed_before == 1 { fed.last().unwrap().as_str() } else { "" };
+                    framed.split_once('\n').filter(|(len, script)| len.parse::<usize>().ok() == Some(script.encode_utf16().count())).map(|(_, script)| unhoist(script))
+                };
+                let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
+                // The answer is `<status>\n<notes, one per line>\n\n<output>`: its notes, in order, are the recording's.
+                let text = fix(&body(outcome));
+                let header = text.split("\n\n").next().unwrap();
+                let notes: Vec<&str> = header.split('\n').skip(1).collect();
+                let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+                got.push_str(&format!("{handed:?} {notes:?}"));
+                handed.as_deref() == Some(command.as_str()) && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && notes == want_notes
+            }
+            _ => false,
+        };
+        if !same {
+            failures.push(format!("{} {} offers {}\n  want {want}\n  got {got}", case["shellType"], case["args"], case["offers"]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// What the `machine` tool prints, as the recorder writes it: each reading a placeholder, the wording, the order of the
+/// sections and the number of `top by …` rows exact (`record-machine-tool.mjs` states the rules).
+fn machine_shape(text: &str) -> String {
+    let process_row = regex::Regex::new(r"^ {2}\S.* \(pid \d+\) {2}cpu [\d.]+% {2}mem \d+ MB$").unwrap();
+    let more_row = regex::Regex::new(r"^ {2}… \d+ more$").unwrap();
+    let mut out: Vec<String> = Vec::new();
+    let mut section = String::new();
+    for line in text.split('\n') {
+        let heads = ["cpu", "memory", "processes", "drives", "top by cpu", "top by memory"];
+        if heads.iter().any(|h| line.starts_with(h)) {
+            section = line.split([':', '(']).next().unwrap().trim().to_owned();
+        }
+        let mut next = line.to_owned();
+        if line.starts_with("cpu: ") {
+            next = regex::Regex::new(r"^cpu: \d+% busy of \d+ cores").unwrap().replace(line, "cpu: <n>% busy of <n> cores").into_owned();
+        } else if line.starts_with("memory: ") {
+            next = regex::Regex::new(r"^memory: [\d.]+ GB available of [\d.]+ GB \(\d+% used\)$").unwrap().replace(line, "memory: <gb> GB available of <gb> GB (<n>% used)").into_owned();
+        } else if section == "drives" && line.starts_with("  ") && !line.trim().is_empty() {
+            if out.last().is_some_and(|l| l == "  <drive> <gb> GB of <gb> GB") {
+                continue;
+            }
+            next = "  <drive> <gb> GB of <gb> GB".to_owned();
+        } else if line.starts_with("processes matching \"") {
+            next = regex::Regex::new(r"\((\d+)\):$").unwrap().replace(line, |c: &regex::Captures| if &c[1] == "0" { "(0):".to_owned() } else { "(<n>):".to_owned() }).into_owned();
+        } else if section.starts_with("processes matching") {
+            if line == "  none" {
+                next = line.to_owned();
+            } else if process_row.is_match(line) || more_row.is_match(line) {
+                if out.last().is_some_and(|l| l == "  <process rows>") {
+                    continue;
+                }
+                next = "  <process rows>".to_owned();
+            }
+        } else if process_row.is_match(line) {
+            next = "  <process> (pid <n>)  cpu <n>%  mem <n> MB".to_owned();
+        }
+        out.push(next);
+    }
+    out.join("\n")
+}
+
+/// A machine of the test's own: thirty processes, two drives, fixed readings, nothing sampled and no clock.
+struct FixedMachine {
+    /// Processes that never answer (the tool's own deadline ends the wait).
+    hung: bool,
+}
+
+#[async_trait]
+impl super::machine::MachineHost for FixedMachine {
+    async fn cpu_busy(&self, _: &ToolContext) -> u64 {
+        7
+    }
+    async fn memory(&self, _: &ToolContext) -> (f64, f64) {
+        (8.0 * 1024.0 * 1024.0 * 1024.0, 16.0 * 1024.0 * 1024.0 * 1024.0)
+    }
+    async fn processes(&self, _: &ToolContext) -> Option<Vec<super::machine::Process>> {
+        if self.hung {
+            std::future::pending().await
+        }
+        Some((0..30).map(|i| super::machine::Process { pid: 100 + i, name: format!("svc-e{i}"), cpu: i as f64 / 3.0, memory: (i as f64 + 1.0) * 5_000_000.0 }).collect())
+    }
+    async fn drives(&self, _: &ToolContext) -> Option<Vec<super::machine::Drive>> {
+        Some(vec![
+            super::machine::Drive { root: "C:\\".into(), free: 50e9, total: 500e9 },
+            super::machine::Drive { root: "D:\\".into(), free: 150e9, total: 1000e9 },
+        ])
+    }
+}
+
+/// Node's `machine` on its recorded arguments: the same sections, wording and refusals, over a machine the test supplies.
+#[tokio::test(start_paused = true)]
+async fn machine_has_nodes_shape() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/machine-tool/cases.json")).unwrap();
+    let rig = rig();
+    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: false }));
+    let mut failures = Vec::new();
+    for (n, case) in doc["cases"].as_array().unwrap().iter().enumerate() {
+        let (refused, text) = match tool.call(&ctx(&rig, &format!("machine{n}")), case["input"].clone()).await {
+            Ok(out) => match &out.parts[0] {
+                ToolPart::Text(t) => (false, t.clone()),
+                other => panic!("{other:?}"),
+            },
+            Err(e) => (true, e.message_for_model),
+        };
+        let want = &case["result"];
+        let shaped = machine_shape(&text);
+        if shaped != want["text"].as_str().unwrap() || refused != want["isError"].as_bool().unwrap() {
+            failures.push(format!("{}\n  want {}\n  got  {shaped}", case["name"], want["text"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Processes that do not answer within the tool's deadline are reported as unavailable and the rest is still told; the
+/// deadline runs on the test's clock.
+#[tokio::test(start_paused = true)]
+async fn machine_reports_processes_that_miss_its_deadline() {
+    let rig = rig();
+    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: true }));
+    let started = tokio::time::Instant::now();
+    let text = body(tool.call(&ctx(&rig, "machine"), serde_json::json!({ "process": "svc" })).await);
+    assert_eq!(started.elapsed(), std::time::Duration::from_millis(1800));
+    assert_eq!(
+        machine_shape(&text),
+        "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\nprocesses: unavailable (no answer within the deadline)\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB"
+    );
 }

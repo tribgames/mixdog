@@ -4,12 +4,14 @@
 //!      task wait);
 //!   2. a plain leading `cd <dir>` moves into the `cwd` argument;
 //!   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the read / grep / list
-//!      tools — a note now;
+//!      tools as a note; a command the built-in tools cover whole (cover.rs) is refused instead,
+//!      naming the call that replaces it, when the session offers those tools;
 //!   4. a command mentioning `git … worktree add` is rejected (worktrees go through the git
 //!      tool; a textual check, so mentions as data are too).
 
 use std::sync::LazyLock;
 
+use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_js::JsRegex;
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
@@ -293,6 +295,21 @@ pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powe
         notes.push(SHELL_FILE_READ_NOTE.to_owned());
     }
     Guarded::Run { command, cwd, notes }
+}
+
+/// [guard_shell_call] with the session's tool surface (guardShellCall with offers): a command the built-in tools cover whole
+/// is refused, naming the call that replaces it, when the session offers every tool that call names. A call that runs elsewhere
+/// than the session directory (its own cwd, a leading cd) is never covered, since the tools resolve paths in the session's.
+pub(crate) async fn guard_call(ctx: &ToolContext, command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
+    let guarded = guard_shell_call(command, cwd, background, powershell);
+    let Guarded::Run { command, cwd: None, .. } = &guarded else { return guarded };
+    let Some(offered) = &ctx.options.offered_tools else { return guarded };
+    match super::cover::covering_tool_calls(ctx, command, powershell).await {
+        Some(calls) if calls.iter().all(|call| offered.iter().any(|name| name == call.tool)) => {
+            Guarded::Refused(super::shell::tool_failure(&super::cover::blocked_text(&calls)))
+        }
+        _ => guarded,
+    }
 }
 
 #[cfg(test)]

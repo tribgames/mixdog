@@ -1,6 +1,6 @@
 {
   "besideDaemon": "the beside-daemon case starts Node's daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case's data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon's own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended",
-  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
   "exact": true,
   "exclusions": {
     "chunking": "consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process",
@@ -8,59 +8,60 @@
     "others (core only): models.dev connect": "the core fetches the models.dev model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
     "others (core only): provider cost report": "the core reads the provider's cost report at start; Node's exec does not",
     "others (node only): graph binary download": "Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here",
-    "others (node only): memory runtime download": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
     "others (node only): patch binary download": "Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here",
     "others (node only): spawn binary download": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
+    "others: memory runtime download": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz is not kept: Node's exec ingests its closing session into memory, which starts a download of the memory runtime into its cold throwaway data folder; the close waits for that ingest for at most 2.5 s (lifecycle/memory-ingest.mjs INGEST_DEADLINE_MS) and then goes on to stop memory and exit without cancelling it, so whether the ask is sent before the process ends depends on how far the ingest got in that time, which no recorded world decides; the core keeps no such runtime",
     "stderr (core only): goal recovery line": "the core logs its boot-time goal recovery summary to the exec's stderr; Node's exec keeps its daemon log in a file",
     "stderr (core only): model catalog fetch failure (GitHub)": "the core fetches the GitHub model catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
     "stderr (core only): model catalog fetch failure (models.dev)": "the core fetches the models.dev catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
     "stderr (node only): ask error diagnostic (refused request)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
     "stderr (node only): ask error diagnostic (stream error)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
-    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer, so the recording does not keep the line (a replay that meets it on the Node side leaves it out)",
     "stderr (node only): model listing diagnostic": "Node logs its background model listing that the stand-in answers 404 (twice per run); the core writes no such line",
     "stderr (node only): node process warning": "Node writes its own process warning for the built-in SQLite module; no other runtime has the module",
     "stderr (node only): node warning hint": "the second line of the same Node process warning",
     "stderr (node only): titling disabled diagnostic": "Node logs that its titling has no maintenance route; the core has no titling in the exec",
     "stderr (node only): titling generated diagnostic": "Node logs the empty title its titling got from the stand-in's refused request; the core has no titling in the exec",
     "stderr (node only): titling start diagnostic (session)": "Node logs the start of its background session titling; the core has no titling in the exec",
-    "stderr (node only): titling start diagnostic (thread)": "the same line of the --json run, which names the thread by its exec id"
+    "stderr (node only): titling start diagnostic (thread)": "the same line of the --json run, which names the thread by its exec id",
+    "stderr: atomic-file lock diagnostics": "Node logs a lock it waited for or held longer than a threshold (`[atomic-file] async lock wait`, `sync lock held`, `async lock held`); whether the OS was slow is the machine's timing, so the recording does not keep those lines (a replay leaves the one it names out of the Node side)"
   },
   "fileCount": 7,
   "files": [
     {
-      "bytes": 28621,
+      "bytes": 29019,
       "path": "beside-daemon.json",
-      "sha256": "06e267c7f40e53f5014c5b1a2c82ad541df136a94c5a071e61078521263b520f"
+      "sha256": "7905e8a39f53e4371ef7e47b075f22969ca573ca01c60f1b9f1f78ca85eb8397"
     },
     {
-      "bytes": 27653,
+      "bytes": 28184,
       "path": "ctrl-c.json",
-      "sha256": "7fc3ac02639fe332b1aa32e30c54615d16701983dcba964d9bac0d0120868930"
+      "sha256": "58c030adae1237f1b04e341055baf6dee9337cfbefa7d52d2e22ff879e8ce78e"
     },
     {
-      "bytes": 28219,
+      "bytes": 28750,
       "path": "failed-turn.json",
-      "sha256": "cec9a6ffba3c78c358207cf7cd9b3f5bffa0f4ca33a55cd3e57ba99a2d945630"
+      "sha256": "f46541858e854857ec00a6aa803d3d49dd627da3323b7bb410413e0d6fe2385f"
     },
     {
-      "bytes": 33225,
+      "bytes": 33756,
       "path": "json.json",
-      "sha256": "4e216beb637cba83d92ceff28ca8116df8b1bbbad5fac33a30e2fd0a3c04985c"
+      "sha256": "728768d124a3e22bf35a5d5579dc044f3668e01b144c772d0c9fad15dd438adc"
     },
     {
-      "bytes": 27583,
+      "bytes": 28114,
       "path": "kill.json",
-      "sha256": "0eda2ac11c3083163425576ef00db5dc9f088f18cf7d5f9ff455e6c7b255cd29"
+      "sha256": "b075533637452e45897e44314b6f1399d04a26d956d1749c2d82df297d9cf320"
     },
     {
-      "bytes": 51281,
+      "bytes": 52343,
       "path": "provider-error.json",
-      "sha256": "df2d44867d59e2bc365fc21e86881d9f199b8e12d7196b8450a492edb9ac6063"
+      "sha256": "84c48f72a388e78447fb6f712763bc03cdabf1c9b4cdd6dde2a9cdea0f9d8276"
     },
     {
-      "bytes": 28566,
+      "bytes": 28964,
       "path": "text.json",
-      "sha256": "481691739fc962746c639b72707a1b00f523cdbb118e8e5df3d8c9f5b61af43f"
+      "sha256": "d4dad342698685d8d579ffe8172552edcabce4973158ec22f6dfdcb0946f1c9a"
     }
   ],
   "inputs": [
@@ -71,6 +72,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/exec-cli-tap.mjs",
       "sha256": "536f99eb99fa8f9f5abd42f3039e8d5b1dca48afdc6833fbcea428c71471e2c5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/own-tree.mjs",
+      "sha256": "ce73b1fa7eab94d268af492d5ff7ff6b21297eaff87245ff71e9adb39086aeb3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -98,13 +103,6 @@
       "side": "node"
     },
     {
-      "name": "memory runtime download",
-      "reason": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
-      "request": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
-      "side": "node",
-      "timing": true
-    },
-    {
       "name": "models.dev connect",
       "reason": "the core fetches the models.dev model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
       "request": "CONNECT models.dev",
@@ -123,25 +121,67 @@
       "side": "core"
     }
   ],
+  "patchesApplied": "the recorder applied the patches of product.patches, in that order, to a tree it first verified to be the exact export of b6f10295a2f698afc85332467192de28500bd146",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9144,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+      ],
+      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+    },
+    "patches": [
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 13
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "771950f4652556aeba87d0ce0c8349cc1082030d2b12cbc596d76dc44dff064a",
+  "recorderSha256": "e5c7f77298af5a1d07ea1b54ad808bf73113703fa1f4e24389b25cfb2b8d316f",
   "set": "exec-cli",
   "stderrNotCompared": [
     {
@@ -201,7 +241,7 @@
     {
       "line": "[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock",
       "name": "lock wait diagnostic",
-      "reason": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+      "reason": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer, so the recording does not keep the line (a replay that meets it on the Node side leaves it out)",
       "side": "node",
       "timing": true
     },
@@ -224,5 +264,5 @@
       "side": "core"
     }
   ],
-  "totalBytes": 225148
+  "totalBytes": 229130
 }

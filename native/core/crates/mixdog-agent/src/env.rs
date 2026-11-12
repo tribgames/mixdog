@@ -765,6 +765,9 @@ pub trait ResultReuse: Send + Sync {
     async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
     /// A call ran: mutations and failures invalidate what they may have touched.
     async fn after_call(&self, call: &ToolCall, failed: bool);
+    /// Compaction replaced the transcript, so the tool results it held are no longer in context: a new read epoch
+    /// (`resetReadStateAfterCompaction`).
+    fn after_compaction(&self) {}
 }
 
 /// What a successful react call hit.

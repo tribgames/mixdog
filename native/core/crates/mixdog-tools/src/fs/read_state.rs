@@ -276,6 +276,8 @@ struct Shared {
     idle: tokio::sync::Notify,
     /// `registerCacheInvalidationListener`: told the paths of every invalidation.
     watchers: Mutex<Vec<Arc<dyn Fn(&[String]) + Send + Sync>>>,
+    /// `registerSessionPurgeHook`: told the id of every session that is closed or deleted.
+    releases: Mutex<Vec<Arc<dyn Fn(&str) + Send + Sync>>>,
     /// Every change owed to the store (a session's change, a release, a path sweep) numbered as it is made, reported once
     /// the write that carries it ran.
     marks: mixdog_rt::WriteMarks,
@@ -493,7 +495,7 @@ impl ReadState {
 
     fn build(persist: Option<Persistence>, clock: Clock, debounce: std::time::Duration) -> Self {
         let marks = mixdog_rt::WriteMarks::new("the read-state snapshots");
-        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()), marks }) }
+        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()), releases: Mutex::new(Vec::new()), marks }) }
     }
 
     /// The changes' numbers: a barrier takes `accepted()` when it arrives, calls [`Self::flush_pending`], and waits for
@@ -633,6 +635,27 @@ impl ReadState {
     /// `releaseReadSnapshotScope(scope, { deletePersisted: true })`: a deleted session forgets its
     /// snapshots, in memory and in the store (the `read_cache` purge hook).
     pub fn forget_session(&self, scope: &str) {
+        self.forget_snapshots(scope);
+        self.notify_released(scope);
+    }
+
+    /// `registerSessionPurgeHook` / `releaseSessionReadCaches`: `listener` runs with the id of every session that is deleted
+    /// ([`forget_session`](Self::forget_session)) or closed ([`release_session`](Self::release_session)), the two points at which Node
+    /// drops everything a session cached (`clearReadDedupSession` beside `releaseReadSnapshotScope`).
+    pub fn on_released(&self, listener: Arc<dyn Fn(&str) + Send + Sync>) {
+        self.shared.releases.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    }
+
+    fn notify_released(&self, scope: &str) {
+        let listeners: Vec<_> = self.shared.releases.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for listener in listeners {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(scope)));
+        }
+    }
+
+    /// `releaseReadSnapshotScope(scope, { deletePersisted: true, persist: false })`: the snapshots of a session whose context was
+    /// compacted away leave memory and the store (`resetReadStateAfterCompaction`). The session itself goes on.
+    pub fn forget_snapshots(&self, scope: &str) {
         let mut inner = self.shared.lock();
         match inner.scopes.iter().position(|s| s.key == scope) {
             Some(at) => {
@@ -654,22 +677,25 @@ impl ReadState {
     /// its snapshots leave memory and their last content is written, so a resumed session reads
     /// them back. (`forget_session` is the deleted session's: the stored copy goes too.)
     pub fn release_session(&self, scope: &str) {
-        let mut inner = self.shared.lock();
-        match inner.scopes.iter().position(|s| s.key == scope) {
-            Some(at) => {
-                let released = inner.scopes.remove(at);
-                self.shared.release(&mut inner, released, false);
-            }
-            None => {
-                inner.timers.retain(|(s, _)| s != scope);
-                inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
-                inner.hydrated.retain(|k| k != scope);
-                // A session out of memory was saved when it left, with its changes.
-                for mark in inner.take_unwritten(scope) {
-                    self.shared.marks.withdrawn(mark);
+        {
+            let mut inner = self.shared.lock();
+            match inner.scopes.iter().position(|s| s.key == scope) {
+                Some(at) => {
+                    let released = inner.scopes.remove(at);
+                    self.shared.release(&mut inner, released, false);
+                }
+                None => {
+                    inner.timers.retain(|(s, _)| s != scope);
+                    inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
+                    inner.hydrated.retain(|k| k != scope);
+                    // A session out of memory was saved when it left, with its changes.
+                    for mark in inner.take_unwritten(scope) {
+                        self.shared.marks.withdrawn(mark);
+                    }
                 }
             }
         }
+        self.notify_released(scope);
     }
 
     /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it,

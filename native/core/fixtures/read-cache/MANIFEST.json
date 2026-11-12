@@ -1,0 +1,76 @@
+{
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-read-cache.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --patch-bin <mixdog-patch executable>",
+  "exclusions": {
+    "replay-read-cache.mjs (the replay through a mixdogd process)": "skips two scenarios it cannot drive through a daemon, and each is replayed whole in-process by mixdog-core run_host/session_read_cache_replay.rs instead: 'the session closed and resumed between the turns' (a_closed_and_resumed_session_reads_like_nodes) and every scenario with a `direct` phase, cache calls in a recorded order with no turn between them ('a turn still reading after its session was closed': a_turn_still_reading_after_its_close_fills_the_cache_the_reopened_session_finds, which compares every recorded lookup)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 224758,
+      "path": "golden.json",
+      "sha256": "3cee9c05b7097dd27e5e1dec391eb0c5a2aba5a82149f1905bc8726796b91345"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "dd068ca90fe5d92654f65d5ad670076eab8fe8af80ee91f14d157713c84d755d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/read-cache-scenarios.mjs",
+      "sha256": "b4667133dc5e3324bec0e1a5310df2a811737a862d86c442c5891eaf868fdceb"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-failure-rows.mjs",
+      "sha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce"
+    }
+  ],
+  "node": "v22.20.0",
+  "nodeVersion": "v22.20.0",
+  "normalised": [
+    "workspace folder (every spelling) as <WS>",
+    "the profile data folder as <DATA>"
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-read-cache.mjs",
+  "recorderSha256": "122151a20dc52e5a769a733f81362dfbac7eeb41a62ab22d1e568775024e9766",
+  "set": "read-cache",
+  "syntheticInputs": {
+    "betweenTurns": "write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id; direct: setReadCached / tryReadCached / setScopedToolCached / tryScopedToolCached / clearReadDedupSession called in the recorded order under one session id",
+    "patchBinary": {
+      "givenAs": "MIXDOG_PATCH_NATIVE_BIN (the engine apply_patch runs on)",
+      "sha256": "03c73fe9895dad6684060e7b0155bb41a8dc96ad75c49c9c9b550cbec27afd1d"
+    },
+    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/read-cache-scenarios.mjs",
+    "sessionBuilderInputs": "sessionOptions with the headless tool profile, skipSkills true and workflow { id: headless, delegatesAgents: false }",
+    "workspaceFiles": {
+      "a.txt": "4fdbc441ea7b546100e086ac1e4fc5ae6749b7314311c99db05be450eca12996",
+      "b.txt": "b6285c57e8797db5d4c51c80d6f11938afda9b11c6a003549709189e9b4b92a2"
+    }
+  },
+  "totalBytes": 224758
+}
