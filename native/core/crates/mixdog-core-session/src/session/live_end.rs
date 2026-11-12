@@ -104,6 +104,10 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
 pub(crate) fn live_result(mut update: mixdog_protocol::ThreadItem, at: i64, abort_ended: &std::collections::HashMap<String, String>) -> mixdog_protocol::ThreadItem {
     if let mixdog_protocol::ThreadItem::ToolCall { run, output, meta, .. } = &mut update {
         run.completed_at = Some(at);
+        // The result counts its calls done (`completedCount: visualCompleted`, aggregate-result.mjs:35-45): the card opened at 0.
+        if run.completed_count.is_none() {
+            run.completed_count = Some(run.count.unwrap_or(1));
+        }
         if let Some(text) = run.call_id.as_deref().and_then(|call| abort_ended.get(call)) {
             // The card the Stop ended is finalized as cancelled (`finalizeOpenCards(…, { cancelled })`, tool-card-results.mjs:88-97).
             meta.status = Some(mixdog_protocol::ItemStatus::Interrupted);
