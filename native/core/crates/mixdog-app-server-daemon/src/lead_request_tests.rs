@@ -3,8 +3,8 @@
 //! files of the data directory and of the workspace). The real core is composed over a profile holding them, a desktop client starts a task
 //! on a loopback provider of the recorded wire (thread/start, route/set, turn/start), and the request that reaches that endpoint, the
 //! provider adapter's own, must equal Node's: the whole system prompt, the whole tool list in its order and every `cache_control` breakpoint.
-//! The profile's folders are the tokens the recording holds (`{DATA}`, `{WS}`, `{HOME}`), and the session's scratch folder, named by a digest of the
-//! thread's id, is `s.{SCRATCH}`: nothing else is replaced.
+//! The profile's folders are the tokens the recording holds (`{DATA}`, `{WS}`, `{HOME}`), the thread's id is `{SESSION}` and the session's scratch folder,
+//! named by a digest of that id, is `s.{SCRATCH}`: the manifest's `mappings` declares each, and nothing else is replaced. Strings are compared by equality.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories, a loopback endpoint on a thread of its own and the recorded fixture")]
 
 use std::io::{Read, Write};
@@ -166,14 +166,19 @@ fn sandbox_env(home: &Path, programs: &[&str]) {
     }
 }
 
-async fn reply(halves: &mut TransportHalves, id: u64) -> Value {
-    loop {
-        let TransportEvent::Frame(text) = halves.reader.recv().await else { panic!("the connection closed before the reply to {id}") };
-        let frame: Value = serde_json::from_str(&text).expect("a frame");
-        if frame["id"] == id {
-            return frame;
+/// The reply to request `id` (`method`), within one deadline.
+async fn reply(halves: &mut TransportHalves, id: u64, method: &str) -> Value {
+    const DEADLINE: Duration = Duration::from_secs(120);
+    let awaited = async {
+        loop {
+            let TransportEvent::Frame(text) = halves.reader.recv().await else { panic!("the connection closed before the reply to {method} (request {id})") };
+            let frame: Value = serde_json::from_str(&text).expect("a frame");
+            if frame["id"] == id {
+                return frame;
+            }
         }
-    }
+    };
+    tokio::time::timeout(DEADLINE, awaited).await.unwrap_or_else(|_| panic!("no reply to {method} (request {id}) within {} s", DEADLINE.as_secs()))
 }
 
 /// The ids a request's op takes: lowercase UUIDv7s.
@@ -183,7 +188,7 @@ fn op(n: u64) -> String {
 
 async fn call(halves: &mut TransportHalves, id: u64, method: &str, params: Value) -> Value {
     halves.writer.send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string()).await.expect("send");
-    let answer = reply(halves, id).await;
+    let answer = reply(halves, id, method).await;
     assert!(answer.get("result").is_some(), "{method}: {answer}");
     answer["result"].clone()
 }
@@ -229,8 +234,9 @@ fn differences(path: &str, got: &Value, want: &Value, out: &mut Vec<String>) {
                 differences(&format!("{path}[{i}]"), x, y, out);
             }
         }
+        // Strings are equal or they differ: split at `\n` only, so a carriage return or a missing final line end is part of the line it shows.
         (Value::String(a), Value::String(b)) if a != b => {
-            let (la, lb): (Vec<_>, Vec<_>) = (a.lines().collect(), b.lines().collect());
+            let (la, lb): (Vec<_>, Vec<_>) = (a.split('\n').collect(), b.split('\n').collect());
             if la.len() != lb.len() {
                 out.push(format!("{path}: {} lines != recorded {}", la.len(), lb.len()));
             }
@@ -252,6 +258,13 @@ async fn replay(name: &str, dir: PathBuf) {
     std::fs::create_dir_all(&ws).expect("the workspace");
     let programs: Vec<&str> = case["path"].as_array().expect("path").iter().filter_map(Value::as_str).collect();
     sandbox_env(&home, &programs);
+    // The variables the recorder's daemon was given for this scenario.
+    // SAFETY: as in `sandbox_env`: this test's process is its own and no thread has started.
+    unsafe {
+        for (name, value) in case["env"].as_object().expect("env") {
+            std::env::set_var(name, value.as_str().expect("an env value"));
+        }
+    }
     let data = crate::compose_test_support::data_in(&dir);
     let (port, posts) = endpoint(route["wire"].as_str().expect("wire"), model);
 
@@ -503,4 +516,52 @@ fn settings_route_default() {
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn settings_route_git_module_off() {
     crate::compose_test_support::in_child(module_path!(), "settings_route_git_module_off", runtime(), |dir| replay("settings-route-git-module-off", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_server_instructions() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_server_instructions", runtime(), |dir| replay("mcp-server-instructions", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_servers_instructions_account_and_long() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_servers_instructions_account_and_long", runtime(), |dir| replay("mcp-servers-instructions-account-and-long", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn visualize_available() {
+    crate::compose_test_support::in_child(module_path!(), "visualize_available", runtime(), |dir| replay("visualize-available", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn visualize_available_openai() {
+    crate::compose_test_support::in_child(module_path!(), "visualize_available_openai", runtime(), |dir| replay("visualize-available-openai", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn visualize_available_headless() {
+    crate::compose_test_support::in_child(module_path!(), "visualize_available_headless", runtime(), |dir| replay("visualize-available-headless", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn visualize_switched_off() {
+    crate::compose_test_support::in_child(module_path!(), "visualize_switched_off", runtime(), |dir| replay("visualize-switched-off", dir));
+}
+
+#[test]
+fn a_changed_line_ending_is_a_difference() {
+    for (got, recorded) in [("a\r\nb", "a\nb"), ("a\nb\n", "a\nb"), ("a\nb", "a\nb\n")] {
+        let mut found = Vec::new();
+        differences("request", &json!(got), &json!(recorded), &mut found);
+        assert!(!found.is_empty(), "{got:?} equals {recorded:?} under the comparison");
+    }
+    let mut found = Vec::new();
+    differences("request", &json!("a\r\nb\n"), &json!("a\r\nb\n"), &mut found);
+    assert!(found.is_empty(), "{found:?}");
 }
