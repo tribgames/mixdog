@@ -1432,6 +1432,8 @@ impl DirInner {
             unacked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            retry_blocked: Default::default(),
             #[cfg(test)]
             ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
