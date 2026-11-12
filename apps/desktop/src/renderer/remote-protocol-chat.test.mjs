@@ -5,14 +5,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { createChatApi } from './remote-protocol-chat.ts';
+import { createChatApi, foldTranscript } from './remote-protocol-chat.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { normalizedProviderModels } from '../main/desktop-support.ts';
-import { ABORT_CASES as CASES } from './remote-protocol-chat-abort-cases.mjs';
 import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
-import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
 // What a running mixdogd answered to the phone's own requests for the refusal cases (remote-protocol-chat-refusals.record.mjs).
@@ -191,7 +189,7 @@ function adapterFor(script) {
       whenFolded: (_threadId, resume) => resume().then(() => undefined),
       whenSettled: async () => undefined,
       approvalRequestId: (cardId) => cardId,
-      transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
+      transcript: foldTranscript(client),
     }
   );
   return { api, sent };
@@ -221,7 +219,6 @@ const invoke = {
   listProviderModels: (api, a) => api.listProviderModels(...a),
   viewerDevice: (api) => api.viewerDevice(),
   readTranscriptItem: (api, a) => api.readTranscriptItem(...a),
-  answerApprovalNotification: (api, a) => api.answerApprovalNotification(...a),
   provideSecretInput: (api, a) => api.provideSecretInput(...a),
   readCapabilities: (api, a) => api.readCapabilities(...a),
   prefetchSession: (api, a) => api.prefetchSession(...a),
@@ -241,31 +238,6 @@ test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');
   assert.match(recorded.manifest.tree, /^[0-9a-f]{40}$/);
 });
-
-// A1: a notification's Allow / Deny, replayed through the production adapter against Node's answers (the `notify-` cases of the
-// installed state histories, Node's real push notifier over a real daemon). The thread shows the approval Node's host showed when the
-// phone answered; the core's pending request is that approval's.
-const histories = verifiedFixture('history').recordings;
-for (const c of CASES.filter((x) => x.notify)) {
-  test(`${c.name}: a notification's answers are Node's`, async () => {
-    const { history } = histories.find((x) => x.name === c.name);
-    const isAnswer = (e) => e.kind === 'reply' && e.input.startsWith('phone.answerApprovalNotification ');
-    const shown = history.slice(0, history.findIndex(isAnswer)).findLast((e) => e.snapshot).snapshot.toolApproval;
-    const method = shown.kind === 'question' ? 'item/tool/requestUserInput' : 'item/tool/requestApproval';
-    const script = { state: { toolApproval: shown }, pending: [{ id: String(shown.id), method, params: { threadId: S, order: 1 } }] };
-    // The core's answer (approval_notification.rs `answer_approval`): taken while the request is pending, which it then no longer is.
-    script['thread/approval/answer'] = ({ approvalId }) => {
-      const accepted = script.pending.some((p) => p.id === approvalId);
-      script.pending = script.pending.filter((p) => p.id !== approvalId);
-      if (accepted) script.state = { toolApproval: null };
-      return { accepted };
-    };
-    const { api } = adapterFor(script);
-    const answers = [];
-    for (const step of c.notify) answers.push(await api.answerApprovalNotification(S, step.id === 'shown' ? String(shown.id) : step.id, step.action));
-    assert.deepEqual(answers, history.filter(isAnswer).map((e) => e.reply));
-  });
-}
 
 for (const c of recorded.cases) {
   test(`${c.name}: the phone receives what Node returned`, async () => {

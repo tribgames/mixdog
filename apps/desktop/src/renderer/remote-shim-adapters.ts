@@ -9,7 +9,8 @@ export function adaptersOf(modules: Record<string, { adapter?: PhoneProtocolAdap
     .sort()
     .map((path) => {
       const adapter = modules[path].adapter;
-      if (!adapter || typeof adapter.calls !== 'object' || adapter.calls === null) throw new Error(`${path} exports no phone adapter`);
+      const answers = adapter && [adapter.calls, adapter.fires, adapter.capabilities].some((table) => typeof table === 'object' && table !== null);
+      if (!adapter || typeof adapter.group !== 'string' || !answers) throw new Error(`${path} exports no phone adapter`);
       return adapter;
     });
 }

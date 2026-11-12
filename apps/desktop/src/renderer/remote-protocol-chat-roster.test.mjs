@@ -273,11 +273,40 @@ test('negative control: an adapter built once with a captured client writes uncl
   assert.ok(written.every((request) => request.sent === undefined), 'no request carries a claim');
 });
 
-test('the adapter the switch point loads claims all 37 chat calls and the thread list, and nothing twice', async () => {
+// Node's `getSnapshot` answered the host's shell snapshot (session-host.ts:436): null until a start call published one
+// (session-host-lifecycle.ts:170-190), then that start's blank snapshot with the remote channel as it stands (session-host-publication.ts:281-301).
+test('getSnapshot is null until a start, then the start\'s blank snapshot with the remote channel as it stands now', async () => {
+  let remote;
+  const client = {
+    call: async (method) => (method === 'project/taskWorkspace' ? { path: 'C:\\ws\\task' } : {}),
+    resumeThread: async () => ({}),
+    unsubscribeThread: async () => undefined,
+    server: { connection: { device: 'Phone' } },
+  };
+  const adapter = createChatAdapter({
+    sharedFor: (handed) => {
+      const protocol = { call: (method, params) => handed.call(method, params), snapshot: () => ({ entries: [] }), noteUserInput() {}, respond() {}, pendingServerRequests: () => [] };
+      return { routeService, lane: createCapabilityLane({ protocol }), coreErrorForWindow, normalizedProviderModels, sessionStateOf: () => undefined, foldRows: () => [] };
+    },
+    remoteSession: () => remote,
+    roster: { summaries: (rows) => summariesOfThreadRows(rows) },
+  });
+  const host = { ctx: { sessionsCatalog: { publish() {} } }, client: () => client, declareLane() {} };
+  assert.equal(await adapter.calls.getSnapshot([], host), null, 'no shell before a start');
+  const started = await adapter.calls.startTask([], host);
+  assert.equal(started.cwd, 'C:\\ws\\task');
+  assert.deepEqual(await adapter.calls.getSnapshot([], host), started);
+  remote = { enabled: true, sessionId: 'sess_remote' };
+  assert.deepEqual(await adapter.calls.getSnapshot([], host), { ...started, remoteEnabled: true, remoteSessionId: 'sess_remote' });
+  const other = { ...host, ctx: { sessionsCatalog: { publish() {} } } };
+  assert.equal(await adapter.calls.getSnapshot([], other), null, 'another page holds its own shell');
+});
+
+test('the adapter the switch point loads claims all 36 chat calls, the shell snapshot and the thread list, and nothing twice', async () => {
   const { adapter } = await import('./remote-protocol-chat.ts');
   assert.equal(adapter.group, 'chat');
   const claimed = Object.keys(adapter.calls);
-  assert.equal(claimed.length, 38, 'the 37 chat calls and the thread list');
+  assert.equal(claimed.length, 38, 'the 36 chat calls, getSnapshot and the thread list');
   assert.equal(new Set(claimed).size, claimed.length, 'nothing twice');
   // Every call Node's recording made of the chat host is claimed.
   const recordedCalls = [...new Set(read('./remote-protocol-chat.recorded.json').cases.map((c) => c.call))];
