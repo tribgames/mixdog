@@ -23,6 +23,8 @@ pub mod log;
 pub mod log_rewrite;
 pub mod paths;
 pub mod projection;
+#[cfg(any(test, feature = "test-support"))]
+pub mod read_count;
 pub mod registry;
 pub mod schema;
 pub mod sqlite;

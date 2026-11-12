@@ -205,6 +205,36 @@ fn iids(rows: &[HistoryRow]) -> Vec<String> {
     rows.iter().map(|r| r.iid.clone()).collect()
 }
 
+/// A client's row id is found through the indexes of `iid` and of aliases (a submission id, a display row's own id): the
+/// oldest row it can name, how many rows can be named, and a page from there that starts with that row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_a_client_names_is_found_without_walking_the_history() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let prompt = rec(json!({"k":"item","iid":"d","role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":"d","role":"user","meta":{"transcript":{"clientSubmissionId":"sub"}}}}}));
+    let shown = rec(json!({"k":"item","iid":"z","form":"display","model":false,"visible":true,"refs":[],
+        "body":{"inline":{"kind":"user","id":"bid","text":"t","clientSubmissionId":"cs"}}}));
+    let (_w, _) = env.commit(w, vec![item("a"), item("b"), item("c"), prompt, shown]).await;
+    let one = || lineage(&[("s1", None)]);
+    let find = |ids: &[&str], alias: &str| {
+        let (store, ids, alias) = (&env.store, ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>(), alias.to_owned());
+        async move { store.history_anchor(one(), None, ids, alias).await.unwrap() }
+    };
+    let b = find(&["b"], "b").await.expect("b is a row");
+    assert_eq!((b.named, b.cursor.level, b.cursor.before), (1, 0, 3));
+    let (rows, _) = env.store.history_page(one(), None, Some(b.cursor), 10).await.unwrap();
+    assert_eq!(iids(&rows), ["b", "a"]);
+    // The submission id of a message names the prompt, which its own iid names too.
+    let sub = find(&["sub"], "sub").await.expect("the submission id names a row");
+    assert_eq!((sub.named, sub.cursor.before), (1, 5));
+    assert_eq!(find(&["d"], "sub").await.expect("named twice").named, 2);
+    // A display row is named by its own id and by its submission id.
+    assert_eq!(find(&["bid"], "bid").await.expect("own id").cursor.before, 6);
+    assert_eq!(find(&["cs"], "cs").await.expect("submission").cursor.before, 6);
+    assert_eq!(find(&["nope", "nope:1"], "nope").await, None);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn barrier_projects_and_reopens() {
     let env = Env::new();
@@ -2585,6 +2615,74 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
             (table, rows)
         })
         .collect()
+}
+
+/// Every `history_alias` row of the index at `db`, whole and sorted.
+fn aliases_in(db: &Path) -> Vec<(String, String, i64)> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    let mut stmt = conn.prepare("SELECT session, alias, ordinal FROM history_alias ORDER BY session, alias, ordinal").unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().collect::<Result<_, _>>().unwrap()
+}
+
+/// The aliases the incremental writer keeps are the aliases a fresh rebuild from the same logs holds, after frames of every
+/// kind (items under submission ids, display rows, amends that name another submission id, an amend of an item of the base,
+/// a compaction, a model switch, runs, approvals, a rewind over amended rows, a fork), and a purge takes a session's aliases
+/// with its rows. Frame kinds that touch ids a cursor names: `item` (adds), `amend` (adds the amended body's ids to the
+/// amended row); the others leave `history_alias` alone, and a rewind keeps the rows it supersedes (the reader joins `history`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs() {
+    let named = |kind: &str, iid: &str, submission: &str| {
+        let body = json!({"content":iid,"role":"user","meta":{"transcript":{"clientSubmissionId":submission}}});
+        match kind {
+            "item" => rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}})),
+            _ => rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":body}})),
+        }
+    };
+    let shown = |iid: &str, id: &str, submission: &str| {
+        rec(json!({"k":"item","iid":iid,"form":"display","model":false,"visible":true,"refs":[],
+            "body":{"inline":{"kind":"user","id":id,"text":"t","clientSubmissionId":submission}}}))
+    };
+    let run = |phase: &str| rec(json!({"k":"run","rid":"r1","phase":phase,"at":1}));
+    let approval = |phase: &str| rec(json!({"k":"approval","aid":"p1","rid":"r1","phase":phase,"at":1}));
+    let meta = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":1700000000000u64},"unset":[]}}}));
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, o) = env
+        .commit(w, vec![named("item", "u1", "S1"), shown("d1", "bid", "cs"), run("started"), approval("requested"), answer("a1"), named("item", "u2", "S1")])
+        .await;
+    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},{"iid":"a1","body":{"role":"assistant","content":"kept"}}]}}));
+    let (w, _) = env
+        .commit(
+            w,
+            vec![named("amend", "u1", "S2"), named("amend", "u2", "S3"), named("amend", "ghost", "G"), compacted, model_switch("a1", o[4], "m1", 5), run("completed"), approval("decided"), meta],
+        )
+        .await;
+    // The amends are over the rewind's reach; new rows reuse the ids they named.
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":o[5],"reason":"edit"}))]).await;
+    let (w, after) = env.commit(w, vec![named("item", "u3", "S2"), shown("d2", "bid", "cs"), named("amend", "u1", "S4"), named("amend", "u3", "S5")]).await;
+    let end = after[3] + 1;
+    let child = env.create("c1", Some(("s1", end))).await;
+    let (child, _) = env.commit(child, vec![named("item", "c2", "S2"), named("amend", "c2", "S6"), named("amend", "u3", "S7")]).await;
+    drop((w, child));
+
+    let live = aliases_in(&env.data.join(INDEX_FILE));
+    let fresh = env.data.join("fresh.sqlite");
+    project_index(&env.data, &fresh, &["s1".to_owned(), "c1".to_owned()]).unwrap();
+    assert_eq!(live, aliases_in(&fresh));
+    // Not vacuous: each row is reachable by every id its bodies name, the amended ones included.
+    let has = |session: &str, alias: &str, ordinal: u64| live.contains(&(session.to_owned(), alias.to_owned(), ordinal as i64));
+    for (session, alias, ordinal) in [
+        ("s1", "S1", o[0]), ("s1", "S2", o[0]), ("s1", "S4", o[0]), ("s1", "S1", o[5]), ("s1", "S3", o[5]), ("s1", "S2", after[0]),
+        ("s1", "S5", after[0]), ("s1", "bid", o[1]), ("s1", "cs", o[1]), ("s1", "bid", after[1]), ("c1", "S6", after[3] + 2),
+    ] {
+        assert!(has(session, alias, ordinal), "{session} {alias} {ordinal}: {live:?}");
+    }
+    assert!(!live.iter().any(|(_, alias, _)| alias == "G" || alias == "S7"), "an amend that reaches no row names nothing: {live:?}");
+
+    env.store.mark_deleted("c1").await.unwrap();
+    env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
+    assert!(aliases_in(&env.data.join(INDEX_FILE)).iter().all(|(session, _, _)| session == "s1"));
 }
 
 /// The worker index revision: a load from a revision reads every session whose worker map or listing was committed since,

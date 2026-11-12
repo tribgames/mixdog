@@ -236,8 +236,9 @@ impl World {
                 prompt: None,
                 msg: Some(row.clone()),
                 facets: None,
+                aliases: Vec::new(),
             },
-            F::Amend(iid, row) => FrameKind::Amend { iid: iid.clone(), refs: Vec::new(), msg: Some(row.clone()) },
+            F::Amend(iid, row) => FrameKind::Amend { iid: iid.clone(), refs: Vec::new(), msg: Some(row.clone()), aliases: Vec::new() },
             F::Rewind(to) => FrameKind::Rewind { to_ordinal: *to as u64 },
             F::Compact(cid, rows) => FrameKind::Compacted {
                 cid: cid.clone(),
