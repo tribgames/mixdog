@@ -207,6 +207,36 @@ fn a_set_aside_interrupted_at_any_step_is_finished_by_the_next_start_or_leaves_t
     }
 }
 
+/// The marker goes out as every whole-file write does (its bytes flushed, then its name, then its folder) while each file of
+/// the database is still under its own name: a power loss cannot keep a move and lose the marker that has the next start
+/// finish it.
+#[test]
+fn the_set_aside_marker_is_published_whole_before_the_first_file_moves() {
+    use crate::fsio::PublishStep;
+    static WATCHED: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    static SEEN: std::sync::Mutex<Vec<(PublishStep, bool)>> = std::sync::Mutex::new(Vec::new());
+    fn hook(step: PublishStep, path: &Path, _: &[u8]) {
+        let Some(dir) = WATCHED.get().filter(|dir| path.starts_with(dir)) else { return };
+        if path.file_name().is_some_and(|name| name.to_string_lossy().contains("core.sqlite.set-aside")) {
+            let unmoved = ["", "-wal", "-shm", "-journal"].iter().all(|suffix| dir.join(format!("core.sqlite{suffix}")).exists());
+            SEEN.lock().unwrap().push((step, unmoved));
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    std::fs::write(&path, b"this is not a database").unwrap();
+    for (suffix, bytes) in SIDECARS {
+        std::fs::write(dir.path().join(format!("core.sqlite{suffix}")), bytes).unwrap();
+    }
+    WATCHED.set(dir.path().to_path_buf()).unwrap();
+    crate::fsio::set_publish_hook(hook);
+
+    let kept = crate::state::set_aside_file(&path).unwrap();
+    let steps = [PublishStep::Create, PublishStep::Write, PublishStep::Sync, PublishStep::Rename, PublishStep::SyncDir];
+    assert_eq!(*SEEN.lock().unwrap(), steps.map(|step| (step, true)));
+    assert!(kept.exists() && !path.exists() && !dir.path().join("core.sqlite.set-aside").exists());
+}
+
 fn tokio_free_block<T>(future: impl std::future::Future<Output = Result<T, DbError>>) -> T {
     tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(future).unwrap()
 }

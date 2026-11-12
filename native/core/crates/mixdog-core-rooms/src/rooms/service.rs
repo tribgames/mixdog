@@ -64,6 +64,11 @@ pub trait RoomHost: Send + Sync {
     async fn record_members(&self, _room_id: &str, _members: &[String]) -> Result<(), RoomError> {
         Ok(())
     }
+    /// [`Self::record_members`] for a room whose log has no such record yet (one saved before its log kept its members): written
+    /// only then, so a record the room's changes wrote is never replaced.
+    async fn seed_members(&self, _room_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
     /// `startSessionOver`: the session is cleared in place and its conversation kept under a new archived id
     /// (`None` when it had nothing to keep).
     async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;

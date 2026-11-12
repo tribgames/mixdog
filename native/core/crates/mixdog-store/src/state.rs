@@ -315,11 +315,10 @@ pub(crate) fn set_aside_file(path: &Path) -> Result<PathBuf, DbError> {
     let suffix = aside.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(path.file_name()?.to_str()?)).map(str::to_owned);
     let suffix = suffix.ok_or_else(|| DbError::Write(format!("set-aside name {}", aside.display())))?;
     let marker = with_suffix(path, SET_ASIDE_MARKER);
-    let staged = with_suffix(path, ".set-aside.tmp");
     before_step(0)?;
-    let write = |e: std::io::Error| DbError::Write(format!("marking the set-aside of {}: {e}", path.display()));
-    mixdog_fsio::write(&proof, &staged, &suffix).map_err(write)?;
-    mixdog_fsio::rename(&proof, &staged, &marker).map_err(write)?;
+    // Durable before the first file moves: a power loss that kept a move but lost the marker would leave the next start to
+    // open the database without its WAL.
+    crate::fsio::publish_file_unlaned(&marker, suffix.as_bytes()).map_err(|e| DbError::Write(format!("marking the set-aside of {}: {e}", path.display())))?;
     run_set_aside(path, &aside)?;
     Ok(aside)
 }
@@ -336,11 +335,15 @@ fn run_set_aside(path: &Path, aside: &Path) -> Result<(), DbError> {
         if mixdog_fsio::exists(&proof, &to).unwrap_or(true) {
             return Err(DbError::Write(format!("setting aside {}: {} is in the way", from.display(), to.display())));
         }
-        mixdog_fsio::rename(&proof, &from, &to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))?;
+        // Each move is durable before the next starts, so what a power loss leaves is always a prefix of these steps.
+        crate::fsio::durable_rename(&from, &to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))?;
     }
     before_step(5)?;
-    mixdog_fsio::remove_file(&proof, with_suffix(path, SET_ASIDE_MARKER))
-        .map_err(|e| DbError::Write(format!("finishing the set-aside of {}: {e}", path.display())))
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    let finishing = |e: &dyn std::fmt::Display| DbError::Write(format!("finishing the set-aside of {}: {e}", path.display()));
+    mixdog_fsio::remove_file(&proof, &marker).map_err(|e| finishing(&e))?;
+    // The marker's removal too: a marker that came back after a power loss would only repeat steps with nothing left to move.
+    crate::fsio::sync_dir(marker.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."))).map_err(|e| finishing(&e))
 }
 
 /// A set-aside a crash stopped is finished before anything opens the file: returns where the database was kept.

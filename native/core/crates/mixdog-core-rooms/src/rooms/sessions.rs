@@ -58,6 +58,10 @@ pub trait SessionOps: Send + Sync {
     async fn set_room_members(&self, _session_id: &str, _members: &[String]) -> Result<(), RoomError> {
         Ok(())
     }
+    /// [`Self::set_room_members`] only when the header has no `roomMembers` yet.
+    async fn seed_room_members(&self, _session_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
 }
 
 fn task_session_params(mut params: Map<String, Value>, workspace: String) -> Value {
@@ -95,8 +99,14 @@ impl<S: RoomStore> SessionHomePorts<S> {
     /// and their room conversations are deleted; those that could not be are logged (the load does not fail on them). A failed
     /// save fails the load, the members already gone from the live records ([`Rooms::prune_members`]).
     pub async fn prune_deleted(&self, log: &(dyn Fn(&str) + Send + Sync)) -> Result<(), RoomError> {
+        let rooms = self.rooms.list().await?;
+        // A room saved before its log kept its members gets that record now, or it would not come back from a rebuild until its
+        // members next change; one that cannot be written is left to the next load.
+        for room in &rooms {
+            let _ = self.room_host.seed_members(&room.id, &room.config.members).await;
+        }
         let mut ids: Vec<String> = Vec::new();
-        for room in self.rooms.list().await? {
+        for room in rooms {
             for id in room.config.members {
                 if !ids.contains(&id) {
                     ids.push(id);
@@ -109,6 +119,8 @@ impl<S: RoomStore> SessionHomePorts<S> {
         // An unknown or failed check proves nothing (`.catch(() => null)`).
         let Ok(presence) = self.catalog.presence(&ids).await else { return Ok(()) };
         let deleted: Vec<String> = ids.into_iter().filter(|id| presence.get(id) == Some(&Presence::Deleted)).collect();
+        // A failed save keeps the members gone from the live records, so the logs' records stay as written.
+        self.record_leaving(&deleted).await?;
         let left = self.rooms.prune_members(&deleted).await?;
         if left.is_empty() {
             return Ok(());
@@ -120,6 +132,22 @@ impl<S: RoomStore> SessionHomePorts<S> {
         Ok(())
     }
 
+    /// Each room `agent_ids` are about to leave has its log record its members without them before the rooms are saved: a crash
+    /// or a failed write between the two leaves a log that lists fewer members than its room, never one the room has dropped
+    /// (a rebuilt room takes its members from its log). The rooms whose logs were written.
+    async fn record_leaving(&self, agent_ids: &[String]) -> Result<Vec<String>, RoomError> {
+        let mut recorded = Vec::new();
+        for room in self.rooms.list().await? {
+            let stay: Vec<String> =
+                room.config.members.iter().filter(|id| id.as_str() == MIXY_AGENT_ID || !agent_ids.contains(id)).cloned().collect();
+            if stay.len() != room.config.members.len() {
+                self.room_host.record_members(&room.id, &stay).await?;
+                recorded.push(room.id);
+            }
+        }
+        Ok(recorded)
+    }
+
     /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
     /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
     /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
@@ -129,8 +157,9 @@ impl<S: RoomStore> SessionHomePorts<S> {
         for gone in left {
             self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
         }
-        // The rooms' records are saved already: what their logs record follows, and a failure of it ends the call before any
-        // conversation is deleted, so a rebuilt room never lists a member this call is removing.
+        // The logs recorded the members without those leaving before the rooms were saved ([`Self::record_leaving`]). They record
+        // them again as saved: a room's own change of its members may have written its log between the two. A failure ends the
+        // call before any conversation is deleted.
         let mut rooms: Vec<&str> = left.iter().map(|l| l.room_id.as_str()).collect();
         rooms.dedup();
         for room_id in rooms {
@@ -211,7 +240,20 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
     /// room's are on removal.
     async fn forget_room_member(&self, agent_id: &str) -> Result<(), RoomError> {
         self.ready.ready().await?;
-        let left = self.rooms.drop_members(&[agent_id.to_owned()]).await?;
+        let leaving = [agent_id.to_owned()];
+        let recorded = self.record_leaving(&leaving).await?;
+        let left = match self.rooms.drop_members(&leaving).await {
+            Ok(left) => left,
+            Err(error) => {
+                // The rooms kept their members: their logs record them again.
+                for room_id in recorded {
+                    if let Ok(room) = self.rooms.get(&room_id).await {
+                        let _ = self.room_host.record_members(&room_id, &room.config.members).await;
+                    }
+                }
+                return Err(error);
+            }
+        };
         if left.is_empty() {
             return Ok(());
         }
@@ -304,6 +346,13 @@ impl RoomHost for SessionRoomHost {
         }
     }
 
+    async fn seed_members(&self, room_id: &str, members: &[String]) -> Result<(), RoomError> {
+        match mixdog_core_base::rooms::ids::room_session_id(room_id) {
+            Some(session_id) => self.sessions.seed_room_members(&session_id, members).await,
+            None => Ok(()),
+        }
+    }
+
     async fn republish_catalog(&self, publish: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {
         (self.republish)(publish.clone()).await
     }
@@ -371,9 +420,46 @@ mod tests {
         }
     }
 
-    struct NoHost;
+    /// What the rooms' store and their logs were asked, in order.
+    type Events = Arc<std::sync::Mutex<Vec<String>>>;
+
+    /// A store that says when it saves, and fails the save when told to.
+    #[derive(Default)]
+    struct Logged {
+        doc: std::sync::Mutex<RoomDoc>,
+        events: Events,
+        failing: std::sync::atomic::AtomicBool,
+    }
+    #[async_trait]
+    impl RoomStore for Arc<Logged> {
+        async fn load(&self) -> Result<RoomDoc, RoomError> {
+            Ok(self.doc.lock().unwrap().clone())
+        }
+        async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
+            if self.failing.load(std::sync::atomic::Ordering::SeqCst) {
+                self.events.lock().unwrap().push("save failed".into());
+                return Err(RoomError::Port("disk full".into()));
+            }
+            self.events.lock().unwrap().push("save".into());
+            *self.doc.lock().unwrap() = doc.clone();
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct NoHost {
+        events: Events,
+    }
     #[async_trait]
     impl RoomHost for NoHost {
+        async fn record_members(&self, room_id: &str, members: &[String]) -> Result<(), RoomError> {
+            self.events.lock().unwrap().push(format!("record {room_id} {}", members.join(",")));
+            Ok(())
+        }
+        async fn seed_members(&self, room_id: &str, members: &[String]) -> Result<(), RoomError> {
+            self.events.lock().unwrap().push(format!("seed {room_id} {}", members.join(",")));
+            Ok(())
+        }
         async fn agents(&self) -> Result<Vec<KnownAgent>, RoomError> {
             Ok(vec![])
         }
@@ -468,7 +554,36 @@ mod tests {
 
     fn ports(spy: Arc<Spy>) -> SessionHomePorts<Mem> {
         let rooms = Arc::new(Rooms::new(Mem(Default::default())));
-        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost), Arc::new(NoRun::default()), RoomsReady::prepared())
+        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost::default()), Arc::new(NoRun::default()), RoomsReady::prepared())
+    }
+
+    /// A room's log records who is in it, the one thing a rebuilt room takes its members from: a member leaving is out of the
+    /// log before the rooms are saved, a save that failed puts the member back, and a room whose log has no record is given one.
+    #[tokio::test]
+    async fn a_room_log_never_lists_a_member_its_room_has_dropped() {
+        use crate::rooms::config::RoomConfigInput;
+        let store = Arc::new(Logged::default());
+        let events = store.events.clone();
+        let rooms = Arc::new(Rooms::new(store.clone()));
+        let input = |members: &[&str]| RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() };
+        rooms.create(&input(&["gh", "ops", "bench"]), "room01", 1).await.unwrap();
+        rooms.create(&input(&["ops", "bench"]), "room02", 2).await.unwrap();
+        let host = Arc::new(NoHost { events: events.clone() });
+        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), host, Arc::new(NoRun::default()), RoomsReady::prepared());
+        let taken = || std::mem::take(&mut *events.lock().unwrap());
+        taken();
+
+        store.failing.store(true, std::sync::atomic::Ordering::SeqCst);
+        ports.forget_room_member("gh").await.unwrap_err();
+        assert_eq!(taken(), ["record room01 ops,bench", "save failed", "record room01 gh,ops,bench"]);
+        assert_eq!(rooms.get("room01").await.unwrap().config.members, ["gh", "ops", "bench"]);
+
+        store.failing.store(false, std::sync::atomic::Ordering::SeqCst);
+        ports.forget_room_member("gh").await.unwrap();
+        assert_eq!(taken(), ["record room01 ops,bench", "save", "record room01 ops,bench"]);
+
+        ports.prune_deleted(&|_| {}).await.unwrap();
+        assert_eq!(taken(), ["seed room01 ops,bench", "seed room02 ops,bench"], "the first load gives each log its record");
     }
 
     /// A deleted bot leaves every room it was in, and what was owed to it ends in each.
@@ -481,7 +596,7 @@ mod tests {
         rooms.create(&input(&["ops", "bench"]), "room02", 2).await.unwrap();
         rooms.create(&input(&["gh", "bench"]), "room03", 3).await.unwrap();
         let runner = Arc::new(NoRun::default());
-        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost), runner.clone(), RoomsReady::prepared());
+        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost::default()), runner.clone(), RoomsReady::prepared());
         ports.forget_room_member("gh").await.unwrap();
         assert_eq!(
             *runner.0.lock().unwrap(),
