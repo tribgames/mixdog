@@ -121,9 +121,6 @@ pub async fn run_attempt(
     let mut wire = codec.encode(request)?;
     let mut again = false;
     let mut refreshed = false;
-    // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
-    // has run on, so the resend does not get it; it is let go once the resend went out.
-    let mut held = None;
     // `requesting`: Chat Completions raises it for every attempt of its ladder (openai-compat-chat-send.mjs:276), the
     // Messages wire (anthropic.mjs:300) and Responses (grok-oauth.mjs, openai-compat-xai-send.mjs:103) once before it.
     if wire.url.ends_with("/chat/completions") {
@@ -136,14 +133,12 @@ pub async fn run_attempt(
         if let Some(header) = header.clone() {
             credential.place(&mut sent.headers, header);
         }
-        let head = http.send(sent, MODEL_STREAM).await;
-        drop(held.take());
-        let head = head?;
+        let head = http.send(sent, MODEL_STREAM).await?;
         if head.is_success() {
             return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
         }
         let status = head.status;
-        let (rejected, body) = head.read_all_held().await?;
+        let rejected = head.read_all().await?;
         if again {
             let mut error = codec.classify(&rejected);
             if refreshed {
@@ -152,8 +147,6 @@ pub async fn run_attempt(
             return Err(error);
         }
         if credential.refreshes_on(status, &rejected.body) {
-            // The refresh waits on the network, so the refusal's socket is free again before the resend.
-            drop(body);
             again = true;
             refreshed = true;
             let next = credential.header(true).await?;
@@ -167,7 +160,6 @@ pub async fn run_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
-            held = Some(body);
             wire = codec.encode(request)?;
             continue;
         }

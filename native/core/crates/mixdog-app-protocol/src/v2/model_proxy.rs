@@ -51,10 +51,13 @@ pub enum ProxyMessageSource {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ProxyImage {
+    #[serde(rename_all = "camelCase")]
     Base64 { data: String, mime_type: String },
+    #[serde(rename_all = "camelCase")]
     Url { url: String },
+    #[serde(rename_all = "camelCase")]
     FileId { id: String },
 }
 
@@ -71,20 +74,27 @@ pub enum ProxyBinary {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ProxyDocument {
+    #[serde(rename_all = "camelCase")]
     Base64 { media_type: String, data: String },
+    #[serde(rename_all = "camelCase")]
     Text { media_type: Option<String>, data: String },
+    #[serde(rename_all = "camelCase")]
     Content { content: JsonValue },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ProxyPart {
+    #[serde(rename_all = "camelCase")]
     Text { text: String },
+    #[serde(rename_all = "camelCase")]
     Image { source: ProxyImage },
+    #[serde(rename_all = "camelCase")]
     File { source: ProxyBinary, mime_type: String, filename: Option<String> },
+    #[serde(rename_all = "camelCase")]
     Document { source: ProxyDocument, title: Option<String> },
 }
 
@@ -155,8 +165,9 @@ pub struct ProxyLocation {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ProxyHostedTool {
+    #[serde(rename_all = "camelCase")]
     WebSearch {
         tool_type: String,
         allowed_domains: Vec<String>,
@@ -239,12 +250,16 @@ pub struct ProxyRouteContext {
 /// `quota-reading.mjs:93`, `loadModelProxyProviderConfig`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "method", rename_all = "camelCase")]
 pub enum ProxyCall {
+    #[serde(rename_all = "camelCase")]
     Send { provider: String, request: Box<ProxyRequest> },
     /// `listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).
+    #[serde(rename_all = "camelCase")]
     ListModels { provider: String, refresh: bool },
+    #[serde(rename_all = "camelCase")]
     QuotaUsable { provider: String, model: String },
+    #[serde(rename_all = "camelCase")]
     ResolveWireRoute { provider: String, model: String, context: ProxyRouteContext },
     ProviderConfig,
 }
@@ -515,14 +530,19 @@ pub struct ProxyProviderInfo {
 /// The answer to a [`ProxyCall`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "result", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "result", rename_all = "camelCase")]
 pub enum ProxyAnswer {
     /// `Send` finished; its events came ahead of it.
+    #[serde(rename_all = "camelCase")]
     Sent { attempts: u32 },
+    #[serde(rename_all = "camelCase")]
     Models { models: Vec<ProxyModel> },
+    #[serde(rename_all = "camelCase")]
     Usable { usable: bool },
     /// `None` for a single-wire adapter or a model no offered wire serves.
+    #[serde(rename_all = "camelCase")]
     Route { route: Option<ProxyWireRoute> },
+    #[serde(rename_all = "camelCase")]
     ProviderConfig {
         /// In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps
         /// (the setup lists custom providers in it).
@@ -539,6 +559,7 @@ pub enum ProxyAnswer {
     /// `modelProxy/run` reports a failed call as its result: the error vocabulary of the server has
     /// no place for a [`ProxyFailure`]. The connection relays it to the server as the JSON-RPC error
     /// of `model/proxy/execute` whose data is the failure.
+    #[serde(rename_all = "camelCase")]
     Failed { failure: ProxyFailure },
 }
 
@@ -603,44 +624,68 @@ pub enum ProxyProgress {
 /// One stream event of an attempt (`StreamEvent`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ProxyEvent {
+    #[serde(rename_all = "camelCase")]
     ItemStart { item: ProxyItemKind, phase: Option<ProxyPhase> },
+    #[serde(rename_all = "camelCase")]
     TextDelta { text: String },
+    #[serde(rename_all = "camelCase")]
     ReasoningDelta { text: String },
+    #[serde(rename_all = "camelCase")]
     ReasoningReplay { replay: ProxyReplay },
+    #[serde(rename_all = "camelCase")]
     ToolCallStart { id: String, name: String },
+    #[serde(rename_all = "camelCase")]
     ToolCallArgsDelta { id: String, delta: String },
+    #[serde(rename_all = "camelCase")]
     ToolCallDone { call: ProxyToolCall },
+    #[serde(rename_all = "camelCase")]
     Usage { usage: ProxyUsage },
+    #[serde(rename_all = "camelCase")]
     Refusal { text: String },
+    #[serde(rename_all = "camelCase")]
     Citation { value: JsonValue },
+    #[serde(rename_all = "camelCase")]
     ServerToolBlock { value: JsonValue },
     ProviderKeepalive,
     /// Semantic progress of the stream that has no delta event of its own (`StreamEvent::Progress`).
+    #[serde(rename_all = "camelCase")]
     Progress { kind: ProxyProgress },
     /// What one wire chunk reports for everything it carries; `null`: transport only (`StreamEvent::ChunkProgress`).
+    #[serde(rename_all = "camelCase")]
     ChunkProgress { kind: Option<ProxyProgress> },
     /// The assistant text the turn returns when it is not what the deltas folded to (`StreamEvent::FinalContent`).
+    #[serde(rename_all = "camelCase")]
     FinalContent { text: String },
     /// The tool calls the turn returns when they are not the ones dispatched live (`StreamEvent::ReturnedCalls`).
+    #[serde(rename_all = "camelCase")]
     ReturnedCalls { calls: Vec<ProxyToolCall> },
     /// Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).
+    #[serde(rename_all = "camelCase")]
     ThinkingBlocks { value: JsonValue },
+    #[serde(rename_all = "camelCase")]
     ProviderState { state: JsonValue },
     /// A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).
+    #[serde(rename_all = "camelCase")]
     Notice { message: String, warn: bool },
     /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
+    #[serde(rename_all = "camelCase")]
     ServedModel { model: String },
     /// Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).
+    #[serde(rename_all = "camelCase")]
     ProviderMetadata { value: JsonValue },
     /// The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).
+    #[serde(rename_all = "camelCase")]
     ResponseId { id: String },
     /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
+    #[serde(rename_all = "camelCase")]
     AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
     /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    #[serde(rename_all = "camelCase")]
     AccountSwitching { message: String },
     /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    #[serde(rename_all = "camelCase")]
     AccountChanged {
         provider: String,
         account_id: String,
@@ -649,6 +694,7 @@ pub enum ProxyEvent {
     },
     /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
     /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
+    #[serde(rename_all = "camelCase")]
     WireRerouted { route: JsonValue },
     /// The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`,
     /// Node `firstOutputAt`).
@@ -658,6 +704,7 @@ pub enum ProxyEvent {
     ContentSummary { has_thinking: bool, block_types: Vec<String> },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
+    #[serde(rename_all = "camelCase")]
     Completed {
         stop: Option<ProxyStop>,
         pricing_model: Option<String>,
@@ -667,19 +714,21 @@ pub enum ProxyEvent {
     /// The attempt failed and a retry begins: everything its events showed is dropped.
     AttemptDiscarded,
     /// A retried attempt reported usage before it died; it is billed once, here.
+    #[serde(rename_all = "camelCase")]
     AttemptAbandoned { usage: ProxyUsage, model: Option<String> },
 }
 
 /// How the PC's broker ended a failed send.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "outcome", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "outcome", rename_all = "camelCase")]
 pub enum ProxyOutcome {
     /// The retry verdict surfaced the error.
     Provider,
     /// Retries are spent.
     Exhausted,
     /// Repeated overload: send again with `model`.
+    #[serde(rename_all = "camelCase")]
     Fallback { model: String },
     /// The PC's admission refused the call; the message says why.
     Admission,
@@ -737,18 +786,24 @@ pub enum ProxyTransportKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(tag = "fault", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(tag = "fault", rename_all = "camelCase")]
 pub enum ProxyFault {
+    #[serde(rename_all = "camelCase")]
     Connect { os_code: Option<i32> },
     Dns,
     Reset,
     Closed,
     Tls,
+    #[serde(rename_all = "camelCase")]
     H2GoAway { code: u32 },
+    #[serde(rename_all = "camelCase")]
     H2RstStream { code: u32 },
+    #[serde(rename_all = "camelCase")]
     WsClose { code: Option<u16> },
+    #[serde(rename_all = "camelCase")]
     KeepaliveExpired { transport: ProxyTransportKind },
     TruncatedStream,
+    #[serde(rename_all = "camelCase")]
     Io { os_code: Option<i32> },
 }
 

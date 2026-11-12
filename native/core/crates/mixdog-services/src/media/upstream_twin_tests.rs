@@ -7,10 +7,10 @@ use serde_json::{Value, json};
 use super::lanes::LaneError;
 use super::upstream::{Headers, UsageLimit, decode_base64_media, gemini_media_download_url, upstream_error, usage_limit_error, usage_limit_from_response, usage_limit_info};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-upstream-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-upstream-twin.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).unwrap()
+    serde_json::from_str(&GOLDEN).unwrap()
 }
 
 fn view(error: &LaneError) -> Value {

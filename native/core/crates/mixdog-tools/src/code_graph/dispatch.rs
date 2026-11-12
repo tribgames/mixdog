@@ -127,6 +127,9 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     if !MODES.contains(&mode) {
         return Err(format!("code_graph: unknown mode \"{mode}\""));
     }
+    if let Some(error) = &args.file_type_error {
+        return Err(error.clone());
+    }
 
     let anchors = args.file_list();
     let single_file = match anchors.as_slice() {
@@ -149,21 +152,23 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     };
     let batch_mode = if mode == "search" { "symbol_search" } else { mode };
     let warnings = std::cell::RefCell::new(Warnings::default());
-    let raw = |a: &Args| {
+    // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
+    let raw = |a: &Args| -> Result<Section, String> {
         warnings.borrow_mut().collect(mode, a.file.as_deref(), &base, &root, &graph);
-        Section::whole(answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()))
+        answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole)
     };
+    let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
     // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
     let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) {
         args.file_list()
     } else {
         Vec::new()
     };
-    let one = |a: &Args| -> Section {
+    let one = |a: &Args| -> Result<Section, String> {
         match scope_files.as_slice() {
             [] => raw(a),
             [only] => raw(&a.with_file(only)),
-            many => fanout(many, |f| format!("file {f}"), |f| raw(&a.with_file(f))),
+            many => Ok(fanout(many, |f| format!("file {f}"), |f| caught(raw(&a.with_file(f))))),
         }
     };
     let section = 'work: {
@@ -173,7 +178,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
                 [] => {}
                 [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
                 [only] => break 'work one(&args.with_symbol(only)),
-                many => break 'work fanout(many, |s| format!("{batch_mode} {s}"), |s| one(&args.with_symbol(s))),
+                many => break 'work Ok(fanout(many, |s| format!("{batch_mode} {s}"), |s| caught(one(&args.with_symbol(s))))),
             }
         }
         if FILE_BATCHABLE.contains(&batch_mode) {
@@ -182,11 +187,11 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
                 [] => {}
                 [only] if args.file.as_deref() == Some(only.as_str()) => {}
                 [only] => break 'work one(&args.with_file(only)),
-                many => break 'work fanout(many, |f| format!("{batch_mode} {f}"), |f| one(&args.with_file(f))),
+                many => break 'work Ok(fanout(many, |f| format!("{batch_mode} {f}"), |f| caught(one(&args.with_file(f))))),
             }
         }
         one(&args)
-    };
+    }?;
     let warnings = warnings.into_inner();
     // Node marks the call incomplete once a graph holds an unindexed file (`collectGraphParseWarnings`).
     let complete = section.complete && !graph.truncated && warnings.is_empty();
@@ -245,7 +250,7 @@ fn answer(
     root: &PathBuf,
     graph: &Graph,
     anchor: Option<&str>,
-) -> String {
+) -> Result<String, String> {
     let abs = anchor.map(|a| abs_from(base, a));
     let rel = abs.as_ref().map(|p| display_rel(p, root));
     let is_dir = abs.as_ref().is_some_and(|p| p.is_dir());
@@ -281,5 +286,5 @@ fn answer(
         "callers" => modes::callers(&ctx),
         _ => modes::callees(&ctx),
     };
-    result.unwrap_or_else(|e| format!("Error: {e}"))
+    result
 }

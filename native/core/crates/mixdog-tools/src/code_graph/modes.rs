@@ -31,8 +31,13 @@ pub(super) struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    /// Node names the graph root by the explicit `cwd` argument as written (`baseCwd = args.cwd.trim()`) when the
+    /// call ran there, else by the resolved root.
     fn cwd_text(&self) -> String {
-        self.cwd.to_string_lossy().into_owned()
+        match self.args.cwd.as_deref().map(str::trim) {
+            Some(raw) if super::roots::path_key(&super::roots::abs_from(self.default_cwd, raw)) == super::roots::path_key(self.cwd) => raw.to_owned(),
+            _ => self.cwd.to_string_lossy().into_owned(),
+        }
     }
 
     fn scope(&self) -> Scope<'_> {
@@ -120,7 +125,7 @@ fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
     let imports_all = &node.resolved_imports;
     let imports: Vec<&str> = imports_all.iter().take(8).map(String::as_str).collect();
     let outline = outline_rows(node, Some(ctx.args.depth.unwrap_or(1.0)), 120);
-    let head: String = node.text.split('\n').take(6).collect::<Vec<_>>().join("\n");
+    let head: String = node.source().split('\n').take(6).collect::<Vec<_>>().join("\n");
     let head: String = super::util::head_chars(head.trim(), 420).to_string();
     let mut parts = vec![format!("file: {}", node.rel), format!("language: {}", node.lang)];
     if !outline.is_empty() {

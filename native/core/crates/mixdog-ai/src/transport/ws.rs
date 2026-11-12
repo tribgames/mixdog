@@ -215,7 +215,7 @@ impl WsCloser {
         }
         let (writer, reader) = (self.writer.clone(), self.reader.clone());
         mixdog_rt::spawn("ai.ws.terminate", TaskClass::Work, async move {
-            tokio::time::sleep(TERMINATE_AFTER_CLOSE).await;
+            mixdog_rt::time::sleep(TERMINATE_AFTER_CLOSE).await;
             writer.abort();
             reader.abort();
         });
@@ -679,7 +679,7 @@ async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
                         // ws's closeTimeout.
                         link.mark_dead(fault.clone());
                         let _ = inbound.send(Err(fault)).await;
-                        let _ = tokio::time::timeout(CLOSE_FLUSH, stream.next()).await;
+                        let _ = mixdog_rt::time::timeout(CLOSE_FLUSH, stream.next()).await;
                         writer.abort();
                         return;
                     }
@@ -694,7 +694,7 @@ async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
                 let _ = inbound.send(Err(end(fault))).await;
                 return;
             }
-            _ = tokio::time::sleep_until(wake.into()) => {
+            _ = mixdog_rt::time::sleep_until(wake.into()) => {
                 if pong_deadline.is_some() {
                     let fault = end(TransportFault::KeepaliveExpired {
                         transport: TransportKind::WebSocket,
@@ -759,7 +759,7 @@ async fn write_loop<S: AsyncRead + AsyncWrite + Unpin>(
 /// dropped then (`setCloseTimer`: `socket.destroy()`). Frames queued after the violation are refused.
 async fn close_after_violation<S: AsyncRead + AsyncWrite + Unpin>(mut sink: SplitSink<Socket<S>, Message>, queued: mpsc::Receiver<Message>, at: tokio::time::Instant) {
     drop(queued);
-    let _ = tokio::time::timeout_at(at + CLOSE_FLUSH, sink.flush()).await;
+    let _ = mixdog_rt::time::timeout_at(at + CLOSE_FLUSH, sink.flush()).await;
 }
 #[cfg(test)]
 mod tests {
@@ -780,8 +780,8 @@ mod tests {
             far.write_all(answer(&key).as_bytes()).await.unwrap();
         });
         let request = "ws://example.test/".into_client_request().unwrap();
-        let outcome = tokio::time::timeout(WITHIN, upgrade(&mut near, &request)).await.expect("the upgrade's outcome within 20 s").map(|(_, _, extension)| extension);
-        tokio::time::timeout(WITHIN, server).await.expect("the server's answer within 20 s").unwrap();
+        let outcome = mixdog_rt::time::timeout(WITHIN, upgrade(&mut near, &request)).await.expect("the upgrade's outcome within 20 s").map(|(_, _, extension)| extension);
+        mixdog_rt::time::timeout(WITHIN, server).await.expect("the server's answer within 20 s").unwrap();
         outcome
     }
 
@@ -924,15 +924,15 @@ mod tests {
                 events
             });
             let request = format!("ws://{addr}/").into_client_request().unwrap();
-            let (mut connection, _) = tokio::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
+            let (mut connection, _) = mixdog_rt::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
             // The connection is held: its end on the wire comes from the close handshake, not from a drop.
-            let events = tokio::time::timeout(WITHIN, server).await.expect("the client ends its side within 20 s").unwrap();
+            let events = mixdog_rt::time::timeout(WITHIN, server).await.expect("the client ends its side within 20 s").unwrap();
             // What the owner hears, up to the first error or close: Node's stream handler acts on that one and ignores
             // the rest (`socket-handlers.mjs` `onError` / `onClose` finish the outcome; `if (outcome.done) return`),
             // which is ws's `close(1006, '')` after a receiver error.
             let mut heard = Vec::new();
             loop {
-                match tokio::time::timeout(WITHIN, connection.recv()).await.expect("what the owner hears within 20 s") {
+                match mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("what the owner hears within 20 s") {
                     Some(Ok(Message::Text(text))) => heard.push(serde_json::json!({ "kind": "message", "binary": false, "hex": hex(text.as_bytes()) })),
                     Some(Ok(Message::Binary(data))) => heard.push(serde_json::json!({ "kind": "message", "binary": true, "hex": hex(&data) })),
                     Some(Ok(other)) => panic!("{other:?} is never shown"),
@@ -971,7 +971,7 @@ mod tests {
         let mut connection = start(socket, &KeepaliveSchedule::SPEC);
         let begin = tokio::time::Instant::now();
         far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
-        let got = tokio::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
+        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
         assert!(matches!(got, Some(Err(_))), "{got:?}");
         assert_eq!(begin.elapsed(), std::time::Duration::ZERO, "the error comes at once, not after the close");
         assert_eq!(
@@ -982,11 +982,11 @@ mod tests {
         // More than the four bytes the pipe toward the client holds: the client reads nothing while its close is stuck,
         // so this write can only end by failing, when the socket is gone.
         let probe = far.write_all(&[0u8; 5]);
-        let gone = tokio::time::timeout(CLOSE_FLUSH + WITHIN, probe).await.expect("the socket gone within 50 s");
+        let gone = mixdog_rt::time::timeout(CLOSE_FLUSH + WITHIN, probe).await.expect("the socket gone within 50 s");
         assert!(gone.is_err(), "the write failed because the socket was dropped");
         assert_eq!(begin.elapsed(), CLOSE_FLUSH, "gone at ws's closeTimeout");
         let mut seen = Vec::new();
-        tokio::time::timeout(WITHIN, far.read_to_end(&mut seen)).await.expect("what was written within 20 s").unwrap();
+        mixdog_rt::time::timeout(WITHIN, far.read_to_end(&mut seen)).await.expect("what was written within 20 s").unwrap();
         assert_eq!(&seen[..2], [0x88, 0x82], "the close frame was on its way: {seen:02x?}");
         assert_eq!(seen.len(), 4, "only what the pipe could take before the socket went");
     }
@@ -1014,9 +1014,9 @@ mod tests {
             _tasks: AbortOnDrop { writer: held_writer.abort_handle(), reader: reader.abort_handle(), link },
         };
         far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
-        let got = tokio::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
+        let got = mixdog_rt::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
         assert!(matches!(got, Some(Err(_))), "{got:?}");
-        let sent = tokio::time::timeout(WITHIN, connection.send(Message::text("after"))).await.expect("the send's outcome within 20 s");
+        let sent = mixdog_rt::time::timeout(WITHIN, connection.send(Message::text("after"))).await.expect("the send's outcome within 20 s");
         assert!(sent.is_err(), "a send after the violation is refused, not queued: {sent:?}");
         assert!(out_rx.try_recv().is_err(), "nothing was queued for the writer");
     }

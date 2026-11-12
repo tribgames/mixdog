@@ -72,7 +72,7 @@ pub struct WorktreeSetup {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 impl WorktreeSetup {

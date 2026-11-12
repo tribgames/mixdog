@@ -16,7 +16,7 @@ use serde_json::json;
 use super::*;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/agent-lifecycle-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop/settings/agent-lifecycle-twin.json")).unwrap()
 }
 
 fn strings(value: &Value) -> Vec<String> {

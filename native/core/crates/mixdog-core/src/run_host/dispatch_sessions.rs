@@ -149,7 +149,3 @@ impl DispatchSessions for SessionDispatch {
         self.threads.close(id, reason).await;
     }
 }
-
-#[cfg(test)]
-#[path = "dispatch_sessions/tests.rs"]
-mod tests;

@@ -10,10 +10,10 @@ use crate::memory::embed::config::{self, InputType, MAX_TEXT_UNITS};
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
 use crate::memory::embed::tokenizer::UnigramTokenizer;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/embeddings/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/embeddings/golden.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden parses")
+    serde_json::from_str(&GOLDEN).expect("golden parses")
 }
 
 fn model_dir() -> (PathBuf, String) {

@@ -9,7 +9,7 @@ use serde_json::Value;
 use serde_json::json;
 
 /// A plain failure whose text is the message (Node's `TypeError`/`Error`).
-pub(super) fn plain(message: impl Into<String>) -> ScmFailure {
+pub fn plain(message: impl Into<String>) -> ScmFailure {
     ScmFailure::git(message)
 }
 

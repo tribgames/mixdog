@@ -17,7 +17,7 @@ import { join } from 'node:path';
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'provider-setup-warmup-'));
 process.env.MIXDOG_HOME = mkdtempSync(join(tmpdir(), 'provider-setup-warmup-home-'));
-const { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, recordingProvenance, writeSetManifest } = await import('./lib/common.mjs');
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'provider-setup-warmup');
@@ -86,5 +86,5 @@ prewarm.resolve();
 await warmup;
 reads.push({ when: 'after the warm-up', value: await api.getProviderSetup({}) });
 writeJson(join(stage, 'golden.json'), { built: BUILT, builds, reads });
-writeSetManifest(stage, { set: 'provider-setup-warmup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, identityRef: NODE_COMMIT });
+writeSetManifest(stage, { set: 'provider-setup-warmup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, identityRef: NODE_COMMIT, extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']) });
 commitStage(stage, finalDir);

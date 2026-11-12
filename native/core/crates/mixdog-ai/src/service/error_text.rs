@@ -940,7 +940,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../fixtures/error-text/cases.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/error-text/cases.json");
 
     fn view_of(case: &Value) -> ErrorView {
         let descriptor = &case["descriptor"];
@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn every_text_equals_nodes() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let cases = golden["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 94);
         for case in cases {

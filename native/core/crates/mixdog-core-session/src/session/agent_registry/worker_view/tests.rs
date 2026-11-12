@@ -13,7 +13,7 @@ use serde_json::json;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../../../fixtures/agent/jobs/worker-states.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent/jobs/worker-states.json");
 
 struct Store(Mutex<Vec<(String, Row)>>);
 
@@ -41,6 +41,15 @@ impl WorkerStore for Store {
         if let Some(map) = worker {
             maps.insert(0, (session.to_owned(), map));
         }
+    }
+
+    /// This store never stops listing a session's map: nothing is kept apart.
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        self.write(session, worker);
+    }
+
+    fn kept(&self, _: &str) -> bool {
+        false
     }
 }
 
@@ -86,7 +95,7 @@ impl Clock for At {
 
 #[tokio::test]
 async fn the_worker_view_equals_nodes_agent_list_and_busy_worker_guard() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = golden["now"].as_i64().unwrap();
     let scope = Scope { caller_session_id: Some("lead-a".to_owned()), host_pid: None };
     let by_session = |states: &mut Vec<Value>| states.sort_by(|a, b| a["sessionId"].as_str().cmp(&b["sessionId"].as_str()));

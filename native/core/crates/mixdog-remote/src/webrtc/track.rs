@@ -408,7 +408,7 @@ async fn media_loop(shared: Arc<Shared>, mut frames: watch::Receiver<Option<Shot
         tokio::select! {
             biased;
             _ = shared.wake.notified() => {}
-            _ = tokio::time::sleep_until(held_until.unwrap_or_else(tokio::time::Instant::now)), if held_until.is_some() => {
+            _ = mixdog_rt::time::sleep_until(held_until.unwrap_or_else(tokio::time::Instant::now)), if held_until.is_some() => {
                 held_until = None;
                 if let Some(frame) = held.take() {
                     pipeline.encode(Some(&frame), round.target_bps);

@@ -10,10 +10,10 @@ use mixdog_remote::transport::signal::read_media;
 use serde_json::Value;
 use serde_json::json;
 
-const RECORDED: &str = include_str!("../../../../fixtures/remote-transport-signals/signals.json");
+const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-signals/signals.json");
 
 fn recorded() -> Value {
-    serde_json::from_str(RECORDED).expect("the recording is JSON")
+    serde_json::from_str(&RECORDED).expect("the recording is JSON")
 }
 
 fn role(case: &Value) -> Role {

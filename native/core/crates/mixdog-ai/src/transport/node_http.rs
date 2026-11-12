@@ -399,6 +399,12 @@ impl NodeClient {
         *self.tap.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tap;
     }
 
+    /// [`Pool::settled`]: every exchange so far has given its connection back, vacated its client or closed it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn settled(&self) {
+        self.pool.settled().await;
+    }
+
     /// The address every connect goes to, when a test pinned it.
     #[cfg(any(test, feature = "test-support"))]
     fn pinned_addr(&self) -> Option<SocketAddr> {
@@ -522,6 +528,7 @@ impl NodeClient {
         let generation = self.pool.generation();
         let proxy = self.route(&url).await?;
         let key = self.key(&url, &proxy);
+        let flight = self.pool.begin();
         let mut replayed = false;
         loop {
             // Dispatched: the connection is chosen now (or none, and one is dialled).
@@ -535,26 +542,26 @@ impl NodeClient {
             // its socket's validation turn and its write come after those of a request dispatched after it in the
             // same turn; a body-less or raw `undici.request` client resumes inside `dispatch`. A turn is this task's
             // poll: such a request yields once here.
-            let streamed = writer == Writer::Fetch && !request.body.is_empty();
-            // A connection held for this request is busy for the rest of this turn: a request polled beside this one
-            // before this task yields finds it busy, one after it finds it free ([`Pool::hold_h1`]). Only the request
-            // that claims the hold waits for it ([`Pool::claim_hold`]).
-            let held = self.pool.claim_hold(&key);
-            if streamed || held {
+            if writer == Writer::Fetch && !request.body.is_empty() {
                 tokio::task::yield_now().await;
             }
-            if held {
-                self.pool.free_held(&key);
-            }
-            let reused = self.pool.validated(&key, chosen).await;
-            let was_reused = reused.is_some();
+            let reused = self.pool.validated(chosen).await;
+            let was_reused = matches!(reused, Some(Taken::H1(_) | Taken::H2 { .. }));
             let outcome = match reused {
-                Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
+                Some(Taken::H1(mut conn)) => {
+                    conn.flight = Some(flight.clone());
+                    self.exchange_h1(conn, &key, request, &url, writer, surface).await
+                }
                 Some(Taken::H2 { id, send, guard }) => self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await,
-                None => {
+                slot @ (None | Some(Taken::Vacant(_))) => {
+                    // A client of the pool connects again in its own place; otherwise a new client is made.
+                    let born = match slot {
+                        Some(Taken::Vacant(slot)) => slot,
+                        _ => self.pool.birth(),
+                    };
                     #[cfg(test)]
                     self.pool.at(pool::At::Dial);
-                    let dialled = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
+                    let dialled = mixdog_rt::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
                         .await
                         .map_err(|_| timed_out("UND_ERR_CONNECT_TIMEOUT", "Connect Timeout Error", DeliveryState::NotSent, surface))??;
                     let (io, h2) = dialled;
@@ -577,9 +584,11 @@ impl NodeClient {
                         let guard = self.pool.put_h2(key.clone(), id, send.clone(), generation);
                         self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await
                     } else {
-                        let conn = h1::Conn::open(io, self.pool.birth(), generation)
+                        let mut conn = h1::Conn::open(io, born, generation)
                             .await
                             .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
+                        conn.track(&self.pool, &key);
+                        conn.flight = Some(flight.clone());
                         self.exchange_h1(conn, &key, request, &url, writer, surface).await
                     }
                 }
@@ -608,7 +617,7 @@ impl NodeClient {
         // Once the first byte may have left, the request is never sent again: undici fails the request that was running
         // when its socket dies (`client-h1.js` `onHttpSocketClose`) and re-queues only those not yet written. A write
         // error, wherever in the head, the body or the final flush, is therefore the request's error.
-        let answered = tokio::time::timeout(HEADERS_TIMEOUT, conn.exchange(&head, &request.body, &request.method, close)).await;
+        let answered = mixdog_rt::time::timeout(HEADERS_TIMEOUT, conn.exchange(&head, &request.body, &request.method, close)).await;
         let (response, written) = match answered {
             Err(_) => {
                 let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
@@ -687,7 +696,7 @@ impl NodeClient {
         if !request.body.is_empty() {
             stream.send_data(Bytes::from(request.body.clone()), true).map_err(|e| failed(&e, false))?;
         }
-        let response = match tokio::time::timeout(HEADERS_TIMEOUT, response).await {
+        let response = match mixdog_rt::time::timeout(HEADERS_TIMEOUT, response).await {
             Err(_) => {
                 let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
                 return Err(Failure { error, replay: false });
@@ -756,7 +765,7 @@ impl BodyStream for H2Body {
             if self.ended {
                 return None;
             }
-            let data = match tokio::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
+            let data = match mixdog_rt::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
                 Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
                 Ok(data) => data,
             };
@@ -825,13 +834,13 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
         };
-        let mut response = tokio::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
-        while let Some(chunk) = tokio::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
+        let mut response = mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        while let Some(chunk) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
             chunk.unwrap();
         }
         let key = client.key(&url::Url::parse(&request.url).unwrap(), &None);
         assert_eq!(client.pool.idle_count(&key), 0, "not pooled under the old route");
-        let read = tokio::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
+        let read = mixdog_rt::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
         assert_eq!(read, 0, "the peer sees the close");
     }
 }
