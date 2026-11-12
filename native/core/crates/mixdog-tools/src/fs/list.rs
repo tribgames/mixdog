@@ -5,6 +5,7 @@ use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FileStat;
@@ -135,7 +136,8 @@ async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: boo
             && (hidden || parts.iter().all(|p| !p.starts_with('.')))
             && !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p))
     };
-    match super::search::broad_listing(ctx, abs, keep, ABSOLUTE_CAP).await {
+    let descent = Descent { max_depth: Some(depth), bare: NOISE_DIRS.iter().map(|n| (*n).to_owned()).collect(), bare_dotted: !hidden };
+    match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
         Ok(walked) if walked.complete && !walked.capped => {
             Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))
         }

@@ -201,6 +201,13 @@ pub mod gate {
             Self(State::Root(path))
         }
 
+        pub fn path(&self) -> &Path {
+            match &self.0 {
+                State::Root(path) => path,
+                State::Admitted { listed, .. } | State::Undecided { listed, .. } => &listed.path,
+            }
+        }
+
         pub fn into_path(self) -> PathBuf {
             match self.0 {
                 State::Root(path) => path,
@@ -380,6 +387,9 @@ pub struct Tree {
     root: PathBuf,
     rules: Rules,
     max_depth: Option<usize>,
+    /// Folders given but never read: those named here, and dotted ones when `bare_dotted`.
+    bare: Vec<String>,
+    bare_dotted: bool,
     started: bool,
     /// The folders the walk is in, each its entries not yet given, in path order.
     stack: Vec<std::vec::IntoIter<io::Result<Listed>>>,
@@ -387,7 +397,19 @@ pub struct Tree {
 
 impl Tree {
     pub fn new(root: &Path, rules: Rules, max_depth: Option<usize>, dirs: Box<dyn Dirs>, volumes: super::SharedVolumes) -> Self {
-        Self { dirs, volumes, root: root.to_path_buf(), rules, max_depth, started: false, stack: Vec::new() }
+        Self { dirs, volumes, root: root.to_path_buf(), rules, max_depth, bare: Vec::new(), bare_dotted: false, started: false, stack: Vec::new() }
+    }
+
+    /// The walk gives, and does not read, the folders named `names` (and the dotted ones when `dotted`).
+    pub fn bare(mut self, names: Vec<String>, dotted: bool) -> Self {
+        self.bare = names;
+        self.bare_dotted = dotted;
+        self
+    }
+
+    fn is_bare(&self, dir: &Decision) -> bool {
+        let Some(name) = dir.path().file_name().map(|n| n.to_string_lossy()) else { return false };
+        (self.bare_dotted && name.starts_with('.')) || self.bare.iter().any(|b| *b == *name)
     }
 
     fn probe(&mut self, decision: &mut Decision, call: Call) -> io::Result<Told> {
@@ -452,7 +474,7 @@ impl Iterator for Tree {
                 Ok(None) => continue,
                 Err(error) => return Some(Err(error)),
             };
-            if kind == EntryKind::Dir && self.max_depth.is_none_or(|max| depth < max) && let Err(error) = self.enter(&mut decision) {
+            if kind == EntryKind::Dir && self.max_depth.is_none_or(|max| depth < max) && !self.is_bare(&decision) && let Err(error) = self.enter(&mut decision) {
                 return Some(Err(error));
             }
             return Some(Ok(Entry { path: decision.into_path(), kind, depth }));
