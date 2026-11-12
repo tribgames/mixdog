@@ -1,0 +1,274 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch fixes applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch,benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
+  "exclusions": [
+    "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
+    "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)",
+    "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order",
+    "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request; search-queue-burst fills the real server's queue and records its refusals and answer order",
+    "search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call's request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait): when made, when admitted from the queue, or before its walk or a file open would read on that volume (a volume by the filesystem's identity: on Windows the volume GUID of the path's volume mount point, through junctions; on Unix the mount's device, a mount point below the root its own volume); Node has no answer for one stalled subtree, as a stalled read stalls its whole request, so the whole search gets that answer; the given-up threads one volume holds stay within 8 - 1 plus the searches that run at once (80 with the defaults: 8 + 1 interactive + 64 local walks), the searches already reading on the volume when it reached 8 being given up too; a refusal is by the root's volume as it is now: one fixed by the root's text (no junction, mounted folder, link, subst or mapped drive between) is refused at once, any other search is admitted and refused once its producer told its root's volume afresh, so a junction retargeted to a healthy volume is served; a stall while a root's volume is told is charged to that root's telling, which only searches of that root are admitted by; and the process as a whole holds at most 24 given-up threads (three volumes' worth) before every search, on any volume, gets that answer, which keeps the given-up threads of the process within 24 - 1 plus the searches that run at once (23 + 8 + 1 + 64 = 96 with the defaults); at 24 stranded threads every search is refused: this protects the process, and Node's server would be dead in that state"
+  ],
+  "fileCount": 32,
+  "files": [
+    {
+      "bytes": 5739,
+      "path": "code-graph-casing-eviction.json",
+      "sha256": "0bc511b6988e32294d28403f328ba5a4cd5caf5d751792ab38f903d1c60c4d52"
+    },
+    {
+      "bytes": 1704,
+      "path": "code-graph-hit-cap-fraction.json",
+      "sha256": "a935a6cbc37124f9d2e34bd74bedbed8df38ae8b9410783132281d8fb9349c79"
+    },
+    {
+      "bytes": 1701,
+      "path": "code-graph-hit-cap-hex.json",
+      "sha256": "e3517126127784b6298eeb994d2c0c01a034292a690c121296037f66117de029"
+    },
+    {
+      "bytes": 1761,
+      "path": "code-graph-hit-cap-nan.json",
+      "sha256": "02b25b949038cfc5f30f6a251dd41d88380d0cd78c47ee5b8ef61f731cf0932f"
+    },
+    {
+      "bytes": 1703,
+      "path": "code-graph-hit-cap-negative.json",
+      "sha256": "efe5bf5bb09aa041355648d8ab563eae03be4361a0f4afeedc7dc997856b5965"
+    },
+    {
+      "bytes": 1759,
+      "path": "code-graph-hit-cap-zero.json",
+      "sha256": "6722b73ab22733c41ee2ee7daa6973d3e61c8b3e33ee260948547c6df2d709a6"
+    },
+    {
+      "bytes": 1907070,
+      "path": "code-graph-memory-budget.json",
+      "sha256": "abcebfff54c53617a4592aa8073be1073b1effbe0351157d38484210c9aafaf6"
+    },
+    {
+      "bytes": 8508,
+      "path": "code-graph-modes.json",
+      "sha256": "e24b8fa89ec431402cd175fa6dc91d2487d1ff266094e07d8e1e49ed2c4fc73c"
+    },
+    {
+      "bytes": 74808,
+      "path": "code-graph-refs-casing.json",
+      "sha256": "72461a7664ec05994eb673eeee963622f3e45caca4d344a382af60fb5f4851ee"
+    },
+    {
+      "bytes": 2177,
+      "path": "code-graph-self-case.json",
+      "sha256": "c485773e3b355009a72cf7b90c957f4bd467e1cc648d22d0d68de48167dbdc58"
+    },
+    {
+      "bytes": 2575,
+      "path": "glob-absolute.json",
+      "sha256": "dbb867151a5fe3542c416a2eea36ea938f6d2233eb7bcca27d15cb9d62694992"
+    },
+    {
+      "bytes": 47246,
+      "path": "glob-past-cap.json",
+      "sha256": "a95b954ac10d7698d920c660b5031416abd305c93578b8c9d6aa4b61cadcf333"
+    },
+    {
+      "bytes": 3611,
+      "path": "glob-path-array.json",
+      "sha256": "8f603c01311d00a73abee966f6a2c316af9ba302dc81a53504ce45d9d19a70bc"
+    },
+    {
+      "bytes": 5530,
+      "path": "glob-unc.json",
+      "sha256": "6f55c68fff917f11e3b4394d37171bf0c52c08200a29ffd6f251c65aaea5525e"
+    },
+    {
+      "bytes": 3255,
+      "path": "glob-verbatim.json",
+      "sha256": "c959d955a11509f06150bc7a2088f6faae732ae39610c13735895580a474b303"
+    },
+    {
+      "bytes": 1945,
+      "path": "grep-heap.json",
+      "sha256": "14764ba9fe35039bb9b133a42bea4ab72ea9e9a01e0e86792963b62dd225ddfa"
+    },
+    {
+      "bytes": 2592,
+      "path": "grep-missing-indexed.json",
+      "sha256": "d2a72a68dc52483f26f0766848d193baa96b9e365227e7096be164ab193334e6"
+    },
+    {
+      "bytes": 5732,
+      "path": "grep-multi-pattern.json",
+      "sha256": "fd8e36d0fdc99621aca670b8b63cd090fcca498988ae28ece617faa7c56510e3"
+    },
+    {
+      "bytes": 84314,
+      "path": "grep-path-budget.json",
+      "sha256": "5264200a9744bedbeec9da4deb056f167d4da8e6486f2b4414c1476d90a26029"
+    },
+    {
+      "bytes": 515152,
+      "path": "grep-render.json",
+      "sha256": "7fc5c13a0b90f16e36bf4882936f50ae8755d850dfbb28e68682653d379f8acb"
+    },
+    {
+      "bytes": 256801,
+      "path": "grep-timeout.json",
+      "sha256": "702cca7420ae51f07fad964a527f9a411580a1889f94d7e698f5d7f9681e59b7"
+    },
+    {
+      "bytes": 8255,
+      "path": "list-glob-path.json",
+      "sha256": "4ae556f6f41553e83c040e1139960eeacdff6894d301142a0d6bdbcd21090300"
+    },
+    {
+      "bytes": 8518,
+      "path": "not-found-hints.json",
+      "sha256": "c0b66247e7c17c99266c79aea3bdd763355a145ee0787f83d4b27775cfef6258"
+    },
+    {
+      "bytes": 31646,
+      "path": "path-arg-shapes.json",
+      "sha256": "9eada400ffabc8b517dd313a7fb9d8deb89ade5a35afac84bd5a8060b799cf40"
+    },
+    {
+      "bytes": 21316,
+      "path": "read-ipynb-base64-junk.json",
+      "sha256": "39eecfd7d021db61f6bb15729575d5c7313bc614be750383059b1c7486d7aa9f"
+    },
+    {
+      "bytes": 13657,
+      "path": "read-ipynb-image.json",
+      "sha256": "50a1ffa9873a9fb2f967edb5f1af608045c6835b4e3d392badb02c64565960b0"
+    },
+    {
+      "bytes": 3656,
+      "path": "read-ipynb.json",
+      "sha256": "7c5e6d3788bcf7f778834dfded64c000063ec750861c66a6413009d30214915f"
+    },
+    {
+      "bytes": 9251,
+      "path": "read-modes.json",
+      "sha256": "a1c9ffae807ab9945dd4a6035884b33b3cb27081b671319c42968957b632cfd1"
+    },
+    {
+      "bytes": 21325,
+      "path": "read-shapes.json",
+      "sha256": "9f92c6db24533d394e3f15177f7effad16c8f20ac6caae2770a9ddc248ab482f"
+    },
+    {
+      "bytes": 7107,
+      "path": "search-cancel-stalled.json",
+      "sha256": "ac730c3d968cf19836ec1e509623d506ea977f7cfdde70b04084b5916a97d2f2"
+    },
+    {
+      "bytes": 365139,
+      "path": "search-queue-burst.json",
+      "sha256": "4f5a74cf74a953609870626557f3eaa8585931cc7ea680969233677532f73890"
+    },
+    {
+      "bytes": 5364,
+      "path": "search-saturated.json",
+      "sha256": "94c52589f86123281fd6735eecefbbeab72be8886075a36d3a710b33aa109b3c"
+    }
+  ],
+  "graphBinary": {
+    "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)",
+    "sha256": "8ebdf3820fa0a5d4ba36c8b338f6bf339b536222d287acdfc5b54dad157ff149"
+  },
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "dd068ca90fe5d92654f65d5ad670076eab8fe8af80ee91f14d157713c84d755d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": [
+    "the workspace path (backslash and forward-slash forms) is <ROOT> in every text",
+    "a replay whose workspace lies under the home or Mixdog data folder reads that path's redacted spelling (~/…, <mixdog-data>/…) as <ROOT> too"
+  ],
+  "oplockHolder": {
+    "path": "benchmarks/rust-core/recorders/lib/oplock-holder.ps1",
+    "sha256": "4c7c3ef152539ae1bc4e19effdbf9181e5cd89a2a3cd23fe64d9245b18bb1fd6"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9141,
+    "patches": [
+      {
+        "file": "node-fix-code-graph-self-federation.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs",
+          "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs"
+        ],
+        "sha256": "b599facbf25935ee6ff8a8c0024d0fd46c4be118848c7da6ce4b731a814c94dd"
+      },
+      {
+        "file": "node-fix-glob-verbatim-path.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs"
+        ],
+        "sha256": "eb66c8c717f5836d7b8007ed1de31683a01529f54540fa9c453d86bee33c74f1"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 4
+    },
+    "srcSha256": "0d0c7409c86612334670b1c9eab1ddda4efedc1d793663680ee1838cbcf6841b",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
+  "recorderSha256": "07b5d833f404875a6e0d014a4185a363d4f6465e6bfa1ad14c7f7d206e1570e7",
+  "scenarios": [
+    "read-modes",
+    "read-shapes",
+    "not-found-hints",
+    "code-graph-refs-casing",
+    "code-graph-casing-eviction",
+    "code-graph-modes",
+    "code-graph-hit-cap-fraction",
+    "code-graph-hit-cap-hex",
+    "code-graph-hit-cap-negative",
+    "code-graph-hit-cap-zero",
+    "code-graph-hit-cap-nan",
+    "read-ipynb",
+    "grep-multi-pattern",
+    "glob-absolute",
+    "glob-unc",
+    "code-graph-memory-budget",
+    "grep-missing-indexed",
+    "read-ipynb-image",
+    "glob-past-cap",
+    "list-glob-path",
+    "glob-path-array",
+    "glob-verbatim",
+    "read-ipynb-base64-junk",
+    "code-graph-self-case",
+    "grep-path-budget",
+    "grep-render",
+    "grep-timeout",
+    "grep-heap",
+    "search-saturated",
+    "search-queue-burst",
+    "search-cancel-stalled",
+    "path-arg-shapes"
+  ],
+  "set": "tools-fs-search",
+  "totalBytes": 3430917
+}

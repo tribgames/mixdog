@@ -232,6 +232,15 @@ mod tests {
         }
     }
 
+    /// No user message is sent in these tests.
+    struct NoSends;
+    #[async_trait]
+    impl mixdog_core_rooms::rooms::user_send::RoomSend for NoSends {
+        async fn send(&self, _: &mixdog_core_rooms::rooms::user_send::UserMessage) -> Result<bool, RoomError> {
+            unreachable!("no user message is sent here")
+        }
+    }
+
     struct Idle;
     #[async_trait]
     impl RoomRunner for Idle {
@@ -425,7 +434,7 @@ mod tests {
             })
             .expect("bound once");
         let scopes = mixdog_core_base::support::testing::scopes_over(ops.clone(), "room").await;
-        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), Arc::new(Idle), scopes, agents.clone(), ready.clone()));
+        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), Arc::new(Idle), scopes, agents.clone(), ready.clone(), Arc::new(NoSends)));
         (service, homes, ready)
     }
 

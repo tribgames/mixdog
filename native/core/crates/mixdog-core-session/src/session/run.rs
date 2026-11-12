@@ -119,7 +119,12 @@ pub(crate) async fn read_context(
             .map_err(|_| dropped())??;
         match step {
             ContextStep::More(next) => read = Some(next),
-            ContextStep::Done(rows) => return Ok(rows),
+            ContextStep::Done(mut rows) => {
+                for (_, body) in &mut rows {
+                    mixdog_protocol::message_class::without_display_facts(body);
+                }
+                return Ok(rows);
+            }
         }
     }
 }
@@ -201,6 +206,11 @@ fn a_next_drain_leaves_later_entries_queued() {
         assert_eq!(within_priority(&entry(priority), Priority::Next), next, "{priority:?}");
         assert_eq!(within_priority(&entry(priority), Priority::Later), later, "{priority:?}");
     }
+}
+
+/// A fresh id for a history row the core creates.
+pub fn new_item_id() -> ItemId {
+    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
 }
 
 /// A history row the run commits.

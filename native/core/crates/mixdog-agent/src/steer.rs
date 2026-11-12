@@ -90,6 +90,13 @@ pub fn inject(
     };
     let mut message = AgentMessage::user_content(merged.content);
     message.source = Some(source);
+    // A notification's row keeps its execution provenance after `source` (`steering.mjs:165-170`); the message
+    // type has no field for it, so it rides the row the message is written over.
+    if let Some(execution) = merged.execution.clone() {
+        let mut row = crate::message_row::row_of(&message);
+        row["meta"]["execution"] = execution;
+        message = crate::message_row::message_of(&row).expect("the row the message wrote decodes");
+    }
     message.submission_ids = merged.ids.clone();
     message.message_id = Some(message_id.clone());
     let event = SteerInjected {

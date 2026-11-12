@@ -46,6 +46,8 @@ pub(super) mod work {
         pub maps_compared: usize,
         /// A stored session a reload compared with the one it holds.
         pub sessions_compared: usize,
+        /// A loaded session's stamp taken to learn whether it changed (`LiveSessions::stamp`).
+        pub stamps_taken: usize,
         /// Reloads that read the store (not counted in [`Counts::total`]).
         pub reloads: usize,
     }
@@ -66,6 +68,7 @@ pub(super) mod work {
                 + self.maps_rebuilt
                 + self.maps_compared
                 + self.sessions_compared
+                + self.stamps_taken
         }
     }
 
@@ -85,6 +88,7 @@ pub(super) mod work {
                 maps_rebuilt: 0,
                 maps_compared: 0,
                 sessions_compared: 0,
+                stamps_taken: 0,
                 reloads: 0,
             })
         };
