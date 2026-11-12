@@ -10,11 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { openSet } from './lib/case-set.mjs';
-import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 
-REPLAY_TARGETS['cursor-client-version-cases'] = {
-  rust: [{ path: 'native/core/crates/mixdog-ai/src/client_versions.rs', line: 511, name: 'ClientVersions', methods: 'warm (client_versions.rs:608), cursor (client_versions.rs:592)' }],
-};
 const set = openSet('cursor-client-version-cases', import.meta.url);
 const ENV_KEYS = ['MIXDOG_CURSOR_CLIENT_VERSION', 'MIXDOG_DISABLE_LIVE_CLI_VERSIONS'];
 const MODULE = join(set.tree, 'src/runtime/agent/orchestrator/providers/cursor-client-version.mjs');
