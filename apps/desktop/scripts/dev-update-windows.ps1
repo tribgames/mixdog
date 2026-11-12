@@ -324,8 +324,11 @@ function Get-DaemonRecord {
     try {
         $record = Get-Content -LiteralPath $daemonDiscovery -Raw | ConvertFrom-Json
         return [pscustomobject]@{
-            pid  = $record.pid
-            port = $record.core.rpc.port
+            pid         = $record.pid
+            port        = $record.core.rpc.port
+            # A 1.4.5 (Node) daemon publishes its session endpoint here instead.
+            legacyPort  = $record.endpoints.session.port
+            legacyToken = $record.endpoints.session.token
         }
     }
     catch { return $null }
@@ -400,6 +403,46 @@ function Confirm-AbortRunningWork {
     if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
 }
 
+function Invoke-LegacyDaemon {
+    param($Record, [string]$Method, [string]$Path, $Body = $null)
+    $arguments = @{
+        Uri         = "http://127.0.0.1:$($Record.legacyPort)$Path"
+        Method      = $Method
+        Headers     = @{ 'x-mixdog-daemon-token' = [string]$Record.legacyToken }
+        ContentType = 'application/json'
+        TimeoutSec  = 30
+    }
+    if ($null -ne $Body) { $arguments.Body = ($Body | ConvertTo-Json -Compress) }
+    return Invoke-RestMethod @arguments
+}
+
+# Non-forced /upgrade: the 1.4.5 daemon finishes its running work, then exits. Nothing here times the wait or kills
+# it; -AbortRunning (typed ABORT) sends the forced form, as the new core's own wind-down does.
+function Stop-LegacyDaemon {
+    param($Record)
+    $process = Get-Process -Id ([int]$Record.pid) -ErrorAction SilentlyContinue
+    if (-not $process) { Write-Host '    1.4.5 daemon already gone'; return }
+    if (-not $Record.legacyPort -or -not $Record.legacyToken) {
+        Write-Host "    daemon pid=$($Record.pid) publishes no session endpoint; it is left to the next core"
+        return
+    }
+    $version = if ($targetVersion) { $targetVersion } else { '1.4.6' }
+    $upgrade = @{ protocol = 1; revision = 7; version = $version }
+    Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
+    Write-Host "    asked 1.4.5 daemon pid=$($Record.pid) to drain and exit"
+    if ($AbortRunning) {
+        $typed = Read-Host '    type ABORT to force the 1.4.5 daemon down, aborting its running work'
+        if ($typed -ne 'ABORT') { throw 'Abort was not confirmed; the daemon keeps draining and exits when idle.' }
+        $upgrade.force = $true
+        Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
+    }
+    while (-not $process.WaitForExit(10000)) {
+        $busy = try { (Invoke-LegacyDaemon $Record 'GET' '/health').busySessions } catch { '?' }
+        Write-Host "    waiting for the 1.4.5 daemon to become idle (busy: $busy)"
+        Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail "1.4.5 busy: $busy"
+    }
+}
+
 function Stop-Daemon {
     # The one wind-down procedure (LR section 5): ask the core to stop once it
     # is idle, then wait for its OS process to exit. Nothing here kills the
@@ -408,8 +451,9 @@ function Stop-Daemon {
     $record = Get-DaemonRecord
     if (-not $record -or -not $record.pid) { Write-Host '    no core running'; return }
     if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) {
-        # A 1.4.5 build has no mixdogd; the next core stops a 1.4.5 daemon itself.
-        Write-Host "    the installed build has no mixdogd ($coreExe); nothing to stop"
+        # A 1.4.5 build has no mixdogd: its daemon is asked to drain through its own /upgrade route, the one call
+        # the new core makes too (legacy_owner.rs), before anything force-stops the app's children.
+        Stop-LegacyDaemon $record
         return
     }
     # The process handle is the core's identity: the wait ends with that
@@ -1071,13 +1115,20 @@ if (-not (Test-Path -LiteralPath $InstallDir)) {
 # The detached worker runs after the front process already checked. A
 # FastDirect snapshot is a detached copy; its source checkout holds the branch.
 if (-not $FastDirectWorker) {
-    Write-Step 'checking the working tree includes the latest upstream commits'
     $upstreamCheckRoot = if ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
-    & git -C $upstreamCheckRoot fetch --quiet
-    if ($LASTEXITCODE -ne 0) { throw 'git fetch failed; cannot confirm the working tree includes the latest release commits.' }
-    $behind = & git -C $upstreamCheckRoot rev-list --count 'HEAD..@{upstream}'
-    if ($LASTEXITCODE -ne 0) { throw 'The current branch has no upstream; cannot confirm it includes the latest release commits.' }
-    if ([int]$behind -gt 0) {
+    # Work branches are never pushed, so one has no upstream and no release commits to be behind.
+    & git -C $upstreamCheckRoot rev-parse --abbrev-ref '@{upstream}' 2>$null | Out-Null
+    $hasUpstream = $LASTEXITCODE -eq 0
+    if (-not $hasUpstream) {
+        Write-Host 'the current branch has no upstream; skipping the check for newer release commits'
+    }
+    else {
+        Write-Step 'checking the working tree includes the latest upstream commits'
+        & git -C $upstreamCheckRoot fetch --quiet
+        if ($LASTEXITCODE -ne 0) { throw 'git fetch failed; cannot confirm the working tree includes the latest release commits.' }
+        $behind = & git -C $upstreamCheckRoot rev-list --count 'HEAD..@{upstream}'
+    }
+    if ($hasUpstream -and [int]$behind -gt 0) {
         throw "The working tree is $behind commit(s) behind its upstream. Pull them first: release commits carry the version and runtime manifest updates."
     }
 }
