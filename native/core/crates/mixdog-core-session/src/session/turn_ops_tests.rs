@@ -11,6 +11,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_api::thread::Stop;
 use mixdog_core_goal::goal::hooks::GoalViewHooks;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
@@ -448,6 +449,41 @@ async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_d
         let answer = super::testing::awaiting(|| format!("the {method} the gate held to be answered after the delete"), held).await.expect("joined");
         assert!(matches!(&answer, Err(CoreError::ThreadClosing { .. })), "{method}: the deleted session is closed to it: {answer:?}");
     }
+}
+
+/// A stop while the scheduled compaction holds a prompt back (Node's ask waiting on the gate, `state.busy`): the busy path
+/// hands the prompt back (`aborted: false`, its text and the submission the window named) and the prompt still runs when the
+/// gate opens, so it stays in the queue.
+#[tokio::test(start_paused = true)]
+async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_the_prompt_still_runs() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.store.listed.store(true, SeqCst);
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+
+    let input = json!({ "input": { "prompt": "next", "options": { "clientSubmissionId": "window-7" } } });
+    let queued = call(&handle, "turn/start", input, "h-1").await.expect("admitted");
+    assert_eq!(queued["kind"], json!("queued"), "{queued}");
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
+    let stopped = handle
+        .stop(Stop { turn: None, restore_prompt: None, submission_id: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("stop");
+    assert_eq!((&stopped["aborted"], &stopped["restoreText"], &stopped["restoredSubmissionIds"]), (&json!(false), &json!("next"), &json!(["window-7"])), "{stopped}");
+    assert_eq!(handle.cell.queued.load().len(), 1, "the prompt is still queued: Node's ask runs once the gate opens");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "it ran once the compaction ended");
+    gate.notify_one();
 }
 
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed

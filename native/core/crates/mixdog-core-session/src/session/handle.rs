@@ -717,6 +717,35 @@ impl SessionHandle {
 }
 
 impl SessionHandle {
+    /// `abort` while the scheduled compaction holds the turns back: the prompt submitted meanwhile is Node's ask waiting on
+    /// the gate, so the busy path runs (`abort.mjs:92`) with nothing to abort: the reply hands the prompt back
+    /// (`aborted: false`, its text and submission) and the ask still runs when the gate opens, so nothing leaves the queue.
+    /// `None` when no editable prompt waits, or the stop does not want it back.
+    async fn stop_gated(&self, restore_prompt: Option<bool>) -> Option<Value> {
+        if !self.cell.gated.load(std::sync::atomic::Ordering::SeqCst) || restore_prompt == Some(false) {
+            return None;
+        }
+        let queued = self.cell.queue.load().iter().rev().find(|queued| super::control::is_editable_entry(&queued.entry)).cloned()?;
+        let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
+        let store = self.deps.attachments.clone();
+        let hydrated = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw)).await;
+        let Ok(Ok(restored)) = hydrated else {
+            return None;
+        };
+        let mut reply = stop_reply(None, false);
+        reply["restoreText"] = restored["text"].clone();
+        reply["pastedImages"] = restored["pastedImages"].clone();
+        reply["pastedTexts"] = restored["pastedTexts"].clone();
+        // The submissions the window named (`submittedIds`), not the queue's own entry ids.
+        reply["restoredSubmissionIds"] = json!(queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).into_iter().collect::<Vec<_>>());
+        for key in ["content", "notice"] {
+            if let Some(value) = restored.get(key) {
+                reply[key] = value.clone();
+            }
+        }
+        Some(reply)
+    }
+
     /// `abort` while nothing runs (`reclaimIdleSubmission`, `abort.mjs:84`): the queued submission the client names is handed
     /// back to its composer (`restoreQueued('', submissionId)`); naming none, or one that is not queued, stops nothing.
     async fn stop_idle(&self, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {
@@ -776,7 +805,12 @@ impl ThreadHandle for SessionHandle {
             (Some(turn), Some(run)) if run.turn == turn => run,
             (Some(turn), _) => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(turn) }),
             (None, Some(run)) => run,
-            (None, None) => return self.stop_idle(submission_id, ctx).await,
+            (None, None) => {
+                if let Some(reply) = self.stop_gated(restore_prompt).await {
+                    return Ok(reply);
+                }
+                return self.stop_idle(submission_id, ctx).await;
+            }
         };
         let canceller = match &ctx.caller {
             Caller::Connection(connection) => self.deps.devices.describe(*connection).device,

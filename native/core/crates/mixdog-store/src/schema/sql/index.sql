@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 12: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 13: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 12;
+PRAGMA user_version = 13;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -206,8 +206,9 @@ CREATE TABLE compactions (
     -- before `boundary` (a source that reports nothing), 1 none (a pass that took out
     -- nothing visible), 2 by the ids of `compaction_dropped`.
     drop_mode INTEGER NOT NULL CHECK (drop_mode IN (0,1,2)),
-    -- 1: the record's `silent`: the context restarts, no divider is listed for it.
-    silent INTEGER NOT NULL DEFAULT 0 CHECK (silent IN (0,1)),
+    -- 1: the record's `silent`: the context restarts, no divider is listed for it. 2: its
+    -- `lost`: no divider either, and the rows it took out are hidden from a restored window.
+    silent INTEGER NOT NULL DEFAULT 0 CHECK (silent IN (0,1,2)),
     superseded_rev INTEGER,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;

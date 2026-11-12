@@ -266,6 +266,12 @@ pub struct CompactedRecord {
     /// (a failed turn's retry removes its stale prompt from the context, which shows nothing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent: Option<bool>,
+    /// `true`: the display archive of what it took out is lost (1.4.5 keeps it in the session's
+    /// `compaction.archive`, which a compaction run with no host listening has overwritten by the
+    /// next save of the session's stale object). No divider is listed for it and the rows it took
+    /// out are not shown by a restored window; the log keeps them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lost: Option<bool>,
     pub replacement: Slot<Vec<ReplacementEntry>>,
 }
 

@@ -844,6 +844,23 @@ impl StoreThreads {
     }
 }
 
+/// Takes out of a window the rows only compactions whose archive was lost took out of the context (the log keeps
+/// them), and the display rows (a turn's end) of a turn none of whose messages is left.
+fn unarchived(rows: &mut Vec<HistoryRow>) {
+    use std::collections::HashSet;
+    let turn_of = |row: &HistoryRow| row.turn.clone();
+    let hidden: HashSet<String> = rows.iter().filter(|row| row.model && row.hidden).filter_map(turn_of).collect();
+    if hidden.is_empty() {
+        return;
+    }
+    let shown: HashSet<String> = rows.iter().filter(|row| row.model && !row.hidden).filter_map(turn_of).collect();
+    rows.retain(|row| match (row.model, &row.turn) {
+        (true, _) => !row.hidden,
+        (false, Some(turn)) => !(hidden.contains(turn) && !shown.contains(turn)),
+        (false, None) => true,
+    });
+}
+
 /// Context rows read per page.
 const CONTEXT_PAGE_ROWS: usize = 200;
 
@@ -1292,10 +1309,11 @@ impl ThreadStore for StoreThreads {
             .expect("StoreThreads head");
         let fold = &opened.fold;
         let lineage = self.lineage(lane, fold)?;
-        let (rows, cursor) = self
+        let (mut rows, cursor) = self
             .index
             .history_page_on_lane(lane, &lineage, fold.base_cut, None, WINDOW_ROWS)
             .map_err(|e| internal("window", &e))?;
+        unarchived(&mut rows);
         let mut window = Vec::with_capacity(rows.len());
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
