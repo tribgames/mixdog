@@ -260,9 +260,16 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         fail: Option<ProviderError>,
         /// A summary send that stays in flight until its request is dropped (a session closing under it): told once it is sent.
         in_flight: Option<Arc<tokio::sync::Notify>>,
+        /// The in-flight streams dropped so far.
+        dropped: Arc<std::sync::atomic::AtomicUsize>,
     }
-    /// A response that never produces an event.
-    struct Pending;
+    /// A response that never produces an event; the count says how many were dropped.
+    struct Pending(Arc<std::sync::atomic::AtomicUsize>);
+    impl Drop for Pending {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
     #[async_trait]
     impl ModelStream for Pending {
         async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::provider::StreamEvent, ProviderError>> {
@@ -289,9 +296,12 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             self.sent.lock().unwrap().push(request.clone());
-            if let Some(sent) = &self.in_flight {
+            // Only the first send stays in flight: a start after the session's end is answered.
+            if let Some(sent) = &self.in_flight
+                && self.sent.lock().unwrap().len() == 1
+            {
                 sent.notify_one();
-                return Ok(Box::new(Pending));
+                return Ok(Box::new(Pending(self.dropped.clone())));
             }
             if let Some(error) = &self.fail {
                 return Err(error.clone());
@@ -427,12 +437,16 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             unreachable!("the session has its conversation")
         }
     }
-    /// The recorder ran no hook.
-    struct NoHooks;
+    /// The hooks the session ops dispatch (`preCompactHook`, `postCompactHook`), as the recorder's session recorded them.
+    struct Hooks(Arc<Mutex<Vec<(String, String)>>>);
     #[async_trait]
-    impl super::super::compact_hooks::CompactHooks for NoHooks {
-        async fn pre(&self, _: &ThreadId, _: &str) {}
-        async fn post(&self, _: &ThreadId, _: &str) {}
+    impl super::super::compact_hooks::CompactHooks for Hooks {
+        async fn pre(&self, _: &ThreadId, trigger: &str) {
+            self.0.lock().unwrap().push(("pre".to_owned(), trigger.to_owned()));
+        }
+        async fn post(&self, _: &ThreadId, trigger: &str) {
+            self.0.lock().unwrap().push(("post".to_owned(), trigger.to_owned()));
+        }
     }
     struct NoGauge;
     impl mixdog_core_session::session::route_session::ContextStatusCache for NoGauge {
@@ -465,7 +479,9 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         });
         const ENDED_IN_FLIGHT: [&str; 3] = ["closed", "deleted", "shutdown"];
         let sent_in_flight = ENDED_IN_FLIGHT.contains(&name).then(|| Arc::new(tokio::sync::Notify::new()));
-        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()), fail, in_flight: sent_in_flight.clone() });
+        let dropped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()), fail, in_flight: sent_in_flight.clone(), dropped: dropped.clone() });
+        let hook_calls = Arc::new(Mutex::new(Vec::new()));
         let registry = Arc::new(ProviderRegistry::new(Arc::new(Builds(provider.clone()))));
         let saved = json!({ "providers": { "openai": { "enabled": true } } }).as_object().cloned().unwrap();
         let mut services = services_over(dir.path(), json!({}), Arc::default(), WarmLedger::new(), Arc::new(SideQuestionStore::new()), registry.clone(), saved.clone()).await;
@@ -500,11 +516,11 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         let (dir_seams, seams) = run_seams().await;
         let manual: Arc<dyn ManualCompaction> = Arc::new(HostManualCompaction::new(ManualParts {
             world: Arc::new(world),
-            threads,
+            threads: threads.clone(),
             config: Arc::new(seams),
             compactors: Arc::new(compactors),
             directory: late.clone(),
-            hooks: Arc::new(NoHooks),
+            hooks: Arc::new(Hooks(hook_calls.clone())),
             gauge: Arc::new(NoGauge),
             clock: Arc::new(Fixed),
             recover: Arc::new(|_| {}),
@@ -512,7 +528,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             data_dir: dir_seams.path().to_path_buf(),
             blobs: Arc::new(super::super::attachment_store::StoreBlobs::new(blobs.clone(), &tokens)),
         }));
-        let rig = mixdog_core_session::session::testing::Rig::new();
+        let rig =mixdog_core_session::session::testing::Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.compaction = manual.clone();
         let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
@@ -523,6 +539,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         assert_eq!(mixdog_core_session::session::room_log::RoomLog::append_rows(&log, thread.as_str(), rows.clone()).await.expect("the conversation"), rows.len());
         directory.open(&thread, &CallContext::internal("test")).await.expect("the session opens");
         let handle = directory.handle(&thread).expect("loaded");
+        let header_before = threads.header(&thread).await.expect("the stored header");
 
         // The client's compact request (`thread/compact/start`, Node's `compactSessionMessages(sessionId)`).
         let request = CoreRequest {
@@ -610,6 +627,48 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             Err(other) => panic!("{name}: not a domain failure: {other:?}"),
         };
         assert_eq!(answered, node, "{name}: the outcome differs");
+        if ENDED_IN_FLIGHT.contains(&name) {
+            let after = whole.get("after");
+            assert_eq!(case["after"]["signalsAborted"], json!([true]), "{name}: the recording's summary send was aborted");
+            // The summary request in flight ended with the session: its stream was dropped, not left open.
+            assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1, "{name}: the core dropped the summary stream in flight");
+            // What the session published: the hooks the session ops dispatch.
+            let want: Vec<(String, String)> = case["after"]["events"].as_array().unwrap().iter().map(|e| (e[0].as_str().unwrap().to_owned(), e[1].as_str().unwrap().to_owned())).collect();
+            assert_eq!(*hook_calls.lock().unwrap(), want, "{name}: the events published");
+            // What is stored afterwards: the transcript whole, no header key changed that Node's did not (a half-applied
+            // summary writes the `compaction` record, the new transcript and the usage totals).
+            if case["after"]["stored"].is_null() {
+                // Node's store holds nothing for it. The core's log keeps the delete mark (and may keep a failure record the
+                // abort wrote); what it must not hold is an applied summary.
+                let kept = directory.try_stored_header(&thread).await.expect("the read");
+                assert!(kept.as_ref().is_none_or(|h| h.get("deleted") == Some(&json!(true)) && h["compaction"]["lastChanged"] != json!(true)), "{name}: a deleted session leaves nothing stored: {kept:?}");
+            } else {
+                use mixdog_core_ports::ports::memory_source::ThreadMessages as _;
+                let stored = threads.messages(&thread).await.expect("the stored transcript");
+                assert_eq!(Exact::plain(&Value::Array(stored)), after.get("stored").get("messages").clone(), "{name}: the transcript is unchanged");
+                let kept = threads.header(&thread).await.expect("the stored header");
+                let changed: Vec<String> = header_before.iter().map(|(k, _)| k).chain(kept.keys()).filter(|k| header_before.get(*k) != kept.get(*k)).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+                let allowed: Vec<String> = case["after"]["stored"]["headerChangedKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect();
+                assert!(changed.iter().all(|k| allowed.contains(k)), "{name}: the header changed {changed:?}, Node's changed only {allowed:?}");
+            }
+            // A start after it finds no compaction pending: none is begun and no summary is asked (Node's session ends: a
+            // start answers nothing; a runtime that stays up is not a core's shutdown, which ends the directory: named in the manifest).
+            if name != "shutdown" {
+                assert_eq!(case["after"]["next"]["sendsAfter"], 0);
+                let sent_before = provider.sent.lock().unwrap().len();
+                let again = CoreRequest {
+                    method: Method("thread/compact/start"),
+                    params: json!({ "threadId": thread.as_str(), "opId": "op-compact-again" }),
+                    op: Some(OpId::from("op-compact-again")),
+                    ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+                };
+                let answer = tokio::time::timeout(std::time::Duration::from_secs(30), directory.request(again))
+                    .await
+                    .unwrap_or_else(|_| panic!("{name}: a start after the session's end was not answered within 30 s"));
+                assert!(matches!(answer, Ok(Reply::Value(Value::Null)) | Err(_)), "{name}: a start after the end begins no compaction: {answer:?}");
+                assert_eq!(provider.sent.lock().unwrap().len(), sent_before, "{name}: no summary is asked");
+            }
+        }
         compared += 1;
     }
     assert_eq!(compared, 9);
