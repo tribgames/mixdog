@@ -655,7 +655,7 @@ async fn the_mcp_servers_on_the_migrated_directory_are_what_1_4_5_listed() {
     let admin = Arc::new(mixdog_mcp::plugin_admin::PluginAdmin::new(roots.data.clone(), Arc::new(NoGit), Arc::new(|| {})));
     let glue = mixdog_mcp::mcp_glue::McpGlue::new(mixdog_mcp::mcp_glue::GlueInputs {
         hub: mixdog_mcp::hub::McpHub::new(
-            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
             roots.data.join("tool-results"),
             mixdog_mcp::result::OutputPolicy::default(),
         ),

@@ -226,8 +226,14 @@ pub(super) fn plan_federation(
     let federated_mode = ROOT_FEDERATED_MODES.contains(&raw_mode.as_str());
     let exact_dot = files.len() == 1 && files[0] == "." && federated_mode;
     let parent_dot = base_project_root.is_none() && !filesystem_root_cwd && exact_dot;
-    let base_abs = norm(base);
-    let not_self = |root: &PathBuf| norm(root) != base_abs;
+    // Windows paths compare without case (Node with node-fix-code-graph-self-federation.patch: `rootKey`), so a root
+    // spelled in another case than the cwd is still the cwd.
+    let root_key = |path: &Path| {
+        let resolved = norm(path).to_string_lossy().into_owned();
+        if cfg!(windows) { resolved.to_lowercase() } else { resolved }
+    };
+    let base_key = root_key(base);
+    let not_self = |root: &PathBuf| root_key(root) != base_key;
     // Trusted graph targets living UNDER a sentinel-free cwd; self is filtered out, since
     // federating a directory into itself would recurse forever.
     let trusted: Vec<PathBuf> = if base_project_root.is_some() {

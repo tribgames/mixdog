@@ -404,6 +404,12 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
+    /// Resolves once the index holds every write acknowledged so far (the exact class: an error when it is behind past
+    /// the bound, or when a write of `id` failed to go in). A store without an index holds its writes at once.
+    fn indexed(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        Box::pin(async { Ok(()) })
+    }
+
     /// The copies of `id`'s conversation the catalog lists: the sessions whose reference set names `id`
     /// (`mixdog_store::offload_sources`: an inheritance's heir, a clear's fork, the copies of those, a session
     /// migrated naming `id`'s sidecars), once the catalog holds every acked projection, without opening any session;

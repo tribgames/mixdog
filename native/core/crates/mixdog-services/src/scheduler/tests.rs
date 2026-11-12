@@ -179,17 +179,17 @@ async fn rename_refused_while_running_and_reload_failure_drops_the_entry() {
         async move { s.fire_cron_slot("daily", at("2025-01-01T09:00:00Z")).await }
     });
     f.runner.started.notified().await;
-    let refused = f.sched.rename_locked("daily", || async { Ok(Some(1)) }, || async { Ok(()) }).await;
+    let refused = f.sched.rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Ok(()) }).await;
     assert_eq!(refused, Err(ScheduleError::RenameRunning { name: "daily".into() }));
     gate.notify_one();
     run.await.unwrap();
     let failed = f
         .sched
-        .rename_locked("daily", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) })
+        .rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) })
         .await;
     assert!(matches!(failed, Err(ScheduleError::RenameReloadFailed { .. })));
     assert!(f.sched.find_schedule("daily").is_none());
-    let ok = f.sched.rename_locked("gone", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
+    let ok = f.sched.rename_locked("gone", "went", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
     assert_eq!(ok, Ok(None));
 }
 

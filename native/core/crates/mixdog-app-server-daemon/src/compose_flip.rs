@@ -27,6 +27,10 @@ use crate::compose_core::{McpParts, PolicyParts, build_mcp, build_policy};
 use crate::compose_domains::{DomainInputs, DomainPaths, DomainSeams, OpScopeSource, PluginSeams, PostSeams, build_local_provider, compose_domains_post, compose_domains_pre};
 use crate::compose_mcp::{AgentSeams, McpInputs, SetupSeams, build_agents, mcp_services};
 
+/// How long the start-up's catalog republish after the rooms' first load may take: every room mutation that awaited that load waits
+/// for it (`ready::recover`), so it is bounded (Node's `republishCatalog` only starts its listing, `session-host.ts:353-356`).
+const ROOM_RECOVERY_REPUBLISH: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// What `compose()` has built before the real core starts.
 pub struct Built {
     /// What `real_core` registers a release for as it acquires it; `compose` runs them if `real_core` fails.
@@ -152,6 +156,8 @@ pub struct Real {
     pub heartbeat_run: Arc<std::sync::OnceLock<mixdog_services::bots::beat::RunningHeartbeat>>,
     /// The sub-agent retention cycle, set by `start_sub_agent_retention`; the stop step takes and ends it.
     pub sub_agent_retention: Arc<std::sync::Mutex<Option<crate::session_retention::Running>>>,
+    /// The core's one archive stamp counter (`ThreadSettingsParts::archive_stamps`): the retention cycle's automatic archive takes its stamps too.
+    pub archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps>,
     /// The writer of `<data>/gateway-usage.local.jsonl`, the sessions' too.
     pub gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
     /// Replay-only: the write-behind writers `replay/storesSettled` drains besides the session store.
@@ -217,7 +223,7 @@ impl Real {
     pub fn start_sub_agent_retention(&self) {
         let mut running = self.sub_agent_retention.lock().unwrap_or_else(|e| e.into_inner());
         if running.is_none() {
-            let host = Arc::new(mixdog_core_session::session::sub_agent_retention::DirectoryRetention::new(self.directory.clone(), self.catalog_index.clone()));
+            let host = Arc::new(mixdog_core_session::session::sub_agent_retention::DirectoryRetention::new(self.directory.clone(), self.catalog_index.clone(), self.archive_stamps.clone()));
             *running = Some(crate::session_retention::start(host, Arc::new(mixdog_core_session::session::sub_agent_retention::now_ms)));
         }
     }
@@ -335,6 +341,12 @@ pub(crate) fn retirement_paths(package_root: &std::path::Path, data_dir: &std::p
     mixdog_core_config::workflow::WorkflowPaths { root: mixdog_store::paths::Paths::plugin_root_of(package_root, env), data: data_dir.to_path_buf() }
 }
 
+/// The configuration file of the data directory the core is composed over (`configPath()` of `shared/config.mjs`, which reads
+/// `MIXDOG_DATA_DIR` when it is called: the core's data directory is the one it was started with).
+pub(crate) fn config_file(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join(mixdog_core_config::user_data::CONFIG_FILE)
+}
+
 pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // ---- 1. state, config ---------------------------------------------------------------------
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
@@ -352,7 +364,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(ComposeError::Config)?;
     }
     let (config, _config_changes) = Config::open(
-        b.data_dir.join("mixdog-config.json"),
+        config_file(&b.data_dir),
         state.publisher.clone(),
         ConfigLanes { read: b.tokens.interactive_io, write: b.tokens.durability_io },
     )
@@ -601,18 +613,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         proxy: Arc::new(mixdog_core::run_host::proxy_providers::HostProxyProviders::new(b.host.clone(), b.client_epoch.clone(), now_ms.clone())),
     });
     // The warm-up slot and the host around the setup (`setup_host.rs`). The slot warms the setup that holds the host: a true cycle, bound below.
-    let setup_warmup = crate::setup_host::SetupWarmup::new(crate::setup_host::warmup_delay_ms(&*b.env), {
-        let closing = close_requested.clone();
-        Arc::new(move || closing.is_cancelled())
-    });
+    let setup_warmup = crate::setup_host::SetupWarmup::new(
+        crate::setup_host::warmup_delay_ms(&*b.env),
+        {
+            let closing = close_requested.clone();
+            Arc::new(move || closing.is_cancelled())
+        },
+        Arc::new(crate::setup_host::TracedMarks),
+    );
     let setup_host = Arc::new(crate::setup_host::DaemonSetupHost { env: b.env.clone(), config: config.clone(), warmup: setup_warmup.clone() });
-    let provider_setup = Arc::new(mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup::new(gatherer, keychain_live, overlays, setup_host));
+    let provider_setup = Arc::new(mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup::new(gatherer, keychain_live.clone(), overlays, setup_host));
     setup_warmup.bind(provider_setup.clone()).map_err(|_| ComposeError::AlreadyBound("provider setup warm-up"))?;
     let dashboards = mixdog_core_domains::domains::ai_account::dashboards::Dashboards::new(Arc::new(crate::setup_host::SetupSourceOf { setup: provider_setup.clone(), config: config.clone(), effective: effective.clone() }));
     // The provider model cache's warm (`scheduleProviderModelWarmup` and the account flows' `warmProviderModelCache`): built here for the effects, bound to the list and the gates below.
     let model_warmup = mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup::new(mixdog_core_domains::domains::ai_admin::model_warmup::WarmupConfig::from_env(&*b.env));
     // The statusline usage warm-up (`scheduleStatuslineUsageWarmup`): built here for the prewarm signals, bound to the route and the usage service once those exist.
     let statusline_warmup = mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup::new(&*b.env);
+    // The provider initialization warm (`scheduleProviderWarmup`, opt-in): built here for the prewarm signals, bound with the gates below.
+    let provider_warmup = mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderWarmup::new(mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderWarmupConfig::from_env(&*b.env));
+    let provider_init = Arc::new(crate::prewarm_world::DaemonProviderInit { keychain: keychain_live.clone(), config: config.clone(), loaded: loaded_config.clone(), readiness: readiness.clone() });
     let provider_effects = mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects::new(config.clone(), readiness.clone(), admission.clone(), dashboards.clone(), model_warmup.clone());
     // Node's one `invalidateProviderCaches()` also drops the setup cache: the effects the flow runs are `ProviderEffects` plus that drop.
     let refresh: Arc<dyn mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh> = mixdog_core_domains::domains::ai_account::auth_refresh::AuthRefreshFlow::new(Arc::new(
@@ -1678,7 +1697,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The purge hooks a deleted session runs (warm cache, read state, transcript offsets, provider connections, worker turns, the worker index).
     // The worker index (flip-ce-7): `turn_starts` binds to it, the `Owed` rows and the host runtime read it. `StoreWorkers` hears the status signals (flip-ce-10).
     let reap = Arc::new(mixdog_core::run_host::agent_inputs::ConfigReap::new(config.clone())); // the one reap `recover` also takes
-    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(catalog_index.clone(), Arc::new(LateThreads(late.clone())), b.tokens.interactive_io));
+    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(
+        catalog_index.clone(),
+        Arc::new(LateThreads(late.clone())),
+        b.tokens.interactive_io,
+        // The rows of sessions deleted while they still count, kept in the core's state as Node's index file keeps them.
+        Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(b.core_state.clone())),
+    ));
     store_workers.bind_signals(activity.signals()).map_err(|_| ComposeError::AlreadyBound("store worker signals"))?;
     #[cfg(feature = "replay-controls")]
     let replay_workers = store_workers.clone();
@@ -1695,6 +1720,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Some(pool) => Arc::new(mixdog_core::run_host::native_tools::ReapingShells::new(b.shell_control.clone(), pool.clone())),
         None => b.shell_control.clone(),
     };
+    let shell_strips: Arc<dyn mixdog_core_session::session::shell_jobs::ShellStrips> = b.shell_control.clone();
     // The one archive retention (`desktop.retentionState`): `ThreadSettingsParts.retention` and `PurgeOwners.retention` (wp-session-33/-40).
     let archive_retention = Arc::new(mixdog_core_session::session::thread_settings::ConfigArchiveRetention::new(config.clone(), Arc::new(|| mixdog_rt::utc_now!().timestamp_millis())));
     // flip-gaps-agent: the agent tool's `WorkerTurns` (the SAME value is `AgentParts.turns` and `PurgeOwners.worker_turns`); `changed` is `statusMayHaveChanged`.
@@ -1951,16 +1977,21 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let prewarm_lazy = prewarm_world.lazy();
     let code_graph_prewarm = mixdog_core::run_host::code_graph_prewarm::CodeGraphPrewarm::new(prewarm_world);
     // The catalog warm-up defers while a turn runs or a session is being created (the same probe) and is woken with the prewarm.
-    b.catalog_warmup.bind_busy({
-        let (liveness, late) = (liveness.clone(), late.clone());
-        Arc::new(move || crate::prewarm_world::busy_reason(&liveness, &late))
-    });
+    b.catalog_warmup.bind_gates(Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }));
     model_warmup.bind(model_list.clone(), Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() })).map_err(|()| ComposeError::AlreadyBound("provider model warm-up"))?;
+    provider_warmup
+        .bind(provider_init, Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }))
+        .map_err(|()| ComposeError::AlreadyBound("provider warm-up"))?;
+    let warmup_schedulers = Arc::new(crate::prewarm_world::WarmupSchedulers {
+        providers: provider_warmup.clone(),
+        models: model_warmup.clone(),
+        setup: setup_warmup.clone(),
+        catalog: b.catalog_warmup.clone(),
+        statusline: statusline_warmup.clone(),
+    });
     let session_prewarm: Arc<dyn mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals> = Arc::new(crate::prewarm_world::WarmupSignals {
         prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
-        catalog: b.catalog_warmup.clone(),
-        models: model_warmup.clone(),
-        statusline: statusline_warmup.clone(),
+        schedulers: warmup_schedulers.clone(),
         channel_admin: channel_admin.clone(),
     });
     // The deferred channel start parks on the same busy probe (`channel-start.mjs:50-56`) and is woken with the warm-ups.
@@ -2095,6 +2126,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
                 surface: session_surface.clone(),
         builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
+                shell_strips,
                 code_graph_prewarm: session_prewarm.clone(), // batch i: the sessions' busy-state, first-visible and cwd events reach the one timer
                 agent_status: late_agent_status.clone(),
                 live_workspace: live_workspace.clone(),
@@ -2247,10 +2279,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_setup_ui
         .bind(Arc::new(mixdog_core_session::session::setup_ui::SessionSetupUi::new(directory.clone())))
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
-    model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
+    warmup_schedulers.schedule_provider_warmup(); // the boot's scheduleProviderWarmup() (session.mjs:121)
+    warmup_schedulers.schedule_provider_model_warmup(); // the boot's scheduleProviderModelWarmup() (session.mjs:122): after the model list, the gates and the wakes exist
     // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
     channel_admin.schedule_automation_autostart();
-    setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
+    warmup_schedulers.schedule_provider_setup_warmup(None); // the boot's scheduleProviderSetupWarmup() (session.mjs:123), default 300 ms
+    warmup_schedulers.schedule_model_catalog_warmup(&|name| std::env::var(name).ok()); // the boot's scheduleModelCatalogWarmup() (session.mjs:124)
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher
         .bind(Arc::new(mixdog_core::run_host::tool_pool::dispatcher::PipelineDispatcher::new(
@@ -2530,9 +2564,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let room_sessions = Arc::new(
         mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
     );
-    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
-        summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
-    ))));
+    // Node's supervisor step logs one line per step with `process.stderr.write` (`room-supervisor-completion.mjs` default `log`): the daemon's raw stderr.
+    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(
+        Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
+            summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
+        )),
+        { let log = b.log.clone(); Arc::new(move |chunk: &str| log.raw(chunk)) },
+    ));
     // Node's rooms log (`agent-rooms.ts:190`) is `console.warn("[mixdog-rooms] <line>")` in the desktop main process. Rooms live in the core (spec §9), so it is the
     // daemon's `console.warn`, which `installRedirect` (`daemon.mjs:844`) writes as `[<ISO>] [console.warn] [mixdog-rooms] <line>`: `console_warn_sink()` (wp-ai-svc-35), no `[daemon]` tag.
     let room_log: Arc<dyn Fn(&str) + Send + Sync> = {
@@ -2556,6 +2594,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 b.tokens.durability_io,
                 b.data_dir.clone(),
                 mixdog_services::task_reports::collect::sensitive_scopes(&[home.clone(), mixdog_home.clone(), b.data_dir.clone()]),
+                documents.clone(),
                 room_log.clone(),
             )),
             sessions: room_sessions.clone(),
@@ -2563,6 +2602,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             maintainer: maintainer.clone(),
             preview: Arc::new(|text: &str| mixdog_core_rooms::rooms::preview::plain_preview_text(text)), // flip-rooms-9
             log: room_log.clone(),
+            now: now_ms.clone(),
         },
     );
     let room_calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live_rooms.clone())), room_log.clone());
@@ -2610,7 +2650,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
-    let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
     // The rooms' first load (`agent-rooms.ts:353-362` `ready`), which every room call, a member forgotten and a member's relay await first: the rooms
     // are hosted and members whose definition is proven deleted leave (`pruneDeleted`). A failed one is forgotten; the next caller loads again.
     let rooms_ready = mixdog_core_rooms::rooms::ready::RoomsReady::new();
@@ -2630,17 +2669,22 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         })
         .map_err(ComposeError::AlreadyBound)?;
     // Start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): its failure is logged, not the core's start's.
-    // After the first load, rooms whose exchange a dead process left running are marked interrupted and republished (flip-rooms-4).
+    // After the first load, rooms whose exchange a dead process left running are marked interrupted (flip-rooms-4) and the catalog
+    // is republished (`agent-rooms.ts:479`), ahead of the mutations that awaited the same load (`ready::recover`). Those wait for it, so
+    // its pass is bounded: one that does not end in time is the recovery's logged failure, and they go on.
     drop(mixdog_core_rooms::rooms::ready::recover(
         rooms.clone(),
         rooms_ready.clone(),
         {
-            let (live, rooms, republish) = (live_rooms.clone(), rooms.clone(), republish.clone());
+            let (live, rooms, summaries) = (live_rooms.clone(), rooms.clone(), room_summaries.clone());
             move || async move {
-                if !live.recover(&rooms).await?.is_empty() {
-                    republish();
-                }
-                Ok(())
+                live.recover(&rooms).await?;
+                mixdog_rt::time::timeout(ROOM_RECOVERY_REPUBLISH, summaries.republish_now()).await.map_err(|_| {
+                    mixdog_core_rooms::rooms::RoomError::Port(format!(
+                        "the catalog's republish after the rooms' first load did not end within {} s",
+                        ROOM_RECOVERY_REPUBLISH.as_secs()
+                    ))
+                })
             }
         },
         room_log.clone(),
@@ -2654,6 +2698,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
         definition_names.clone(),
         rooms_ready.clone(),
+        // A user's message into a room (`room/send`, the composer's `submitToSession` on a room log).
+        Arc::new(mixdog_core_rooms::rooms::user_send::UserSend::new(rooms.clone(), live_rooms.clone(), room_calls.clone())),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
@@ -2807,13 +2853,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     statusline_warmup
         .bind(
             { let main = main_route.clone(); Arc::new(move || main.route()) },
-            loaded_config.clone(),
-            readiness.clone(),
+            Arc::new(mixdog_core_domains::domains::ai_admin::statusline_warmup::ReadinessPrep { keychain: keychain_live.clone(), loaded: loaded_config.clone(), readiness: readiness.clone() }),
             usage_sources.clone(),
             Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }),
         )
         .map_err(|()| ComposeError::AlreadyBound("statusline usage warm-up"))?;
-    statusline_warmup.start();
+    warmup_schedulers.schedule_statusline_usage_warmup();
     let route_writer = Arc::new(mixdog_core_ports::ports::route_write::LiveRouteWriter {
         cell: routes.clone(),
         session: late_route_session.clone(),
@@ -3048,7 +3093,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

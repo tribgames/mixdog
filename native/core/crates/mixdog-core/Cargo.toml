@@ -65,7 +65,6 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 test-support = ["mixdog-rt/test-support"]
 
 [dev-dependencies]
-mixdog-testkit = { workspace = true }
 mixdog-core = { path = ".", features = ["count-work", "test-support"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
@@ -76,16 +75,18 @@ mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 reqwest = { workspace = true }
 rustls = { workspace = true, features = ["ring", "std"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
@@ -110,3 +111,6 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }

@@ -132,6 +132,22 @@ const CASES = [
   ['setSessionArchived', ['t1', true], [['thread/archive', { threadId: 't1' }]]],
   ['setSessionArchived', ['t1', false], [['thread/unarchive', { threadId: 't1' }]]],
   ['deleteSession', ['t1'], [['thread/delete', { threadId: 't1' }]]],
+  [
+    'submitToSession',
+    ['sess_room_abc123', 'hi', { id: 'sub-1', pastedTexts: { 1: { id: 1, text: 'x' } } }],
+    [
+      [
+        'room/send',
+        {
+          input: {
+            threadId: 'sess_room_abc123',
+            prompt: 'hi',
+            options: { pastedTexts: { 1: { id: 1, text: 'x' } }, clientSubmissionId: 'sub-1' },
+          },
+        },
+      ],
+    ],
+  ],
   ['openAgentHome', ['a1'], [['agent/home/open', { agentId: 'a1' }]]],
   ['resetAgentHome', ['a1'], [['agent/home/reset', { agentId: 'a1' }]]],
   ['listAgentMemory', ['a1'], [['agent/memory/list', { agentId: 'a1' }]]],

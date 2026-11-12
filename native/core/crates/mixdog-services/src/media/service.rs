@@ -38,6 +38,8 @@ impl From<MediaError> for CoreError {
             // Node's `Error`/`TypeError` text is what the window shows; `invalidParams` would drop it.
             MediaError::Invalid(message) => failed("media", message),
             MediaError::BoardNotFound => failed("media", e.to_string()),
+            // What `fs` threw on Node's path (`EPERM: operation not permitted, rename '<tmp>' -> '<index>'`).
+            MediaError::Fs(failure) => mixdog_core_base::support::io_failure("media", &failure),
             other => domain(other.code()),
         }
     }

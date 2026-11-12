@@ -96,6 +96,7 @@ pub(crate) async fn read_context(
         mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
         mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
         mixdog_rt::SubmitWaitError::Cancelled => dropped(),
+        mixdog_rt::SubmitWaitError::ShutDown(_) => CoreError::Internal { incident_id: "session-context-lane-shut-down".into() },
     };
     let mut read = None;
     loop {
@@ -118,7 +119,12 @@ pub(crate) async fn read_context(
             .map_err(|_| dropped())??;
         match step {
             ContextStep::More(next) => read = Some(next),
-            ContextStep::Done(rows) => return Ok(rows),
+            ContextStep::Done(mut rows) => {
+                for (_, body) in &mut rows {
+                    mixdog_protocol::message_class::without_display_facts(body);
+                }
+                return Ok(rows);
+            }
         }
     }
 }

@@ -19,6 +19,38 @@ pub(super) struct Args {
     pub page: Option<f64>,
     pub language: Option<String>,
     pub cwd: Option<String>,
+    /// `file` was a truthy value other than a string: Node resolves it as a path and throws Node's
+    /// `ERR_INVALID_ARG_TYPE` text, this one.
+    pub file_type_error: Option<String>,
+}
+
+/// JS `String(value || '')` of a `files` entry, as `_collectGraphFileList` reads it.
+fn js_string_or_empty(v: &Value) -> String {
+    let falsy = match v {
+        Value::Null | Value::Bool(false) => true,
+        Value::Number(n) => n.as_f64().is_none_or(|f| f == 0.0 || f.is_nan()),
+        Value::String(s) => s.is_empty(),
+        _ => false,
+    };
+    if falsy { String::new() } else { mixdog_js::value_to_string(v) }
+}
+
+/// Node's `ERR_INVALID_ARG_TYPE` for a truthy `file` that is not a string (`path.isAbsolute(file)`).
+fn file_type_error(v: &Value) -> Option<String> {
+    let received = match v {
+        Value::Array(_) => "an instance of Array".to_owned(),
+        Value::Object(_) => "an instance of Object".to_owned(),
+        Value::Bool(true) => "type boolean (true)".to_owned(),
+        Value::Number(n) => {
+            let f = n.as_f64().unwrap_or_default();
+            if f == 0.0 || f.is_nan() {
+                return None;
+            }
+            format!("type number ({})", mixdog_js::number_to_string(f))
+        }
+        _ => return None,
+    };
+    Some(format!("The \"path\" argument must be of type string. Received {received}"))
 }
 
 fn text(v: &Value, key: &str) -> Option<String> {
@@ -76,7 +108,9 @@ impl Args {
         let mut files: Vec<String> = Vec::new();
         let mut files_is_list_string = false;
         match v.get("files") {
-            Some(Value::Array(_)) => files = strings(&v["files"]),
+            Some(Value::Array(items)) => {
+                files = items.iter().map(|f| mixdog_js::js_trim(&js_string_or_empty(f)).to_owned()).filter(|f| !f.is_empty()).collect();
+            }
             Some(Value::String(s)) => match json_array_string(s) {
                 Some(list) => files = list,
                 None => {
@@ -114,6 +148,7 @@ impl Args {
             page: number(v, "page"),
             language: text(v, "language"),
             cwd: text(v, "cwd"),
+            file_type_error: v.get("file").and_then(file_type_error),
         }
     }
 

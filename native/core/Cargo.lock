@@ -1671,8 +1671,6 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 [[package]]
 name = "fancy-regex"
 version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d301f5bf187b3c295fce6468d3875037a0bccc5f6b151c63cac2f85babf21912"
 dependencies = [
  "bit-set 0.8.0",
  "regex-automata",
@@ -3887,6 +3885,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "bytes",
+ "fancy-regex",
  "futures",
  "mixdog-agent",
  "mixdog-ai",
@@ -3898,6 +3897,7 @@ dependencies = [
  "mixdog-core-config",
  "mixdog-core-domains",
  "mixdog-core-review",
+ "mixdog-core-rooms",
  "mixdog-core-run",
  "mixdog-core-session",
  "mixdog-fsio",
@@ -3955,6 +3955,7 @@ dependencies = [
  "bytes",
  "chrono",
  "chrono-tz",
+ "fancy-regex",
  "futures",
  "libc",
  "mixdog-agent",
@@ -4040,6 +4041,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "fancy-regex",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4052,6 +4054,7 @@ dependencies = [
  "mixdog-core-config",
  "mixdog-core-domains",
  "mixdog-core-review",
+ "mixdog-core-rooms",
  "mixdog-core-run",
  "mixdog-core-session",
  "mixdog-exthost",
@@ -4084,6 +4087,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "fancy-regex",
  "flate2",
  "futures",
  "libc",
@@ -4145,6 +4149,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "fancy-regex",
  "futures",
  "mixdog-agent",
  "mixdog-ai",
@@ -4235,6 +4240,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "chrono",
+ "fancy-regex",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4275,6 +4281,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "fancy-regex",
  "futures",
  "mixdog-agent",
  "mixdog-ai",
@@ -4355,6 +4362,7 @@ name = "mixdog-core-ports"
 version = "1.4.5"
 dependencies = [
  "async-trait",
+ "fancy-regex",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4383,6 +4391,7 @@ name = "mixdog-core-prompt"
 version = "1.4.5"
 dependencies = [
  "base64 0.22.1",
+ "fancy-regex",
  "libc",
  "mixdog-agent",
  "mixdog-ai",
@@ -4421,6 +4430,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "fancy-regex",
  "flate2",
  "futures",
  "mixdog-agent",
@@ -4522,6 +4532,7 @@ dependencies = [
  "mixdog-app-protocol",
  "mixdog-core-api",
  "mixdog-core-base",
+ "mixdog-core-rooms",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-protocol",
@@ -4549,6 +4560,7 @@ name = "mixdog-core-run"
 version = "1.4.5"
 dependencies = [
  "async-trait",
+ "fancy-regex",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4585,6 +4597,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "fancy-regex",
  "futures",
  "mixdog-agent",
  "mixdog-ai",
@@ -4598,6 +4611,7 @@ dependencies = [
  "mixdog-core-ports",
  "mixdog-core-prompt",
  "mixdog-core-review",
+ "mixdog-core-rooms",
  "mixdog-core-run",
  "mixdog-core-session",
  "mixdog-fsio",
@@ -4639,6 +4653,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "fancy-regex",
  "futures",
  "mixdog-agent",
  "mixdog-ai",
@@ -4652,6 +4667,7 @@ dependencies = [
  "mixdog-core-ports",
  "mixdog-core-prompt",
  "mixdog-core-review",
+ "mixdog-core-rooms",
  "mixdog-core-run",
  "mixdog-core-session",
  "mixdog-fsio",
@@ -4800,8 +4816,10 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.22.1",
+ "fancy-regex",
  "flate2",
  "futures",
+ "jsonschema",
  "libc",
  "mixdog-ai",
  "mixdog-app-protocol",
@@ -4849,6 +4867,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "fancy-regex",
  "icu_collator",
  "icu_locale_core",
  "indexmap",
@@ -4962,7 +4981,6 @@ version = "1.4.5"
 dependencies = [
  "arc-swap",
  "chrono",
- "crossbeam-channel",
  "libc",
  "mixdog-rt",
  "mixdog-workspace-hack",
@@ -4978,7 +4996,6 @@ version = "1.4.5"
 dependencies = [
  "arc-swap",
  "chrono",
- "crossbeam-channel",
  "libc",
  "mixdog-rt-feature-off",
  "mixdog-workspace-hack",
@@ -5078,6 +5095,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "deadpool-postgres",
+ "fancy-regex",
  "flate2",
  "futures",
  "hmac 0.12.1",
@@ -5258,6 +5276,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "tracing",
  "unicode-normalization",
  "url",
  "uuid",

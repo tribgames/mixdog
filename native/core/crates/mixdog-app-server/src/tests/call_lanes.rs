@@ -170,6 +170,7 @@ fn the_methods_the_node_calls_became_take_their_lanes() {
         ("thread/read", "session.read", json!({})),
         ("thread/resume", "session.subscribe", json!({})),
         ("turn/start", "session.submit", json!({})),
+        ("room/send", "session.submit", json!({})),
         ("project/list", "project.list", json!({})),
         ("project/ensureDirectory", "project.ensureDirectory", json!({})),
         ("terminal/ensure", "desktop.invoke", term("termEnsure")),
@@ -224,7 +225,8 @@ fn every_method_takes_the_lane_of_the_node_call_it_became() {
             "thread/start" => "session.create",
             "thread/read" => "session.read",
             "thread/resume" => "session.subscribe",
-            "turn/start" => "session.submit",
+            // A room log's message is `submitToSession` too (`session-host.ts:1089`).
+            "turn/start" | "room/send" => "session.submit",
             // `prioritizeQueued`, `retryFailedTurn`, `restoreQueued`, `renameSessionTitle`, `deleteSession`, `inheritFrom`,
             // `continueSessionInModel`, `rewindToItem`, `clear`, `compact`, `goalControl`, the quota resume pair, the shell-job
             // stops and `setRoute` / `setFast`.
@@ -264,7 +266,7 @@ fn every_method_takes_the_lane_of_the_node_call_it_became() {
         table.push((*method, node, crate::server::lane_of(spec)));
     }
     table.sort_by_key(|row| row.0);
-    assert_eq!(table.len(), 480, "every method of the table");
+    assert_eq!(table.len(), 481, "every method of the table");
     let wrong: Vec<_> = table.iter().filter(|(_, node, core)| node != core).map(|(method, node, core)| format!("{method}: node {node:?}, core {core:?}")).collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }

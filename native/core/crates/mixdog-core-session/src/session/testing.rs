@@ -331,6 +331,8 @@ pub struct MemStore {
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The catalog's list row of a session (its index `summary`), which `session_meta` answers for it.
+    pub summaries: Mutex<HashMap<ThreadId, Value>>,
     /// The sessions whose log cannot be read (damaged on disk): reading their header or model context fails, and the
     /// catalog holds them as not readable (`copies_of` fails).
     pub damaged: Mutex<std::collections::BTreeSet<String>>,
@@ -599,8 +601,12 @@ impl ThreadStore for MemStore {
 
     fn session_meta(
         &self,
-        _id: &ThreadId,
+        id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        if let Some(summary) = lock(&self.summaries).get(id) {
+            let meta = super::seams::SessionMeta::of(None, &summary.to_string());
+            return Box::pin(async move { Ok(Some(meta)) });
+        }
         let listed = self.listed.load(Ordering::SeqCst);
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
@@ -868,11 +874,54 @@ pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
     hook: Option<CommitHook>,
+    held: Mutex<Option<(&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+
+/// The one call of a [`CallCounted`] being held: it has been entered (`entered`) and does not reach the store until `release`.
+pub struct HeldCall {
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+/// How long a held call waits to be released, and a test waits for a call to be held, before the test fails.
+const HOLD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl HeldCall {
+    /// Resolves once the held call has been made and is waiting.
+    pub async fn entered(&mut self, name: &str) {
+        let entered = mixdog_rt::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
+        assert!(matches!(entered, Ok(Some(()))), "waiting for the store call {name} to be made");
+    }
+
+    /// Lets the held call through to the store.
+    pub fn release(self) {
+        self.release.send(()).expect("the held store call is waiting");
+    }
 }
 
 impl CallCounted {
     pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), hook: None })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None })
+    }
+
+    /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
+    /// is released is what that call reads.
+    pub fn hold(&self, name: &'static str) -> HeldCall {
+        let (entered, entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *lock(&self.held) = Some((name, entered, release));
+        HeldCall { entered: entered_rx, release: release_tx }
+    }
+
+    fn gate(&self, name: &'static str) {
+        let mut held = lock(&self.held);
+        if held.as_ref().is_none_or(|(held, ..)| *held != name) {
+            return;
+        }
+        let (_, entered, release) = held.take().expect("checked above");
+        drop(held);
+        entered.send(()).expect("the test waits for the held call");
+        release.recv_timeout(HOLD_DEADLINE).unwrap_or_else(|_| panic!("the held store call {name} was never released"));
     }
 
     /// The name of each call so far, in order.
@@ -886,6 +935,7 @@ macro_rules! forwarded {
         $(
             fn $name(&self $(, $arg: $ty)*) -> $ret {
                 lock(&self.calls).push(stringify!($name));
+                self.gate(stringify!($name));
                 self.inner.$name($($arg),*)
             }
         )*
@@ -961,7 +1011,7 @@ impl SessionLog for HookedLog {
 impl CallCounted {
     /// [`Self::new`] whose logs call `hook` around each commit.
     pub fn with_commit_hook(inner: Arc<dyn ThreadStore>, hook: CommitHook) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), hook: Some(hook) })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook) })
     }
 
     fn hooked(&self, log: Box<dyn SessionLog>) -> Box<dyn SessionLog> {
@@ -1331,6 +1381,15 @@ pub struct Counter(AtomicU64);
 impl ApprovalIds for Counter {
     async fn next(&self) -> Result<ApprovalId, CoreError> {
         Ok(ApprovalId(self.0.fetch_add(1, Ordering::SeqCst) + 1))
+    }
+}
+
+/// No shell runtime: a loaded session carries no strip until one is published.
+pub struct NoShellStrips;
+
+impl super::shell_jobs::ShellStrips for NoShellStrips {
+    fn strip(&self, _thread: &ThreadId) -> Option<serde_json::Value> {
+        None
     }
 }
 
@@ -2098,6 +2157,7 @@ impl Rig {
             context_status: Arc::new(NoContextStatus),
             live_workspace: Arc::new(super::worktree::NoLiveWorkspace),
             code_graph_prewarm: self.code_graph.clone(),
+            shell_strips: Arc::new(NoShellStrips),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
