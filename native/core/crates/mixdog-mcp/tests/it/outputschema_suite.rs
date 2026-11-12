@@ -104,7 +104,7 @@ fn node_view(
         .iter()
         .map(|part| match part {
             ToolPart::Text(text) => json!({"type": "text", "text": text}),
-            ToolPart::Image { mime, data: mixdog_core_api::domain::tool::ImageData::Bytes(bytes) } => {
+            ToolPart::Image { mime, data: mixdog_core_api::domain::tool::ImageData::Bytes(bytes), .. } => {
                 json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(bytes), "mimeType": mime})
             }
             other => json!({"unexpected": format!("{other:?}")}),
