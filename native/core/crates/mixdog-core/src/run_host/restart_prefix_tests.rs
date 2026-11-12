@@ -308,12 +308,21 @@ async fn opened(boot: &Boot) -> (mixdog_core_session::session::StoreThreads, Arc
 
 /// Run inside the process's own runtime: the store, its index and every task the session starts belong to it.
 async fn process(boot: Boot) -> Process {
+    process_over(boot, None).await
+}
+
+/// [`process`] whose store calls `hook` around every commit: a hook that never returns holds the write there.
+async fn process_over(boot: Boot, hook: Option<mixdog_core_session::session::testing::CommitHook>) -> Process {
     let (threads, provider) = opened(&boot).await;
+    let threads: Arc<dyn mixdog_core_session::session::ThreadStore> = match hook {
+        Some(hook) => mixdog_core_session::session::testing::CallCounted::with_commit_hook(Arc::new(threads), hook),
+        None => Arc::new(threads),
+    };
     let rig = Rig::new();
     // Node's recording runs under one frozen clock (`Date.now()` is 1700000000000 throughout): the session's clock reads what the run
     // host's `Fixed` clock does, so a turn's elapsed time is `now - at` on one clock, as Node measures it.
     rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
-    let mut deps = rig.deps_parts(Arc::new(threads));
+    let mut deps = rig.deps_parts(threads);
     // The production display of stored rows: what a client reads is compared with Node's read below.
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
     let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, kill: boot.kill.clone() };
@@ -661,6 +670,41 @@ async fn restart_prefix_first_process() {
     std::future::pending::<()>().await;
 }
 
+const RECOVER: &str = "MIXDOG_RESTART_PREFIX_RECOVER";
+
+/// The process that recovers the killed session and is itself killed (`MIXDOG_RESTART_PREFIX_RECOVER` holds
+/// `<case>|<dir>|<url>|<point>`): it opens the stored session with a hook that holds at the `point`-th write of the
+/// recovery, reporting `HELD` there, or `DONE` once the recovery was saved with no write left to hold. Without the variable
+/// it does nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restart_prefix_recovery_process() {
+    use std::io::Write;
+    let Ok(spec) = std::env::var(RECOVER) else { return };
+    let mut parts = spec.splitn(4, '|');
+    let (name, dir, url) = (parts.next().unwrap(), std::path::PathBuf::from(parts.next().unwrap()), parts.next().unwrap().to_owned());
+    let point: usize = parts.next().unwrap().parse().expect("a write point");
+    let case = case(name);
+    let (kill, _killed) = tokio::sync::mpsc::unbounded_channel();
+    let boot = boot(&dir, url, &case, None, kill).await;
+    let session = std::fs::read_to_string(dir.join("session-id")).expect("the session's id");
+    let seen = Arc::new(AtomicUsize::new(0));
+    let hook: mixdog_core_session::session::testing::CommitHook = Arc::new(move |_| {
+        let at = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if at == point {
+            println!("RP:HELD {at}");
+            let _ = std::io::stdout().flush();
+            loop {
+                std::thread::park();
+            }
+        }
+    });
+    let recovering = process_over(boot, Some(hook)).await;
+    recovering.directory.open_handle(&ThreadId::from(session.as_str()), &CallContext::internal("test")).await.expect("the stored session opens");
+    println!("RP:DONE");
+    let _ = std::io::stdout().flush();
+    std::future::pending::<()>().await;
+}
+
 /// The child's report lines, read on a thread of their own.
 fn reports(stdout: std::process::ChildStdout) -> tokio::sync::mpsc::UnboundedReceiver<String> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -686,7 +730,36 @@ impl Drop for Killed {
     }
 }
 
+/// Kills the process that recovers the session at its `point`-th write (the second kill of the case): `true` when it was
+/// held there and killed, `false` when the recovery ended before reaching it.
+async fn kill_recovery_at(name: &str, dir: &std::path::Path, url: &str, point: usize) -> bool {
+    use mixdog_core_session::session::testing::awaiting;
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["run_host::factory::tests::restart_prefix::restart_prefix_recovery_process", "--exact", "--nocapture", "--test-threads=1"])
+        .env(RECOVER, format!("{name}|{}|{url}|{point}", dir.display()))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .expect("the recovering process starts");
+    let mut child_reports = reports(child.stdout.take().unwrap());
+    let child = Killed(child);
+    let report = awaiting(|| format!("{name}: the recovering process's report at write {point}"), child_reports.recv()).await;
+    let report = report.unwrap_or_else(|| panic!("{name}: the recovering process ended without a report at write {point}"));
+    drop(child);
+    match report.as_str() {
+        "DONE" => false,
+        held if held.starts_with("HELD ") => true,
+        other => panic!("{name}: the recovering process reported {other:?}"),
+    }
+}
+
 async fn replay(name: &str) {
+    replay_after(name, None).await;
+}
+
+/// [`replay`] with the process killed once more during the recovery of the first kill, at the write `recovery_kill` names.
+/// Returns whether that second kill happened (the recovery had a write to cut there).
+async fn replay_after(name: &str, recovery_kill: Option<usize>) -> bool {
     use mixdog_core_session::session::testing::awaiting;
     let case = case(name);
     let dir = tempfile::tempdir().unwrap();
@@ -752,6 +825,15 @@ async fn replay(name: &str) {
         same(core, node, &format!("{name}: request {n} before the restart"));
     }
 
+    // The second kill: a process recovering the stored session is itself killed at one of the recovery's writes. The stored
+    // transcript is then the one the first kill left, each row once, so everything below is Node's after one kill.
+    let second_kill = match recovery_kill {
+        Some(point) => {
+            std::fs::write(dir.path().join("session-id"), id.as_str()).expect("the session id for the recovering process");
+            kill_recovery_at(name, dir.path(), &url, point).await
+        }
+        None => false,
+    };
     // The restarted process re-arms the session's warm (`rearmCacheWarmsAfterRestart`): the body the provider receives is
     // Node's `warmBody`.
     // Node's `warmBody` is null after a restart inside a turn: its rebuilt request does not end in the reply it produced.
@@ -794,6 +876,24 @@ async fn replay(name: &str) {
     for (n, (core, node)) in sent.iter().zip(&case.after).enumerate() {
         same(core, node, &format!("{name}: request {n} after the restart"));
     }
+    second_kill
+}
+
+/// The core is killed in a tool run, and killed again at each write of the recovery in turn: the request the provider then
+/// receives for the next task is Node's after one kill (`restart-killtool`), whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_kill_during_the_recovery_keeps_nodes_requests() {
+    let mut killed = 0;
+    for point in 0..64 {
+        // Shown only when the test fails.
+        eprintln!("the second kill at write {point} of the recovery");
+        if !replay_after("restart-killtool", Some(point)).await {
+            assert!(killed >= 2, "the recovery wrote nothing to cut: {killed}");
+            return;
+        }
+        killed += 1;
+    }
+    panic!("the recovery never ended within 64 points");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
