@@ -880,9 +880,12 @@ impl ShellTool {
                         let _ = processes.close_stdin(&handle);
                     }
                     Err(error) => {
+                        // The failure is published before the kill: the kill settles the job, and a caller that sees the
+                        // settle must already find the failure, so a script that was not written whole always answers
+                        // with the input failure and never with the cancellation the kill looks like.
+                        let _ = failed.send(error);
                         // A kill of a process that already exited is not an error.
                         let _ = processes.kill(&handle);
-                        let _ = failed.send(error);
                     }
                 }
             }));
@@ -920,7 +923,25 @@ impl ShellTool {
                 }
             };
             tokio::select! {
+                biased;
+                error = &mut write_failed => {
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    if ended_by_run_limit(&job) {
+                        return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                    }
+                    return Err(input_failure(error));
+                }
                 () = job.settled() => {
+                    runtime.release(&job.id);
+                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                }
+                // Ahead of the two promotions below: a cancelled call that is also due for the background is killed, never left
+                // running behind a call that was cancelled.
+                () = ctx.cancel.cancelled() => {
+                    // A kill of a process that just exited is not an error.
+                    let _ = ctx.processes.kill(&job.handle);
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
@@ -939,35 +960,21 @@ impl ShellTool {
                         _ => PromotionReason::Input,
                     };
                 }
-                () = ctx.cancel.cancelled() => {
-                    // A kill of a process that just exited is not an error.
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
-                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
-                }
-                error = &mut write_failed => {
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
-                    if ended_by_run_limit(&job) {
-                        return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
-                    }
-                    return Err(input_failure(error));
-                }
             }
         } else {
             tokio::select! {
-                () = job.settled() => {}
-                () = ctx.cancel.cancelled() => {
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                }
+                biased;
                 error = &mut write_failed => {
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                     if !ended_by_run_limit(&job) {
                         runtime.release(&job.id);
                         return Err(input_failure(error));
                     }
+                }
+                () = job.settled() => {}
+                () = ctx.cancel.cancelled() => {
+                    let _ = ctx.processes.kill(&job.handle);
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                 }
             }
             runtime.release(&job.id);

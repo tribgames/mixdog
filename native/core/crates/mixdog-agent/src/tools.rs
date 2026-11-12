@@ -1288,6 +1288,12 @@ impl Run {
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        // The batch completes after its results are shown: a result reaches the thread through the sink's own queue and this
+        // event through the observer's, so only a result already on disk (and with it accepted, in order) is ahead of the
+        // event. The next request waits for the same ticket before it is sent.
+        if let Some(ticket) = self.unsaved.take() {
+            self.until_durable(ticket).await?;
+        }
         self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
