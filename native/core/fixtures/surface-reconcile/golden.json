@@ -86,7 +86,7 @@
     },
     {
       "$tool": "agent",
-      "hash": "b33e2ad9124ca444"
+      "hash": "1fb5d1d77c543631"
     }
   ],
   "cases": [
@@ -131,7 +131,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -169,7 +169,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -375,7 +375,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -413,7 +413,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -633,7 +633,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -671,7 +671,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -858,7 +858,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -896,7 +896,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1101,7 +1101,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1139,7 +1139,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1344,7 +1344,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1382,7 +1382,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1565,7 +1565,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1603,7 +1603,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1777,7 +1777,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -1815,7 +1815,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -2009,7 +2009,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",
@@ -2047,7 +2047,7 @@
           },
           {
             "$tool": "agent",
-            "hash": "b33e2ad9124ca444"
+            "hash": "1fb5d1d77c543631"
           },
           {
             "$tool": "ask_user",

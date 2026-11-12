@@ -1,6 +1,6 @@
 {
   "tree": {
-    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852"
+    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71"
   },
   "definitions": {
     "Skill": {
@@ -61,7 +61,7 @@
       }
     },
     "agent": {
-      "hash": "b33e2ad9124ca444",
+      "hash": "1fb5d1d77c543631",
       "definition": {
         "name": "agent",
         "title": "Agent",
@@ -142,6 +142,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
@@ -152,7 +156,7 @@
       }
     },
     "agent@internal": {
-      "hash": "edf17a67c3d7d675",
+      "hash": "ac4b8ff47222b0b9",
       "definition": {
         "name": "agent",
         "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
@@ -224,6 +228,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
