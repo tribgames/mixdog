@@ -19,7 +19,9 @@ use crate::error::ScmFailure;
 /// Case-insensitive on Windows, separator-normalized: two spellings of one directory never
 /// hold separate locks.
 pub fn path_key(path: &Path) -> String {
-    let text = path.to_string_lossy().replace('\\', "/");
+    // `pathKey`: `.` and `..` fold and a relative spelling is the one under the working directory.
+    let resolved = mixdog_js::nodepath::resolve_host(&[&path.to_string_lossy()]);
+    let text = resolved.replace('\\', "/");
     let text = text.trim_end_matches('/');
     if cfg!(windows) {
         text.to_lowercase()
@@ -205,6 +207,131 @@ mod tests {
         assert!(!later.is_finished());
         drop(whole);
         assert!(later.await.unwrap().is_ok());
+    }
+
+    /// Node's keys of the spellings of one directory (`gitRepoLockKey`), recorded on Windows, where the keys fold case.
+    #[cfg(windows)]
+    #[test]
+    fn spellings_of_one_directory_share_a_key_as_in_node() {
+        let doc: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/scm-locks.json")).unwrap();
+        assert_eq!(doc["platform"], "win32");
+        let root = "C:\\mixdog-lock-test-root";
+        let key = |spelling: &str| path_key(Path::new(&spelling.replace("<ROOT>", root)));
+        let first = key(doc["keys"][0]["spelling"].as_str().unwrap());
+        let mut failures = Vec::new();
+        for case in doc["keys"].as_array().unwrap() {
+            let spelling = case["spelling"].as_str().unwrap();
+            if (key(spelling) == first) != case["sameAsFirst"].as_bool().unwrap() {
+                failures.push(format!("{spelling}: Node {} the first spelling's key, here the opposite", if case["sameAsFirst"] == true { "shares" } else { "does not share" }));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// Node's scenarios (`git-repo-rw-lock.test.mjs`): each step is made in the recorded order; a held write's start and end
+    /// and a quick write's run are events, and the events at each snapshot and at the end must be Node's.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn writes_are_granted_in_the_order_node_grants_them() {
+        use futures::FutureExt as _;
+        use std::future::Future;
+        use std::pin::Pin;
+
+        type Acquire = Pin<Box<dyn Future<Output = Result<RepoGuard, ScmFailure>>>>;
+        enum State {
+            Pending(Acquire),
+            Held(RepoGuard),
+            Done,
+        }
+        struct Task {
+            hold: bool,
+            cancel: CancellationToken,
+            state: State,
+        }
+
+        fn poll_once(name: &str, task: &mut Task, events: &mut Vec<String>, rejected: &mut Vec<String>) {
+            let State::Pending(acquire) = &mut task.state else { return };
+            match acquire.now_or_never() {
+                None => {}
+                Some(Ok(guard)) if task.hold => {
+                    events.push(format!("{name}:start"));
+                    task.state = State::Held(guard);
+                }
+                Some(Ok(_)) => {
+                    events.push(name.to_owned());
+                    task.state = State::Done;
+                }
+                Some(Err(failure)) => {
+                    assert_eq!(failure, ScmFailure::Cancelled);
+                    rejected.push(format!("{name}: AbortError"));
+                    task.state = State::Done;
+                }
+            }
+        }
+
+        let doc: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/scm-locks.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("Worktree")).unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let place = |text: &str| text.replace("<ROOT>", &root);
+        let mut failures = Vec::new();
+        for scenario in doc["scenarios"].as_array().unwrap() {
+            let locks = RepoLocks::new();
+            let mut tasks: Vec<(String, Task)> = Vec::new();
+            let (mut events, mut rejected, mut snapshots) = (Vec::new(), Vec::new(), Vec::new());
+            for op in scenario["ops"].as_array().unwrap() {
+                let name = op["name"].as_str().unwrap_or("").to_owned();
+                match op["op"].as_str().unwrap() {
+                    "run" => {
+                        let repo = std::path::PathBuf::from(place(op["repo"].as_str().unwrap()));
+                        let scopes: Option<Vec<std::path::PathBuf>> = op["scopes"].as_array().map(|list| list.iter().map(|s| std::path::PathBuf::from(place(s.as_str().unwrap()))).collect());
+                        let cancel = CancellationToken::new();
+                        let acquire: Acquire = Box::pin({
+                            let (locks, cancel) = (locks.clone(), cancel.clone());
+                            async move {
+                                let trees: Option<Vec<&Path>> = scopes.as_ref().map(|list| list.iter().map(std::path::PathBuf::as_path).collect());
+                                locks.acquire(&repo, trees.as_deref(), &cancel).await
+                            }
+                        });
+                        let mut task = Task { hold: op["hold"] == true, cancel, state: State::Pending(acquire) };
+                        poll_once(&name, &mut task, &mut events, &mut rejected);
+                        tasks.push((name, task));
+                    }
+                    "settle" => {
+                        for (name, task) in &mut tasks {
+                            poll_once(name, task, &mut events, &mut rejected);
+                        }
+                    }
+                    "snapshot" => snapshots.push(events.clone()),
+                    "release" => {
+                        let (_, task) = tasks.iter_mut().find(|(n, _)| *n == name).unwrap();
+                        assert!(matches!(task.state, State::Held(_)), "{}: release of {name}, which holds nothing", scenario["name"]);
+                        events.push(format!("{name}:end"));
+                        task.state = State::Done;
+                    }
+                    "abort" => {
+                        let (_, task) = tasks.iter_mut().find(|(n, _)| *n == name).unwrap();
+                        task.cancel.cancel();
+                        for (name, task) in &mut tasks {
+                            poll_once(name, task, &mut events, &mut rejected);
+                        }
+                    }
+                    "await" => {
+                        let (_, task) = tasks.iter_mut().find(|(n, _)| *n == name).unwrap();
+                        poll_once(&name, task, &mut events, &mut rejected);
+                        assert!(matches!(task.state, State::Done), "{}: {name} is still waiting where Node's await ended", scenario["name"]);
+                    }
+                    other => panic!("unknown step {other}"),
+                }
+            }
+            let want_snapshots: Vec<Vec<String>> = scenario["snapshots"].as_array().unwrap().iter().map(|s| s.as_array().unwrap().iter().map(|e| e.as_str().unwrap().to_owned()).collect()).collect();
+            let want_events: Vec<String> = scenario["events"].as_array().unwrap().iter().map(|e| e.as_str().unwrap().to_owned()).collect();
+            let want_rejected: Vec<String> = scenario["rejected"].as_array().unwrap().iter().map(|e| e.as_str().unwrap().to_owned()).collect();
+            if snapshots != want_snapshots || events != want_events || rejected != want_rejected {
+                failures.push(format!("{}:\n  Node {:?} {:?} {:?}\n  here {snapshots:?} {events:?} {rejected:?}", scenario["name"], want_snapshots, want_events, want_rejected));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[tokio::test(start_paused = true)]
