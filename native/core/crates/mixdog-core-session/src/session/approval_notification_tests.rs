@@ -292,6 +292,10 @@ async fn a_remembered_grant_announces_the_permissions_change_after_its_answer_as
     for case in golden["cases"].as_array().unwrap() {
         let name = case["case"].as_str().unwrap();
         let observed = &case["observed"];
+        if observed.get("withoutRemember").is_none() && !observed.is_array() {
+            // The recipients and the unsaved grant: `a_remembered_grant_is_announced_to_the_recorded_audience_whether_or_not_it_was_saved`.
+            continue;
+        }
         if let Some(runs) = observed.as_array() {
             for run in runs {
                 let want = run["ops"].as_array().unwrap().len();
@@ -307,6 +311,28 @@ async fn a_remembered_grant_announces_the_permissions_change_after_its_answer_as
             assert_eq!((accepted, ops), (observed["refusedAnswer"].clone(), observed["refusedOps"].clone()), "{name}: not taken");
         }
     }
+}
+
+/// What the recording says about the announcement beyond its content: it is made once per accepted answer whoever answers (this PC's window
+/// or `phone-1`) and whether or not the grant could be saved (the save belongs to the agent loop's connector approval, which the answer does
+/// not wait for: Node accepted and announced in both). Who hears it (the window and every paired phone, the answerer included) is
+/// delivered by the app feed, which knows no origin: `mixdog-app-server` `a_settings_change_reaches_every_app_feed_subscriber_whatever_its_origin`.
+#[tokio::test(flavor = "current_thread")]
+async fn a_remembered_grant_is_announced_to_the_recorded_audience_whether_or_not_it_was_saved() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/approval-grant-change-cases/golden.json")).expect("golden.json");
+    let (_, input) = races();
+    let mut compared = 0;
+    for case in golden["cases"].as_array().unwrap() {
+        let observed = &case["observed"];
+        for answer in observed.as_object().into_iter().flat_map(|runs| runs.values()).filter(|run| run.get("answered").is_some()) {
+            let scopes: Vec<&Value> = answer["window"].as_array().unwrap().iter().map(|change| &change["scope"]).collect();
+            let expected: Vec<Value> = scopes.iter().map(|scope| json!(["notifySettingsChanged", [scope]])).collect();
+            let (accepted, ops) = announced(&input, None, json!({ "approved": true, "remember": "agent" }), expected.len()).await;
+            assert_eq!((accepted, ops), (answer["answered"].clone(), Value::Array(expected)), "{}", case["case"]);
+            compared += 1;
+        }
+    }
+    assert_eq!(compared, 4, "this PC and the phone, the saved grant and the refused one");
 }
 
 /// A room's answer to its member's approval goes the same way (`answer_member_approval`, Node's room `deps.approve`, which is the session
