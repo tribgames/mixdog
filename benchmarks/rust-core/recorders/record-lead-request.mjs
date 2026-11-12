@@ -8,7 +8,7 @@
 // paths of the profile are the tokens `{DATA}` (the data directory), `{WS}` (the workspace) and `{HOME}` of the recording; a replay builds
 // its own folders and maps its own paths to the same tokens, so the text compared is the text of both sides with only the folder named.
 //
-//   node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <export of b6f10295a with node_modules> --patch <node-fix-spawn-model-settings.patch>,<node-fix-deferred-listing-trigger.patch> [--only <scenario>]
+//   node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <export of b6f10295a with node_modules> --patch <node-fix-spawn-model-settings.patch>,<node-fix-deferred-listing-trigger.patch>,<node-change-shell-cover-tools.patch> [--only <scenario>]
 //
 // The turn is submitted only after the daemon's own `mcp:ready` / `mcp:failed` boot line (every configured MCP server finished its initial connect);
 // the scenarios with `mcpGate` hold a stub's handshake behind a loopback gate this recorder owns, to show the first request differs with the connect.
@@ -358,7 +358,7 @@ async function recordChecked(scenario) {
   return recording;
 }
 
-const PATCHES = ['spawn-model-settings', 'deferred-listing-trigger'].map((topic) => `benchmarks/rust-core/recorders/node-patches/node-fix-${topic}.patch`).join(',');
+const PATCHES = ['fix-spawn-model-settings', 'fix-deferred-listing-trigger', 'change-shell-cover-tools'].map((topic) => `benchmarks/rust-core/recorders/node-patches/node-${topic}.patch`).join(',');
 
 /** Every text of the recorded request that is replaced, and why: each side builds its own folders and its own thread id, and nothing else is replaced. */
 const MAPPINGS = {
