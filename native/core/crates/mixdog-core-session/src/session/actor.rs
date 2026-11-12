@@ -812,6 +812,10 @@ pub(crate) struct SessionActor {
     deleting: bool,
     /// The thread's tombstone landed (`Ctl::Closed`).
     tombstoned: bool,
+    /// The closes not answered yet: each is answered once this session has left memory, or is known to stay
+    /// ([`Self::answer_closes`]). Node's `closeSession` returns after `_clearSessionRuntime`, so a resume that follows it
+    /// loads the session anew and never meets the closed runtime.
+    closed_acks: Vec<oneshot::Sender<()>>,
     /// The Goal a user prompt is archiving, masked from the lane until the archive lands.
     goal_suppressed: String,
     /// A continuation decision is on its way.
@@ -1222,6 +1226,7 @@ impl SessionActor {
             drain_held: false,
             deleting: false,
             tombstoned: false,
+            closed_acks: Vec::new(),
             goal_suppressed: String::new(),
             goal_scheduled: false,
             settling: false,
@@ -1374,6 +1379,11 @@ impl SessionActor {
                     self.unload();
                 }
             }
+            // A close this session could not follow at once: it leaves as soon as what it was finishing is over,
+            // whichever step ended it.
+            if !self.closed_acks.is_empty() && !self.unload_due {
+                self.try_unload();
+            }
             if let Some(follow) = &settings {
                 follow.shown();
             }
@@ -1523,6 +1533,11 @@ impl SessionActor {
     /// `void ingestSessionIntoMemory(session)` when the CLI closes a session).
     fn try_unload(&mut self) {
         if !self.quiet() {
+            // A close waits for what this session is finishing by itself; a subscriber, queued input or a pending
+            // approval may stay for good, and the close is answered with the session still loaded.
+            if !self.finishing() {
+                self.answer_closes();
+            }
             return;
         }
         // Nobody ever attached: there is no last unsubscribe, so the idle clock decides; a
@@ -1532,6 +1547,19 @@ impl SessionActor {
             return;
         }
         self.unload();
+    }
+
+    /// Work that ends by itself is still under way: a delete, a turn's settle, a start, a Goal check, the run.
+    fn finishing(&self) -> bool {
+        self.deleting || self.settling || self.starting || self.goal_checking || self.run.is_some()
+    }
+
+    /// Answers the closes that wait ([`Ctl::Closed`]): the session has left memory, or it stays loaded.
+    fn answer_closes(&mut self) {
+        for taken in self.closed_acks.drain(..) {
+            // A close that stopped waiting dropped its end.
+            let _ = taken.send(());
+        }
     }
 
     /// Nothing is live: not deleting or settling, no run, no queued input, no pending approval,
@@ -1616,9 +1644,12 @@ impl SessionActor {
             return;
         }
         let Some(directory) = self.ch.directory.upgrade() else {
+            self.answer_closes();
             return;
         };
+        // Left, or a subscriber came back and it stays: either way a close has its answer.
         directory.unload(&self.id, &self.cell, self.close_ingest());
+        self.answer_closes();
     }
 
     /// Today's `ingestSessionIntoMemory(session)` over the model context, each message through the sensitive projection:
@@ -3277,6 +3308,8 @@ impl SessionActor {
                 if std::mem::take(&mut self.unload_due) {
                     tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
                 }
+                // It stays loaded: a close that waited for it to leave has its answer.
+                self.answer_closes();
                 self.hold_failed(&error, cause, retain);
             }
             FromDurability::Pending(pending) => self.pending = pending,
@@ -3377,8 +3410,8 @@ impl SessionActor {
             Ctl::Unsubscribed => self.try_unload(),
             Ctl::Closed(taken) => {
                 self.tombstoned = true;
+                self.closed_acks.push(taken);
                 self.try_unload();
-                let _ = taken.send(());
             }
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
