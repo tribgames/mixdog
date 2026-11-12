@@ -964,8 +964,21 @@
     "treeKind": "archive",
     "version": "1.4.5"
   },
-  "recorder": "benchmarks/rust-core/recorders/record-media-text.mjs",
-  "recorderSha256": "922cb27d691c918461265717d62722bf673511f1bb3e9591026bbb317c00280d",
+  "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + benchmarks/rust-core/recorders/record-tools-extra.mjs + benchmarks/rust-core/recorders/record-media-text.mjs",
+  "recorders": [
+    {
+      "recorder": "benchmarks/rust-core/recorders/record-tools.mjs",
+      "recorderSha256": "c8f269390a4c6590a4eb6a5e7487c2998a0b6f7ab396ba0de73b84a3b13501a4"
+    },
+    {
+      "recorder": "benchmarks/rust-core/recorders/record-tools-extra.mjs",
+      "recorderSha256": "833dd3d7d0a5dfe5354cf1d8c961eedb0d47d88e7f404048188c42ec1cc9955c"
+    },
+    {
+      "recorder": "benchmarks/rust-core/recorders/record-media-text.mjs",
+      "recorderSha256": "4c5de46c9882d32601a006bae4984177b37486b1ecbee654be86554c4e5565fb"
+    }
+  ],
   "set": "tools",
   "totalBytes": 2438676
 }

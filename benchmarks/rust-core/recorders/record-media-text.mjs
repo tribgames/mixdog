@@ -278,17 +278,28 @@ if (!pdfPaged.includes('Body of page 100') || pdfPaged.includes('page 101')) thr
 writeJson(join(outDir, 'office.json'), office);
 writeJson(join(outDir, 'pdf.json'), pdf);
 writeJson(join(outDir, 'pdf-counts.json'), counts);
-// The tools set's manifest is shared with the other tools recorders: its recorder, command and extra stay, its files
-// and identity are this run's (the tree is the exact b6f10295a export; the hook above changes no byte on disk).
+// The tools set's manifest is shared with the other tools recorders: its command and extra stay, its files and identity
+// are this run's (the tree is the exact b6f10295a export; the hook above changes no byte on disk). The set is recorded by
+// the three recorders of its command, so the manifest lists each of them with its sha256 (`recorders`) and the modules
+// any of them loads (`inputs`), all from `recorderProvenance`.
 const toolsDir = join(FIXTURES_ROOT, 'tools');
-const { set, recorder, command, product: _product, fileCount: _count, totalBytes: _total, files: _files, ...extra } = JSON.parse(
+const { set, command, recorder: _recorder, recorderSha256: _sha, inputs: _inputs, recorders: _recorders, nodeVersion: _node, product: _product, fileCount: _count, totalBytes: _total, files: _files, ...extra } = JSON.parse(
   readFileSync(join(toolsDir, 'MANIFEST.json'), 'utf8')
 );
+const TOOLS_RECORDERS = ['record-tools.mjs', 'record-tools-extra.mjs', 'record-media-text.mjs'];
+const provenance = TOOLS_RECORDERS.map((file) => recorderProvenance(new URL(file, import.meta.url).href));
+const recorderPaths = new Set(provenance.map((p) => p.recorder));
+const recorderInputs = new Map(provenance.flatMap((p) => p.inputs.filter((input) => !recorderPaths.has(input.path))).map((input) => [input.path, input]));
 writeSetManifest(toolsDir, {
   set,
-  recorder,
+  recorder: provenance.map((p) => p.recorder).join(' + '),
   command,
-  extra: { ...extra, ...recorderProvenance(import.meta.url) },
+  extra: {
+    ...extra,
+    recorders: provenance.map(({ recorder, recorderSha256 }) => ({ recorder, recorderSha256 })),
+    nodeVersion: process.version,
+    inputs: [...recorderInputs.values()].sort((a, b) => a.path.localeCompare(b.path)),
+  },
   identity: nodeTreeIdentity(args, tree, NODE_COMMIT),
 });
 console.log(`recorded ${office.length} office, ${pdf.length} pdf and ${counts.length} pdf-count cases`);
