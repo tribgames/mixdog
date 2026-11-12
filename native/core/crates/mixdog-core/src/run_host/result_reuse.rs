@@ -24,6 +24,7 @@ use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
 use mixdog_protocol::JsonValue;
 use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
+use mixdog_tools::fs::ReadState;
 use serde_json::Map;
 
 use super::grep_args::prepare_grep_args;
@@ -589,11 +590,21 @@ pub(crate) fn touched_paths(patch: &str) -> Vec<String> {
 
 // ---- the seam ----
 
+/// What one session has cached (`_bySession` and `_scopedBySession`): it outlives the runs of its turns.
 struct Inner {
     read: Bounded<ReadMeta>,
     scoped: Bounded<ScopedMeta>,
 }
 
+impl Inner {
+    fn new() -> Self {
+        Self { read: Bounded::new(), scoped: Bounded::new() }
+    }
+}
+
+type SessionCache = Arc<Mutex<Inner>>;
+
+/// One run's view of its session's cache.
 pub struct ToolResultReuse {
     io: ToolIo,
     session_id: String,
@@ -601,36 +612,31 @@ pub struct ToolResultReuse {
     /// Cursor's native file protocol needs source content, not a receipt that it was seen.
     needs_read_body: bool,
     clock: Arc<dyn Clock>,
-    inner: Mutex<Inner>,
+    inner: SessionCache,
+    /// The session's read snapshots, which a compaction resets together with the cached results.
+    snapshots: Option<Arc<ReadState>>,
 }
 
 impl ToolResultReuse {
-    /// `cwd` is the session's working directory; `needs_read_body` is true on a Cursor route.
+    /// A cache of its own. `cwd` is the session's working directory; `needs_read_body` is true on a Cursor route.
     pub fn new(io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
-        Self {
-            io,
-            session_id: session_id.to_owned(),
-            cwd: cwd.to_string_lossy().into_owned(),
-            needs_read_body,
-            clock,
-            inner: Mutex::new(Inner { read: Bounded::new(), scoped: Bounded::new() }),
-        }
+        Self::over(Arc::new(Mutex::new(Inner::new())), None, io, session_id, cwd, needs_read_body, clock)
+    }
+
+    fn over(inner: SessionCache, snapshots: Option<Arc<ReadState>>, io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
+        Self { io, session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), needs_read_body, clock, inner, snapshots }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The session closed: nothing it cached survives.
-    pub fn purge(&self) {
-        let mut inner = self.lock();
-        inner.read = Bounded::new();
-        inner.scoped = Bounded::new();
-    }
-
     /// Compaction removed prior tool results from the context: start a fresh read epoch.
     pub fn reset_after_compaction(&self) {
         self.lock().read = Bounded::new();
+        if let Some(snapshots) = &self.snapshots {
+            snapshots.forget_snapshots(&self.session_id);
+        }
     }
 
     fn clear_scoped(inner: &mut Inner) {
@@ -858,38 +864,64 @@ impl ResultReuse for ToolResultReuse {
     async fn after_call(&self, call: &ToolCall, failed: bool) {
         self.after_call_now(call, failed);
     }
+
+    fn after_compaction(&self) {
+        self.reset_after_compaction();
+    }
 }
 
-/// The result caches of the runs that are live now, by session. A run's cache is built with the run,
-/// so a workspace change inside a turn that is still running (`ownTurn`) would otherwise leave that
-/// run the old root's entries: Node's `refreshWorkspacePrompt` calls `clearReadDedupSession(id)`
-/// (`read-cache.mjs:297`: the read cache and the scoped cache of the session).
+/// The result caches of the sessions, for the lifetime of each session: Node keeps them in module maps keyed by the
+/// session id (`read-cache.mjs` `_bySession`, `scoped-cache.mjs` `_scopedBySession`), so a turn that starts after another
+/// of the same session finds what the earlier one read. They end with the session (`clearReadDedupSession`: a close, a
+/// delete, a working-folder change), a compaction (`resetReadStateAfterCompaction`: the read cache only), the process, and, entry by
+/// entry, the 100-entry / 8 MiB bound of each cache.
 #[derive(Default)]
 pub struct LiveReuses {
-    live: Mutex<std::collections::HashMap<String, Vec<std::sync::Weak<ToolResultReuse>>>>,
+    sessions: Mutex<std::collections::HashMap<String, SessionCache>>,
+    snapshots: std::sync::OnceLock<Arc<ReadState>>,
 }
 
 impl LiveReuses {
-    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Vec<std::sync::Weak<ToolResultReuse>>>> {
-        self.live.lock().unwrap_or_else(|e| e.into_inner())
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, SessionCache>> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Remembers the cache of a run that starts; the ones that ended are dropped from the table.
-    pub fn track(&self, reuse: &Arc<ToolResultReuse>) {
-        let mut live = self.lock();
-        live.retain(|_, runs| {
-            runs.retain(|run| run.strong_count() > 0);
-            !runs.is_empty()
-        });
-        live.entry(reuse.session_id.clone()).or_default().push(Arc::downgrade(reuse));
+    /// Ties the caches to the read state: a session it releases (closed) or forgets (deleted) loses its caches
+    /// (`registerSessionPurgeHook` and `releaseSessionReadCaches`), and a compaction resets its snapshots with them.
+    pub fn bind(self: &Arc<Self>, read_state: &Arc<ReadState>) {
+        let _ = self.snapshots.set(read_state.clone());
+        let live = Arc::downgrade(self);
+        read_state.on_released(Arc::new(move |session_id| {
+            if let Some(live) = live.upgrade() {
+                live.clear_session(session_id);
+            }
+        }));
     }
 
-    /// `clearReadDedupSession(session_id)`: every live run of the session starts with empty read and
-    /// scoped caches.
+    /// The cache of the run that starts: the one its session already holds, or a new one.
+    pub fn run(&self, io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Arc<ToolResultReuse> {
+        let inner = self.lock().entry(session_id.to_owned()).or_insert_with(|| Arc::new(Mutex::new(Inner::new()))).clone();
+        Arc::new(ToolResultReuse::over(inner, self.snapshots.get().cloned(), io, session_id, cwd, needs_read_body, clock))
+    }
+
+    /// `clearReadDedupSession(session_id)`: the read and scoped caches of the session are empty, for the run in
+    /// progress too. A session no run holds loses its entry.
     pub fn clear_session(&self, session_id: &str) {
-        let runs: Vec<Arc<ToolResultReuse>> = self.lock().get(session_id).map(|runs| runs.iter().filter_map(std::sync::Weak::upgrade).collect()).unwrap_or_default();
-        for run in runs {
-            run.purge();
+        let mut sessions = self.lock();
+        let Some(cache) = sessions.get(session_id) else { return };
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = Inner::new();
+        if Arc::strong_count(cache) == 1 {
+            sessions.remove(session_id);
+        }
+    }
+
+    /// `resetReadStateAfterCompaction(session_id)`, for a compaction that ran outside a turn.
+    pub fn compacted(&self, session_id: &str) {
+        if let Some(cache) = self.lock().get(session_id) {
+            cache.lock().unwrap_or_else(|e| e.into_inner()).read = Bounded::new();
+        }
+        if let Some(snapshots) = self.snapshots.get() {
+            snapshots.forget_snapshots(session_id);
         }
     }
 }
@@ -1023,10 +1055,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "one").unwrap();
         let live = LiveReuses::default();
-        let mine = Arc::new(reuse(dir.path(), 0));
-        let other = Arc::new(ToolResultReuse::new(io(), "sess_2", dir.path(), false, Arc::new(Fixed(0))));
-        live.track(&mine);
-        live.track(&other);
+        let mine = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
+        let other = live.run(io(), "sess_2", dir.path(), false, Arc::new(Fixed(0)));
         let read = call("read", json!({"path": "a.txt"}));
         let list = call("list", json!({}));
         for r in [&mine, &other] {
@@ -1037,9 +1067,10 @@ mod tests {
         assert!(mine.lookup(&read, true).await.is_none(), "the read cache is cleared");
         assert!(mine.lookup(&list, true).await.is_none(), "so is the scoped cache");
         assert!(other.lookup(&read, true).await.is_some() && other.lookup(&list, true).await.is_some(), "another session keeps its entries");
-        // A run that ended is forgotten, not kept alive.
+        // A session no run holds loses its entry; one that is held keeps it, so the run goes on in the session's cache.
+        assert!(live.lock().contains_key("sess_1"));
         drop(mine);
-        live.track(&other);
+        live.clear_session("sess_1");
         assert!(!live.lock().contains_key("sess_1"));
     }
 

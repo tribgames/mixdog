@@ -346,6 +346,8 @@ pub struct Owed {
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
@@ -392,6 +394,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         shells: owed.shells,
         liveness: owed.liveness,
         search_usage: owed.search_usage,
+        reuses: owed.reuses,
     }
 }
 
