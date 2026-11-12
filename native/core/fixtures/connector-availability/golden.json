@@ -6,7 +6,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -92,7 +92,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -173,7 +173,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -265,7 +265,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -352,7 +352,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -443,7 +443,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -529,7 +529,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -610,7 +610,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -705,7 +705,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -798,7 +798,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -903,7 +903,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1000,7 +1000,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1102,7 +1102,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1205,7 +1205,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1298,7 +1298,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -1384,7 +1384,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1465,7 +1465,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1559,7 +1559,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1651,7 +1651,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1753,7 +1753,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1855,7 +1855,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -1948,7 +1948,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -2034,7 +2034,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2115,7 +2115,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2209,7 +2209,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2301,7 +2301,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2403,7 +2403,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2505,7 +2505,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2598,7 +2598,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -2684,7 +2684,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2765,7 +2765,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2862,7 +2862,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -2956,7 +2956,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3058,7 +3058,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3162,7 +3162,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3255,7 +3255,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -3341,7 +3341,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3422,7 +3422,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3524,7 +3524,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3625,7 +3625,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3740,7 +3740,7 @@
       "start": {
         "id": "sess_none",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app"
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
       },
       "steps": [
         {
@@ -3751,13 +3751,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           }
         },
         {
@@ -3768,13 +3768,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           }
         }
       ]
@@ -3784,7 +3784,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -3807,7 +3807,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3825,7 +3825,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3849,7 +3849,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3868,7 +3868,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -3891,7 +3891,7 @@
       "start": {
         "id": "sess_a",
         "agent": "lead",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -3977,7 +3977,7 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4058,7 +4058,7 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4150,7 +4150,7 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4237,7 +4237,7 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4328,7 +4328,7 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
@@ -4415,7 +4415,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4497,7 +4497,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4592,7 +4592,7 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
@@ -4685,7 +4685,7 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-6k1dxw\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",

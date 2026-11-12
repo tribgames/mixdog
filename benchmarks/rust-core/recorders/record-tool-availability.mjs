@@ -7,6 +7,7 @@
 //
 // Output: native/core/fixtures/tool-availability/golden.json.
 import { mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -72,5 +73,5 @@ const cases = CASES.map(([name, before, featureDenied, defs = ALL]) => {
   return { name, before, featureDenied, definitions: defs, asked, result, after: live };
 });
 await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases });
-writeSetManifest(stage, { set: 'tool-availability', recorder, command: 'node ' + recorder + ' --tree <tree>' + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
+writeSetManifest(stage, { set: 'tool-availability', recorder, command: 'node ' + recorder + ' --tree <tree>' + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }), extra: { ...recorderProvenance(import.meta.url) } });
 commitStage(stage, finalDir);

@@ -17,6 +17,7 @@
 // the commit and fails unless the tree is exactly it). Credentials are fake; the global dispatcher is replaced by one
 // that refuses every connection, so nothing can reach a network (Node's `preconnect` would otherwise send a HEAD).
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -683,6 +684,7 @@ writeSetManifest(OUT, {
   recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs',
   command: 'node benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs --tree <exact export of b6f10295a>' + (args.get('patch') ? ` --patch ${args.get('patch')}` : ''),
   identity,
+  extra: { ...recorderProvenance(import.meta.url) },
 });
 await writeJsonCompact(tree, join(OUT, 'observer.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', scenarios: observerRuns });
 closeUsageLedgers();

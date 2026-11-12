@@ -8,6 +8,21 @@
       "sha256": "30a12e2a249778afbea1b95e01a92f196aade33c7383c3668e34b9dc537773ba"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -67,6 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",
+  "recorderSha256": "b67e2cd23f70b8c219d69942bd9f47c9142a8f7c621f3ebd2222b1940e232c2e",
   "set": "mcp-fold",
   "totalBytes": 495712
 }

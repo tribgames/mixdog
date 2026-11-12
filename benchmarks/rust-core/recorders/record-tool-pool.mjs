@@ -12,6 +12,7 @@
 //
 //   node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -402,4 +403,5 @@ writeSetManifest(OUT, {
   recorder: 'benchmarks/rust-core/recorders/record-tool-pool.mjs',
   command: 'node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>' + (patched ? ` --patch ${patched}` : ''),
   ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : {}),
+  extra: { ...recorderProvenance(import.meta.url) },
 });

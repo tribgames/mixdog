@@ -17,6 +17,7 @@
 //
 // Output: native/core/fixtures/mcp-fold/golden.json.
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -184,6 +185,6 @@ const CASES = [
 });
 
 await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases: CASES });
-writeSetManifest(stage, { set: 'mcp-fold', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
+writeSetManifest(stage, { set: 'mcp-fold', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }), extra: { ...recorderProvenance(import.meta.url) } });
 commitStage(stage, finalDir);
 console.log(`mcp fold: ${CASES.length} cases`);

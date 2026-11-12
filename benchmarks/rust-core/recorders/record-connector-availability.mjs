@@ -9,6 +9,7 @@
 //
 // Output: native/core/fixtures/connector-availability/golden.json.
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -103,5 +104,5 @@ const cases = SCENARIOS.map(([name, start, steps]) => {
   return { name, start, steps: out };
 });
 await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases });
-writeSetManifest(stage, { set: 'connector-availability', recorder, command: 'node ' + recorder + ' --tree <tree>' + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
+writeSetManifest(stage, { set: 'connector-availability', recorder, command: 'node ' + recorder + ' --tree <tree>' + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }), extra: { ...recorderProvenance(import.meta.url) } });
 commitStage(stage, finalDir);
