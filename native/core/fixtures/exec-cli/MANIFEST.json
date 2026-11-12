@@ -8,29 +8,30 @@
     "others (core only): models.dev connect": "the core fetches the models.dev model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
     "others (core only): provider cost report": "the core reads the provider's cost report at start; Node's exec does not",
     "others (node only): graph binary download": "Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here",
-    "others (node only): memory runtime download": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
     "others (node only): patch binary download": "Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here",
     "others (node only): spawn binary download": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
+    "others: memory runtime download": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz is not kept: Node's exec ingests its session in the background and asks to download the memory runtime into its cold throwaway data folder, but its own shutdown aborts the ingest, so whether the ask is sent first is a race inside the process that no recorded world decides; the core keeps no such runtime",
     "stderr (core only): goal recovery line": "the core logs its boot-time goal recovery summary to the exec's stderr; Node's exec keeps its daemon log in a file",
     "stderr (core only): model catalog fetch failure (GitHub)": "the core fetches the GitHub model catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
     "stderr (core only): model catalog fetch failure (models.dev)": "the core fetches the models.dev catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
     "stderr (node only): ask error diagnostic (refused request)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
     "stderr (node only): ask error diagnostic (stream error)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
-    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer, so the recording does not keep the line (a replay that meets it on the Node side leaves it out)",
     "stderr (node only): model listing diagnostic": "Node logs its background model listing that the stand-in answers 404 (twice per run); the core writes no such line",
     "stderr (node only): node process warning": "Node writes its own process warning for the built-in SQLite module; no other runtime has the module",
     "stderr (node only): node warning hint": "the second line of the same Node process warning",
     "stderr (node only): titling disabled diagnostic": "Node logs that its titling has no maintenance route; the core has no titling in the exec",
     "stderr (node only): titling generated diagnostic": "Node logs the empty title its titling got from the stand-in's refused request; the core has no titling in the exec",
     "stderr (node only): titling start diagnostic (session)": "Node logs the start of its background session titling; the core has no titling in the exec",
-    "stderr (node only): titling start diagnostic (thread)": "the same line of the --json run, which names the thread by its exec id"
+    "stderr (node only): titling start diagnostic (thread)": "the same line of the --json run, which names the thread by its exec id",
+    "stderr: atomic-file lock diagnostics": "Node logs a lock it waited for or held longer than a threshold (`[atomic-file] async lock wait`, `sync lock held`, `async lock held`); whether the OS was slow is the machine's timing, so the recording does not keep those lines (a replay leaves the one it names out of the Node side)"
   },
   "fileCount": 7,
   "files": [
     {
-      "bytes": 29152,
+      "bytes": 29019,
       "path": "beside-daemon.json",
-      "sha256": "51dc67ad8142ad5ec386c3b07050bb9b667d457bf15afcf463c0ac56da427c44"
+      "sha256": "7905e8a39f53e4371ef7e47b075f22969ca573ca01c60f1b9f1f78ca85eb8397"
     },
     {
       "bytes": 28184,
@@ -74,7 +75,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/own-tree.mjs",
-      "sha256": "d1a05dc93cc58836f3ae0a1658b43f5c8ceba95a780336b3ddae2e7a9a57e4a4"
+      "sha256": "ce73b1fa7eab94d268af492d5ff7ff6b21297eaff87245ff71e9adb39086aeb3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -100,13 +101,6 @@
       "reason": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
       "request": "GET https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.12/mixdog-spawn-win32-x64.exe",
       "side": "node"
-    },
-    {
-      "name": "memory runtime download",
-      "reason": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
-      "request": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
-      "side": "node",
-      "timing": true
     },
     {
       "name": "models.dev connect",
@@ -187,7 +181,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "101b899881523aa6cd2e384ce6b3a007a469164ec61e70896e80544a44922730",
+  "recorderSha256": "c82bc4da8e166fdcf87b26d6b57b70478e3fef2df32c08c1ee4a39594c289e7c",
   "set": "exec-cli",
   "stderrNotCompared": [
     {
@@ -247,7 +241,7 @@
     {
       "line": "[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock",
       "name": "lock wait diagnostic",
-      "reason": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+      "reason": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer, so the recording does not keep the line (a replay that meets it on the Node side leaves it out)",
       "side": "node",
       "timing": true
     },
@@ -270,5 +264,5 @@
       "side": "core"
     }
   ],
-  "totalBytes": 229263
+  "totalBytes": 229130
 }

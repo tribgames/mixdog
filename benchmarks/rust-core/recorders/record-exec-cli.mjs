@@ -18,7 +18,6 @@
 //
 // Output: native/core/fixtures/exec-cli/.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -34,6 +33,11 @@ import { recorderProvenance } from './lib/provenance.mjs';
 const recorder = 'benchmarks/rust-core/recorders/record-exec-cli.mjs';
 // A run that has not ended in this long has hung: it is killed and the recording fails.
 const RUN_DEADLINE_MS = 180_000;
+// The memory runtime's download as the exec's background session ingest asks for it (the manifest's url for this platform). The exec works
+// in a throwaway data folder that it creates cold on purpose (`pristine-execution.mjs`), so no recorded world can hold the runtime, and the
+// ask comes inside the exec's own shutdown, which aborts the ingest: whether the ask is sent before the abort is a race nothing outside the
+// process can decide. The recording therefore does not keep it (EXCLUSIONS).
+const RUNTIME_REQUEST = 'GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz';
 
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 const start = (index) => sse('message_start', { type: 'message_start', message: { id: `msg_${index}`, type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [], usage: { input_tokens: 20 + index, output_tokens: 1 } } });
@@ -115,23 +119,24 @@ const STDERR_NOT_COMPARED = [
   { side: 'node', name: 'titling generated diagnostic', line: '[mixdog] llm-title generated id=<session> stage=first title=""', reason: 'Node logs the empty title its titling got from the stand-in\'s refused request; the core has no titling in the exec' },
   { side: 'node', name: 'ask error diagnostic (stream error)', line: '[ask-error] session=<session> name=AnthropicSseError status=400 code=invalid_request_error type=invalid_request_error kind=permanent msg="Anthropic SSE error invalid_request_error: the turn broke"', reason: 'Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes' },
   { side: 'node', name: 'ask error diagnostic (refused request)', line: '[ask-error] session=<session> name=Error status=400 code=invalid_request_error kind=permanent msg="400 {\\"type\\":\\"error\\",\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"message\\":\\"the request was refused\\"}}"', reason: 'Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes' },
-  { side: 'node', name: 'lock wait diagnostic', timing: true, line: '[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock', reason: 'Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder\'s name are normalized)' },
+  { side: 'node', name: 'lock wait diagnostic', timing: true, line: '[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock', reason: 'Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer, so the recording does not keep the line (a replay that meets it on the Node side leaves it out)' },
   { side: 'core', name: 'goal recovery line', line: '[daemon] active Goal recovery found=0 resumed=0 skipped=0 failed=0', reason: 'the core logs its boot-time goal recovery summary to the exec\'s stderr; Node\'s exec keeps its daemon log in a file' },
   { side: 'core', name: 'model catalog fetch failure (models.dev)', line: '[model-catalog] models.dev fetch failed: fetch failed', reason: 'the core fetches the models.dev catalog at start, which Node\'s exec does not, and logs the failed connect (the stand-in\'s certificate does not cover the host)' },
   { side: 'core', name: 'model catalog fetch failure (GitHub)', line: '[model-catalog] fetch failed: fetch failed', reason: 'the core fetches the GitHub model catalog at start, which Node\'s exec does not, and logs the failed connect (the stand-in\'s certificate does not cover the host)' },
 ];
-// The requests that are not the turn's, answered 404 (but the runtime, below). The replay compares the rest of them whole, as a sorted set (their
+// The requests that are not the turn's, answered 404. The replay compares the rest of them whole, as a sorted set (their
 // order follows background timers), after leaving out of each side the ones named here.
 const OTHERS_NOT_COMPARED = [
   { side: 'node', name: 'graph binary download', request: 'GET https://github.com/tribgames/mixdog/releases/download/graph-v0.1.35/mixdog-graph-win32-x64.exe', reason: 'Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here' },
   { side: 'node', name: 'patch binary download', request: 'GET https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-x64.exe', reason: 'Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here' },
   { side: 'node', name: 'spawn binary download', request: 'GET https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.12/mixdog-spawn-win32-x64.exe', reason: 'Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here' },
-  { side: 'node', name: 'memory runtime download', timing: true, request: 'GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz', reason: 'Node\'s exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime' },
   { side: 'core', name: 'models.dev connect', request: 'CONNECT models.dev', reason: 'the core fetches the models.dev model catalog at start (the stand-in\'s certificate does not cover the host, so the connect is the record); Node\'s exec does not' },
   { side: 'core', name: 'GitHub catalog connect', request: 'CONNECT raw.githubusercontent.com', reason: 'the core fetches the GitHub model catalog at start (the stand-in\'s certificate does not cover the host, so the connect is the record); Node\'s exec does not' },
   { side: 'core', name: 'provider cost report', request: 'GET https://api.anthropic.com/v1/organizations/cost_report', reason: 'the core reads the provider\'s cost report at start; Node\'s exec does not' },
 ];// What the recording leaves out of what the process did, each with its reason (the replay compares everything else whole).
 const EXCLUSIONS = {
+  'others: memory runtime download': `${RUNTIME_REQUEST} is not kept: Node's exec ingests its session in the background and asks to download the memory runtime into its cold throwaway data folder, but its own shutdown aborts the ingest, so whether the ask is sent first is a race inside the process that no recorded world decides; the core keeps no such runtime`,
+  'stderr: atomic-file lock diagnostics': 'Node logs a lock it waited for or held longer than a threshold (`[atomic-file] async lock wait`, `sync lock held`, `async lock held`); whether the OS was slow is the machine\'s timing, so the recording does not keep those lines (a replay leaves the one it names out of the Node side)',
   chunking: 'consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process',
   ...Object.fromEntries(STDERR_NOT_COMPARED.map(({ name, side, reason }) => [`stderr (${side} only): ${name}`, reason])),
   ...Object.fromEntries(OTHERS_NOT_COMPARED.map(({ name, side, reason }) => [`others (${side} only): ${name}`, reason])),
@@ -164,7 +169,10 @@ function ordered(chunks, sandbox) {
     if (joined.at(-1)?.stream === name) joined.at(-1).text += text;
     else joined.push({ stream: name, text });
   }
-  return joined.map(({ stream: name, text }) => ({ stream: name, text: normalize(text, sandbox) }));
+  // The `[atomic-file]` diagnostics (a lock waited for or held longer than a threshold) are the machine's timing: a recording that kept
+  // them would differ between two runs of the same code, so they are not kept (declared in EXCLUSIONS).
+  const lockWait = /^\[atomic-file\] [^\n]*\n/gm;
+  return joined.map(({ stream: name, text }) => ({ stream: name, text: normalize(text, sandbox).replace(lockWait, '') })).filter(({ text }) => text);
 }
 
 /** What one provider request carried, in the recording's shape. */
@@ -232,18 +240,6 @@ function installRuntime(tree, source, data) {
   writeFileSync(join(target, '.version-sha256'), asset.sha256);
   writeFileSync(join(data, 'runtime', 'active-version'), key);
   return target;
-}
-
-/**
- * The release asset of the memory runtime (the manifest's url for this platform) as bytes: the archive beside the unpacked runtime
- * (`<runtime>/../runtime.tar.gz`, the one it was unpacked from), whose digest must be the manifest's.
- */
-function runtimeAsset(tree, source) {
-  const manifest = JSON.parse(readFileSync(join(tree, 'src/runtime/memory/data/runtime-manifest.json'), 'utf8'));
-  const { url, sha256 } = manifest.assets[`${process.platform}-${process.arch}`];
-  const bytes = readFileSync(join(source, '..', 'runtime.tar.gz'));
-  if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new Error(`${join(source, '..', 'runtime.tar.gz')} is not the manifest's runtime asset (${sha256})`);
-  return { url, bytes };
 }
 
 /** Node's daemon on the case's own data and temp folders, started as the desktop starts one for session views; resolves once it published `daemon.json`. */
@@ -326,7 +322,7 @@ function stopPostmaster(sandbox, runtimeDir) {
   }
 }
 
-async function runCase(tree, name, runtimeSource, asset) {
+async function runCase(tree, name, runtimeSource) {
   const spec = CASES[name];
   const sandbox = mkdtempSync(join(tmpdir(), 'exec-cli-'));
   for (const folder of FOLDERS) mkdirSync(join(sandbox, folder), { recursive: true });
@@ -341,13 +337,8 @@ async function runCase(tree, name, runtimeSource, asset) {
     for await (const chunk of req) chunks.push(chunk);
     const path = req.url.split('?')[0];
     if (req.method !== 'POST' || !path.endsWith('/v1/messages')) {
-      others.push(`${req.method} ${req.headers['x-bench-origin']}${path}`);
-      // The memory runtime the exec's session ingest downloads, served as the release serves it: the recording environment must not make
-      // Node's ingest fail where an installed machine's would not.
-      if (req.method === 'GET' && `${req.headers['x-bench-origin']}${path}` === asset.url) {
-        res.writeHead(200, { 'content-type': 'application/gzip', 'content-length': asset.bytes.length }).end(asset.bytes);
-        return;
-      }
+      const request = `${req.method} ${req.headers['x-bench-origin']}${path}`;
+      if (request !== RUNTIME_REQUEST) others.push(request);
       res.writeHead(NO_SCRIPT.status, { 'content-type': NO_SCRIPT.contentType }).end(NO_SCRIPT.body);
       return;
     }
@@ -425,14 +416,13 @@ async function main() {
   const stage = stageSet(finalDir);
   const runtimeSource = args.get('runtime') ?? process.env.MIXDOG_PG_RUNTIME;
   if (!runtimeSource || !existsSync(join(runtimeSource, 'bin'))) throw new Error('--runtime <unpacked PostgreSQL runtime> (or MIXDOG_PG_RUNTIME) is required: the daemon of the beside-daemon case installs it instead of downloading one');
-  const asset = runtimeAsset(tree, runtimeSource);
   // `--only a,b`: those cases are recorded and the others are carried over from the set as it is. Each case runs in a sandbox of its own,
-  // and what some record is the machine's timing (a lock wait, whether the exec asked for the runtime before it ended): a case that
+  // and what some record is the machine's timing (a lock wait, and so the lock diagnostics): a case that
   // a loaded machine recorded with such a difference is recorded again on its own.
   const only = args.get('only')?.split(',');
   for (const name of Object.keys(CASES)) {
     if (only && !only.includes(name)) cpSync(join(finalDir, `${name}.json`), join(stage, `${name}.json`));
-    else writeJson(join(stage, `${name}.json`), await runCase(tree, name, runtimeSource, asset));
+    else writeJson(join(stage, `${name}.json`), await runCase(tree, name, runtimeSource));
   }
   // A partial run is a working aid: it carries over recordings other runs made, so it cannot name one recorder and tree as their
   // maker. It leaves the set without a manifest (manifest-check fails) until a whole run writes one.
