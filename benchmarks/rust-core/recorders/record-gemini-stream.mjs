@@ -37,9 +37,9 @@ const consume = async (response, options = {}) => {
   return { ...out, ...seen };
 };
 // The input of a case is the served script: status, content type and the body chunks as written to the socket; the product function reads a real fetch Response of it.
-const run = (id, line, chunks, fn, raw) => {
+const run = (id, line, chunks, fn, raw, leakGuard) => {
   const served = { status: 200, contentType: 'text/event-stream', chunks: [raw ?? frames(chunks)] };
-  return rec.run(id, `${SRC}:${line}`, { served }, async ({ net }) => {
+  return rec.run(id, `${SRC}:${line}`, leakGuard ? { served, leakGuard } : { served }, async ({ net }) => {
     net.reply = () => served;
     const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     return (fn ?? consume)(response);
@@ -63,12 +63,13 @@ await run('visible-text-then-native-chunk', 94, [{ candidates: [{ content: { par
 for (const deferToolCalls of [true, false]) {
   const leaked = '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>';
   const chunks = [{ candidates: [{ content: { parts: [{ text: leaked }] } }] }];
+  const leakGuard = { knownToolNames: ['read'], deferToolCalls };
   await run(`leaked-call-${deferToolCalls ? 'held-back' : 'dispatched'}`, 118, chunks, async (response) => {
     const dispatched = [];
-    const textLeakGuard = createGeminiTextLeakGuard({ knownToolNames: ['read'], onToolCall: (call) => dispatched.push(call), deferToolCalls });
+    const textLeakGuard = createGeminiTextLeakGuard({ ...leakGuard, onToolCall: (call) => dispatched.push(call) });
     const out = await consume(response, { textLeakGuard });
     return { ...out, dispatched, leakedToolCalls: textLeakGuard.getLeakedToolCalls() };
-  });
+  }, undefined, leakGuard);
 }
 await run('ordered-parts-and-signatures', 140, [{ text: 'answer' }, nativePart].map((part, index) => cand([part], index === 1 ? { finishReason: 'STOP' } : {})));
 const inBand = { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quota gone', details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '5s' }] } };
