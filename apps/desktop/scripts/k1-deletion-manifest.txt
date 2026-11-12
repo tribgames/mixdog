@@ -155,7 +155,6 @@ scripts/tui-transcript-jitter-harness-entry.jsx
 scripts/tui-transcript-jitter-harness.mjs
 scripts/turn-review-revert.slow.test.mjs
 scripts/verify-embedding-runtime.mjs
-scripts/verify-release-assets.mjs
 src/app.mjs
 src/cli.mjs
 src/ext-host/test/silent-browser.mjs
