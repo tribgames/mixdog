@@ -4,6 +4,7 @@
 //                      of a legacy `<id>.json`: the document 1.4.5 reads, or null for a record it cannot read.
 //
 //   node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a> [--only <scenario>]
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,7 +63,51 @@ async function legacyJsonKeys() {
 const image = (ref, filename) => ({ type: 'image', attachmentRef: ref, mimeType: 'image/png', ...(filename ? { filename } : {}) });
 const rejectedImage = { status: 400, message: 'The image data you provided does not represent a valid image. Please check your input and try again.' };
 const invalidImageCode = { status: 400, code: 'invalid_image', message: 'Invalid image.' };
+// Stored images whose reference is the content address of their bytes, as the attachment store keeps them
+// (`attachmentRefForBuffer`): the preparation's refusal names an image by its base64, the transcript holds the reference.
+const picture = (n) => {
+  const bytes = Buffer.from(`picture ${n}`);
+  return { ref: createHash('sha256').update(bytes).digest('hex'), data: bytes.toString('base64') };
+};
+const [pic1, pic2, pic3] = [1, 2, 3].map(picture);
+// What `prepareAnthropicImages` throws for an image the decoder rejects (`AnthropicImagePreparationError`): its message,
+// its 400 and code, and the image's base64 on the non-enumerable `failingImageData`.
+const preparationRefused = (pic) => ({
+  status: 400,
+  code: 'ANTHROPIC_IMAGE_PREPARATION_FAILED',
+  message: 'Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.',
+  ...(pic ? { failingImageData: pic.data } : {}),
+});
 const imageCases = [
+  {
+    // Three distinct images, the preparation refuses the middle one: only that one is left out of the resend, and as the
+    // refusal is confirmed and names an image of the latest turn, it is healed out of the transcript.
+    name: 'preparation-one-bad-of-three',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'compare' }, image(pic1.ref), image(pic2.ref), image(pic3.ref)] }],
+    script: [{ error: preparationRefused(pic2) }, { reply: 'recovered' }],
+  },
+  {
+    // Two bad images: the first refusal strips the first, the resend is refused for the second, and the loop strips once.
+    name: 'preparation-two-bad',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'compare' }, image(pic1.ref), image(pic2.ref), image(pic3.ref)] }],
+    script: [{ error: preparationRefused(pic1) }, { error: preparationRefused(pic3) }],
+  },
+  {
+    // The refused image was sent in an earlier turn: it is left out of the resend and stays in the transcript.
+    name: 'preparation-bad-image-in-older-turn',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'first' }, image(pic1.ref)] },
+      { role: 'assistant', content: 'seen' },
+      { role: 'user', content: [{ type: 'text', text: 'again' }, image(pic2.ref)] },
+    ],
+    script: [{ error: preparationRefused(pic1) }, { reply: 'recovered' }],
+  },
+  {
+    // A refusal that names no image (the input was empty or over the limit): nothing is stripped, the error ends the turn.
+    name: 'preparation-names-no-image',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'look' }, image(pic1.ref)] }],
+    script: [{ error: preparationRefused(null) }],
+  },
   {
     // confirmedImageRejection by message: the one new image is healed out of the transcript.
     name: 'one-new-image-confirmed',
@@ -131,7 +176,11 @@ async function imageStrip() {
       const partial = step.partial
         ? { partialContent: step.partial.text, partialToolCalls: Array.from({ length: step.partial.calls }, (_, i) => ({ id: `call_${i + 1}`, name: 'read' })), toolCallsDispatched: step.partial.calls, liveTextEmitted: true }
         : {};
-      if (step.error) throw Object.assign(new Error(step.error.message), { httpStatus: step.error.status, ...(step.error.code ? { code: step.error.code } : {}), ...partial });
+      if (step.error) {
+        const thrown = Object.assign(new Error(step.error.message), { httpStatus: step.error.status, ...(step.error.code ? { code: step.error.code } : {}), ...partial });
+        if (step.error.failingImageData) Object.defineProperty(thrown, 'failingImageData', { value: step.error.failingImageData, enumerable: false });
+        throw thrown;
+      }
       return { content: step.reply, toolCalls: [], stopReason: 'end_turn' };
     },
   });
@@ -472,6 +521,7 @@ writeSetManifest(outDir, {
       'text-only-scan: no `wire` is recorded for it in this set (`wire` is the Responses body of the public OpenAI route). The chat body a provider that takes a PDF as text (deepseek, nativePdf = false) sends for a stored PDF, after preparePdfTextForProvider has read it through pdf.js, is recorded and replayed through the core\'s send path in the media-wire set (`native/core/fixtures/media-wire/table.json`, the `deepseek-chat` rows). The replay compares the request messages the core hands the provider, with Node\'s file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part\'s stored row, and those facts compared whole with that row',
       'compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session\'s controller and with the runtime\'s active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it. Those three also record `after`: whether each summary send\'s signal was aborted, the stored session (transcript whole, and the header keys that differ from the header before the compaction), the events published (the session ops\' pre/post compact hooks, through which these cases start the compaction) and a second start (its answer, and how many summary sends it made); the first start\'s summary send never answers, a start after it does. The replay compares: the hooks whole; that the core dropped the summary stream in flight (Node: the send\'s signal aborted); the transcript whole; the header as a set (no key changed that Node\'s did not: closed\'s keys are Node\'s own tombstone bookkeeping); a deleted session as nothing stored in Node, and in the core as gone or carrying its delete mark with no summary applied (the core\'s log keeps the mark); a start after the end of closed and deleted as one that begins no compaction and asks no summary. The start after shutdown is not compared: Node\'s runtime stays up after abortActiveTurns and compacts again, the core\'s shutdown ends the directory',
       'image-strip, error-after-partial-output: the error carries what the provider\'s stream tracker put on it (partialContent, partialToolCalls, toolCallsDispatched, liveTextEmitted) and the stamps stampStreamOutcome adds; the replay builds each from the text and completed calls the core\'s stream delivered before it failed',
+      'image-strip, preparation-* cases: the provider throws a plain Error carrying what the recovery reads of AnthropicImagePreparationError (its code, its 400 as httpStatus, its message and the image\'s base64 on the non-enumerable failingImageData), not the class itself, whose name the replay\'s error row does not carry; the recovery decides on those fields alone (isImagePreparationFailed, stripFailingImage)',
       'legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact\'s utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first\'s place), because the core\'s store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)',
       'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',
       'compaction-pasted-text: the replay compares a thrown failure by name and message only; its errno fields (code, errno, syscall, path) are recorded but not compared, because the core\'s attachment reader carries the read\'s text and no errno (ReadError::Other, run_host/media.rs resolve_ref)',
