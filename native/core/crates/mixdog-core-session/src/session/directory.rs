@@ -1201,14 +1201,15 @@ impl DirInner {
 
     /// The header a listing reads of a session it does not open (the Agents pool reads every worker the index names): the
     /// live one of a loaded thread, else the stored record. It answers what an open would have read without loading the
-    /// session: a session still to be converted is converted first, the read waits out a full lane, and a session kept
-    /// only to host a worker row has no record (`None`, as for an unknown or unreadable one).
+    /// session: the read waits out a full lane, and a session kept only to host a worker row has no record (`None`, as
+    /// for an unknown or unreadable one).
+    ///
+    /// A session of the earlier version that is still to be converted has no record yet and reads as `None`: a listing
+    /// names hundreds of sessions, and asking for each ahead of the rest would put them all before the one a person
+    /// opens. The worker rows come from converted sessions only, so this is a worker's owner at most, until it is converted.
     async fn listed_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
         if let Some(handle) = self.loaded(id) {
             return Some(handle.cell.header.load_full().as_ref().clone());
-        }
-        if let Some(there) = self.arriving.get().and_then(|arriving| arriving.arriving(id)) {
-            there.await;
         }
         self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
