@@ -1313,8 +1313,9 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
 ///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
 ///   themselves). The text itself is compared as the answer and the stored transcript.
 /// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
+/// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
 fn uncompared(event: &RunEvent) -> bool {
-    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_))
+    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_) | RunEvent::ExecutionCalls(_))
 }
 
 /// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three

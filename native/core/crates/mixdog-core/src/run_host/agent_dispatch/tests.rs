@@ -351,7 +351,7 @@ async fn every_recorded_dispatch_converses_with_its_collaborators_as_nodes_did()
         if let Some(after) = input["abortAfterMs"].as_u64() {
             let (parent, reason) = (parent.clone(), if input["salvage"] == true { "deadline" } else { "parent aborted" });
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(after)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(after)).await;
                 parent.abort(reason);
             });
         }

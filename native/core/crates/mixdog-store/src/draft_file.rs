@@ -3,7 +3,7 @@
 //! the run streams; a value marked sensitive replaces the whole file with one redacted body (a published tmp renamed over it,
 //! so a kill leaves the old file or the new one, never a mix); the file goes once the run's end record is durable. The log
 //! never holds the draft, so nothing of a redacted draft outlives its rewrite. A torn last line (a kill mid-append) is not read.
-#![allow(clippy::disallowed_methods, reason = "store file I/O runs only in lane jobs (lane proof arguments)")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "store file I/O runs only in lane jobs (lane proof arguments)")]
 
 use std::io::Write;
 use std::path::Path;

@@ -1,0 +1,211 @@
+{
+  "name": "code-graph-casing-eviction",
+  "files": {
+    "a/package.json": "{}\n",
+    "a/src/main.ts": "export class Widget {}\n",
+    "p1/package.json": "{}\n",
+    "p1/src/main.ts": "export const p1 = 1;\n",
+    "p2/package.json": "{}\n",
+    "p2/src/main.ts": "export const p2 = 1;\n",
+    "p3/package.json": "{}\n",
+    "p3/src/main.ts": "export const p3 = 1;\n",
+    "p4/package.json": "{}\n",
+    "p4/src/main.ts": "export const p4 = 1;\n",
+    "p5/package.json": "{}\n",
+    "p5/src/main.ts": "export const p5 = 1;\n",
+    "p6/package.json": "{}\n",
+    "p6/src/main.ts": "export const p6 = 1;\n",
+    "p7/package.json": "{}\n",
+    "p7/src/main.ts": "export const p7 = 1;\n",
+    "p8/package.json": "{}\n",
+    "p8/src/main.ts": "export const p8 = 1;\n",
+    "p9/package.json": "{}\n",
+    "p9/src/main.ts": "export const p9 = 1;\n",
+    "p10/package.json": "{}\n",
+    "p10/src/main.ts": "export const p10 = 1;\n",
+    "p11/package.json": "{}\n",
+    "p11/src/main.ts": "export const p11 = 1;\n"
+  },
+  "warmup": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "warmupNone"
+        ],
+        "cwd": "<ROOT>/a"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "Widget"
+        ],
+        "cwd": "<ROOT>/a"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export class, matches=1)\n1: export class Widget {}",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p1"
+        ],
+        "cwd": "<ROOT>/p1"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p1 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p2"
+        ],
+        "cwd": "<ROOT>/p2"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p2 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p3"
+        ],
+        "cwd": "<ROOT>/p3"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p3 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p4"
+        ],
+        "cwd": "<ROOT>/p4"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p4 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p5"
+        ],
+        "cwd": "<ROOT>/p5"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p5 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "widget"
+        ],
+        "cwd": "<ROOT>/a"
+      },
+      "text": "(no symbol matches in cwd=<ROOT>/a)\ngraph: nodes=1\nhint: indexed under different casing: Widget",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p6"
+        ],
+        "cwd": "<ROOT>/p6"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p6 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p7"
+        ],
+        "cwd": "<ROOT>/p7"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p7 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p8"
+        ],
+        "cwd": "<ROOT>/p8"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p8 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p9"
+        ],
+        "cwd": "<ROOT>/p9"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p9 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p10"
+        ],
+        "cwd": "<ROOT>/p10"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p10 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "p11"
+        ],
+        "cwd": "<ROOT>/p11"
+      },
+      "text": "# best declaration candidate\nsrc/main.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const p11 = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "widget"
+        ],
+        "cwd": "<ROOT>/a"
+      },
+      "text": "(no symbol matches in cwd=<ROOT>/a)\ngraph: nodes=1",
+      "isError": false
+    }
+  ]
+}

@@ -66,7 +66,8 @@ impl Registry {
     }
 
     fn parse(bytes: &[u8]) -> Option<Document> {
-        serde_json::from_slice::<Document>(bytes).ok()
+        // A branch a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+        serde_json::from_slice::<Document>(&mixdog_js::json_well_formed(bytes)).ok()
     }
 
     fn backup(&self) -> PathBuf {
@@ -188,5 +189,29 @@ mod tests {
         assert_eq!(restored.len(), 1, "the backup holds the state before the last write");
         registry.delete("one").unwrap();
         assert!(registry.get("one").unwrap().is_none());
+    }
+
+    /// Node's registry holding a branch cut inside an emoji (`native/core/fixtures/lone-surrogate-files`,
+    /// record-lone-surrogate-files.mjs): the core reads every record and field Node's `JSON.parse` reads (the half emoji as
+    /// U+FFFD), and the next write keeps them.
+    #[test]
+    fn a_registry_node_wrote_with_half_an_emoji_is_read_whole_and_kept_by_the_next_write() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "worktree-registry").unwrap();
+        let file = case["file"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(STORE_DIR)).unwrap();
+        std::fs::copy(set.join("worktree-registry/before").join(file), dir.path().join(file)).unwrap();
+        let expected: Document = serde_json::from_value(case["nodeRead"].clone()).unwrap();
+        let registry = Registry::new(dir.path());
+        assert_eq!(registry.read().unwrap(), expected.entries);
+        let second: WorktreeRecord = serde_json::from_value(case["op"]["insert"].clone()).unwrap();
+        assert!(registry.insert(second.clone()).unwrap());
+        let mut after = expected.entries;
+        after.insert(second.id.clone(), second);
+        let written = Registry::parse(&std::fs::read(dir.path().join(file)).unwrap()).unwrap();
+        assert_eq!(written.entries, after);
+        assert_eq!(written.entries.keys().collect::<Vec<_>>(), after.keys().collect::<Vec<_>>());
     }
 }

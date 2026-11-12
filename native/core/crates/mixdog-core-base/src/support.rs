@@ -426,6 +426,107 @@ where
         })
 }
 
+/// Why a job [`on_lane_wait`] or [`lane_job`] queued never ran, named after its lane.
+fn unrun(lane: mixdog_rt::LaneKind, why: &str) -> CoreError {
+    CoreError::Internal {
+        incident_id: format!("{}-{why}", lane.name()).into(),
+    }
+}
+
+fn not_queued(error: mixdog_rt::SubmitWaitError) -> CoreError {
+    match error {
+        mixdog_rt::SubmitWaitError::Full(full) => full.into(),
+        mixdog_rt::SubmitWaitError::Wedged(wedged) => unrun(wedged.lane, "lane-wedged"),
+        mixdog_rt::SubmitWaitError::Cancelled => CoreError::Cancelled { by: "caller".into() },
+        mixdog_rt::SubmitWaitError::ShutDown(lane) => unrun(lane, "lane-shut-down"),
+    }
+}
+
+/// [`on_lane`] for work that carries data a caller must not lose (a row, a claim, a mark's rewrite): a full queue is
+/// waited out, bounded by `cancel`, never refused. It fails only when the lane cannot run it (no healthy worker, or a
+/// backend that cannot signal room), with an error that names the lane.
+// The `Send` bound is stated, not inferred: the job's higher-ranked `&InLane` signature otherwise defeats the
+// `Send` proof of a spawned future that awaits this one.
+pub fn on_lane_wait<'a, L, R, F>(lane: L, cancel: &'a CancellationToken, job: F) -> impl Future<Output = Result<R, CoreError>> + Send + 'a
+where
+    L: LaneToken,
+    R: Send + 'static,
+    F: FnOnce(&InLane<L>) -> R + Send + 'static,
+{
+    let queued = lane.submit_wait(cancel, job);
+    async move { queued.await.map_err(not_queued)?.await.map_err(|_| unrun(L::KIND, "job-dropped")) }
+}
+
+/// Calls its `then` exactly once: with the job's result, or with the error that names why it never ran.
+struct Answer<T, G: FnOnce(Result<T, CoreError>)> {
+    then: Option<G>,
+    lane: mixdog_rt::LaneKind,
+    _out: std::marker::PhantomData<fn(T)>,
+}
+
+impl<T, G: FnOnce(Result<T, CoreError>)> Answer<T, G> {
+    fn ran(mut self, out: T) {
+        if let Some(then) = self.then.take() {
+            then(Ok(out));
+        }
+    }
+
+    fn failed(mut self, error: CoreError) {
+        if let Some(then) = self.then.take() {
+            then(Err(error));
+        }
+    }
+}
+
+impl<T, G: FnOnce(Result<T, CoreError>)> Drop for Answer<T, G> {
+    // A job dropped unrun (its queue dropped it, or it panicked) still answers.
+    fn drop(&mut self) {
+        if let Some(then) = self.then.take() {
+            then(Err(unrun(self.lane, "job-dropped")));
+        }
+    }
+}
+
+/// Runs `job` on `lane` and hands `then` its result, from the caller's side of no await: queued at once when the lane has
+/// room, else queued by a task that waits for room. `then` is called exactly once — with the result, or with an error that
+/// names the lane when the job will never run (no healthy worker, a backend that cannot signal room, or the job dropped
+/// unrun) — so what the job carries (a row, a reply) is never lost to a busy lane. `then` runs on the lane's thread or the
+/// caller's: it only hands the result on.
+pub fn lane_job<L, T, F, G>(lane: L, what: &'static str, job: F, then: G)
+where
+    L: LaneToken,
+    T: Send + 'static,
+    F: FnOnce(&InLane<L>) -> T + Send + 'static,
+    G: FnOnce(Result<T, CoreError>) + Send + 'static,
+{
+    let answer = Answer { then: Some(then), lane: L::KIND, _out: std::marker::PhantomData };
+    let ready: Arc<Mutex<Option<Answer<T, G>>>> = Arc::new(Mutex::new(Some(answer)));
+    let on_lane = ready.clone();
+    let run = move |lane: &InLane<L>| {
+        let answer = on_lane.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let out = job(lane);
+        if let Some(answer) = answer {
+            answer.ran(out);
+        }
+    };
+    let mut queued = Box::pin(async move {
+        let cancel = CancellationToken::new();
+        lane.submit_wait(&cancel, run).await.map(drop)
+    });
+    let settle = move |queued: Result<(), mixdog_rt::SubmitWaitError>| {
+        if let Err(error) = queued
+            && let Some(answer) = ready.lock().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            answer.failed(not_queued(error));
+        }
+    };
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match queued.as_mut().poll(&mut cx) {
+        std::task::Poll::Ready(result) => settle(result),
+        std::task::Poll::Pending => drop(mixdog_rt::spawn(what, mixdog_rt::TaskClass::Work, async move { settle(queued.await) })),
+    }
+}
+
 /// The op gates of the mutating methods of one domain: its own scope's gate, and the
 /// thread directory's for a request that names a thread (`thread_or_none(thread_id)`).
 #[derive(Clone)]

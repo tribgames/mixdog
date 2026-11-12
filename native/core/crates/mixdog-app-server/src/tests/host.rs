@@ -78,6 +78,54 @@ async fn a_host_request_is_answered_by_the_claimant() {
     assert_eq!(call.await.unwrap(), Ok(json!({ "rules": "DIRECT" })));
 }
 
+/// An answer whose text held a lone surrogate (read as U+FFFD) would name something else than the claimant meant (an
+/// export's file path): the request fails instead of being answered with it.
+#[tokio::test(start_paused = true)]
+async fn a_host_answer_holding_a_lone_surrogate_fails_the_request() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing
+            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
+            .await
+    });
+    let request = host.frames(1).await.remove(0).body;
+    host.send_text(&format!(r#"{{"id":{},"result":{{"rules":"PROXY a\ud800"}}}}"#, request["id"]));
+    assert_eq!(
+        call.await.unwrap(),
+        Err(HostError::Rpc {
+            code: -32602,
+            message: "The answer contains unpaired Unicode surrogates.".into(),
+            data: None,
+        })
+    );
+}
+
+/// An error answer whose message or data held a lone surrogate fails the request as an answer holding one does: the
+/// substituted text never reaches the caller.
+#[tokio::test(start_paused = true)]
+async fn a_host_error_answer_holding_a_lone_surrogate_fails_the_request() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing
+            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
+            .await
+    });
+    let request = host.frames(1).await.remove(0).body;
+    host.send_text(&format!(r#"{{"id":{},"error":{{"code":-32603,"message":"no","data":{{"path":"a\ud800"}}}}}}"#, request["id"]));
+    assert_eq!(
+        call.await.unwrap(),
+        Err(HostError::Rpc {
+            code: -32602,
+            message: "The answer contains unpaired Unicode surrogates.".into(),
+            data: None,
+        })
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_failed_host_request_is_a_domain_error() {
     let rig = Rig::new();
@@ -276,6 +324,37 @@ async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_th
     // The request is over: a late event is refused, and so is one from another connection.
     assert!(!rig.outgoing.stream_event(ConnectionId(1), &request["id"], json!({})));
     assert!(!rig.outgoing.stream_event(ConnectionId(2), &request["id"], json!({})));
+}
+
+/// Every free-text field of a `host/*` answer ([`FREE_TEXT`], a model proxy's provider text): a lone surrogate in it answers
+/// the request with U+FFFD there, whole as with a real U+FFFD; the same answer holding one outside them fails the request.
+#[tokio::test(start_paused = true)]
+async fn every_free_text_field_of_a_host_answer_answers_the_request_as_u_fffd() {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    const MARK: &str = "lone-surrogate-mark";
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let samples = super::sample::Samples::new();
+    let listed: Vec<&str> = FREE_TEXT
+        .iter()
+        .filter(|(kind, method, _)| *kind == Kind::Answer && *method == EXECUTE.as_str())
+        .flat_map(|(_, _, patterns)| patterns.iter().copied())
+        .collect();
+    assert!(!listed.is_empty());
+    let lone = |value: serde_json::Value| value.to_string().replace(&format!("\"{MARK}\""), r#""a\ud800""#);
+    for pattern in listed.iter().copied().chain(["/result/model"]) {
+        let outgoing = rig.outgoing.clone();
+        let call = tokio::spawn(async move { outgoing.request(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 })).await });
+        let request = pc.frames(1).await.remove(0).body;
+        pc.send_text(&format!(r#"{{"id":{},"result":{}}}"#, request["id"], lone(samples.untyped_with_text(pattern, MARK))));
+        let expected = if listed.contains(&pattern) {
+            Ok(samples.untyped_with_text(pattern, "a\u{fffd}"))
+        } else {
+            Err(HostError::Rpc { code: -32602, message: "The answer contains unpaired Unicode surrogates.".into(), data: None })
+        };
+        assert_eq!(call.await.unwrap(), expected, "{pattern}");
+    }
 }
 
 #[tokio::test(start_paused = true)]

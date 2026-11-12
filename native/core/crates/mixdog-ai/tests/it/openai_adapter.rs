@@ -519,6 +519,6 @@ async fn the_warm_up_goes_through_the_proxy_the_network_setting_names() {
     let link = Arc::new(mixdog_ai::transport::ReqwestLink::routed(&KeepaliveSchedule::SPEC, false, policy));
     let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
     let _adapter = adapter_in(clocked(&now, None), TransportKind::Http1, link, ScriptedDial::with(vec![]), Credentials::new("t", None));
-    let line = tokio::time::timeout(std::time::Duration::from_secs(20), line).await.expect("the warm-up reached the proxy").unwrap();
+    let line = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), line).await.expect("the warm-up reached the proxy").unwrap();
     assert_eq!(line, "CONNECT chatgpt.com:443 HTTP/1.1");
 }

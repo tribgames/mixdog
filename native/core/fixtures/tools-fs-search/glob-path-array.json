@@ -1,0 +1,186 @@
+{
+  "name": "glob-path-array",
+  "files": {
+    "a/x.ts": "x\n",
+    "b/y.ts": "y\n",
+    "top.ts": "t\n"
+  },
+  "warmup": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "a"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": []
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "a",
+          "//server/share"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "/\\server/share",
+          "b"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": [
+          "*.ts",
+          "//server/share/*.ts"
+        ],
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": 3
+      },
+      "text": "Error: glob arg \"path\" must be string (got number)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": null
+      },
+      "text": "a/x.ts\nb/y.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: glob arg \"path\" must be string (got object)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": true
+      },
+      "text": "Error: glob arg \"path\" must be string (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": ""
+      },
+      "text": "a/x.ts\nb/y.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": " \t "
+      },
+      "text": "a/x.ts\nb/y.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "root": [
+          "a"
+        ]
+      },
+      "text": "Error: glob arg \"root\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "root": ""
+      },
+      "text": "a/x.ts\nb/y.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "a",
+        "root": [
+          "b"
+        ]
+      },
+      "text": "Error: glob arg \"root\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "a"
+      },
+      "text": "a/x.ts",
+      "isError": false
+    }
+  ]
+}

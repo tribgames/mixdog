@@ -1,0 +1,98 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-effort-decision-log.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps, package.json) with benchmarks/rust-core/recorders/node-patches/node-change-effort-decision-log.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-change-effort-decision-log.patch",
+  "exclusions": [],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 33689,
+      "path": "golden.json",
+      "sha256": "47bb8dac769712f42af2d965040a900485332137d5c12ac8bd8fb745c7b04027"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9141,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-effort-decision-log.patch",
+      "paths": [
+        "src/runtime/effort-judge/decision-log.mjs",
+        "src/runtime/effort-judge/decision-log.test.mjs",
+        "src/runtime/effort-judge/judge-client.mjs"
+      ],
+      "sha256": "74114073ccd156fb59adc9033f17f59fabfc30024fb7175795304f2fc2760d65"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 3
+    },
+    "srcSha256": "cdbd08fd26a666083ac22b973c5d3afc44760862d6f95828a06082398c1eb207",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-effort-decision-log.mjs",
+  "recorderSha256": "87084bfc6e116c0d4156b60bd0bd3289923dbc9c07f10cce4287c52a85820086",
+  "scenarios": [
+    {
+      "entries": 26,
+      "files": [
+        "effort-judge/decisions-summary.jsonl",
+        "effort-judge/decisions.1.jsonl",
+        "effort-judge/decisions.jsonl"
+      ],
+      "name": "segments"
+    },
+    {
+      "entries": 3,
+      "files": [
+        "effort-judge/decisions-summary.jsonl",
+        "effort-judge/decisions.1.jsonl",
+        "effort-judge/decisions.jsonl"
+      ],
+      "name": "legacy"
+    },
+    {
+      "entries": 6,
+      "files": [
+        "effort-judge/decisions-summary.jsonl",
+        "effort-judge/decisions.1.jsonl"
+      ],
+      "name": "leaving-first"
+    },
+    {
+      "entries": 11,
+      "files": [
+        "effort-judge/decisions-summary.jsonl",
+        "effort-judge/decisions.1.jsonl",
+        "effort-judge/decisions.jsonl"
+      ],
+      "name": "summary-appends"
+    },
+    {
+      "entries": 8,
+      "files": [
+        "redirected/log.jsonl"
+      ],
+      "name": "redirected"
+    }
+  ],
+  "set": "effort-decision-log",
+  "totalBytes": 33689
+}

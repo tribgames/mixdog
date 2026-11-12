@@ -91,7 +91,7 @@ impl TurnSnapshot {
         }
         tokio::select! {
             _ = &mut seal => {}
-            _ = tokio::time::sleep(TURN_CLEANUP_SETTLE) => {}
+            _ = mixdog_rt::time::sleep(TURN_CLEANUP_SETTLE) => {}
             _ = cancel.cancelled() => {}
         }
     }
@@ -216,7 +216,7 @@ mod tests {
     async fn a_seal_that_never_returns_ends_at_the_settle_limit() {
         let (review, snapshot) = started();
         let cancel = Cancel::new();
-        let ended = tokio::time::timeout(TURN_CLEANUP_SETTLE + Duration::from_millis(1), snapshot.finish(&cancel)).await;
+        let ended = mixdog_rt::time::timeout(TURN_CLEANUP_SETTLE + Duration::from_millis(1), snapshot.finish(&cancel)).await;
         assert!(ended.is_ok(), "finish waited past the settle limit");
         assert_eq!(*review.sealed.lock().unwrap(), vec![Some(1)]);
     }
@@ -232,7 +232,7 @@ mod tests {
         };
         review.sealing.notified().await;
         cancel.abort_default();
-        let ended = tokio::time::timeout(Duration::from_millis(1), waiting).await;
+        let ended = mixdog_rt::time::timeout(Duration::from_millis(1), waiting).await;
         assert!(ended.is_ok(), "finish outlived the cancel");
     }
 }

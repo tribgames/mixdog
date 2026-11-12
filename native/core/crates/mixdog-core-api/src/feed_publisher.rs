@@ -35,6 +35,7 @@ fn encode(method: &str, params: Value, stamp: FeedStamp) -> Bytes {
         params: Some(params),
         emitted_at_ms: Some(now_ms()),
         feed: Some(stamp),
+        lone_surrogates: Vec::new(),
     };
     Bytes::from(serde_json::to_vec(&note).expect("a notification serializes"))
 }

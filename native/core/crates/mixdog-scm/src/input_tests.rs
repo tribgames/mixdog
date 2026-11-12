@@ -371,20 +371,34 @@ async fn githubs_arguments_are_checked_as_nodes_host_did() {
     compare_group(&["input-flow-id-", "input-githubRequest-", "githubCliLoginStatus-padded-flow-id"]).await;
 }
 
-/// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it; the core's frame decoder cannot read
-/// the frame that carries it and closes the connection, for every method. An open difference the manifest states; the case is on
-/// record as Node's JSON text.
+/// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it, and its spawn wrote it on git's command
+/// line as U+FFFD. The core's frame decoder reads it as U+FFFD (decisions.md "frame-lone-surrogate"), so the call acts on what
+/// git got from Node.
 #[test]
-fn a_lone_surrogate_node_acted_on_is_on_record() {
+fn a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it() {
     let golden = golden();
     let limit = golden["limits"].as_array().expect("limits").iter().find(|limit| limit["name"] == "lone-surrogate-gitLog-query").expect("the case");
     let text = limit["paramsText"].as_str().expect("params text");
     assert!(text.contains("\\ud800"), "{text}");
     let args: Vec<&str> = text.trim_start_matches('[').trim_end_matches(']').splitn(2, ',').collect();
     let frame = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"git/log","params":{{"cwd":{},"query":{}}}}}"#, args[0], args[1]);
-    let decoded = mixdog_app_protocol::rpc::decode_inbound_text(&frame, 1 << 20);
-    assert_eq!(decoded.close_code(), Some(mixdog_app_protocol::limits::CloseCode::InvalidFrame), "the core's frame decoder on {frame}");
-    assert!(limit["recordedText"].as_str().expect("Node's answer").starts_with(r#"{"frame":{"ok":true,"#), "Node acted on it");
+    let mixdog_app_protocol::rpc::InboundText::Message(mixdog_app_protocol::rpc::JsonRpcMessage::Request(request)) =
+        mixdog_app_protocol::rpc::decode_inbound_text(&frame, 1 << 20)
+    else {
+        panic!("the core's frame decoder refuses {frame}");
+    };
+    let places = request.lone_surrogates.iter().filter(|at| matches!(at, mixdog_js::LoneAt::Value(_)));
+    assert_eq!(places.map(mixdog_js::LoneAt::pointer).collect::<Vec<_>>(), ["/query"], "where the decoder replaced one");
+    use mixdog_app_protocol::free_text;
+    assert_eq!(free_text::refused(free_text::Kind::Request, "git/log", &request.lone_surrogates), None, "a query is free text");
+    // Node's answer and the arguments it acted on, each lone unit as the UTF-8 its spawn wrote: U+FFFD.
+    let recorded: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(limit["recordedText"].as_str().expect("Node's answer"))).expect("json");
+    let argv = recorded["processes"][0]["argv"].as_array().expect("git's argv");
+    assert!(argv.contains(&json!("--grep=\u{FFFD}")), "{argv:?}");
+    let params = request.params.expect("params");
+    let core = crate::input::node_args("git/log", &params).expect("the core checks git/log").expect("the core acts on it");
+    let node = recorded["ops"][0]["args"].as_array().expect("args");
+    assert_eq!((core.operation, js_values(&core.args)), (recorded["ops"][0]["name"].as_str().expect("operation"), js_values(node)));
 }
 
 /// What Node put on gh's command line and fed it on stdin for an argument it read through a coercion is what the core builds:

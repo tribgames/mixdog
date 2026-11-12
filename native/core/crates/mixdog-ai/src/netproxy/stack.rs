@@ -131,7 +131,7 @@ mod tests {
         let (tick, changes) = watch::channel(0u64);
         let task = stack.follow(store.clone(), changes);
         tick.send(1).unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        mixdog_rt::time::timeout(Duration::from_secs(5), async {
             while stack.policy.current().is_err() {
                 tokio::task::yield_now().await;
             }
@@ -142,7 +142,7 @@ mod tests {
         tick.send(2).unwrap();
         store.save_network_proxy(json!({ "mode": "system" })).await.unwrap();
         tick.send(3).unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        mixdog_rt::time::timeout(Duration::from_secs(5), async {
             while stack.policy.epoch() == epoch {
                 tokio::task::yield_now().await;
             }

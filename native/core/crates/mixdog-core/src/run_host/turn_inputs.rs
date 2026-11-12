@@ -40,11 +40,12 @@ impl BotRouteStore {
         Self { reads: Arc::new(BotReads { data_dir: data_dir.into() }), io }
     }
 
-    /// One lane job. A lane that cannot run it is an error, never a store with nothing in it:
-    /// "no route" would hand the bot's turn to the config's route, a different model.
+    /// One lane job, a full lane waited out (the read starts a user's or an agent's turn). A lane that cannot run it is
+    /// an error, never a store with nothing in it: "no route" would hand the bot's turn to the config's route, a
+    /// different model.
     async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads, &InLane<InteractiveIo>) -> T + Send + 'static) -> Result<T, RouteReadUnavailable> {
         let reads = self.reads.clone();
-        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), move |lane| read(&reads, lane)).await.map_err(|_| RouteReadUnavailable)
+        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), move |lane| read(&reads, lane)).await.map_err(|_| RouteReadUnavailable)
     }
 }
 

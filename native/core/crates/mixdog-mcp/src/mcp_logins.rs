@@ -325,7 +325,7 @@ impl McpLogins {
         if since != flow.version() {
             return Ok(flow.view());
         }
-        let _ = tokio::time::timeout(wait, rx.changed()).await;
+        let _ = mixdog_rt::time::timeout(wait, rx.changed()).await;
         Ok(flow.view())
     }
 
@@ -387,7 +387,7 @@ impl Driver {
         self.drive(url_tx).await;
         let (flows, feeds, id) = (Arc::clone(&self.flows), Arc::clone(&self.feeds), flow.id.clone());
         mixdog_rt::spawn("mcp.login.expire", mixdog_rt::TaskClass::Work, async move {
-            tokio::time::sleep(SETTLED_FLOW_TTL).await;
+            mixdog_rt::time::sleep(SETTLED_FLOW_TTL).await;
             lock(&flows).remove(&id);
             feeds.close(&id);
         });
@@ -429,7 +429,7 @@ impl Driver {
             session.cancel();
         }
         let mut url_tx = Some(url_tx);
-        let mut deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+        let mut deadline: Option<std::pin::Pin<Box<mixdog_rt::time::Sleep>>> = None;
         loop {
             let next = match deadline.as_mut() {
                 Some(sleep) => tokio::select! {
@@ -466,7 +466,7 @@ impl Driver {
                     if self.open_browser != Some(false) {
                         self.backend.open_browser(&url);
                     }
-                    deadline = Some(Box::pin(tokio::time::sleep(self.deadline)));
+                    deadline = Some(Box::pin(mixdog_rt::time::sleep(self.deadline)));
                 }
                 LoginState::Waiting => flow.set_step("connecting"),
                 LoginState::Starting | LoginState::DeviceCode { .. } => {}

@@ -99,6 +99,9 @@ pub trait WorkspaceHost: Send + Sync + 'static {
     /// the stored record again); nothing is saved.
     fn set_workspace(&self, session_id: &str, workspace: Option<Value>);
 
+    /// Publish `workspace` as the session's live workspace (`routeState().workspace`), once a transition settled.
+    async fn publish_workspace(&self, _session_id: &str, _workspace: Option<Value>) {}
+
     async fn activity(&self, session_id: &str) -> LeadActivity;
 
     /// Live sessions of this runtime.

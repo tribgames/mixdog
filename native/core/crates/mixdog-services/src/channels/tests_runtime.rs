@@ -60,8 +60,10 @@ impl ChannelSettings for FakeSettings {
 }
 
 #[derive(Default)]
-struct FakeServices {
+pub(super) struct FakeServices {
     log: Mutex<Vec<String>>,
+    /// A reload's sync fails with this cause (a receiver that did not come back).
+    pub(super) reload_fails: Mutex<Option<String>>,
     /// The sync waits for a permit of this semaphore (a listener that has not bound yet).
     sync_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// Notified when a sync has been entered.
@@ -70,7 +72,7 @@ struct FakeServices {
 
 /// Waits for a signal a test double gives; the bound only turns a missing signal into a failure.
 async fn signal(notify: &tokio::sync::Notify, what: &str) {
-    tokio::time::timeout(Duration::from_secs(15), notify.notified()).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
+    mixdog_rt::time::timeout(Duration::from_secs(15), notify.notified()).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
 }
 
 #[async_trait]
@@ -78,6 +80,9 @@ impl AutomationServices for FakeServices {
     async fn sync(&self, reload: bool) -> Result<(), String> {
         self.log.lock().unwrap().push(format!("sync:{reload}"));
         self.entered.notify_one();
+        if let Some(cause) = self.reload_fails.lock().unwrap().clone().filter(|_| reload) {
+            return Err(cause);
+        }
         let gate = self.sync_gate.lock().unwrap().clone();
         if let Some(gate) = gate {
             gate.acquire().await.expect("the gate stays open").forget();
@@ -140,15 +145,15 @@ impl WebhookProbe for FakeProbe {
     }
 }
 
-struct Env {
+pub(super) struct Env {
     host: Arc<FakeHost>,
     admin: Arc<ChannelAdmin>,
-    runtime: Arc<ChannelRuntime>,
-    routines: Arc<RoutineRuntime>,
+    pub(super) runtime: Arc<ChannelRuntime>,
+    pub(super) routines: Arc<RoutineRuntime>,
     schedules: Arc<StateScheduleStore>,
     webhooks: Arc<StateWebhookStore>,
     settings: Arc<FakeSettings>,
-    services: Arc<FakeServices>,
+    pub(super) services: Arc<FakeServices>,
     agent: Arc<FakeAgent>,
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
@@ -158,7 +163,7 @@ struct Env {
     _dir: tempfile::TempDir,
 }
 
-async fn env() -> Env {
+pub(super) async fn env() -> Env {
     env_with(false).await
 }
 
@@ -606,13 +611,13 @@ fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest
     CoreRequest { method: Method(method), params, op: op.map(OpId::from), ctx: CallContext::internal("test") }
 }
 
-fn service(e: &Env) -> ChannelService {
+pub(super) fn service(e: &Env) -> ChannelService {
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
     ChannelService::new(e.admin.clone(), calls)
 }
 
-async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
+pub(super) async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
     match service.call(request(method, params, Some("op-1"))).await? {
         Reply::Value(value) => Ok(value),
         Reply::Subscribe(_) => panic!("channel methods never subscribe"),
@@ -675,6 +680,51 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
+}
+
+/// `fixtures/session-transport-state-lanes` case 327 with Node's fix (`node-fix-remote-state-null-session.patch`): a
+/// manual ON of the bridge for `session_remote`, then its OFF, publish the pinned session and then none. What a client
+/// reads of each publication is `enabled` and `sessionId` (`applyRemoteSessionState`, desktop
+/// `session-host-publication.ts:290`; the core's `hostState.remoteSession` from the binding observer,
+/// `compose_flip.rs` `observe_binding`). Node's second state is the client registration adding its cwd, which the core
+/// has no counterpart of (no channel transport client registers): it changes neither field.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-state-lanes/recording.json");
+    let recording: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let case = recording["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix")
+        .unwrap();
+    let e = env().await;
+    let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
+    let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
+    let published = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let sink = published.clone();
+    calls.observe_binding(Arc::new(move |enabled, session| sink.lock().unwrap().push(json!({ "enabled": enabled, "sessionId": session }))));
+    let svc = ChannelService::new(e.admin.clone(), calls);
+    let node = |states: &Value| -> Vec<Value> {
+        let mut seen: Vec<Value> = Vec::new();
+        for state in states.as_array().unwrap() {
+            let shown = json!({ "enabled": state["enabled"], "sessionId": state["sessionId"] });
+            if seen.last() != Some(&shown) {
+                seen.push(shown);
+            }
+        }
+        seen
+    };
+    let steps = case["result"]["steps"].as_array().unwrap();
+    assert_eq!(steps[0]["call"], "POST /client/register");
+    for (n, step) in steps[1..].iter().enumerate() {
+        assert_eq!(step["call"]["name"], ACTIVATE_TOOL);
+        let reply = svc.call(request("channel/call", json!({ "name": ACTIVATE_TOOL, "args": step["call"]["args"] }), Some(&format!("op-{n}")))).await.unwrap();
+        let Reply::Value(reply) = reply else { panic!("not a value") };
+        assert_ne!(reply["isError"], true, "step {n}: {reply}");
+        assert_eq!(*published.lock().unwrap(), node(&step["statesSoFar"]), "step {n}: the published binding");
+    }
+    e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
 /// Node's boot check (`scheduleAutomationAutostart`, `channel-start.test.mjs` / `prewarm.channels.test.mjs`):
@@ -772,7 +822,7 @@ async fn a_shutdown_ends_a_deferred_start_waiting_on_the_active_automation_check
     *e.host.listing_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
     e.admin.schedule_automation_start();
     signal(&e.host.listing_entered, "the active check is inside the listing").await;
-    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    mixdog_rt::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
     assert!(!e.runtime.automation_running());
     assert!(e.services.log.lock().unwrap().is_empty());
     assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0);
@@ -809,7 +859,7 @@ async fn a_shutdown_ends_a_deferred_start_stuck_in_the_provider_init() {
     *e.agent.init_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
     e.admin.schedule_automation_start();
     signal(&e.agent.entered, "the start is inside the provider init").await;
-    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    mixdog_rt::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
     e.runtime.stop_owned_runtime("test").await.unwrap();
     assert!(!e.runtime.automation_running());
     assert!(e.services.log.lock().unwrap().is_empty(), "nothing synced after the shutdown");
