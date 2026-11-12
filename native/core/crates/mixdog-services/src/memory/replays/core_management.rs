@@ -259,6 +259,8 @@ pub(in crate::memory::replays) mod pg {
         kill: fn(u32) -> std::process::Command,
         /// How long the kill command may run.
         kill_deadline: std::time::Duration,
+        /// How long the command that ends a stuck kill command may run, and how long the stuck one has to end after it.
+        fallback_deadline: std::time::Duration,
         /// How long the guard waits for the waiting thread to report the parser reaped once its tree is killed.
         reap_deadline: std::time::Duration,
     }
@@ -295,6 +297,7 @@ pub(in crate::memory::replays) mod pg {
                 answered: std::cell::Cell::new(false),
                 kill: kill_tree_command,
                 kill_deadline: std::time::Duration::from_secs(10),
+                fallback_deadline: std::time::Duration::from_secs(10),
                 reap_deadline: std::time::Duration::from_secs(10),
             }
         }
@@ -313,14 +316,16 @@ pub(in crate::memory::replays) mod pg {
             if finished.recv_timeout(self.kill_deadline).is_ok() {
                 return Ok(());
             }
+            // The fallback is the system's own kill command whatever `kill` is: it keeps its own deadline (a test that shortens
+            // `kill_deadline` to overrun a slow `kill` gave `taskkill` the same 300 ms, and a loaded machine overran it).
             let fallback = match quiet(&mut kill_tree_command(kill_pid)) {
                 Err(e) => format!("the fallback command (on pid {kill_pid}) did not start: {e}"),
-                Ok(fallback) => match reap(fallback).recv_timeout(self.kill_deadline) {
+                Ok(fallback) => match reap(fallback).recv_timeout(self.fallback_deadline) {
                     Ok(_) => "the fallback command ended".to_owned(),
-                    Err(_) => format!("the fallback command (on pid {kill_pid}) did not finish within {:?}", self.kill_deadline),
+                    Err(_) => format!("the fallback command (on pid {kill_pid}) did not finish within {:?}", self.fallback_deadline),
                 },
             };
-            let stuck = if finished.recv_timeout(self.kill_deadline).is_ok() {
+            let stuck = if finished.recv_timeout(self.fallback_deadline).is_ok() {
                 "the stuck command was ended".to_owned()
             } else {
                 format!("the stuck command (pid {kill_pid}) is still running")
