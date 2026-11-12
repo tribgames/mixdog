@@ -7,7 +7,7 @@ async fn node(script: &str, args: &[&Path]) -> Value {
     command.args(["--input-type=module", "-e", script]);
     for arg in args { command.arg(arg); }
     command.kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(30), command.output()).await
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), command.output()).await
         .expect("office startup fixture Node process did not exit within 30 seconds").unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     serde_json::from_slice(&output.stdout).unwrap()
@@ -46,7 +46,7 @@ async fn session_start_sweeps_the_complete_recorded_office_subject() {
     let tokens = mixdog_rt::testing::tokens();
     let stop = mixdog_rt::CancellationToken::new();
     let mut completed = crate::office_startup::completions().subscribe();
-    let core = tokio::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig {
+    let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig {
         data_dir: data.clone(), user_data_dir: dir.path().join("userdata"), runtime_root: dir.path().join("runtime"),
         js_runtime: js, ort_library: OrtRuntime::NoBinding,
         outgoing: mixdog_app_server::Outgoing::new(),
@@ -60,7 +60,7 @@ async fn session_start_sweeps_the_complete_recorded_office_subject() {
     let thread = mixdog_core_api::ids::ThreadId::from("office-startup-recording");
     let outcome = async {
         core.real.directory.create_with_id(thread.clone(), serde_json::Map::new(), json!({})).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(30), async {
+        mixdog_rt::time::timeout(Duration::from_secs(30), async {
             loop { if completed.recv().await.unwrap() == thread { break; } }
         }).await.expect("session startup office-journal host call did not complete within 30 seconds");
         let snapshot = r#"
@@ -91,7 +91,7 @@ async fn session_start_sweeps_the_complete_recorded_office_subject() {
     };
     use futures::FutureExt;
     let result = std::panic::AssertUnwindSafe(outcome).catch_unwind().await;
-    tokio::time::timeout(Duration::from_secs(30), core.stop("office startup test")).await
+    mixdog_rt::time::timeout(Duration::from_secs(30), core.stop("office startup test")).await
         .expect("office startup core shutdown did not complete within 30 seconds");
     assert_eq!(result.unwrap(), expected["tree"]);
 }

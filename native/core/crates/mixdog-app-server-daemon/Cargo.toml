@@ -7,6 +7,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Replay-only: the service answering `replay/storesSettled` (replay_stores_settled.rs) over the session directory's
+# `durability_settled`. For development builds only (build.rs fails a release-profile build with it).
+replay-controls = ["mixdog-app-server/replay-controls", "mixdog-core-session/test-support"]
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
@@ -41,7 +46,7 @@ bytes = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-migrate = { workspace = true }
 mixdog-secrets = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { workspace = true, features = ["core"] }
 mixdog-store = { workspace = true }
 mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
@@ -83,16 +88,16 @@ windows-sys = { workspace = true, features = [
 mixdog-testkit = { workspace = true }
 # The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
 # `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
-mixdog-core = { workspace = true, features = ["count-work"] }
+mixdog-core = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 # The replay of Node's review-signal recording (`compose::review_restart_tests`).
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
@@ -108,7 +113,7 @@ mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
@@ -120,9 +125,22 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
+# A ledger pricer for the replay barrier's test (`replay_stores_settled_tests`).
+mixdog-ledger = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-services = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]

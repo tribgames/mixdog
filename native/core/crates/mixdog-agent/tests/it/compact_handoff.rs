@@ -57,7 +57,7 @@ async fn handoff_generation_equals_node() {
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let archive = PreviewArchive { session: "s".into() };
     let ctx = FreshContext {
-        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, preview: true },
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
     for run in golden["runs"].as_array().expect("runs") {
@@ -121,7 +121,7 @@ async fn an_aborted_summary_call_propagates_as_an_abort() {
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let archive = PreviewArchive { session: "s".into() };
     let ctx = FreshContext {
-        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, preview: true },
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
     let messages: Vec<_> = run["messages"].as_array().expect("messages").iter().map(node_message).collect();

@@ -553,11 +553,8 @@ impl Worktrees {
             let Some(record) = record.filter(|r| {
                 state.kind == "managed" && Path::new(&r.path).exists() && (r.state == "ready" || (r.state == "deleting" && r.extra.get("deleting").and_then(|d| d.get("safeOnly")) == Some(&Value::Bool(true))))
             }) else {
-                return Err(errors::path_unsafe(
-                    state.worktree_id.clone().unwrap_or_default(),
-                    state.path.clone().unwrap_or_default(),
-                    Some("Only an unused Mixdog-managed worktree can be removed."),
-                ));
+                // Node's `worktreeError` with its own text and no details (branch-management.mjs).
+                return Err(errors::coded_text(errors::WORKTREE_PATH_UNSAFE, "Only an unused Mixdog-managed worktree can be removed."));
             };
             let mut users: Vec<String> = Vec::new();
             for id in record.owner_session_id.iter().chain(record.shared_session_ids.iter()) {

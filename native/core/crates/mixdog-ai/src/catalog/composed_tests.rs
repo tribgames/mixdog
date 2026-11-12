@@ -135,7 +135,7 @@ async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision(
     assert_eq!(service.audit_cached_pricing(), None, "the same revision is not reported again");
 
     // A refresh moves the table stamps: the revision, so the report, follows.
-    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(2)).await;
     service.refresh().await;
     assert!(service.audit_cached_pricing().is_some_and(|report| report.contains("openai-oauth/zz-unpriced")));
 }

@@ -179,17 +179,17 @@ async fn rename_refused_while_running_and_reload_failure_drops_the_entry() {
         async move { s.fire_cron_slot("daily", at("2025-01-01T09:00:00Z")).await }
     });
     f.runner.started.notified().await;
-    let refused = f.sched.rename_locked("daily", || async { Ok(Some(1)) }, || async { Ok(()) }).await;
+    let refused = f.sched.rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Ok(()) }).await;
     assert_eq!(refused, Err(ScheduleError::RenameRunning { name: "daily".into() }));
     gate.notify_one();
     run.await.unwrap();
     let failed = f
         .sched
-        .rename_locked("daily", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) })
+        .rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) })
         .await;
     assert!(matches!(failed, Err(ScheduleError::RenameReloadFailed { .. })));
     assert!(f.sched.find_schedule("daily").is_none());
-    let ok = f.sched.rename_locked("gone", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
+    let ok = f.sched.rename_locked("gone", "went", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
     assert_eq!(ok, Ok(None));
 }
 
@@ -213,7 +213,7 @@ async fn armed_cron_fires_on_time() {
     let clock = Arc::new(TokioClock { base: at("2025-01-01T08:59:00Z"), start: tokio::time::Instant::now() });
     let f = fixture_clock(vec![cron_row("daily")], Script::default(), clock);
     f.sched.start();
-    tokio::time::sleep(std::time::Duration::from_secs(61)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(61)).await;
     f.runner.started.notified().await;
     assert_eq!(f.runner.runs.load(Ordering::SeqCst), 1);
     f.sched.stop();
@@ -242,14 +242,14 @@ async fn slots_missed_by_a_clock_jump_are_not_replayed() {
     f.sched.start();
     tokio::task::yield_now().await; // the job is now waiting for the 09:00 slot
     *clock.jump.lock().unwrap() = Duration::days(2) + Duration::minutes(30);
-    tokio::time::sleep(std::time::Duration::from_secs(61)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(61)).await;
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
     // Three slots (Jan 1, 2, 3 at 09:00) elapsed unseen: none of them runs.
     assert_eq!(f.runner.runs.load(Ordering::SeqCst), 0);
     // The next slot is computed from now and fires once, on time.
-    tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
     f.runner.started.notified().await;
     assert_eq!(f.runner.runs.load(Ordering::SeqCst), 1);
     f.sched.stop();
@@ -260,7 +260,7 @@ async fn armed_one_shot_fires_and_completes() {
     let clock = Arc::new(TokioClock { base: at("2025-01-01T08:00:00Z"), start: tokio::time::Instant::now() });
     let f = fixture_clock(vec![one_shot_row("once", "2025-01-01T08:00:10Z")], Script::default(), clock);
     f.sched.start();
-    tokio::time::sleep(std::time::Duration::from_secs(11)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(11)).await;
     f.runner.started.notified().await;
     tokio::task::yield_now().await;
     let row = f.store.get("once").await.unwrap().unwrap();

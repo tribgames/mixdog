@@ -142,7 +142,8 @@ impl SavedLoginRegistry {
     }
 
     /// The spellings held, in registration order.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn spellings(&self) -> Vec<String> {
         self.held().values.iter().map(|(_, spelling)| spelling.clone()).collect()
     }
@@ -611,7 +612,7 @@ mod tests {
                     "settle" => {
                         let (registry, turn) = (registry.clone(), turn_of(&step["turn"]));
                         let handle = tokio::spawn(async move { registry.settle(&turn).await });
-                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
                         let at_once = handle.is_finished();
                         settles.push(handle);
                         json!({ "settledAtOnce": at_once })

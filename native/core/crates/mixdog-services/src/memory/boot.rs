@@ -760,7 +760,7 @@ impl MemoryStack {
                 self.transcripts.persist_transcript_offsets().await;
             }
         };
-        if tokio::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
+        if mixdog_rt::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
             // Node's fallback log line (`daemon-pg-stop.mjs:38`); what the teardown had not finished is ended, and PostgreSQL is asked to stop anyway.
             tracing::warn!("teardown still running {}ms into shutdown; stopping postgres before the launcher's kill", PG_FORCED_STOP_AT.as_millis());
             if let Some(cycles) = &self.cycles {
@@ -776,7 +776,7 @@ impl MemoryStack {
         // process lives that long. A postmaster started by an opening admitted before the stop and still coming up at 6 s is left as Node leaves it (its
         // exit hook, `supervisor.mjs:832-845`, covers only a published `_live`): it runs outside the core's job, and the next core attaches to it and stops it.
         if let Some(flight) = flight {
-            let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
+            let _ = mixdog_rt::time::timeout(OPENING_JOIN, flight).await;
         }
         let opened = self.opened.get();
         if let Some(runtime) = &self.runtime {

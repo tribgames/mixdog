@@ -48,17 +48,19 @@ pub trait VertexAdc: Send + Sync {
 }
 
 /// The custom-provider section of `provider-admin.mjs`. Each call is the `login.mjs` wrapper:
-/// after it succeeds `AuthRefresh::after_credential_change` has run.
+/// after it succeeds `AuthRefresh::after_credential_change` has run. `body_lone_units` (save,
+/// test, discovery) is the number of lone surrogates the client's `requestBody` held
+/// (`CallContext::lone_surrogates`): Node measures each as its six-character escape.
 #[async_trait]
 pub trait CustomProviders: Send + Sync {
-    async fn save(&self, input: Value) -> Result<Value, Failure>;
+    async fn save(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure>;
     /// `secret` is the request's value as sent: anything but a string is Node's `TypeError`.
     async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure>;
     async fn remove(&self, id: &str) -> Result<Value, Failure>;
     /// `patch`: `None` is absent (refused), `Some(null)` removes the model's override.
     async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure>;
-    async fn test(&self, input: Value) -> Result<Value, Failure>;
-    async fn discover_models(&self, input: Value) -> Result<Value, Failure>;
+    async fn test(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure>;
+    async fn discover_models(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure>;
 }
 
 /// `collectWebSearchProviderModels({ force })` (`provider-models/web-search-catalog.mjs`).

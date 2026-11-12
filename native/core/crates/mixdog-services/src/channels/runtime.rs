@@ -264,7 +264,7 @@ impl ChannelRuntime {
                         woke.await;
                         // `wake()` re-arms the parked job as `arm(key, 0, run)` (`warmup/timer-arm.mjs:19-27`):
                         // a zero-delay timer, so the whole callback runs again on its own tick, not inline.
-                        tokio::time::sleep(std::time::Duration::ZERO).await;
+                        mixdog_rt::time::sleep(std::time::Duration::ZERO).await;
                         continue;
                     }
                     break;
@@ -513,6 +513,7 @@ impl ChannelLifecycle for ChannelRuntime {
             .scheduler
             .rename_locked(
                 name,
+                &def.name,
                 || self.schedules.rename(name, &def, timing_changed),
                 || async { self.reload_runtime().await },
             )

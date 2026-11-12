@@ -469,7 +469,7 @@ mod tests {
         for name in ["data1", "data2", "ctl"] {
             frames.send(frame(name)).await.unwrap();
         }
-        tokio::time::timeout(std::time::Duration::from_secs(60), handled_rx)
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), handled_rx)
             .await
             .expect("the control frame waited behind the paused reader")
             .unwrap();
@@ -489,7 +489,7 @@ mod tests {
         for name in ["data1", "ctl-close"] {
             frames.send(frame(name)).await.unwrap();
         }
-        let code = tokio::time::timeout(std::time::Duration::from_secs(60), pumped)
+        let code = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), pumped)
             .await
             .expect("the close waited behind the paused reader")
             .unwrap();

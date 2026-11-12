@@ -152,6 +152,22 @@ pub fn row_facts(message: &mut Value, text: &mut UserText<'_>) -> Option<RowFact
     Some(facts)
 }
 
+/// The message without the display facts [`row_facts`] wrote into its `meta` (`taskCard`, `turnEnd`): the
+/// conversation message as the model context holds it (today's `session.messages`, which never carried them). A
+/// `meta` left empty is the one [`set_meta`] created, so it goes too.
+pub fn without_display_facts(message: &mut Value) {
+    let Some(row) = message.as_object_mut() else {
+        return;
+    };
+    let Some(meta) = row.get_mut("meta").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let had = meta.shift_remove(TASK_CARD).is_some() | meta.shift_remove(TURN_END).is_some();
+    if had && meta.is_empty() {
+        row.shift_remove("meta");
+    }
+}
+
 fn set_meta(message: &mut Value, key: &str, fact: Value) {
     let Some(message) = message.as_object_mut() else {
         return;

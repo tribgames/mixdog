@@ -8,7 +8,7 @@ fail-fast = false
 # default profile still runs them all; the merge check uses it.
 [profile.agent]
 default-filter = '''not (
-    (package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(/^session::worktree::worktree_service_tests::/)))
+    (package(mixdog-core-session-replays) & binary(stores) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(/^worktree_service::/)))
   | (package(mixdog-migrate) & (test(/^desktop_profile::tests::/) | test(/every_crash_point/)))
   | (package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/))
 )'''
@@ -72,6 +72,7 @@ filter = '''package(mixdog-app-server-daemon) & (
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
   | test(=compose::tests::the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token)
+  | test(=compose::tests::the_github_tool_a_session_gets_is_nodes_builtin_one)
   | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
   | test(=server::tests::a_client_initializes_and_starts_a_thread_over_the_pair)
   | test(=server::tests::every_thread_and_turn_method_of_the_table_reaches_a_handler)
@@ -82,12 +83,12 @@ filter = '''package(mixdog-app-server-daemon) & (
 )'''
 slow-timeout = { period = "120s", terminate-after = 6 }
 
-# The two real-git replays of mixdog-core-session each wait on a chain of about 1,400 git processes
+# The two real-git replays of mixdog-core-session (in mixdog-core-session-replays) each wait on a chain of about 1,400 git processes
 # (7.8 CPU seconds in 72 s for the project replay), so process creation, not CPU, is what the rest of
 # the suite slows down: the project replay needs 87 s alone but had used 109 s in the workspace run when
 # it failed, and the safety scenarios passed 120 s. Each takes every test thread, so it runs alone.
 [[profile.default.overrides]]
-filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
+filter = 'package(mixdog-core-session-replays) & binary(stores) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(=worktree_service::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
 # With twelve checkouts building beside it the project replay takes 120-142 s (it passed in 141.87 s alone
 # on 2026-11-10): at the default 120 s it was killed in nine of nine runs of an hour, each a lost two
