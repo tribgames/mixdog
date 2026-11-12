@@ -4926,6 +4926,11 @@
           "description": "In-app browser: `host/browser/command`, `item/browser/requestApproval` presentation.",
           "type": "boolean"
         },
+        "computer": {
+          "default": false,
+          "description": "Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.",
+          "type": "boolean"
+        },
         "files": {
           "default": false,
           "description": "File snapshots and the local page server.",

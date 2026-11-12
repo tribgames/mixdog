@@ -171,6 +171,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Notification, "host/update/report", &["/state/message"]),
     (Kind::Answer, "host/update/command", &["/message"]),
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
+    // The text of a Computer Use screen capture reply: the model reads it as the tool's result.
+    (Kind::Answer, "host/computer/capture", &["/text"]),
     // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
     // labels, titles and other prose, forwarded as Node forwards them (a code action's diagnostic message included). A rename's
     // new name, a symbol query, a command, a URI, a token, a diagnostic's code, a vocabulary word and a server's own `data`

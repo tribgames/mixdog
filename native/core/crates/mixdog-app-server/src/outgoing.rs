@@ -141,6 +141,7 @@ fn serves(declared: &HostCapabilities) -> Vec<HostCapability> {
         (declared.power, HostCapability::Power),
         (declared.updater, HostCapability::Updater),
         (declared.files, HostCapability::Files),
+        (declared.computer, HostCapability::Computer),
     ]
     .into_iter()
     .filter_map(|(on, capability)| on.then_some(capability))
@@ -480,6 +481,10 @@ impl mixdog_core_api::ClaimedHostChannel for Outgoing {
 
 #[async_trait]
 impl HostChannel for Outgoing {
+    fn serves(&self, capability: HostCapability) -> bool {
+        self.claimant(capability).is_ok()
+    }
+
     async fn request(
         &self,
         capability: HostCapability,
