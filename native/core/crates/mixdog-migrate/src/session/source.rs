@@ -1266,6 +1266,28 @@ fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<durable::OpenF
     }
 }
 
+/// The leading system messages of 1.4.5's transcript of `session/<id>`, which `read` moves into the header's prompt blocks and so
+/// no longer has among the rows: the corpus gates compare Node's whole-transcript digests and message indexes with the rows.
+#[cfg(test)]
+pub(crate) fn system_prefix(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<Vec<Value>> {
+    if item.sources.is_empty() {
+        return Ok(Vec::new());
+    }
+    // A test edits the copy it migrates, so the json is read as it is, not checked against the manifest's hash.
+    let json_bytes = match source(item, &format!("sessions/{id}{JSON_SUFFIX}")) {
+        Some(file) => Some(durable::read(&cx.source_path(file)?)?),
+        None => None,
+    };
+    let log = match source(item, &format!("sessions/{id}{LOG_SUFFIX}")) {
+        Some(file) => Some(cx.open_source(file)?),
+        None => None,
+    };
+    let (header, messages) = header_and_messages(id, json_bytes.as_deref(), log, &mut 0)?;
+    let system = migrate_system_messages(&messages, &header)
+        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
+    Ok(messages[..system.rows_from].to_vec())
+}
+
 /// Reads every source of `session/<id>` into the model the frames are written from; `office`
 /// extracts office documents a recovered turn's context signatures read.
 pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &OfficeExtractor) -> R<SessionModel> {

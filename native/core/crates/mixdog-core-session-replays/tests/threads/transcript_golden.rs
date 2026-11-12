@@ -10,8 +10,9 @@
 //! - a run of consecutive tool cards equals Node's run: the same call ids in order. Node folds
 //!   a run into one aggregate card; folding stays with the client's `rowOf`.
 //!
-//! Needs the corpus (`MIXDOG_MIGRATION_CORPUS`), so it runs only on request:
-//! `cargo test -p mixdog-core --lib transcript_golden -- --ignored`.
+//! Needs the corpus (`MIXDOG_MIGRATION_CORPUS`) and the prompt-attachment blobs its sessions name
+//! (`<MIXDOG_CORPUS_DATA_DIR>/prompt-attachments`, not `MIXDOG_DATA_DIR`: the build gate points that at an empty
+//! directory), so it runs only on request: `nextest run --profile migration-corpus`.
 #![allow(clippy::disallowed_methods, reason = "golden setup: reads the recorded fixtures and the corpus")]
 
 use std::path::PathBuf;
@@ -223,7 +224,7 @@ fn presence_equals_nodes_for_every_message() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/message-presence/presence.json");
     let presence: Value = serde_json::from_slice(&std::fs::read(path).expect("presence.json")).expect("json");
     let corpus = PathBuf::from(std::env::var("MIXDOG_MIGRATION_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS.into()));
-    let data = PathBuf::from(std::env::var("MIXDOG_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA.into()));
+    let data = PathBuf::from(std::env::var("MIXDOG_CORPUS_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA.into()));
     let blobs = DataBlobs(data);
     let mut failures = Vec::new();
     for session in presence["sessions"].as_array().expect("sessions") {
@@ -248,7 +249,7 @@ fn presence_equals_nodes_for_every_message() {
 fn rows_equal_nodes_for_every_corpus_session() {
     let display = fixture();
     let corpus = PathBuf::from(std::env::var("MIXDOG_MIGRATION_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS.into()));
-    let data = PathBuf::from(std::env::var("MIXDOG_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA.into()));
+    let data = PathBuf::from(std::env::var("MIXDOG_CORPUS_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA.into()));
     let marker = display["redact"]["marker"].as_str().expect("marker").to_owned();
     let patterns: Vec<Regex> = display["redact"]["patterns"]
         .as_array()

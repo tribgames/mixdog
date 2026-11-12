@@ -139,8 +139,10 @@ const SCENARIOS: [(&str, &str); 2] = [("v145", "v145"), ("dev146", "dev146")];
 /// The migrated transcript rows of every session of a corpus scenario: `(visible, prompt, body)`.
 type SessionRows = BTreeMap<String, Vec<(bool, Option<String>, Value)>>;
 
-fn migrated(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> SessionRows {
-    folded_rows(data_rel, edit)
+/// With each session's count of leading system messages: 1.4.5's message index is the row's index plus it.
+fn migrated(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> (SessionRows, BTreeMap<String, usize>) {
+    let (rows, prefixes) = folded_rows(data_rel, edit);
+    let rows = rows
         .into_iter()
         .map(|(id, rows)| {
             let rows = rows
@@ -150,17 +152,23 @@ fn migrated(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> SessionRows 
                 .collect();
             (id, rows)
         })
-        .collect()
+        .collect();
+    (rows, prefixes)
 }
 
-/// Every folded row of every session of the migrated corpus data dir `data_rel`.
-fn folded_rows(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> BTreeMap<String, Vec<FoldedRow>> {
+/// Every folded row of every session of the migrated corpus data dir `data_rel`, and each session's system prefix length.
+fn folded_rows(
+    data_rel: &str,
+    edit: impl FnOnce(&std::path::Path),
+) -> (BTreeMap<String, Vec<FoldedRow>>, BTreeMap<String, usize>) {
     let (_dir, roots, complete) = migrate_corpus(data_rel, edit);
-    crate::session::target::read_sessions(&roots, &complete.manifest_sha256)
+    let prefixes = crate::run::tests::system_prefixes(data_rel, &roots, &complete).into_iter().map(|(id, p)| (id, p.len())).collect();
+    let rows = crate::session::target::read_sessions(&roots, &complete.manifest_sha256)
         .unwrap()
         .into_iter()
         .map(|(id, folded)| (id, folded.rows))
-        .collect()
+        .collect();
+    (rows, prefixes)
 }
 
 /// What a client draws for one migrated row, in the generator's normalized row shape, and
@@ -227,7 +235,9 @@ fn restored_rows_match_node() {
     let mut compared = 0usize;
     for (scenario, data_rel) in SCENARIOS {
         let expected = vectors[scenario].as_object().expect("a scenario of the vectors");
-        let sessions = migrated(data_rel, |_| {});
+        let (mut sessions, prefixes) = migrated(data_rel, |_| {});
+        // A session only a worker row names has no record, so no message to compare.
+        sessions.retain(|_, rows| !rows.is_empty());
         assert_eq!(
             sessions.keys().collect::<Vec<_>>(),
             expected.keys().collect::<Vec<_>>(),
@@ -245,7 +255,7 @@ fn restored_rows_match_node() {
                 compared += 1;
                 let digest = crate::durable::sha256_hex(js_stable(&json!({"rows": rows, "prompt": prompt})).as_bytes());
                 let kinds = rows.iter().map(|r| r["kind"].as_str().unwrap_or("")).collect::<Vec<_>>().join(",");
-                if want[0].as_u64() != Some(*index as u64) || want[2].as_str() != Some(digest.as_str()) {
+                if want[0].as_u64() != Some((*index + prefixes[id]) as u64) || want[2].as_str() != Some(digest.as_str()) {
                     failures.push(format!(
                         "{scenario}/{id}#{index}: node {} [{}], migrated [{kinds}] {}",
                         want[0], want[1], json!({"rows": rows, "prompt": prompt})
@@ -325,7 +335,7 @@ fn archived_rows_match_the_transcript_display() {
     let golden = golden["sessions"].as_array().unwrap();
     let (mut failures, mut seen, mut compared) = (Vec::new(), 0usize, 0usize);
     for data_rel in ["v145", "dev146", "fixture-busy-seed/data"] {
-        let sessions = folded_rows(data_rel, |_| {});
+        let (sessions, _) = folded_rows(data_rel, |_| {});
         let prefix = format!("{data_rel}/sessions/");
         for want in golden.iter().filter(|s| s["key"].as_str().unwrap().starts_with(&prefix)) {
             seen += 1;
@@ -392,7 +402,7 @@ fn legacy_replay_fields_convert_on_the_corpus() {
     };
     let (lead, imported) = ("sess_home_lead", "sess_synth_imported");
     let (mut plain, mut beside) = (Vec::new(), Vec::new());
-    let sessions = migrated("v145", |data| {
+    let (sessions, prefixes) = migrated("v145", |data| {
         edit_session(data, lead, &|messages| {
             let at = assistants(messages, false);
             messages[at[0]]["reasoningItems"] = lone.clone();
@@ -415,10 +425,10 @@ fn legacy_replay_fields_convert_on_the_corpus() {
             assert!(body.get("reasoningItems").is_none() && body.get("thoughtParts").is_none(), "{id}: {body}");
         }
     }
-    // The transcript rows are the session's messages in order.
-    assert_eq!(sessions[lead].len(), plain.len());
-    assert_eq!(sessions[imported].len(), beside.len());
-    let body = |id: &str, index: usize| &sessions[id][index].2;
+    // The transcript rows are the session's messages in order, after the system prefix (now the header's prompt blocks).
+    assert_eq!(sessions[lead].len() + prefixes[lead], plain.len());
+    assert_eq!(sessions[imported].len() + prefixes[imported], beside.len());
+    let body = |id: &str, index: usize| &sessions[id][index - prefixes[id]].2;
     let at = assistants(&plain, false);
     let (first, second) = (at[0], at[1]);
     // The envelope is the converter's (golden-checked against Node in `reasoning`), and it
