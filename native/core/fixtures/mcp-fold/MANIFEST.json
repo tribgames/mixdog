@@ -1,27 +1,69 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-mcp-fold.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-mcp-fold.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
   "fileCount": 1,
   "files": [
     {
       "bytes": 495712,
       "path": "golden.json",
-      "sha256": "c7ea25955b295e23f8b9e9d3eca66310e2819cad6738b05dbd21f5a9786f3606"
+      "sha256": "30a12e2a249778afbea1b95e01a92f196aade33c7383c3668e34b9dc537773ba"
     }
   ],
   "product": {
-    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "d6983371ed0de0369c0433e2079ab6419e963044",
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9252,
-    "refComparison": {
-      "closestCommit": "d6983371ed0de0369c0433e2079ab6419e963044",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9144,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+      ],
+      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
     },
-    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "patches": [
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 13
+    },
+    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",

@@ -23,10 +23,14 @@ for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APP
 }
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
-const tree = resolveTree(parseArgs());
+// --patch <file>[,<file>…]: the tree is the reference commit with those Node changes applied; the manifest names them.
+const BASE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const args = parseArgs();
+const tree = resolveTree(args);
+const patched = args.get('patch');
 const finalDir = join(FIXTURES_ROOT, 'skill-session');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-skill-session.mjs';
@@ -144,6 +148,6 @@ const TRANSCRIPT = [
 }));
 
 await writeJsonCompact(tree, join(stage, 'golden.json'), { arm: ARM, transcript: TRANSCRIPT });
-writeSetManifest(stage, { set: 'skill-session', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
+writeSetManifest(stage, { set: 'skill-session', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
 commitStage(stage, finalDir);
 console.log(`skill session: ${ARM.length} arm cases, ${TRANSCRIPT.length} transcript cases`);

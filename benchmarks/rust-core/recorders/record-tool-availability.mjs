@@ -16,10 +16,14 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const NOW = 1_700_000_000_000;
 Date.now = () => NOW;
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
-const tree = resolveTree(parseArgs());
+// --patch <file>[,<file>…]: the tree is the reference commit with those Node changes applied; the manifest names them.
+const BASE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const args = parseArgs();
+const tree = resolveTree(args);
+const patched = args.get('patch');
 const finalDir = join(FIXTURES_ROOT, 'tool-availability');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-tool-availability.mjs';
@@ -68,5 +72,5 @@ const cases = CASES.map(([name, before, featureDenied, defs = ALL]) => {
   return { name, before, featureDenied, definitions: defs, asked, result, after: live };
 });
 await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases });
-writeSetManifest(stage, { set: 'tool-availability', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, { set: 'tool-availability', recorder, command: 'node ' + recorder + ' --tree <tree>' + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
 commitStage(stage, finalDir);
