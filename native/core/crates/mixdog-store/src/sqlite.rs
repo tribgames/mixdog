@@ -150,10 +150,17 @@ fn truncate_wal(conn: &Connection) -> Result<(), String> {
 /// The writer overwrites what it deletes (`secure_delete`): a row a sensitive rewrite replaces leaves no readable page.
 /// Measured on a turn's index writes (one transaction: session row, 8 message rows, the search row replaced), its cost
 /// was within the run-to-run noise (median 0.163-0.175 ms per turn either way).
-fn open_writer(path: &Path) -> Result<Connection, DbError> {
-    let conn = open_schema(path, INDEX_DDL, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
+fn open_writer(path: &Path, ddl: &str) -> Result<Connection, DbError> {
+    let conn = open_schema(path, ddl, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
     conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
     Ok(conn)
+}
+
+/// The DDL the runtime builds an index with: a fresh generation (odd, so never the migration's 0) on top of the
+/// schema, because a reader may hold a revision of the index this one replaces (this process's registry across a
+/// reopen, or another process); the migration's index is built before any reader and keeps the DDL's fixed 0.
+fn runtime_ddl() -> String {
+    format!("{INDEX_DDL}\nUPDATE worker_revision SET gen = (random() & 0x7fffffffffffffff) | 1;")
 }
 
 /// The index database of a data dir.
@@ -182,7 +189,7 @@ fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<()
     crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
     let staged = crate::fsio::tmp_path(path);
-    project_index(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?).map_err(failed)?;
+    project_into(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?, &runtime_ddl()).map_err(failed)?;
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = path.as_os_str().to_owned();
         side.push(suffix);
@@ -745,7 +752,7 @@ fn send(acks: Vec<Ack>, result: &Result<(), String>) {
 
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
-        let conn = open_writer(path)?;
+        let conn = open_writer(path, &runtime_ddl())?;
         let stored: Option<String> = conn
             .query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0))
             .optional()?;
@@ -2013,6 +2020,93 @@ impl SqliteStore {
         .await
     }
 
+    /// The worker index the agent registry loads, from the revision it holds (`None`: none yet): the revision now and
+    /// every session written since, with the sessions in `also` read again whatever their revision; every listed session
+    /// when `since` is `None` or a revision this index never reached. The revision and the rows are one read transaction,
+    /// so they are one committed state, whichever connection or process wrote it (FORMAT.md §8.2 worker index revision).
+    pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
+        use crate::worker::IndexedSession;
+        self.read(move |c| {
+            let tx = c.unchecked_transaction()?;
+            let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
+                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))
+            })?;
+            let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<IndexedSession> {
+                let worker = match r.get::<_, Option<String>>(2)? {
+                    Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                    })?),
+                    None => None,
+                };
+                let summary: Option<String> = r.get(4)?;
+                let agent = match summary {
+                    Some(summary) => Some((r.get(3)?, summary)),
+                    None => None,
+                };
+                Ok(IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
+            };
+            let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
+            let mut sessions: Vec<IndexedSession> = Vec::new();
+            if full {
+                let mut stmt = tx.prepare_cached(crate::worker::INDEXED_ALL_SQL)?;
+                sessions = stmt.query_map([], row)?.collect::<Result<_, _>>()?;
+            } else {
+                let since = since.map_or(0, |(_, rev)| rev) as i64;
+                let mut at: HashMap<String, usize> = HashMap::new();
+                let mut put = |sessions: &mut Vec<IndexedSession>, s: IndexedSession| match at.get(&s.session) {
+                    Some(&i) => sessions[i] = s,
+                    None => {
+                        at.insert(s.session.clone(), sessions.len());
+                        sessions.push(s);
+                    }
+                };
+                let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, agent: None };
+                let removed: Vec<String> =
+                    tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                for id in removed {
+                    put(&mut sessions, gone(id));
+                }
+                let changed: Vec<IndexedSession> =
+                    tx.prepare_cached(crate::worker::INDEXED_SINCE_SQL)?.query_map([since], row)?.collect::<Result<_, _>>()?;
+                for s in changed {
+                    put(&mut sessions, s);
+                }
+                for id in also {
+                    if sessions.iter().any(|s| s.session == id) {
+                        continue;
+                    }
+                    let found = tx.prepare_cached(crate::worker::INDEXED_ONE_SQL)?.query_row([&id], row).optional()?;
+                    put(&mut sessions, found.unwrap_or_else(|| gone(id)));
+                }
+            }
+            Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
+        })
+        .await
+    }
+
+    /// Test support: `session`'s `worker` map replaced (`None`: removed) by a connection of its own, committed as another
+    /// process writing the index would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_worker_elsewhere(&self, session: &str, worker: Option<&serde_json::Map<String, serde_json::Value>>) {
+        let mut header = serde_json::Map::new();
+        if let Some(map) = worker {
+            header.insert("worker".into(), serde_json::Value::Object(map.clone()));
+        }
+        let keys = crate::worker::WorkerKeys::of(&header);
+        let conn = Connection::open(&self.shared.path).expect("the index opens");
+        conn.execute(
+            "UPDATE sessions SET worker = ?1, worker_tag = ?2, worker_owner = ?3, worker_host_pid = ?4 WHERE id = ?5",
+            params![
+                keys.as_ref().map(|k| &k.map),
+                keys.as_ref().map(|k| &k.tag),
+                keys.as_ref().and_then(|k| k.owner.as_ref()),
+                keys.as_ref().and_then(|k| k.host_pid),
+                session
+            ],
+        )
+        .expect("the other connection's write");
+    }
+
     /// The newest session `owner` ran under `tag` (1.4.5 `lastTagSession`, open or closed),
     /// by the session's own `agentTag` (a cleaned tag) and owner.
     pub async fn newest_tag_session(&self, tag: &str, owner: &str) -> Result<Option<TagSession>, DbError> {
@@ -2180,7 +2274,12 @@ pub fn project_index(
     db: &Path,
     sessions: &[String],
 ) -> Result<(), String> {
-    let mut conn = open_writer(db).map_err(|e| e.to_string())?;
+    project_into(data, db, sessions, INDEX_DDL)
+}
+
+/// [`project_index`] with the DDL the new database is created by (the generation it sets).
+fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Result<(), String> {
+    let mut conn = open_writer(db, ddl).map_err(|e| e.to_string())?;
     let blobs = crate::blobs::BlobStore::new(data);
     let mut heads = Vec::new();
     for id in sessions {
