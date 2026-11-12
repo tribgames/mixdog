@@ -14,7 +14,7 @@ use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
 use mixdog_agent::agent_tool::error_text::PlainErrorText;
-use mixdog_agent::agent_tool::{AgentParts, assemble};
+use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
 use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::seams::*;
@@ -29,6 +29,10 @@ use mixdog_agent::agent_tool::flow::world::SpawnAdmission;
 use mixdog_agent::agent_tool::flow::world::SpawnContext;
 use mixdog_agent::agent_tool::flow::world::SpawnWorld;
 use mixdog_agent::agent_tool::host::*;
+use mixdog_agent::agent_tool::model_select::ListOptions as ModelListOptions;
+use mixdog_agent::agent_tool::model_select::ModelCatalog;
+use mixdog_agent::agent_tool::model_select::ModelRow;
+use mixdog_agent::agent_tool::scope::Caller;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::scope::TagRecord;
@@ -588,6 +592,21 @@ struct Rig {
     shared: Arc<Shared>,
     spawn: Arc<SpawnFlowImpl>,
     send: Arc<SendFlowImpl>,
+    /// The assembled agent tool: its `handle` is the tool's own entry.
+    runtime: Arc<AgentRuntime>,
+}
+
+/// The catalog a scenario's `catalog` rows describe (the model picker's rows, as recorded).
+struct RecordedCatalog(Vec<Value>);
+#[async_trait]
+impl ModelCatalog for RecordedCatalog {
+    async fn list(&self, _: ModelListOptions) -> Result<Vec<ModelRow>, String> {
+        Ok(self
+            .0
+            .iter()
+            .map(|r| ModelRow { provider: s(r, "provider"), id: s(r, "id"), display: s(r, "display"), catalog_complete: r["catalogComplete"] == true, row: r.clone() })
+            .collect())
+    }
 }
 
 fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
@@ -672,13 +691,14 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         send_world: Arc::new(SendHost { shared: shared.clone(), scenario: scenario.clone() }),
         terminal_trace: Arc::new(NoTrace),
         env: Arc::new(Env),
-        catalog: None,
+        catalog: scenario["catalog"].as_array().map(|rows| Arc::new(RecordedCatalog(rows.clone())) as Arc<dyn ModelCatalog>),
         scopes: Arc::new(NoScopes),
         errors: Arc::new(PlainErrorText),
         default_cwd: "/default".into(),
         mcp_scope_id: None,
     });
-    let (spawn, send) = (assembled.spawn, assembled.send);    Rig { shared, spawn, send }
+    let (spawn, send, runtime) = (assembled.spawn, assembled.send, assembled.runtime);
+    Rig { shared, spawn, send, runtime }
 }
 
 /// No terminal trace, no caller scope: the flows under test never reach them.
@@ -863,6 +883,46 @@ async fn a_spawn_equals_nodes() {
             assert_eq!(shell_tasks.as_ref().unwrap()[id.as_str().unwrap()], status, "{name}: {id}");
         }
         assert_eq!(shell_tasks.map_or(0, |tasks| tasks.as_object().unwrap().len()), jobs.len(), "{name}: shellTasks");
+    }
+}
+
+/// A spawn that pins a model, through the agent tool's own entry (`AgentRuntime::handle`): the model is
+/// resolved against the recorded catalog, the real spawn flow resolves the route, and the session spec
+/// handed to session creation carries Node's agent, preset name and preset. The answer of a request that
+/// failed is compared whole; the answer of a spawn that started names the board's own job id.
+#[tokio::test(start_paused = true)]
+async fn a_pinned_model_spawn_equals_nodes() {
+    backend();
+    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/spawn-model-settings/cases.json")).expect("golden json");
+    let cases = recorded["cases"].as_array().unwrap();
+    assert!(cases.len() >= 19);
+    for case in cases {
+        let name = s(case, "name");
+        let recorded_scenario = &case["scenario"];
+        let scenario = json!({
+            "config": recorded_scenario["config"],
+            "catalog": recorded_scenario["catalog"],
+            "nextTag": "worker-1",
+            "canonical": true,
+        });
+        let rig = rig(&scenario, Some(&case["host"]));
+        let caller = Caller { scope: Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) }, cwd: "/work".into() };
+        let reply = rig.runtime.handle(&recorded_scenario["args"], &caller).await;
+        settle().await;
+        let answer = render(&reply, "");
+        let want = s(&case["result"], "answer");
+        if want.starts_with("Error: ") {
+            assert_eq!(answer, want, "{name}: answer");
+        }
+        let created: Vec<Value> = lock(&rig.shared.log)
+            .iter()
+            .filter(|entry| entry[0] == "createChild")
+            .map(|entry| {
+                let made = &entry[1];
+                json!({ "agent": made["spec"]["agent"], "presetName": made["spec"]["presetName"], "preset": made["spec"]["preset"], "prompt": made["prompt"], "tag": made["tag"] })
+            })
+            .collect();
+        assert_eq!(Value::Array(created), case["result"]["created"], "{name}: the session spec");
     }
 }
 
