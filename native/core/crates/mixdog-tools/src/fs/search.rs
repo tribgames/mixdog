@@ -131,11 +131,20 @@ async fn walk_kept(
     cap: Option<usize>,
 ) -> Result<Walked, ToolError> {
     let include_dirs = request.include_dirs;
+    // A walk the search server runs answers what it found at its soft deadline, before the client's hard timeout would refuse the
+    // search (`softDeadlineMs`, native-search-client.mjs): the served partial.
+    let soft = request.server.map(|_| SearchDeadlines::of(ctx).soft);
     let mut walk = ctx.files.walk(ctx.io.maintenance, request);
     let mut out = Vec::new();
     let mut capped = false;
     let mut refused = None;
-    let end = pull_all(ctx, walk.as_mut(), |item| {
+    let timer = async move {
+        match soft {
+            Some(at) => mixdog_rt::time::sleep_until(at.into()).await,
+            None => std::future::pending().await,
+        }
+    };
+    let end = pull_until(ctx, walk.as_mut(), timer, |item| {
         match item {
             Ok(entry) => {
                 if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
