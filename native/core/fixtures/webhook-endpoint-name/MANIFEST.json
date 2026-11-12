@@ -8,14 +8,18 @@
     {
       "reason": "Node's own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server's own settings, read from a default server) on its virtual clock",
       "what": "timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server"
+    },
+    {
+      "reason": "Node closes it somewhere in [headersTimeout, headersTimeout + connectionsCheckingInterval] by where the check tick falls; the recorder records only that it was open just before headersTimeout and closed inside that window, and the replay closes at the end of the window (headersTimeoutMs + connectionsCheckingIntervalMs of timing.defaults, read from a default server)",
+      "what": "timing.timeouts[] \"a connection that sends no byte\": the instant of the close (not recorded) and the 1000/500/100 ms timers"
     }
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 23709,
+      "bytes": 26993,
       "path": "golden.json",
-      "sha256": "f7c774e4bba1078204fbac7faba9164896ff9eee4a2b96d6e676622fb665af44"
+      "sha256": "25d50ee47d88bd0d8c10c4242d49e9873b6cdb717343051b0572db8a45ed9526"
     }
   ],
   "inputs": [
@@ -47,7 +51,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs",
-  "recorderSha256": "98e9f09abbcee1f4541253635d0d371664c81564b677e9a0bf02026af42d6e12",
+  "recorderSha256": "e2949d9c0ba7a95742b73f5cf3e2cb640a4f30430911802bfe8243002e4a4a6a",
   "set": "webhook-endpoint-name",
-  "totalBytes": 23709
+  "totalBytes": 26993
 }
