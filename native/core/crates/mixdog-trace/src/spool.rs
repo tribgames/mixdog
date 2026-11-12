@@ -64,6 +64,8 @@ pub(crate) struct Spool {
     rotates: bool,
     kind: Kind,
     state: Mutex<State>,
+    /// Held for the whole of a flush: the chunk taken and the append that writes it.
+    writing: Mutex<()>,
 }
 
 impl Spool {
@@ -88,6 +90,7 @@ impl Spool {
                 first_queued_ms: None,
                 last_rotate_check_ms: 0,
             }),
+            writing: Mutex::new(()),
         }
     }
 
@@ -122,6 +125,9 @@ impl Spool {
     }
 
     pub(crate) fn flush(&self, now_ms: i64) -> Vec<Warning> {
+        // One write at a time, as Node keeps one in flight: a second flusher that took the next chunk must not reach the
+        // file before the chunk ahead of it.
+        let _writing = self.writing.lock().unwrap_or_else(|poison| poison.into_inner());
         let chunk = {
             let mut state = self.lock();
             state.first_queued_ms = None;
