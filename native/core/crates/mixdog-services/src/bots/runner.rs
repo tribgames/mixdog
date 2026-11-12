@@ -85,7 +85,7 @@ impl HomeWebhookDispatch {
             executor_agent_id: endpoint.executor_agent_id.clone(),
             cwd: endpoint.cwd.clone(),
             attachments: endpoint.attachments.clone(),
-            event: webhook_event_summary(&shown, payload),
+            event: webhook_event_summary(|n| headers.get(n), payload),
             prompt: run.prompt,
             skill_selection: run.skill_selection,
         };

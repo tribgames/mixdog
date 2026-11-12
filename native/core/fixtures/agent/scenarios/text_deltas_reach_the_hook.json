@@ -1,0 +1,38 @@
+{
+  "name": "text_deltas_reach_the_hook",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "captureDeltas": true,
+  "script": [
+    {
+      "content": "Now let me look",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "a": 1
+          }
+        }
+      ],
+      "stopReason": "tool_use",
+      "deltas": [
+        "Now let ",
+        "me look"
+      ]
+    },
+    {
+      "content": "final answer",
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "deltas": [
+        "final ",
+        "answer"
+      ]
+    }
+  ]
+}

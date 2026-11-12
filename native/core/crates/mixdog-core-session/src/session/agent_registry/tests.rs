@@ -2478,3 +2478,96 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     registry.flush_active_worker_rows(&live);
     assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
 }
+
+/// The stale-row pass and the scan guard against real Node's (`fixtures/agent-stale-rows/golden.json`, from
+/// `benchmarks/rust-core/recorders/record-agent-stale-rows.mjs`): the rows and sessions of Node's own stale-row tests
+/// go through a refresh, and the rows the index still holds, the tombstones it left and the scan's verdicts are
+/// compared whole. A session Node's manager reports a runtime stage for is a running turn here: the core's stage is
+/// only ever active inside a run.
+const STALE_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-stale-rows/golden.json");
+
+struct ConfigReap(Value);
+
+impl ReapWindow for ConfigReap {
+    fn terminal_reap_ms(&self, provider: &str) -> f64 {
+        mixdog_agent::compact::settings::agent_terminal_reap_ms(self.0.get("autoClear"), provider)
+    }
+}
+
+struct WorkLive {
+    open: HashSet<String>,
+    work: HashSet<String>,
+}
+
+impl LiveSessions for WorkLive {
+    fn loaded(&self) -> Vec<String> {
+        self.open.iter().cloned().collect()
+    }
+
+    fn header(&self, session: &str) -> Option<Row> {
+        self.open.contains(session).then(|| obj(json!({ "id": session })))
+    }
+
+    fn running(&self, session: &str) -> bool {
+        self.work.contains(session)
+    }
+
+    fn has_live_work(&self, session: &str) -> bool {
+        self.work.contains(session)
+    }
+
+    fn runtime_stage(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
+fn ids(value: &Value) -> HashSet<String> {
+    value.as_array().into_iter().flatten().map(|v| v.as_str().unwrap().to_owned()).collect()
+}
+
+#[tokio::test]
+async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
+    let golden: Value = serde_json::from_str(&STALE_GOLDEN).unwrap();
+    assert_eq!(golden["now"].as_i64(), Some(NOW));
+    for case in golden["scenarios"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let config = case.get("config").cloned().unwrap_or_else(|| json!({}));
+        let mgr = &case["mgr"];
+        let mut work = ids(&mgr["turnInFlight"]);
+        work.extend(ids(&mgr["pending"]));
+        work.extend(mgr["stages"].as_object().into_iter().flatten().map(|(id, _)| id.clone()));
+        let live = Arc::new(WorkLive { open: ids(&case["live"]), work });
+        let rig = Rig::new();
+        for row in case["rows"].as_array().unwrap() {
+            rig.store.write(row["sessionId"].as_str().unwrap(), Some(obj(row.clone())));
+        }
+        let registry = AgentRegistry::new(rig.store.clone(), live.clone(), Arc::new(ConfigReap(config.clone())), rig.clock.clone());
+        registry.refresh_tags_from_sessions(false, &Scope::default()).await;
+        let mut workers = Vec::new();
+        let mut tombstoned = Vec::new();
+        for (id, map) in rig.store.listed() {
+            if map.contains_key("sessionId") && map.get("agent").and_then(Value::as_str) != Some("lead") {
+                workers.push(id.clone());
+            }
+            if let Some(tombstone) = map.get("tombstone") {
+                tombstoned.push(format!("{}:{id}", tombstone["tag"].as_str().unwrap()));
+            }
+        }
+        workers.sort();
+        tombstoned.sort();
+        assert_eq!(json!(workers), case["result"]["workers"], "{name}: rows held");
+        assert_eq!(json!(tombstoned), case["result"]["tombstoned"], "{name}: tombstones");
+
+        if let Some(sessions) = case["scan"].as_array() {
+            let scan = Rig::new();
+            *scan.store.sessions.lock().unwrap() = sessions.iter().map(|s| obj(s.clone())).collect();
+            scan.store.touch_sessions();
+            let registry = AgentRegistry::new(scan.store.clone(), Arc::new(WorkLive { open: HashSet::new(), work: HashSet::new() }), Arc::new(ConfigReap(config)), scan.clock.clone());
+            registry.reload().await;
+            let st = registry.lock();
+            let by_key = st.tombstone_index(registry.now());
+            let verdicts: Vec<bool> = sessions.iter().map(|s| registry.blocks_scan(&st, &obj(s.clone()), s["agentTag"].as_str().unwrap(), &by_key)).collect();
+            assert_eq!(json!(verdicts), case["result"]["blocked"], "{name}: scan");
+        }
+    }
+}

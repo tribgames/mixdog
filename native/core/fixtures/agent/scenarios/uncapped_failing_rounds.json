@@ -1,0 +1,601 @@
+{
+  "name": "uncapped_failing_rounds",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "step 1",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 2",
+      "toolCalls": [
+        {
+          "id": "c2",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 3",
+      "toolCalls": [
+        {
+          "id": "c3",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 4",
+      "toolCalls": [
+        {
+          "id": "c4",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 5",
+      "toolCalls": [
+        {
+          "id": "c5",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 6",
+      "toolCalls": [
+        {
+          "id": "c6",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 7",
+      "toolCalls": [
+        {
+          "id": "c7",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 8",
+      "toolCalls": [
+        {
+          "id": "c8",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 9",
+      "toolCalls": [
+        {
+          "id": "c9",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 10",
+      "toolCalls": [
+        {
+          "id": "c10",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 11",
+      "toolCalls": [
+        {
+          "id": "c11",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 12",
+      "toolCalls": [
+        {
+          "id": "c12",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 13",
+      "toolCalls": [
+        {
+          "id": "c13",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 14",
+      "toolCalls": [
+        {
+          "id": "c14",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 15",
+      "toolCalls": [
+        {
+          "id": "c15",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 16",
+      "toolCalls": [
+        {
+          "id": "c16",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 17",
+      "toolCalls": [
+        {
+          "id": "c17",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 18",
+      "toolCalls": [
+        {
+          "id": "c18",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 19",
+      "toolCalls": [
+        {
+          "id": "c19",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 20",
+      "toolCalls": [
+        {
+          "id": "c20",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 21",
+      "toolCalls": [
+        {
+          "id": "c21",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 22",
+      "toolCalls": [
+        {
+          "id": "c22",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 23",
+      "toolCalls": [
+        {
+          "id": "c23",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 24",
+      "toolCalls": [
+        {
+          "id": "c24",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 25",
+      "toolCalls": [
+        {
+          "id": "c25",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 26",
+      "toolCalls": [
+        {
+          "id": "c26",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 27",
+      "toolCalls": [
+        {
+          "id": "c27",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 28",
+      "toolCalls": [
+        {
+          "id": "c28",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 29",
+      "toolCalls": [
+        {
+          "id": "c29",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 30",
+      "toolCalls": [
+        {
+          "id": "c30",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 31",
+      "toolCalls": [
+        {
+          "id": "c31",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 32",
+      "toolCalls": [
+        {
+          "id": "c32",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 33",
+      "toolCalls": [
+        {
+          "id": "c33",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 34",
+      "toolCalls": [
+        {
+          "id": "c34",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 35",
+      "toolCalls": [
+        {
+          "id": "c35",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 36",
+      "toolCalls": [
+        {
+          "id": "c36",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 37",
+      "toolCalls": [
+        {
+          "id": "c37",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 38",
+      "toolCalls": [
+        {
+          "id": "c38",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 39",
+      "toolCalls": [
+        {
+          "id": "c39",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 40",
+      "toolCalls": [
+        {
+          "id": "c40",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 41",
+      "toolCalls": [
+        {
+          "id": "c41",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 42",
+      "toolCalls": [
+        {
+          "id": "c42",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 43",
+      "toolCalls": [
+        {
+          "id": "c43",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 44",
+      "toolCalls": [
+        {
+          "id": "c44",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "step 45",
+      "toolCalls": [
+        {
+          "id": "c45",
+          "name": "probe",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "final answer",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}
