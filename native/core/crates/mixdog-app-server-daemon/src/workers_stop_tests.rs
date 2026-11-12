@@ -45,6 +45,51 @@ impl ThreadState for GatedHeaders {
     }
 }
 
+/// Headers that refuse every patch.
+struct FailingHeaders;
+
+#[async_trait::async_trait]
+impl ThreadState for FailingHeaders {
+    async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, PortError> {
+        Ok(Map::new())
+    }
+    async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
+        Err(PortError::Invalid { field: "worker".into(), reason: "disk full".into() })
+    }
+    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        Ok(None)
+    }
+    async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).expect("core state");
+    let root = dir.path().to_owned();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let workers = Arc::new(StoreWorkers::new(index, Arc::new(FailingHeaders), tokens.interactive_io, Arc::new(KeptRows::new(state))));
+    let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
+
+    let mut row = Map::new();
+    row.insert("status".to_owned(), json!("running"));
+    workers.write("sess_fail", Some(row));
+    let error = tokio::time::timeout(DEADLINE, workers.settled()).await.expect("settled did not end within 10 s").expect_err("a refused header write is reported");
+    assert!(error.contains("sess_fail") && error.contains("failed"), "{error}");
+
+    let (_, step) = crate::compose_flip::workers_step(workers, log);
+    tokio::time::timeout(DEADLINE, step).await.expect("the step did not end within 10 s");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_stop_step_ends_only_once_a_queued_agent_row_write_is_on_the_headers() {
     let dir = tempfile::tempdir().expect("temp dir");

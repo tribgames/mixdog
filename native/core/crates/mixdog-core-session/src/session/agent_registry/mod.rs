@@ -1940,9 +1940,12 @@ impl StoreWorkers {
     /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`). As Node's `flush` rejects when a
     /// batch could not be persisted, this is `Err` while a kept write is still owed; the write stays queued.
     pub async fn settled(&self) -> Result<(), String> {
+        let accepted = self.marks.accepted();
         let (done, applied) = tokio::sync::oneshot::channel();
         self.writes.send(WriteOp::Barrier(done)).map_err(|_| "the worker writer is closed".to_owned())?;
-        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())?
+        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())??;
+        // A header write that failed is only recorded in the marks; Node's `flush` rejects for it too.
+        self.marks.check(accepted).unwrap_or(Ok(()))
     }
 
     /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made
