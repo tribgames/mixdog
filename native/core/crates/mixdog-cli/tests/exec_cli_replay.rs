@@ -287,21 +287,33 @@ fn children_of(pid: u32) -> Vec<(u32, String)> {
 /// Waits, each up to [`CHILDREN_DEADLINE`], for the processes that were children of `pid` to end. A killed binary's job object
 /// (kill-on-close) ends its children when the kernel closes the job, which happens after the binary's own exit is
 /// signalled: a snapshot taken at that exit may still show them, so the end of each is waited for as an event, on its handle.
+/// A child still running at its deadline fails here, by name: it could otherwise end while a later one is waited for and be
+/// missing from the snapshot the comparison takes afterwards.
 fn wait_children_end(pid: u32) {
     use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
     use windows_sys::Win32::System::Threading::OpenProcess;
     use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
     use windows_sys::Win32::System::Threading::WaitForSingleObject;
     let limit = u32::try_from(CHILDREN_DEADLINE.as_millis()).unwrap();
-    for (child, _) in children_of(pid) {
+    for (child, name) in children_of(pid) {
         // SAFETY: the handle is checked and closed; a process that already ended cannot be opened and needs no wait.
-        unsafe {
+        let waited = unsafe {
             let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, child);
-            if !handle.is_null() {
-                WaitForSingleObject(handle, limit);
-                CloseHandle(handle);
+            if handle.is_null() {
+                continue;
             }
-        }
+            let waited = WaitForSingleObject(handle, limit);
+            let error = std::io::Error::last_os_error();
+            CloseHandle(handle);
+            (waited, error)
+        };
+        assert!(
+            waited.0 == WAIT_OBJECT_0,
+            "{name} (pid {child}), a child of the binary (pid {pid}), had not ended {CHILDREN_DEADLINE:?} after the binary's exit: wait result {:#x}, {}",
+            waited.0,
+            waited.1
+        );
     }
 }
 
