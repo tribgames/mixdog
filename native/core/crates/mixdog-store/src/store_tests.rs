@@ -3605,3 +3605,61 @@ async fn the_context_length_is_the_length_of_the_context_read() {
     assert_eq!(same(&env, lineage(&[("f1", None), ("s1", Some(6))]), None).await, 4, "a fork's lineage");
     drop(w);
 }
+
+/// `context_page_from_on_lane` reads the context without its first `skip` rows: what is read is the whole read's tail, bodies and
+/// order, and only those rows' frames are read (the page holds the rows left); through a compaction, a rewind, a fork's lineage
+/// and a context longer than one index page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_context_read_from_a_row_is_the_tail_of_the_whole_read() {
+    use crate::context::*;
+    let env = Env::new();
+    async fn from(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, skip: usize) -> (usize, Vec<(String, serde_json::Value)>) {
+        let (io, cpu) = (tokens().interactive_io, tokens().cpu_interactive);
+        let (store, sessions) = (env.store.clone(), env.data.join("sessions"));
+        let page = io
+            .submit(&CancellationToken::new(), move |l| store.context_page_from_on_lane(l, &sessions, &levels, cut, skip))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+        let rows = page.rows.len();
+        let decoded = cpu.submit(&CancellationToken::new(), move |l| decode_context(l, page)).unwrap().await.unwrap().unwrap();
+        assert!(decoded.next.is_none());
+        let blobs = if decoded.needs_blobs() {
+            let store = BlobStore::new(&env.data);
+            io.submit(&CancellationToken::new(), move |l| read_context_blobs(l, &store, &decoded).map(|b| (decoded, b)).unwrap())
+                .unwrap()
+                .await
+                .unwrap()
+        } else {
+            (decoded, ContextBlobs::default())
+        };
+        let messages = cpu.submit(&CancellationToken::new(), move |l| finish_context(l, blobs.0, blobs.1)).unwrap().await.unwrap().unwrap();
+        (rows, messages.into_iter().map(|m| (m.iid, m.body)).collect())
+    }
+    async fn same(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>) {
+        let whole = context_bodies(env, levels.clone(), cut, 500).await;
+        for skip in [0, 1, 2, whole.len() / 2, whole.len().saturating_sub(1), whole.len(), whole.len() + 3] {
+            let (rows, read) = from(env, levels.clone(), cut, skip).await;
+            assert_eq!(read, whole[skip.min(whole.len())..], "from row {skip} of {}", whole.len());
+            assert_eq!(rows, whole.len().saturating_sub(skip), "the frames of the rows left only, from row {skip}");
+        }
+    }
+    let own = || lineage(&[("s1", None)]);
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two"), answer("c")]).await;
+    same(&env, own(), None).await;
+    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},
+        {"iid":"c","body":{"role":"assistant","content":"c kept"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted, user("d", "three")]).await;
+    same(&env, own(), None).await;
+    let (w, _) = env.commit(w, (0..4500).map(|n| user(&format!("p{n}"), "x")).collect()).await;
+    same(&env, own(), None).await;
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}))]).await;
+    same(&env, own(), None).await;
+    let fork = env.create("f1", Some(("s1", 6))).await;
+    let (_fork, _) = env.commit(fork, vec![user("f", "own")]).await;
+    same(&env, lineage(&[("f1", None), ("s1", Some(6))]), None).await;
+    drop(w);
+}

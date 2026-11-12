@@ -55,10 +55,30 @@ impl ModelContext {
     /// the log stores redacted reads as it was committed while this process holds it, as Node's
     /// in-memory session does: the stored copy is the only one a marker replaced.
     pub async fn read(&self) -> Result<Vec<(ItemId, Value)>, CoreError> {
-        let mut rows = read_context(&self.store, &self.lanes, &self.thread).await?;
+        self.read_from(0).await
+    }
+
+    /// [`read`](Self::read) without its first `skip` rows, whose frames the store does not read.
+    pub async fn read_from(&self, skip: usize) -> Result<Vec<(ItemId, Value)>, CoreError> {
+        let mut rows = read_context_from(&self.store, &self.lanes, &self.thread, skip).await?;
         rows.retain(|(iid, _)| *iid != self.input);
         self.sensitive.held(&self.thread, &mut rows);
         Ok(rows)
+    }
+
+    /// The bodies of the context's newest rows, widened until one satisfies `wanted` or the whole context is held: what a
+    /// caller that looks for the newest such row reads, as the whole context holds no newer one.
+    pub async fn read_tail_until(&self, wanted: impl Fn(&Value) -> bool) -> Result<Vec<Value>, CoreError> {
+        let len = self.len().await?;
+        let mut take = 16usize;
+        loop {
+            let skip = len.saturating_sub(take);
+            let rows: Vec<Value> = self.read_from(skip).await?.into_iter().map(|(_, body)| body).collect();
+            if skip == 0 || rows.iter().any(&wanted) {
+                return Ok(rows);
+            }
+            take = take.saturating_mul(8);
+        }
     }
 
     /// How many rows [`read`](Self::read) returns for a context with no input row, answered from the store's index: a caller
@@ -116,6 +136,16 @@ pub(crate) async fn read_context(
     lanes: &SessionLanes,
     thread: &ThreadId,
 ) -> Result<Vec<(ItemId, Value)>, CoreError> {
+    read_context_from(store, lanes, thread, 0).await
+}
+
+/// [`read_context`] without the first `skip` rows.
+async fn read_context_from(
+    store: &Arc<dyn ThreadStore>,
+    lanes: &SessionLanes,
+    thread: &ThreadId,
+    skip: usize,
+) -> Result<Vec<(ItemId, Value)>, CoreError> {
     let token = CancellationToken::new();
     let (dropped, refused) = (context_dropped, context_refused);
     let mut read = None;
@@ -124,7 +154,10 @@ pub(crate) async fn read_context(
         let (store_io, thread) = (store.clone(), thread.clone());
         let page = lanes
             .io
-            .submit_wait(&token, move |lane| store_io.context_io(lane, &thread, read))
+            .submit_wait(&token, move |lane| match read {
+                None if skip > 0 => store_io.context_from_io(lane, &thread, skip),
+                read => store_io.context_io(lane, &thread, read),
+            })
             .await
             .map_err(refused)?
             .await

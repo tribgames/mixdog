@@ -704,22 +704,29 @@ impl ThreadStore for MemStore {
         if lock(&self.damaged).contains(id.as_str()) {
             return Err(Self::unreadable(id.as_str()));
         }
-        Ok(ContextRead(Box::new(self.records(id))))
+        Ok(ContextRead(Box::new((self.records(id), 0usize))))
     }
 
-    /// One page: the last compaction's replacement, then the model rows after it.
+    /// One page: the last compaction's replacement, then the model rows after it, less the first `skip`.
     fn context_cpu(
         &self,
         _lane: &InLane<CpuInteractive>,
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
-        let records = *read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context");
-        Ok(ContextStep::Done(model_rows(records)))
+        let (records, skip) = *read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        let mut rows = model_rows(records);
+        rows.drain(..skip.min(rows.len()));
+        Ok(ContextStep::Done(rows))
     }
 
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
         let read = self.context_io(lane, id, None)?;
-        Ok(model_rows(*read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context")).len())
+        Ok(model_rows(read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context").0).len())
+    }
+
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
+        let (records, _) = *self.context_io(lane, id, None)?.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        Ok(ContextRead(Box::new((records, skip))))
     }
 
     fn open_log(
@@ -944,6 +951,8 @@ impl ThreadStore for CallCounted {
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
+        fn history_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, records: usize) -> Result<(u64, Vec<ItemRecord>, bool), CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;

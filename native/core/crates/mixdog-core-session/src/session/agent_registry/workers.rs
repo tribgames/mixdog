@@ -71,17 +71,20 @@ fn stamp(session: &Row, key: &str) -> Option<Stamp> {
     }
 }
 
+/// An assistant message with content: what `workerResultText` takes as the result.
+fn is_result(message: &Value) -> bool {
+    let content = message.get("content");
+    message.get("role").and_then(Value::as_str) == Some("assistant")
+        && match content {
+            Some(Value::String(text)) => !mixdog_js::js_trim(text).is_empty(),
+            other => truthy(other),
+        }
+}
+
 /// `workerResultText`: the last non-empty assistant message, else the last handoff, else a
 /// placeholder.
 fn worker_result_text(session: &Row, messages: &[Value]) -> String {
-    let has_content = |content: Option<&Value>| match content {
-        Some(Value::String(text)) => !mixdog_js::js_trim(text).is_empty(),
-        other => truthy(other),
-    };
-    let last = messages
-        .iter()
-        .rev()
-        .find(|m| m.get("role").and_then(Value::as_str) == Some("assistant") && has_content(m.get("content")));
+    let last = messages.iter().rev().find(|m| is_result(m));
     if let Some(message) = last {
         return match &message["content"] {
             Value::String(text) => text.clone(),
@@ -124,13 +127,8 @@ impl Workers for AgentWorkers {
     async fn session(&self, session_id: &str) -> Option<WorkerFacts> {
         let thread = ThreadId::from(session_id);
         let header = self.threads.header(&thread).await.ok()?;
-        let messages: Vec<Value> = self
-            .directory
-            .model_context(&thread)
-            .read()
-            .await
-            .map(|rows| rows.into_iter().map(|(_, message)| message).collect())
-            .unwrap_or_default();
+        // The result is the newest assistant message: only the context's tail that holds it is read.
+        let messages = self.directory.model_context(&thread).read_tail_until(is_result).await.unwrap_or_default();
         let result = worker_result_text(&header, &messages);
         Some(facts_of(session_id, &header, self.awaiting_user(session_id), result))
     }

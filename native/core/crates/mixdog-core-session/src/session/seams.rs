@@ -405,6 +405,25 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// model context, answered without reading, decoding or returning a row.
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
 
+    /// [`context_io`](Self::context_io)'s first step for the rows from the `skip`th on only (as
+    /// [`context_len`](Self::context_len) counts them): the read's later steps are the same, and its rows are the context's
+    /// without its first `skip`, with no frame of those read.
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
+
+    /// The newest `records` history rows with the history revision, oldest first, and whether older rows exist: what
+    /// [`history_rows`](Self::history_rows) returns, cut to its tail. A store that cannot read less returns the whole history cut.
+    fn history_window(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        records: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+        let (rev, mut rows) = self.history_rows(lane, id)?;
+        let older = rows.len() > records;
+        rows.drain(..rows.len().saturating_sub(records));
+        Ok((rev, rows, older))
+    }
+
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
