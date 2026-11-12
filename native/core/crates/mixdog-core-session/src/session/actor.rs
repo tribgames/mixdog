@@ -3761,13 +3761,7 @@ impl SessionActor {
                     header.entry("id").or_insert_with(|| Value::String(self.id.as_str().to_owned()));
                     mixdog_store::agent_mode::session_mode_of(&header) == "agent"
                 };
-                let unattended = turn.as_str().is_empty() && self.after_compaction.is_some();
-                let shown_live = !agent_mode && !unattended;
-                // Node's archive of what that compaction took out is lost too: the runtime that ran it holds a session
-                // object it did not refresh (`session-ops.mjs` `compact`: only the live session is), and that object's
-                // next save writes `compaction.archive` as it was before the compaction claimed its segment. A restored
-                // transcript then holds only what the compaction kept, with no divider.
-                let lost_archive = !agent_mode && unattended;
+                let shown_live = !agent_mode && !(turn.as_str().is_empty() && self.after_compaction.is_some());
                 // The divider shows live where the compaction happened (`compactionDivider`).
                 let divider = super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
@@ -3785,7 +3779,6 @@ impl SessionActor {
                         call_ids: d.call_ids,
                     }),
                     silent: agent_mode.then_some(true),
-                    lost: lost_archive.then_some(true),
                     replacement: Slot::Inline(
                         compaction
                             .replacement
@@ -3828,7 +3821,6 @@ impl SessionActor {
                     dropped_count: Some(0),
                     dropped: None,
                     silent: Some(true),
-                    lost: None,
                     replacement: Slot::Inline(
                         replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect(),
                     ),

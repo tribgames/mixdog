@@ -246,7 +246,6 @@ impl World {
                 mode: crate::compaction_view::DropMode::All,
                 dropped: None,
                 silent: false,
-                lost: false,
             },
             F::Title(_) => FrameKind::Other,
         };
