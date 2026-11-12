@@ -180,7 +180,9 @@ export async function sendProviderRequest(state, round) {
     cacheBreakTraceKeys: state.cacheBreakTraceKeys,
   });
   try {
-    opts.onProviderSendStarted?.();
+    // Awaited: the session's observer returns once its mark of this send is
+    // stored (ask-turn-loop-options.mjs); other observers return nothing.
+    await opts.onProviderSendStarted?.();
   } catch {
     // the send-started observer is advisory
   }

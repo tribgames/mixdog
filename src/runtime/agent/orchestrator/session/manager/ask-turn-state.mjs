@@ -195,6 +195,10 @@ export function createTurnCheckpointScheduler({
     landed() {
       return recorder.landed();
     },
+    /** Resolves once everything scheduled so far is written (or failed). */
+    written() {
+      return recorder.written();
+    },
     schedule(immediate = false) {
       if (stopped || !turn.outgoing) return;
       if (immediate || Date.now() - lastAt >= TURN_CHECKPOINT_THROTTLE_MS) {

@@ -103,6 +103,33 @@ async function sendMain(sessionId, provider, overrides) {
   return { state, round, sent };
 }
 
+test('a request leaves only after the observer of its send has finished', async () => {
+  const provider = scriptedProvider(MAIN_REPLY);
+  const { state, round } = mainState('send-after-mark', provider);
+  let stored = () => {};
+  const storing = new Promise((resolve) => {
+    stored = resolve;
+  });
+  let observed = () => {};
+  const observing = new Promise((resolve) => {
+    observed = resolve;
+  });
+  state.opts.onProviderSendStarted = () => {
+    observed();
+    return storing;
+  };
+  const sending = sendProviderRequest(state, round);
+  await observing;
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.equal(provider.calls.length, 0);
+  stored();
+  await sending;
+  assert.equal(provider.calls.length, 1);
+  forgetSideQuestion('send-after-mark');
+});
+
 test('a sent provider request is captured with its cache-relevant inputs, in memory only', async () => {
   const provider = scriptedProvider(MAIN_REPLY);
   const { state, sent } = await sendMain('btw-capture', provider);

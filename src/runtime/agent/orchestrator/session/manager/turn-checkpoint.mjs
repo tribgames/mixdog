@@ -6,6 +6,7 @@ import {
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
   finishPendingSetAside,
+  journalWritesSettled,
   openTurnCheckpoint,
   pendingCheckpointToken,
   readTurnCheckpointHeader,
@@ -426,6 +427,11 @@ export function createTurnCheckpointRecorder({
         landed = await newest.landed;
       }
       return landed;
+    },
+    /** Resolves once everything recorded so far has been written (or has
+     *  failed): the header and every delta queued behind it. */
+    written() {
+      return journalWritesSettled(sessionId);
     },
     /** A save is about to serialize the session: a header naming the epoch
      *  it will record must be on disk first. When that header's write has
