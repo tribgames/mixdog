@@ -15,9 +15,4 @@ pub trait SessionNotices: Send + Sync {
     /// No tool-result sidecar is pruned while `session` cannot be read (whether it names them is not known): the disk
     /// keeps growing until it can (`offloadCopies`).
     fn offload_prune_blocked(&self, session: &str);
-    /// `session` closed while a write failed: `records`, in the order they were accepted, are not on disk and never will be
-    /// (everything before them is). Told once per loss; the session logs the same list.
-    fn records_lost(&self, session: &str, records: &[std::sync::Arc<mixdog_store::schema::record::Record>]) {
-        let _ = (session, records);
-    }
 }
