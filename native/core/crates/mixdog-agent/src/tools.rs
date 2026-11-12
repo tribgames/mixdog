@@ -661,11 +661,18 @@ pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed 
 /// `execute_call` with the caller's `options.editOccurrence` (a same-anchor batch retry), passed beside the model's arguments as
 /// Node passes it, never through them.
 pub(crate) async fn execute_call_occupying(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
+    let cwd = env.cwd_now();
+    execute_call_at(call, env, cwd, edit_occurrence).await
+}
+
+/// `prepareToolCall`'s one read of the session's folder, made by the caller and carried: the gate, the approval, the tool, the hooks
+/// and the call's report all use `cwd`, and nothing after this reads the session's folder again for the call.
+pub(crate) async fn execute_call_at(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     // A `call_tool` whose arguments did not parse is a projection failure (`tool-call-resolution.mjs:43`): refused before dispatch, so
     // it is no completed call and has no timing.
     let refused_before_dispatch = call.name == "call_tool" && is_invalid_args_marker(&call.arguments);
-    let executed = execute_call_inner(call, Arc::clone(&env), edit_occurrence).await;
+    let executed = execute_call_inner(call, Arc::clone(&env), cwd, edit_occurrence).await;
     if refused_before_dispatch { executed } else { stamp_timing(executed, dispatch_started_at, env.clock.as_ref()) }
 }
 
@@ -678,7 +685,7 @@ pub(crate) fn stamp_timing(mut executed: Executed, dispatch_started_at: i64, clo
     executed
 }
 
-async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
+async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
     // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
     // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
     if is_invalid_args_marker(&call.arguments) {
@@ -690,7 +697,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: 
         );
     }
     let started = env.clock.now_ms();
-    let mut executed = execute_gated(&call, &env, edit_occurrence).await;
+    let mut executed = execute_gated(&call, &env, &cwd, edit_occurrence).await;
     executed.tool_ms = (env.clock.now_ms() - started).max(0);
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.
@@ -700,7 +707,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: 
         hooked(
             &env.cancel,
             hooks.after_failure(
-                &GateCall::new(call.name.clone(), call.arguments.clone()),
+                &GateCall::new(call.name.clone(), call.arguments.clone()).at(cwd.as_path()),
                 &executed.message.text(),
             ),
         )
@@ -715,12 +722,13 @@ async fn authorize(
     call_id: &str,
     name: &str,
     arguments: &JsonValue,
+    cwd: &std::path::Path,
     gate: &dyn ToolGate,
     approvals: &dyn ApprovalGate,
     observer: &dyn crate::env::RunObserver,
     guards: &dyn TurnGuards,
 ) -> Result<GateCall, String> {
-    let mut target = GateCall::new(name, arguments.clone());
+    let mut target = GateCall::new(name, arguments.clone()).at(cwd);
     match gate.check_call(call_id, &target).await {
         GateDecision::Allow => {}
         GateDecision::Rewrite(rewritten) => target = rewritten,
@@ -767,6 +775,8 @@ async fn authorize(
     }
     // Node: the final call (after hooks and approval) gets the built-in web_fetch transport
     // routing, then the surface judges it again under its schema name.
+    // A hook's rewrite and an approval's edit are built without the folder: the call keeps the one it was prepared in.
+    target.cwd = Some(cwd.to_path_buf());
     crate::web_route::route_web_fetch(&mut target);
     match gate.pre_dispatch_deny(&target) {
         Some(text) => Err(text),
@@ -802,6 +812,7 @@ pub async fn run_nested(
         ctx.call_id.as_str(),
         name,
         &arguments,
+        ctx.cwd.as_path(),
         pipeline.gate.as_ref(),
         ctx.approvals.as_ref(),
         pipeline.observer.as_ref(),
@@ -842,7 +853,7 @@ pub async fn run_nested(
     };
     let mut args = target.args.clone();
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
-    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
+    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
     let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
@@ -978,11 +989,11 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
-    // `prepareToolCall` reads the session's folder before anything of the call awaits: calls of one batch all start from the
-    // folder the session holds when the batch reaches them, whatever a sibling's Project switch does meanwhile.
-    let cwd = env.cwd_now();
+    // `cwd` is the folder `prepareToolCall` read before anything of the call awaited (the catalog refresh below included): the
+    // approval, the tool and the hooks all use it, whatever a Project switch does meanwhile.
+    let cwd = cwd.clone();
     let call = call.clone();
     let name = call.name.clone();
     // A call the turn's abort ends settles with the abort's text.
@@ -1006,6 +1017,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
             &call.id,
             &name,
             &call.arguments,
+            cwd.as_path(),
             env.gate.as_ref(),
             env.tool_env.approvals.as_ref(),
             env.observer.as_ref(),
@@ -1038,7 +1050,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         let text = crate::text::unknown_tool_message(&target.name, &names);
         // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
         let updated = match &env.hooks {
-            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone() }, &text)).await.flatten(),
+            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() }, &text)).await.flatten(),
             None => None,
         };
         return Executed::returned(&call.id, updated.unwrap_or(text));
@@ -1137,6 +1149,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
                             name: target.name.clone(),
                             args: target_args_for_hook,
                             schema_name: target.schema_name.clone(),
+                            cwd: target.cwd.clone(),
                         },
                         visible,
                     ),
@@ -1502,6 +1515,73 @@ mod tests {
 
     fn stuck_call(name: &str) -> ToolCall {
         ToolCall { id: "c1".into(), name: name.into(), arguments: serde_json::json!({}), native_type: None }
+    }
+
+    type Seen = Arc<std::sync::Mutex<Vec<(&'static str, Option<std::path::PathBuf>)>>>;
+
+    /// Says which folder each stage of one call used.
+    struct Witness {
+        seen: Seen,
+        live: Arc<std::sync::Mutex<AbsPath>>,
+        spec: ToolSpec,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for Witness {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, ctx: &ToolContext, _: JsonValue) -> ToolOutcome {
+            self.seen.lock().unwrap().push(("run", Some(ctx.cwd.as_path().to_path_buf())));
+            Ok(ToolOutput { parts: vec![ToolPart::Text("ok".into())], ..ToolOutput::default() })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ToolGate for Witness {
+        async fn check_call(&self, _: &str, call: &GateCall) -> GateDecision {
+            self.seen.lock().unwrap().push(("approve", call.cwd.clone()));
+            GateDecision::Allow
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::env::ToolHooks for Witness {
+        async fn after_tool(&self, call: &GateCall, _: &str) -> Option<String> {
+            self.seen.lock().unwrap().push(("report", call.cwd.clone()));
+            None
+        }
+    }
+
+    /// The Project switch completes while the call awaits its catalog refresh.
+    #[async_trait::async_trait]
+    impl crate::env::McpCatalog for Witness {
+        async fn refresh(&self) {
+            *self.live.lock().unwrap() = AbsPath::new(std::env::temp_dir().join("b")).unwrap();
+        }
+    }
+
+    /// `prepareToolCall` reads the session's folder once per call: a switch that lands during the call's first await moves neither
+    /// its approval, its run nor its PostToolUse report, which all name the folder the call was prepared in.
+    #[tokio::test]
+    async fn a_switch_during_the_catalog_refresh_moves_no_stage_of_the_call() {
+        let a = AbsPath::new(std::env::temp_dir().join("a")).unwrap();
+        let live = Arc::new(std::sync::Mutex::new(a.clone()));
+        let seen: Seen = Arc::default();
+        let witness = Arc::new(Witness { seen: seen.clone(), live: live.clone(), spec: ToolSpec { name: "probe".into(), title: None, trigger: None, public: true, aliases: Vec::new(), description: "probe".into(), input_schema: serde_json::json!({"type": "object"}), annotations: Default::default(), parallel_safe: true, exclusive_with: Vec::new() } });
+        let mut env = stuck_env(None, true, "probe").env;
+        env.tools = ToolSet::new(vec![witness.clone()]);
+        env.gate = witness.clone();
+        env.hooks = Some(witness.clone());
+        env.mcp = Some(witness.clone());
+        env.live_cwd = Some(Arc::new({
+            let live = live.clone();
+            move || Some(live.lock().unwrap().clone())
+        }));
+        let executed = execute_call(stuck_call("probe"), Arc::new(env)).await;
+        assert!(!executed.failed, "{}", executed.message.text());
+        let a = Some(a.as_path().to_path_buf());
+        assert_eq!(*seen.lock().unwrap(), [("approve", a.clone()), ("run", a.clone()), ("report", a)]);
     }
 
     /// Node's read-only I/O wrapper rejects the moment the parent signal aborts (`read-only-deadline.mjs:65`): no grace.

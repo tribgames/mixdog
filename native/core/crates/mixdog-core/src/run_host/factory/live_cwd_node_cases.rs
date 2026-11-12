@@ -4,7 +4,9 @@
 //! (`TurnPath` over the session directory, the scripted provider, the real `list` and `edit` tools over the real file
 //! service); the switch is the thread settings service's own `setCallerCwd` over the real workspace host, which the
 //! `session` tool calls and answers as Node's handler does. Compared per case: every tool result in order, the session's
-//! folder afterwards, the names in each Project folder and the created file's text, against Node's.
+//! folder afterwards, the names in each Project folder and the created file's text in each, against Node's. The batch cases
+//! hold the switch and a call that follows it in one assistant turn: Node prepares the calls of a batch in order before the
+//! switch has landed, so they run in the folder the session had when the batch began.
 
 use mixdog_core_session::session::thread_settings::ThreadSettings;
 use mixdog_core_session::session::thread_state::SessionThreads;
@@ -156,7 +158,7 @@ async fn every_recorded_turn_runs_its_calls_in_the_folder_the_session_holds_then
             .collect();
         let live = directory.live_header(&id).header();
         #[allow(clippy::disallowed_methods)] // the file the replay's turn made
-        let created = std::fs::read_to_string(b.join("out.txt")).ok();
+        let created = json!({ "a": std::fs::read_to_string(a.join("out.txt")).ok(), "b": std::fs::read_to_string(b.join("out.txt")).ok() });
         let got = json!({
             "reply": "done",
             "toolResults": answered,

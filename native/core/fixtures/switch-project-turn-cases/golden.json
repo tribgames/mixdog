@@ -70,7 +70,175 @@
             "out.txt"
           ]
         },
-        "created": "written after the switch\n"
+        "created": {
+          "a": null,
+          "b": "written after the switch\n"
+        }
+      }
+    },
+    {
+      "case": "the switch and the file are one batch",
+      "script": [
+        {
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "session",
+              "arguments": {
+                "action": "set-project",
+                "path": "<root>/b"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "edit",
+              "arguments": {
+                "file_path": "out.txt",
+                "old_string": "",
+                "new_string": "written after the switch\n"
+              }
+            }
+          ]
+        },
+        {
+          "reply": "done"
+        }
+      ],
+      "recorded": {
+        "reply": "done",
+        "toolResults": [
+          {
+            "toolCallId": "c1",
+            "content": "{\n  \"cwd\": \"<root>/b\",\n  \"sessionId\": \"<session>\"\n}"
+          },
+          {
+            "toolCallId": "c3",
+            "content": "Created out.txt (25 bytes)"
+          }
+        ],
+        "sessionCwd": "<root>/b",
+        "files": {
+          "a": [
+            "old.txt",
+            "out.txt"
+          ],
+          "b": [
+            "new.txt"
+          ]
+        },
+        "created": {
+          "a": "written after the switch\n",
+          "b": null
+        }
+      }
+    },
+    {
+      "case": "the file and the switch are one batch",
+      "script": [
+        {
+          "toolCalls": [
+            {
+              "id": "c3",
+              "name": "edit",
+              "arguments": {
+                "file_path": "out.txt",
+                "old_string": "",
+                "new_string": "written after the switch\n"
+              }
+            },
+            {
+              "id": "c1",
+              "name": "session",
+              "arguments": {
+                "action": "set-project",
+                "path": "<root>/b"
+              }
+            }
+          ]
+        },
+        {
+          "reply": "done"
+        }
+      ],
+      "recorded": {
+        "reply": "done",
+        "toolResults": [
+          {
+            "toolCallId": "c3",
+            "content": "Created out.txt (25 bytes)"
+          },
+          {
+            "toolCallId": "c1",
+            "content": "{\n  \"cwd\": \"<root>/b\",\n  \"sessionId\": \"<session>\"\n}"
+          }
+        ],
+        "sessionCwd": "<root>/b",
+        "files": {
+          "a": [
+            "old.txt",
+            "out.txt"
+          ],
+          "b": [
+            "new.txt"
+          ]
+        },
+        "created": {
+          "a": "written after the switch\n",
+          "b": null
+        }
+      }
+    },
+    {
+      "case": "the switch and the list are one batch",
+      "script": [
+        {
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "session",
+              "arguments": {
+                "action": "set-project",
+                "path": "<root>/b"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "list",
+              "arguments": {
+                "path": "."
+              }
+            }
+          ]
+        },
+        {
+          "reply": "done"
+        }
+      ],
+      "recorded": {
+        "reply": "done",
+        "toolResults": [
+          {
+            "toolCallId": "c1",
+            "content": "{\n  \"cwd\": \"<root>/b\",\n  \"sessionId\": \"<session>\"\n}"
+          },
+          {
+            "toolCallId": "c2",
+            "content": "old.txt\tfile"
+          }
+        ],
+        "sessionCwd": "<root>/b",
+        "files": {
+          "a": [
+            "old.txt"
+          ],
+          "b": [
+            "new.txt"
+          ]
+        },
+        "created": {
+          "a": null,
+          "b": null
+        }
       }
     }
   ]

@@ -271,6 +271,7 @@ async fn a_routed_call_is_judged_under_its_schema_name() {
         name: "local_fetch".into(),
         args: json!({"url": "http://localhost/"}),
         schema_name: schema.map(str::to_owned),
+        cwd: None,
     };
     let surface = SessionSurface { schema_allowed: Some(vec!["web_fetch".into()]), ..SessionSurface::default() };
     let r = rig(Connectors::default(), surface, false);
