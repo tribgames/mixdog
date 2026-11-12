@@ -2,7 +2,7 @@
 // `shell` tool starts see it as TEMP/TMP/TMPDIR, so scratch files never land in
 // the project, and it is removed with its session (session-delete.mjs).
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -29,12 +29,52 @@ export function ensureSessionScratchDir(sessionId) {
   return dir;
 }
 
+const gone = (error) => error?.code === 'ENOENT';
+
+// A link is removed as a link. A recursive `rmSync` deletes what a Windows
+// junction points at (Node 24), and a session's processes make junctions in
+// their TEMP — to a checkout's node_modules, for one — so the tree is walked
+// here and nothing outside it is ever entered.
+function removeLink(path) {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if (gone(error)) return;
+    rmdirSync(path);
+  }
+}
+
+function removeTree(path) {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (gone(error)) return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) return removeLink(path);
+  if (!stat.isDirectory()) {
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (!gone(error)) throw error;
+    }
+    return;
+  }
+  for (const name of readdirSync(path)) removeTree(join(path, name));
+  try {
+    rmdirSync(path);
+  } catch (error) {
+    if (!gone(error)) throw error;
+  }
+}
+
 export function removeSessionScratchDir(sessionId) {
   const dir = sessionScratchDir(sessionId);
   if (!dir) return;
-  rmSync(dir, { recursive: true, force: true });
+  removeTree(dir);
   // Earlier versions named the folder after the full id.
-  rmSync(join(resolvePluginData(), 'scratch', sessionId), { recursive: true, force: true });
+  removeTree(join(resolvePluginData(), 'scratch', sessionId));
 }
 
 /** Point an env's temp variables at the session's scratch directory. */
