@@ -1,0 +1,138 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "build id parsed from the installer script, fetched once",
+      "input": {
+        "answer": {
+          "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\""
+        },
+        "warms": [
+          2,
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2099.09.28-64d2043",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": [
+          "https://cursor.com/install"
+        ]
+      }
+    },
+    {
+      "case": "a build dated before the floor never replaces it",
+      "input": {
+        "answer": {
+          "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2020.01.01-aaaaaaa/${OS}/${ARCH}/agent-cli-package.tar.gz\""
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2026.10.22-27dcf5f",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": [
+          "https://cursor.com/install"
+        ]
+      }
+    },
+    {
+      "case": "format change falls back to the floor",
+      "input": {
+        "answer": {
+          "body": "#!/bin/sh\necho new installer layout"
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2026.10.22-27dcf5f",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": [
+          "https://cursor.com/install"
+        ]
+      }
+    },
+    {
+      "case": "fetch failure and HTTP errors fall back to the floor",
+      "input": {
+        "answer": {
+          "throws": "offline"
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2026.10.22-27dcf5f",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": [
+          "https://cursor.com/install"
+        ]
+      }
+    },
+    {
+      "case": "fetch failure and HTTP errors fall back to the floor (HTTP 503)",
+      "input": {
+        "answer": {
+          "status": 503,
+          "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\""
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2026.10.22-27dcf5f",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": [
+          "https://cursor.com/install"
+        ]
+      }
+    },
+    {
+      "case": "env override wins and skips the fetch",
+      "input": {
+        "answer": {
+          "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\""
+        },
+        "env": {
+          "MIXDOG_CURSOR_CLIENT_VERSION": "cli-custom"
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-custom",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": []
+      }
+    },
+    {
+      "case": "MIXDOG_DISABLE_LIVE_CLI_VERSIONS skips the fetch",
+      "input": {
+        "answer": {
+          "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\""
+        },
+        "env": {
+          "MIXDOG_DISABLE_LIVE_CLI_VERSIONS": "1"
+        },
+        "warms": [
+          1
+        ]
+      },
+      "observed": {
+        "version": "cli-2026.10.22-27dcf5f",
+        "floor": "cli-2026.10.22-27dcf5f",
+        "calls": []
+      }
+    }
+  ]
+}
