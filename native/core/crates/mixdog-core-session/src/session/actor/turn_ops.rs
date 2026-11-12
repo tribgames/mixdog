@@ -120,7 +120,7 @@ impl SessionActor {
     /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
     /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
     /// queue (`decisions.md`, "turn/retryFailed").
-    fn retry_blocked(&self) -> bool {
+    pub(super) fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()

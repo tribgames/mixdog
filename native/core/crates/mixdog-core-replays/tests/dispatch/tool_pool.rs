@@ -1053,8 +1053,91 @@ struct World {
     quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
     _rig: mixdog_core_session::session::testing::Rig,
     _data: tempfile::TempDir,
+    _config: tempfile::TempDir,
 }
 
+/// The route facts of a route change: the window rule alone, no registered provider.
+struct WindowFacts;
+
+#[async_trait]
+impl mixdog_core::run_host::route_change::RouteFacts for WindowFacts {
+    fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+        Some(mixdog_core_run::run_host::session_context_meta::resolve_context_meta(None, None, provider, model, seed, false))
+    }
+    fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+        None
+    }
+}
+
+struct Quiet;
+
+impl mixdog_core_session::session::route_session::RouteStatusline for Quiet {
+    fn write(&self, _: &str, _: &mixdog_core_ports::ports::route::Route, _: Option<u64>) {}
+}
+
+impl mixdog_core_session::session::route_session::ContextStatusCache for Quiet {
+    fn invalidate(&self, _: &ThreadId) {}
+}
+
+struct NoBotRoutes;
+
+#[async_trait]
+impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBotRoutes {
+    async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
+    }
+    async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
+    }
+}
+
+impl mixdog_core_session::session::route_session::RouteConfig for Quiet {
+    fn agent_config(&self) -> mixdog_core_ports::ports::domain_sessions::Obj {
+        mixdog_core_ports::ports::domain_sessions::Obj::new()
+    }
+    fn bots(&self) -> &(dyn mixdog_core_run::run_host::route_chain::BotRoutes + Send + Sync) {
+        &NoBotRoutes
+    }
+}
+
+struct NoUsage;
+
+impl mixdog_core_ports::ports::route_write::StatuslineUsage for NoUsage {
+    fn refresh(&self, _: &ThreadId, _: &mixdog_ai::service::admin_route::Obj) {}
+}
+
+/// No model list is fetched: nothing replayed reads the network.
+struct Offline;
+
+#[async_trait]
+impl mixdog_ai::transport::http::HttpSend for Offline {
+    async fn send(
+        &self,
+        _: mixdog_core_api::domain::provider::WireRequest,
+        _: mixdog_ai::transport::Exchange,
+    ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        Err(mixdog_core_api::domain::provider::ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, mixdog_core_api::domain::provider::DeliveryState::NotSent))
+    }
+}
+
+/// The provider registry's builder: every provider builds a scripted adapter; no replayed call sends.
+struct Builds;
+
+#[async_trait]
+impl mixdog_ai::registry::providers::ProviderBuilder for Builds {
+    async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+        Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
+    }
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    fn available(&self, _: &str) -> bool {
+        true
+    }
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+}
 async fn real_store(data: &std::path::Path) -> Arc<dyn mixdog_core_session::session::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::sqlite::SqliteStore;
@@ -1069,7 +1152,9 @@ async fn real_store(data: &std::path::Path) -> Arc<dyn mixdog_core_session::sess
     Arc::new(mixdog_core_session::session::StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"))
 }
 
-async fn world(quota_reset: u64) -> World {
+/// The world over the real route service (`RouteService` over `LiveRouteWriter`, `SessionRoutes` and the real config file):
+/// a task started without a route of its own begins on the Lead route of that config, `lead` (`{provider, model}`).
+async fn world(quota_reset: u64, lead: &Value) -> World {
     use mixdog_core_session::session::RunOutcome;
     use mixdog_core_session::session::testing::Rig;
 
@@ -1094,8 +1179,44 @@ async fn world(quota_reset: u64) -> World {
             }
         })
     }));
-    let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(rig.deps_on(store)));
-    World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data }
+    let late = Arc::new(mixdog_core::run_host::route_start::LateNewRoute::default());
+    let mut deps = rig.deps_parts(store);
+    deps.new_route = late.clone();
+    let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
+    let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+    let change = Arc::new(mixdog_core::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(At(0))));
+    let adapter = Arc::new(mixdog_core_session::session::route_session::SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+    let config_dir = tempfile::tempdir().expect("config dir");
+    let path = config_dir.path().join("mixdog-config.json");
+    let agent = json!({ "default": "lead", "presets": [{ "id": "lead", "name": "Lead", "provider": lead["provider"], "model": lead["model"] }] });
+    std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).expect("config")).expect("the config file");
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = mixdog_core_config::config::Config::open(&path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("the config");
+    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), config_dir.path().to_path_buf(), io);
+    let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
+    let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(Builds)));
+    let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry, catalog.clone());
+    let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: catalog.clone(), readiness: readiness.clone(), config: config.clone() });
+    let models = Arc::new(mixdog_core_domains::domains::ai_admin::model_list::ModelListService {
+        catalog: catalog.clone(),
+        config: config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::new(mixdog_ai::service::effort_configuration::UnsupportedEfforts::default()),
+        host: None,
+    });
+    let cell = {
+        let (config, facts) = (config.clone(), facts.clone());
+        Arc::new(mixdog_core_session::session::route_cell::SessionRoutes::new(move |request: &mixdog_ai::service::admin_route::Obj| {
+            mixdog_ai::service::admin_route::resolve_route(&config.agent(), request, &|provider, full| mixdog_core_domains::domains::ai_admin::chain::RouteFacts::is_known(&*facts, provider, full))
+        }))
+    };
+    let follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads, adapter.clone(), cell.clone()));
+    let writer = Arc::new(mixdog_core_ports::ports::route_write::LiveRouteWriter { cell, session: adapter, config: config.clone(), catalog, readiness, usage: Arc::new(NoUsage) });
+    let service = mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow, models, controls: directory.clone() };
+    assert!(late.bind(Arc::new(service)).is_ok(), "one route service");
+    World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data, _config: config_dir }
 }
 
 impl World {
@@ -1169,6 +1290,9 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
     let quoted = serde_json::to_string(escaped).expect("json");
     let quoted = quoted[1..quoted.len() - 1].to_owned();
     let request = fancy_regex::Regex::new("atask_[0-9a-f-]{36}").expect("a pattern");
+    // The Lead route of the config Node ran with: the route every recorded create was made on.
+    let created_on = |case: &Value| case["observed"]["calls"].as_array().and_then(|calls| calls.iter().find(|call| call[0] == "service.createSession")).map(|call| json!({ "provider": call[1]["provider"], "model": call[1]["model"] }));
+    let lead = g["cases"].as_array().expect("cases").iter().find_map(created_on).expect("a recorded create");
     let mut failures: Vec<String> = Vec::new();
     for case in g["cases"].as_array().expect("cases") {
         let name = case["case"].as_str().expect("name");
@@ -1204,7 +1328,7 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         let caller_id = caller_record["id"].as_str().expect("caller id").to_owned();
         let snapshots = options["snapshots"].as_object().cloned().unwrap_or_default();
         let quota_reset = snapshots.values().find_map(|snapshot| snapshot["quotaResume"]["resetAt"].as_u64()).unwrap_or(5000);
-        let world = world(quota_reset).await;
+        let world = world(quota_reset, &lead).await;
         // The sessions of the world: the stored ones, those with a route or title of their own, and the caller.
         let mut sessions = if options.get("sessions").is_some() { ids("sessions") } else { vec!["target".to_owned()] };
         sessions.extend(snapshots.keys().cloned());
@@ -1294,7 +1418,9 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
                 // The session a create started is what Node's service was asked to create: its folder, its place and its origin.
                 let header = threads.header(&ThreadId::from(id.as_str())).await.expect("the created session");
                 assert_eq!(header["sourceName"], json!(format!("agent:{}@home", header["taskOrigin"]["agentId"].as_str().expect("agent"))), "{name}: the task is tagged with where it came from");
-                calls.push(json!(["service.createSession", { "cwd": header["cwd"], "desktopSession": header["desktopSession"], "sessionProfile": { "taskOrigin": header["taskOrigin"] } }]));
+                // Its route is the one the created session stored, through the route service.
+                assert_eq!(created_on(case), Some(json!({ "provider": header["provider"], "model": header["model"] })), "{name}: the created session's stored route");
+                calls.push(json!(["service.createSession", { "cwd": header["cwd"], "desktopSession": header["desktopSession"], "sessionProfile": { "taskOrigin": header["taskOrigin"] }, "provider": header["provider"], "model": header["model"] }]));
             }
             None => assert!(created_threads.is_empty(), "{name}: a call that created nothing made sessions {created_threads:?}"),
         }
@@ -1328,14 +1454,26 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         }
         observed["calls"] = json!(calls);
         observed["delivered"] = json!([]);
-        // The quota resume a status reads is the failed turn's own: its turn key, provider and model are the run's.
-        if let (Some(answer), Some(snapshot)) = (observed["answer"].as_str(), snapshots.values().find(|snapshot| !snapshot["quotaResume"].is_null())) {
+        // The quota resume a status reads comes from the real failed turn, whose key is generated by that turn (declared in the
+        // manifest): the answer's is checked to be the key of the resume queued for it, then both sides name it <turn key>.
+        if let (Some(answer), Some((id, _))) = (observed["answer"].as_str(), snapshots.iter().find(|(_, snapshot)| !snapshot["quotaResume"].is_null())) {
             let mut out: Value = serde_json::from_str(answer).expect("the answer");
-            for key in ["state", "resetAt", "attempts"] {
-                assert_eq!(out["quotaResume"][key], snapshot["quotaResume"][key], "{name}: quotaResume.{key}");
+            let queued = world.quota.entry(id).expect("the queued resume").turn_key;
+            assert_eq!(out["quotaResume"]["turnKey"], json!(queued), "{name}: quotaResume.turnKey is the failed turn's");
+            let model = snapshots[id]["model"].as_str().expect("the session's model");
+            assert_eq!(out["quotaResume"]["model"], json!(mixdog_core_run::run_host::model_display::display_model_name(model, "")), "{name}: quotaResume.model is the display name of the session's model");
+            for (key, placeholder) in [("turnKey", "<turn key>"), ("model", "<model name>")] {
+                out["quotaResume"][key] = json!(placeholder);
             }
-            out["quotaResume"] = snapshot["quotaResume"].clone();
             observed["answer"] = json!(serde_json::to_string(&out).expect("json"));
+            let recorded = want["answer"].as_str().expect("the recorded answer");
+            let mut recorded: Value = serde_json::from_str(recorded).expect("the recorded answer");
+            assert!(recorded["quotaResume"]["turnKey"].as_str().is_some_and(|key| !key.is_empty()), "{name}: the recording names a turn key");
+            assert_eq!(recorded["quotaResume"]["model"], json!(model), "{name}: the recording names the session's model");
+            for (key, placeholder) in [("turnKey", "<turn key>"), ("model", "<model name>")] {
+                recorded["quotaResume"][key] = json!(placeholder);
+            }
+            want["answer"] = json!(serde_json::to_string(&recorded).expect("json"));
         }
         let names = |value: &Value| -> Value {
             let mut text = serde_json::to_string(value).expect("json").replace(&quoted, "<WORK>").replace(escaped, "<WORK>");
@@ -1344,12 +1482,6 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
             }
             serde_json::from_str(&request.replace_all(&text, "<request>")).expect("json")
         };
-        // Node's own route of a task (the Lead route of its config) is the route service's here.
-        for call in want["calls"].as_array_mut().expect("calls") {
-            if call[0] == "service.createSession" {
-                call[1].as_object_mut().expect("input").retain(|key, _| key != "provider" && key != "model");
-            }
-        }
         let got = names(&observed);
         if got != want {
             failures.push(format!("{name}: {}\n  got:  {got}\n  want: {want}", case["input"]["args"]));

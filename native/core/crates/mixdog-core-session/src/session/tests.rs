@@ -3897,7 +3897,9 @@ async fn a_scheduler_fire_replays_the_failed_turn_once() {
     host.materialize(&id).await.expect("loaded");
     // A generation that is not queued is stale at once.
     assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
-    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    // The fire answers `Busy` while `retry_blocked` holds (a turn, the quota settlement, a compaction, a wake, queued input):
+    // wait for the actor to publish that it does not.
+    eventually_on!(&[&handle.cell.stepped, &rig.quota_changed], || (!handle.cell.retry_blocked.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
     let outcome = host.fire(&id, entry.generation).await;
     assert_eq!(outcome, Ok(FireOutcome::Fired));
     assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
