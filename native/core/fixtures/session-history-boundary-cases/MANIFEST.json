@@ -3,8 +3,8 @@
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-history-boundary-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "No wire in the Node test.",
-    "notRun": "the test's last case (a scan of the app's source files for the name of the history read) is a property of the source tree, not of a call; no real attachment store (the blobs are a scripted map)",
-    "runs": "readSessionAttachment (session-attachments.ts), registerSessionIpc, createRemoteMethods, readStoredSessionTranscript (store-summary-reader.mjs) and compactionSegmentLine over session files written into a scratch MIXDOG_DATA_DIR"
+    "notRun": "the test's last case (a scan of the app's source files for the name of the history read) is a property of the source tree, not of a call; no real attachment store (the blobs are a scripted map); the compactions are the capture the compaction runner calls with the messages it dropped, not a summarising run",
+    "runs": "readSessionAttachment (session-attachments.ts), registerSessionIpc, createRemoteMethods, readStoredSessionTranscript (store-summary-reader.mjs) over session files the store writes in a scratch MIXDOG_DATA_DIR: the archive's segments by the compaction capture (scheduleCompactionArchive, the cap by its byte cap), the hide by the real clear (clearSessionMessages), the records by saveSessionAsync"
   },
   "exclusions": {},
   "fileCount": 1,
@@ -30,7 +30,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/history-boundary-scenarios.mjs",
-      "sha256": "0c58e60a360dc441518eafc6861a55d4e5124b828e3254fdfb53a2b4be478361"
+      "sha256": "4327bb5dad28001bbbd3bf27bf82fcc42f15e4683c639a7b587cc5c2d5f020c1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -72,7 +72,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-history-boundary-cases.mjs",
-  "recorderSha256": "ce5221752ef31755300b54d1f5237314aaa44b2d77b2ff4a8c8b321d6e67108f",
+  "recorderSha256": "6df0ce41a2338af0f009dfaa2f7082146e63ba7238193bce0ce379568cf790c4",
   "replay": {
     "compare": "the desktop attachment read on the product modules over the same stored sessions (the core serves a session's attachments as thread/attachment/list); compare each case whole",
     "entry": "Drive these public items on o1: thread/attachment/list.",

@@ -18,12 +18,14 @@ const { registerSessionIpc } = await import('./ipc-sessions.ts');
 const { createRemoteMethods } = await import('./remote-methods.ts');
 const { readSessionAttachment } = await import('./session-attachments.ts');
 const { readStoredSessionTranscript } = await import('../../../../src/runtime/agent/orchestrator/session/store-summary-reader.mjs');
-const { compactionSegmentLine } = await import('../../../../src/runtime/agent/orchestrator/session/compaction-archive.mjs');
+const { loadSession, saveSessionAsync, releaseIdleSessionWriter } = await import('../../../../src/runtime/agent/orchestrator/session/store.mjs');
+const { clearSessionMessages } = await import('../../../../src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
+const { scheduleCompactionArchive, flushCompactionArchiveWrites, stampCompactionMessageIds } = await import('../../../../src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs');
 
 test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const golden = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/session-history-boundary-cases/golden.json', import.meta.url), 'utf8'));
-const scenarios = historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErrorReason, registerSessionIpc, createRemoteMethods, readSessionAttachment, readStoredSessionTranscript, compactionSegmentLine });
+const scenarios = historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErrorReason, registerSessionIpc, createRemoteMethods, readSessionAttachment, readStoredSessionTranscript, loadSession, saveSessionAsync, releaseIdleSessionWriter, clearSessionMessages, scheduleCompactionArchive, flushCompactionArchiveWrites, stampCompactionMessageIds });
 
 assert.deepEqual(golden.cases.map((c) => c.case), Object.keys(scenarios), 'every recorded case is replayed, in the recorded order');
 for (const recorded of golden.cases) {
