@@ -756,6 +756,7 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
         blobs: &blobs,
         states: &states,
     };
+    check_recording(&manifest);
     let sessions = manifest["scenarios"][scenario]["sessions"].as_array().unwrap();
     assert_eq!(sessions.len() as u64, manifest["scenarios"][scenario]["sessionCount"].as_u64().unwrap());
     for s in sessions {
@@ -763,27 +764,71 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
         let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id))
             .unwrap_or_else(|e| panic!("{scenario}/{id}: {e}"));
         folded.observable(&cx).unwrap();
-        // The migrated header's prompt blocks are what Node recorded for the session's leading system messages; the
-        // transcript is then built from the migrated data alone: those blocks and every model message row, the hidden
-        // ones (skill/hook, internal text) included, as the corpus digests cover the whole 1.4.5 transcript.
-        let want = &s["expected"];
-        let system = header_system_messages(&folded.header);
-        assert_system_messages(&system, &want["systemMessages"], &format!("{scenario}/{id}"));
-        let messages: Vec<Value> = system
-            .into_iter()
-            .chain(
-                folded
-                    .rows
-                    .iter()
-                    .filter(|r| r.form == mixdog_store::schema::record::Form::Message && r.model)
-                    .map(|r| r.body.clone()),
-            )
-            .collect();
-        let (count, transcript, header_digest) = corpus_digests(&folded.header, &messages);
-        assert_eq!(count as u64, want["messageCount"].as_u64().unwrap(), "{scenario}/{id} count");
-        assert_eq!(transcript, want["transcriptDigest"].as_str().unwrap(), "{scenario}/{id} transcript");
-        assert_eq!(header_digest, want["headerDigest"].as_str().unwrap(), "{scenario}/{id} header");
+        check_session(&folded, &s["expected"], &format!("{scenario}/{id}"));
     }
+}
+
+/// One migrated session against what the corpus recorded for it. The migrated header's prompt blocks are what Node recorded
+/// for the session's leading system messages; the transcript is then built from the migrated data alone: those blocks and
+/// every model message row, the hidden ones (skill/hook, internal text) included, as the corpus digests cover the whole
+/// 1.4.5 transcript.
+fn check_session(folded: &crate::session::target::Folded, want: &Value, what: &str) {
+    let system = header_system_messages(&folded.header);
+    assert_system_messages(&system, &want["systemMessages"], what);
+    let messages: Vec<Value> = system
+        .into_iter()
+        .chain(
+            folded
+                .rows
+                .iter()
+                .filter(|r| r.form == mixdog_store::schema::record::Form::Message && r.model)
+                .map(|r| r.body.clone()),
+        )
+        .collect();
+    let (count, transcript, header_digest) = corpus_digests(&folded.header, &messages);
+    assert_eq!(count as u64, want["messageCount"].as_u64().unwrap(), "{what} count");
+    assert_eq!(transcript, want["transcriptDigest"].as_str().unwrap(), "{what} transcript");
+    assert_eq!(header_digest, want["headerDigest"].as_str().unwrap(), "{what} header");
+}
+
+const RECORDING_NODE_COMMIT: &str = "b6f10295a2f698afc85332467192de28500bd146";
+const RECORDER: &str = "benchmarks/rust-core/recorders/record-migration-system-messages.mjs";
+const REGENERATE: &str = "node benchmarks/rust-core/recorders/record-migration-system-messages.mjs --tree <b6f10295a export with node_modules> --corpus <migration-corpus dir>";
+
+fn repo_file_sha(path: &str) -> String {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").join(path);
+    durable::sha256_hex(&std::fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display())))
+}
+
+/// The corpus's own digests, as the recorder folds them: its generation stamp and every session's transcript and header digest.
+fn corpus_identity(manifest: &Value) -> String {
+    let mut scenarios: Vec<_> = manifest["scenarios"].as_object().unwrap().iter().collect();
+    scenarios.sort_by_key(|(name, _)| name.as_str());
+    let mut lines = vec![manifest["generated"].as_str().unwrap().to_string()];
+    for (name, scenario) in scenarios {
+        for s in scenario["sessions"].as_array().unwrap() {
+            let e = &s["expected"];
+            lines.push(format!("{name}/{} {} {}", s["id"].as_str().unwrap(), e["transcriptDigest"].as_str().unwrap(), e["headerDigest"].as_str().unwrap()));
+        }
+    }
+    sha(&lines.join("\n"))
+}
+
+/// The expectation (`expected.systemMessages`) is trusted only when this repository's recorder made it, from Node's
+/// reader at the reference commit, over this corpus: the manifest's `systemMessagesRecording` names each.
+fn check_recording(manifest: &Value) {
+    let rec = manifest
+        .get("systemMessagesRecording")
+        .unwrap_or_else(|| panic!("the corpus manifest records no systemMessagesRecording (recorder version unknown): regenerate with `{REGENERATE}`"));
+    let text = |k: &str| rec[k].as_str().unwrap_or("");
+    assert_eq!(text("nodeCommit"), RECORDING_NODE_COMMIT, "the system messages were recorded from another Node commit: regenerate with `{REGENERATE}`");
+    assert_eq!(text("recorder"), RECORDER, "the system messages were recorded by another recorder: regenerate with `{REGENERATE}`");
+    let mut files = vec![(RECORDER.to_string(), text("recorderSha256").to_string())];
+    files.extend(rec["inputs"].as_array().into_iter().flatten().map(|i| (i["path"].as_str().unwrap_or("").to_string(), i["sha256"].as_str().unwrap_or("").to_string())));
+    for (path, recorded) in files {
+        assert_eq!(repo_file_sha(&path), recorded, "the system messages were recorded by another recorder version ({path} differs): regenerate with `{REGENERATE}`");
+    }
+    assert_eq!(corpus_identity(manifest), text("corpusIdentity"), "the system messages were recorded over another corpus: regenerate with `{REGENERATE}`");
 }
 
 /// The leading system messages 1.4.5 had, as the migrated header's prompt blocks give them back (Node's message objects).
@@ -807,16 +852,51 @@ fn assert_system_messages(blocks: &[Value], recorded: &Value, what: &str) {
     assert_eq!(got, want, "{what}: prompt blocks");
 }
 
+/// A migrated session of the real corpus: `check_session`, the gate's own comparison, passes on it, and fails once a prompt
+/// block of its migrated header is changed.
 #[test]
-#[should_panic(expected = "prompt blocks")]
-fn a_wrong_migrated_prompt_block_is_not_the_recorded_one() {
-    let header = |base: &str| json!({"promptBase": base, "promptStable": "stable"}).as_object().unwrap().clone();
-    let recorded = json!([
-        {"cacheTier": null, "sha256": sha("rules")},
-        {"cacheTier": null, "sha256": sha("stable")},
-    ]);
-    assert_system_messages(&header_system_messages(&header("rules")), &recorded, "right");
-    assert_system_messages(&header_system_messages(&header("wrong")), &recorded, "wrong");
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn a_corrupted_migrated_prompt_block_fails_the_gate_comparison() {
+    let manifest: Value = serde_json::from_slice(&std::fs::read(corpus().join("manifest.json")).unwrap()).unwrap();
+    let (_dir, roots, _complete) = migrate_corpus("v145", |_| {});
+    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &disk,
+        manifest_sha256: "",
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let s = manifest["scenarios"]["v145"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| !s["expected"]["systemMessages"].as_array().unwrap().is_empty())
+        .expect("a corpus session with a system message");
+    let id = s["id"].as_str().unwrap();
+    let mut folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap();
+    check_session(&folded, &s["expected"], id);
+    let key = mixdog_core_prompt::prompt::blocks::BASE_KEY;
+    let base = folded.header[key].as_str().unwrap().to_string();
+    folded.header.insert(key.to_string(), Value::String(format!("{base}!")));
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_session(&folded, &s["expected"], id)))
+        .expect_err("the comparison accepted a corrupted prompt block");
+    let message = failed.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(message.contains("prompt blocks"), "failed for another reason: {message}");
+}
+
+#[test]
+#[should_panic(expected = "another recorder version")]
+fn an_expectation_of_another_recorder_version_is_refused() {
+    let manifest = json!({"systemMessagesRecording": {
+        "nodeCommit": RECORDING_NODE_COMMIT,
+        "recorder": RECORDER,
+        "recorderSha256": "0".repeat(64),
+    }});
+    check_recording(&manifest);
 }
 
 #[test]

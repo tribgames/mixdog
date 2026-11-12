@@ -60,6 +60,10 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 # migration-corpus: the release gates over the migration corpus. MIXDOG_MIGRATION_CORPUS names the corpus (`v145/`, `dev146/`, `home/`,
 # `fixture-busy-seed/`, `manifest.json`); MIXDOG_CORPUS_DATA_DIR a directory whose `prompt-attachments/sha256/` holds the blobs the
 # corpus sessions name (`MIXDOG_DATA_DIR` is not used: the build gate points it at an empty directory).
+# The corpus manifest's `expected.systemMessages` is recorded from Node b6f10295a's own session reader by
+# benchmarks/rust-core/recorders/record-migration-system-messages.mjs, which writes its provenance (`systemMessagesRecording`) beside it; the
+# gates refuse an expectation of another recorder version, Node commit or corpus. Regenerate it after a recorder or library change with
+# `node benchmarks/rust-core/recorders/record-migration-system-messages.mjs --tree <b6f10295a export with node_modules> --corpus <migration-corpus dir>`.
 [profile.migration-corpus]
 default-filter = '''
     package(mixdog-migrate)
