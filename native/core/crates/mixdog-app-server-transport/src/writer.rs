@@ -18,7 +18,9 @@
 //! **Ordered class.** Answers, server requests and the frames of ordered lanes (feeds whose
 //! events Node's phone path never drops, `remote-relay-push-lanes.ts:103-176`) are never dropped
 //! or merged. Answers and server requests hold the control reserve (`controlReserveBytes`), so
-//! they and pings (which hold nothing) still queue while events fill their own room. Ordered
+//! they and pings (which hold nothing) still queue while events fill their own room; an empty
+//! reserve admits one answer of any size, as the event room does (Node answered a whole catalog or
+//! transcript in one frame, and its relay cut a leg only for what was queued behind a frame). Ordered
 //! lanes' frames hold the ordered event room (`orderedQueueBytes`, 8 MiB): an empty room admits
 //! one frame of any size (no single event closes a connection; `lsp:` and `fs:` frames have no
 //! size bound in the core, nor in Node), and behind it frames queue while the held bytes stay
@@ -300,8 +302,8 @@ pub(crate) enum Closing {
 
 /// A byte room of the ordered class, held by a frame from queueing until the socket has taken
 /// it: the control reserve (`controlReserveBytes`: answers, errors, server requests) or the
-/// ordered event room (`orderedQueueBytes`: ordered lanes' frames, which also admits one frame of
-/// any size while it holds nothing). An atomic, so a reservation dropped under the state lock
+/// ordered event room (`orderedQueueBytes`: ordered lanes' frames). Each also admits one frame of
+/// any size while it holds nothing. An atomic, so a reservation dropped under the state lock
 /// never waits on it.
 struct OrderedReserve {
     total: usize,
@@ -563,7 +565,7 @@ impl Shared {
                 wake: Notify::new(),
                 lag_waiting: AtomicBool::new(false),
             }),
-            reserve: OrderedReserve::new(limits.control_reserve, false),
+            reserve: OrderedReserve::new(limits.control_reserve, true),
             ordered_room: OrderedReserve::new(limits.ordered_queue, true),
             state: Mutex::new(State::default()),
             clock,

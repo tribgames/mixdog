@@ -573,8 +573,9 @@ const connectionStatus = (client: ProtocolClient<SessionFold>): DesktopSectionsS
 };
 
 /** The desktop's capability lane (main/protocol/capability-route.ts) over this phone's client: the same conversions, the same
- *  core replies, with `client` being the one call's scoped client. */
-const sharedFor = (scoped: ChatClient): ChatHostShared => {
+ *  core replies, with `client` being the one call's scoped client. The desktop's own session lane (main/protocol/session-lane.ts)
+ *  builds the same over its connection's client. */
+export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   const client = scoped as unknown as ProtocolClient<SessionFold>;
   const lane = createCapabilityLane({
     protocol: {
@@ -642,7 +643,7 @@ export const foldTranscript = (client: Pick<ChatClient, 'resumeThread'>): ChatSh
 });
 
 /** The core's `hostState` key `remoteSession` as this client's section store holds it. */
-const remoteSession = (scoped: ChatClient): unknown =>
+export const remoteSession = (scoped: ChatClient): unknown =>
   (scoped as unknown as ProtocolClient<SessionFold>).store.section('hostState', 'remoteSession')?.value;
 
 /** The phone's chat adapter; `timers` is the catalog clock (a replay's own; the real one otherwise). */
