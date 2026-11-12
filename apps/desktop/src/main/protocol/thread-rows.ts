@@ -43,6 +43,9 @@ export function summariesOfThreadRows(
       ...rest,
       ...(typeof compactCount === 'number' && compactCount > 0 ? { compactCount } : {}),
       ...(activityAt ? { activityAt } : {}),
+      // Node's listing leaves an agent's worker sessions out of the sidebar by the stored `owner`/`visibility`, which the core's
+      // row does not carry: it says `agentSession` itself.
+      ...(core.agentSession === true ? { agentSession: true } : {}),
       // The runtime's own activity flags, not the projection's reading of `working` (it would make every working row a lead's).
       ...(core.working === true ? { working: true } : {}),
       ...(core.leadWorking === true ? { leadWorking: true } : {}),
