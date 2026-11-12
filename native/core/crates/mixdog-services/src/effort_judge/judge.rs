@@ -230,8 +230,12 @@ fn skip_reason(error: &JudgeError) -> String {
 }
 
 /// What the host chooses about a judge model.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct JudgeOptions {
+    /// How long the model stays loaded without a judgment, and how long a turn's lease holds it:
+    /// the one setting of the idle unload, [`KEEP_WARM`] unless a host chooses otherwise. It runs on
+    /// the judge's clock.
+    pub keep_warm: Duration,
     /// Bumped whenever `status()` changes.
     pub tick: StateTick,
     /// The release to install; the bundled manifest when absent.
@@ -243,6 +247,20 @@ pub struct JudgeOptions {
     /// The host process the model loads in, for tests that start a real one.
     #[cfg(test)]
     pub(crate) host: Option<HostLaunch>,
+}
+
+impl Default for JudgeOptions {
+    fn default() -> Self {
+        Self {
+            keep_warm: KEEP_WARM,
+            tick: StateTick::default(),
+            manifest: None,
+            progress: None,
+            timing: JudgeTiming::default(),
+            #[cfg(test)]
+            host: None,
+        }
+    }
 }
 
 /// The resident model and its serialised access. Shared by every run.
@@ -277,6 +295,8 @@ pub struct EffortJudgeModel {
     /// Ends installs this instance started in the background.
     cancel: CancellationToken,
     idle: Idle,
+    /// [`JudgeOptions::keep_warm`].
+    keep_warm: Duration,
     #[cfg(test)]
     script: Option<Script>,
     #[cfg(test)]
@@ -318,7 +338,13 @@ impl EffortJudgeModel {
     /// [`Self::hosted`] with every wait on `alarm`.
     #[cfg(test)]
     pub(crate) fn hosted_on(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>) -> Arc<Self> {
-        let options = JudgeOptions { host: Some(launch), ..JudgeOptions::default() };
+        Self::hosted_for(config, lanes, launch, alarm, KEEP_WARM)
+    }
+
+    /// [`Self::hosted_on`] with the idle period `keep_warm`.
+    #[cfg(test)]
+    pub(crate) fn hosted_for(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>, keep_warm: Duration) -> Arc<Self> {
+        let options = JudgeOptions { host: Some(launch), keep_warm, ..JudgeOptions::default() };
         Arc::new(Self::create(config, lanes, options, alarm).expect("the bundled manifest"))
     }
 
@@ -364,6 +390,7 @@ impl EffortJudgeModel {
             steps: std::sync::OnceLock::new(),
             cancel: CancellationToken::new(),
             idle: Idle::default(),
+            keep_warm: options.keep_warm,
             #[cfg(test)]
             script: None,
             #[cfg(test)]
@@ -482,7 +509,7 @@ impl EffortJudgeModel {
         self.idle.leases.fetch_add(1, Ordering::AcqRel);
         let this = Arc::downgrade(self);
         self.alarm.after(
-            KEEP_WARM,
+            self.keep_warm,
             Box::new(move || {
                 if let Some(this) = this.upgrade() {
                     this.idle.leases.fetch_sub(1, Ordering::AcqRel);
@@ -501,7 +528,7 @@ impl EffortJudgeModel {
         let epoch = self.idle.epoch.fetch_add(1, Ordering::AcqRel) + 1;
         let this = Arc::downgrade(self);
         self.alarm.after(
-            KEEP_WARM,
+            self.keep_warm,
             Box::new(move || {
                 if let Some(this) = this.upgrade() {
                     this.idle_rang(epoch);

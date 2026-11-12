@@ -121,7 +121,7 @@ impl Resident for Held {
 }
 
 /// Polls once, so the future takes its place in the judge's queue: `None` while it waits.
-fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
+pub(crate) fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match std::pin::Pin::new(future).poll(&mut cx) {
         Poll::Ready(out) => Some(out),
