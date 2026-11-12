@@ -1,0 +1,388 @@
+diff --git a/src/session-runtime/services/agent-tool/model-select.mjs b/src/session-runtime/services/agent-tool/model-select.mjs
+index e6e5d2a6f..5d385783f 100644
+--- a/src/session-runtime/services/agent-tool/model-select.mjs
++++ b/src/session-runtime/services/agent-tool/model-select.mjs
+@@ -6,6 +6,8 @@
+ // requested provider (concurrent misses share that refresh). One match runs;
+ // several or none fail with candidates instead of substituting another model.
+ import { clean } from './helpers.mjs';
++import { coerceEffortFor } from '../../../runtime/agent/orchestrator/runtime-core/effort.mjs';
++import { catalogDefaultEffort } from '../../../tui/app/model-picker/route-selection/effort.mjs';
+ 
+ const CANDIDATE_LIMIT = 8;
+ 
+@@ -80,6 +82,38 @@ function refreshedRows(listProviderModels, provider) {
+   return inflight.get(scope);
+ }
+ 
++// The route a pinned model runs on takes what the model picker would select
++// for it: `modelDefaults` (its effort and fast), which the spawn's preset uses
++// where the agent's own route is not on this model. An effort or fast the
++// caller asked for is held to what the model offers: an effort it does not
++// offer is dropped (the model's own default applies), `fast: true` on a model
++// without fast is refused so the caller is told. `modelDefaults.efforts` is
++// what the model offers, which the preset holds every effort of the final
++// route to. A row that carries no picker facts (a surface without them)
++// leaves the route as asked.
++function withModelSettings(args, row) {
++  const out = { ...args, provider: row.provider, model: row.id };
++  if (!Array.isArray(row.effortOptions)) return out;
++  const fastCapable = row.fastCapable === true;
++  if (args.fast === true && !fastCapable) {
++    throw new Error(
++      `agent spawn: model "${row.provider}/${row.id}" does not support fast; leave fast out or pick a model that offers it`
++    );
++  }
++  out.modelDefaults = {
++    effort: catalogDefaultEffort(row),
++    fast: fastCapable && row.fastPreferred === true,
++    efforts: row.effortOptions.map((option) => option.value).filter(Boolean),
++  };
++  if (clean(args.effort)) {
++    const asked = coerceEffortFor(row.provider, row, clean(args.effort).toLowerCase());
++    if (asked && row.effortOptions.some((option) => option.value === asked)) out.effort = asked;
++    else delete out.effort;
++  }
++  if (args.fast !== undefined) out.fast = args.fast === true;
++  return out;
++}
++
+ /** Resolve args.provider/args.model to one exact catalog route. Without a
+  *  catalog (headless/daemon surfaces) exact provider + model pass through. */
+ export async function resolveRequestedModel(args, listProviderModels) {
+@@ -111,7 +145,7 @@ export async function resolveRequestedModel(args, listProviderModels) {
+     pool = providerRows(await refreshedRows(listProviderModels, provider), provider);
+     hits = matchModels(pool, model);
+   }
+-  if (hits.length === 1) return { ...args, provider: hits[0].provider, model: hits[0].id };
++  if (hits.length === 1) return withModelSettings(args, hits[0]);
+   const scope = provider ? ` for provider "${provider}"` : '';
+   if (hits.length > 1) {
+     throw new Error(`agent spawn: model "${model}"${scope} is ambiguous: ${candidates(hits)}; pass the exact one`);
+diff --git a/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs b/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs
+new file mode 100644
+index 000000000..eed357041
+--- /dev/null
++++ b/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs
+@@ -0,0 +1,168 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { resolveRequestedModel } from './model-select.mjs';
++import { createSendFlow } from './send-flow.mjs';
++import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
++
++const opts = (...values) => values.map((value) => ({ value, label: value, description: '' }));
++
++// Catalog rows as the model picker hydrates them (provider-models/row-hydration.mjs).
++const ROWS = [
++  {
++    provider: 'openai',
++    id: 'gpt-fast',
++    display: 'GPT Fast',
++    catalogComplete: true,
++    reasoningLevels: ['low', 'medium', 'high'],
++    effortOptions: opts('low', 'medium', 'high'),
++    defaultEffort: 'medium',
++    savedEffort: 'low',
++    fastCapable: true,
++    fastPreferred: false,
++  },
++  {
++    provider: 'openai',
++    id: 'gpt-saved-fast',
++    display: 'GPT Saved Fast',
++    catalogComplete: true,
++    reasoningLevels: ['low', 'medium', 'high'],
++    effortOptions: opts('low', 'medium', 'high'),
++    defaultEffort: 'medium',
++    savedEffort: null,
++    fastCapable: true,
++    fastPreferred: true,
++  },
++  {
++    provider: 'xai',
++    id: 'grok-plain',
++    display: 'Grok Plain',
++    catalogComplete: true,
++    reasoningLevels: [],
++    effortOptions: [],
++    defaultEffort: null,
++    savedEffort: null,
++    fastCapable: false,
++    fastPreferred: true,
++  },
++  { provider: 'openai', id: 'twin-a', display: 'Twin', catalogComplete: true, effortOptions: [], fastCapable: false },
++  { provider: 'openai', id: 'twin-b', display: 'Twin', catalogComplete: true, effortOptions: [], fastCapable: false },
++];
++const list = async () => ROWS;
++
++const CONFIG = {
++  agents: {
++    worker: {
++      provider: 'anthropic',
++      model: 'opus',
++      effort: 'high',
++      fast: true,
++      fallbacks: [
++        { provider: 'openai', model: 'gpt-4' },
++        { provider: 'gemini', model: 'pro' },
++      ],
++    },
++  },
++};
++
++async function preset(args) {
++  const resolved = await resolveRequestedModel({ type: 'spawn', agent: 'worker', ...args }, list);
++  return resolveAgentSpawnPreset(CONFIG, resolved).preset;
++}
++
++const route = ({ provider, model, effort, fast }) => ({ provider, model, effort, fast });
++
++test('no model runs the agent preset route', async () => {
++  assert.deepEqual(route(await preset({})), { provider: 'anthropic', model: 'opus', effort: 'high', fast: true });
++});
++
++test('a model alone takes the model picker defaults for effort and fast', async () => {
++  assert.deepEqual(route(await preset({ model: 'gpt-fast' })), {
++    provider: 'openai',
++    model: 'gpt-fast',
++    effort: 'low',
++    fast: false,
++  });
++  const saved = await preset({ model: 'gpt-saved-fast' });
++  assert.deepEqual(route(saved), { provider: 'openai', model: 'gpt-saved-fast', effort: 'medium', fast: true });
++});
++
++test('effort and fast asked for win over the defaults', async () => {
++  const asked = await preset({ model: 'gpt-fast', effort: 'high', fast: true });
++  assert.deepEqual(route(asked), { provider: 'openai', model: 'gpt-fast', effort: 'high', fast: true });
++  const off = await preset({ model: 'gpt-saved-fast', fast: false });
++  assert.equal(off.fast, false);
++});
++
++test('a model without the asked effort gets what it offers; fast it cannot do is refused', async () => {
++  const plain = await preset({ model: 'grok-plain', effort: 'high' });
++  assert.deepEqual(route(plain), { provider: 'xai', model: 'grok-plain', effort: undefined, fast: false });
++  await assert.rejects(
++    preset({ model: 'grok-plain', fast: true }),
++    /model "xai\/grok-plain" does not support fast/
++  );
++  assert.equal((await preset({ model: 'grok-plain', fast: false })).fast, false);
++  const snapped = await preset({ model: 'gpt-fast', effort: 'xhigh' });
++  assert.equal(snapped.effort, 'high');
++});
++
++test('the agent keeps its own settings on its own model', async () => {
++  const rows = [{ ...ROWS[0], provider: 'anthropic', id: 'opus', effortOptions: opts('low', 'high'), reasoningLevels: ['low', 'high'] }];
++  const resolved = await resolveRequestedModel({ agent: 'worker', model: 'opus' }, async () => rows);
++  const own = resolveAgentSpawnPreset(CONFIG, resolved).preset;
++  assert.deepEqual(route(own), { provider: 'anthropic', model: 'opus', effort: 'high', fast: true });
++  const tuned = resolveAgentSpawnPreset(CONFIG, await resolveRequestedModel({ agent: 'worker', model: 'opus', effort: 'low', fast: false }, async () => rows));
++  assert.deepEqual(route(tuned.preset), { provider: 'anthropic', model: 'opus', effort: 'low', fast: false });
++});
++
++test('a named model is strict: no fallback chain, on another model or on the agents own', async () => {
++  const opus = [{ ...ROWS[0], provider: 'anthropic', id: 'opus', effortOptions: opts('low', 'high') }];
++  const own = await resolveRequestedModel({ type: 'spawn', agent: 'worker', model: 'opus' }, async () => opus);
++  for (const pinned of [await preset({ model: 'gpt-fast' }), resolveAgentSpawnPreset(CONFIG, own).preset]) {
++    assert.equal(pinned.fallbacks, undefined);
++    assert.equal(pinned.fallbackSource, undefined);
++  }
++  // Without a named model the agent keeps its chain.
++  assert.deepEqual(await preset({}).then((own) => own.fallbackSource), { agent: 'worker' });
++});
++
++test('a worker spawned on a named model keeps it across sends, the agents own model included', async () => {
++  const opus = [{ ...ROWS[0], provider: 'anthropic', id: 'opus', effortOptions: opts('low', 'high') }];
++  for (const [rows, model] of [[opus, 'opus'], [ROWS, 'gpt-fast']]) {
++    const resolved = await resolveRequestedModel({ type: 'spawn', agent: 'worker', model }, async () => rows);
++    const spawned = resolveAgentSpawnPreset(CONFIG, resolved);
++    const session = { id: 'sess_k', agent: 'worker', presetName: spawned.presetName, provider: spawned.preset.provider, model: spawned.preset.model };
++    const routes = [];
++    const moved = { agents: { worker: { provider: 'openai', model: 'gpt-new' } } };
++    const sendFlow = createSendFlow({
++      mgr: { getSession: () => session },
++      cfgMod: { loadConfig: () => moved },
++      defaultCwd: process.cwd(),
++      sessionSurface: { setRoute: async ({ route }) => routes.push(route), enqueueTurn: async () => ({ queueDepth: 1 }) },
++      canUseSessionSurface: () => true,
++      registry: { tagForSession: () => 'w-1' },
++      views: { isSessionBusy: () => true },
++      spawnFlow: { workerTurns: { observe() {} } },
++    });
++    await sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);
++    assert.deepEqual(routes, [], model);
++  }
++  // Without a named model the worker follows the configuration.
++  const followed = resolveAgentSpawnPreset(CONFIG, { agent: 'worker' });
++  assert.equal(followed.presetName, 'AGENT WORKER');
++});
++
++test('an effort the model does not offer never reaches the route, a stored one included', async () => {
++  const stale = { agents: { stale: { provider: 'openai', model: 'gpt-fast', effort: 'xhigh' }, bare: { provider: 'xai', model: 'grok-plain', effort: 'high' } } };
++  const run = async (agent, args) =>
++    resolveAgentSpawnPreset(stale, await resolveRequestedModel({ type: 'spawn', agent, ...args }, list)).preset;
++  assert.equal((await run('stale', { model: 'gpt-fast' })).effort, 'low');
++  assert.equal((await run('stale', { model: 'gpt-fast', effort: 'nonsense' })).effort, 'low');
++  assert.equal((await run('stale', { model: 'gpt-fast', effort: 'high' })).effort, 'high');
++  assert.equal((await run('bare', { model: 'grok-plain' })).effort, undefined);
++});
++
++test('unknown and ambiguous names fail with candidates', async () => {
++  await assert.rejects(preset({ model: 'nothing-like-it' }), /not found; available: /);
++  await assert.rejects(preset({ model: 'twin' }), /ambiguous: openai\/twin-a, openai\/twin-b/);
++});
+diff --git a/src/session-runtime/services/agent-tool/spawn-preset.mjs b/src/session-runtime/services/agent-tool/spawn-preset.mjs
+index 13ff0acda..d8e7243a9 100644
+--- a/src/session-runtime/services/agent-tool/spawn-preset.mjs
++++ b/src/session-runtime/services/agent-tool/spawn-preset.mjs
+@@ -9,24 +9,13 @@ import {
+   synthesizePreset,
+ } from './helpers.mjs';
+ 
++// A spawn that pins a model (`provider` + `model`) runs on that model with what
++// the model picker selects for it (`args.modelDefaults`: its effort and fast),
++// the effort and fast the caller asked for over that. It has no fallback chain:
++// the named model answers or the failure is the answer. When the agent's route
++// is already on that model, the agent's own settings are the ones that apply,
++// an effort the model does not offer replaced by the model's default.
+ export function resolveAgentSpawnPreset(config, args = {}) {
+-  if (args.provider && args.model) {
+-    return {
+-      presetName: args.preset || '__direct__',
+-      preset: {
+-        id: '__direct__',
+-        name: '__DIRECT__',
+-        type: 'agent',
+-        provider: clean(args.provider),
+-        model: clean(args.model),
+-        effort: clean(args.effort) || undefined,
+-        fast: args.fast === true,
+-        ...(args.autoEffort === false ? { autoEffort: false } : {}),
+-        tools: 'full',
+-      },
+-    };
+-  }
+-
+   const agentName = normalizeAgentName(args.agent);
+   // The agent's stored route: config.agents, or a store bot's own folder.
+   const candidates = !clean(args.preset) ? configuredAgentRouteCandidates(config, agentName) : [];
+@@ -38,28 +27,59 @@ export function resolveAgentSpawnPreset(config, args = {}) {
+   // Where the spawned session reads its fallback chain at each hop
+   // (route-fallback-chain.mjs): this agent's route, else Main's.
+   const fallbackSource = { agent: agentName };
+-  if (agentRoute) {
++  // `strict`: the spawn named its model, so no other model may answer it (no chain, no source).
++  // A strict preset is a direct one by identity: the send flow follows the agent's configured route
++  // only for a worker on the agent's own preset identity, and a named model is kept for the worker's life.
++  const agentPreset = (effort, fast, strict) => ({
++    presetName: strict ? args.preset || '__direct__' : agentPresetName(agentName),
++    preset: {
++      id: strict ? '__direct__' : `agent-${agentName}`,
++      name: strict ? '__DIRECT__' : agentPresetName(agentName),
++      type: 'agent',
++      provider: agentRoute.provider,
++      model: agentRoute.model,
++      ...(!strict && storedFallbacks?.length ? { fallbacks: storedFallbacks.map(normalizeAgentRoute) } : {}),
++      ...(strict ? {} : { fallbackSource }),
++      effort,
++      fast: fast ?? agentRoute.fast === true,
++      ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),
++      ...(agentRoute.modelParameters ? { modelParameters: agentRoute.modelParameters } : {}),
++      ...(agentRoute.contextPercent ? { contextPercent: agentRoute.contextPercent } : {}),
++      ...(agentRoute.contextTokens ? { contextTokens: agentRoute.contextTokens } : {}),
++      tools: 'full',
++    },
++  });
++
++  if (args.provider && args.model) {
++    const provider = clean(args.provider);
++    const model = clean(args.model);
++    const askedEffort = clean(args.effort) || undefined;
++    const askedFast = args.fast === undefined ? undefined : args.fast === true;
++    const defaults = args.modelDefaults || {};
++    if (agentRoute?.provider === provider && agentRoute.model === model) {
++      // The asked effort, else the agent's own, held to what the model offers (when the catalog said).
++      const own = askedEffort || agentRoute.effort;
++      const unoffered = own && Array.isArray(defaults.efforts) && !defaults.efforts.includes(own);
++      return agentPreset(unoffered ? clean(defaults.effort) || undefined : own, askedFast, true);
++    }
+     return {
+-      presetName: agentPresetName(agentName),
++      presetName: args.preset || '__direct__',
+       preset: {
+-        id: `agent-${agentName}`,
+-        name: agentPresetName(agentName),
++        id: '__direct__',
++        name: '__DIRECT__',
+         type: 'agent',
+-        provider: agentRoute.provider,
+-        model: agentRoute.model,
+-        ...(storedFallbacks?.length ? { fallbacks: storedFallbacks.map(normalizeAgentRoute) } : {}),
+-        fallbackSource,
+-        effort: agentRoute.effort,
+-        fast: agentRoute.fast === true,
+-        ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),
+-        ...(agentRoute.modelParameters ? { modelParameters: agentRoute.modelParameters } : {}),
+-        ...(agentRoute.contextPercent ? { contextPercent: agentRoute.contextPercent } : {}),
+-        ...(agentRoute.contextTokens ? { contextTokens: agentRoute.contextTokens } : {}),
++        provider,
++        model,
++        effort: askedEffort || clean(defaults.effort) || undefined,
++        fast: askedFast ?? defaults.fast === true,
++        ...(args.autoEffort === false ? { autoEffort: false } : {}),
+         tools: 'full',
+       },
+     };
+   }
+ 
++  if (agentRoute) return agentPreset(agentRoute.effort, undefined, false);
++
+   const mainPreset = !clean(args.preset) ? findPreset(config, config?.default) : null;
+   if (normalizeAgentRoute(mainPreset)) {
+     return { presetName: mainPreset.id || mainPreset.name, preset: { ...mainPreset, fallbackSource } };
+diff --git a/src/session-runtime/services/agent-tool/tool-def.mjs b/src/session-runtime/services/agent-tool/tool-def.mjs
+index cad4f2d62..f80bba069 100644
+--- a/src/session-runtime/services/agent-tool/tool-def.mjs
++++ b/src/session-runtime/services/agent-tool/tool-def.mjs
+@@ -67,6 +67,7 @@ export const AGENT_TOOL = {
+       },
+       provider: { type: 'string', description: 'Narrows model to one provider; requires model.' },
+       effort: { type: 'string', description: 'Reasoning effort for an explicit model.' },
++      fast: { type: 'boolean', description: 'Fast mode for an explicit model; needs model.' },
+     },
+     required: ['type'],
+     additionalProperties: false,
+diff --git a/src/tui/app/model-picker/route-selection/effort.mjs b/src/tui/app/model-picker/route-selection/effort.mjs
+index 86672ffc9..dc413c923 100644
+--- a/src/tui/app/model-picker/route-selection/effort.mjs
++++ b/src/tui/app/model-picker/route-selection/effort.mjs
+@@ -22,6 +22,16 @@ const modelEffortValues = (model) =>
+     .map((effort) => effort.value)
+     .filter(Boolean);
+ 
++/** The effort a model starts on when nothing selects one: the saved choice,
++ *  else the catalog default, else the preference order. */
++export function catalogDefaultEffort(model) {
++  const values = modelEffortValues(model);
++  if (!values.length) return null;
++  if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
++  if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
++  return preferredEffort(values);
++}
++
+ export function createEffortSelection({ providerModels, state, currentRoute, isCurrentRoute, isStateRoute }) {
+   const selectedEfforts = new Map();
+ 
+@@ -31,9 +41,7 @@ export function createEffortSelection({ providerModels, state, currentRoute, isC
+     if (isCurrentRoute(model) && currentRoute.effort && values.includes(currentRoute.effort))
+       return currentRoute.effort;
+     if (isStateRoute(model) && state.effort && values.includes(state.effort)) return state.effort;
+-    if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
+-    if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
+-    return preferredEffort(values);
++    return catalogDefaultEffort(model);
+   };
+   const getSelectedEffort = (model) => {
+     if (!model) return null;
