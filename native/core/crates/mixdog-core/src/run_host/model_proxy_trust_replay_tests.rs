@@ -321,7 +321,7 @@ async fn a_reference_the_server_could_not_inline_is_the_unavailable_text_node_ga
     let script = script(Vec::new(), answer("ok"));
     let (service, _) = service(script.clone()).await;
     let images = [
-        p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() },
+        p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into(), width: None, height: None },
         p::ImageSource::Url("https://example.test/a.png".into()),
         p::ImageSource::FileId("file-1".into()),
     ];

@@ -1,13 +1,8 @@
-//! What the Node desktop host (`apps/desktop/src/main/computer`) answers on Linux that the helper does not: the capture of a screen on
-//! GNOME Wayland through the Mixdog Shell extension (`host/gnome-helper.ts`, `observation/gnome-shell-capture.ts`,
-//! `capture-input-observation.ts`) and the `diagnose` report (`observation/inspect.ts`, `diagnose-probes.ts`).
-//!
-//! A capture Node can only take through Electron's `desktopCapturer` (every other session) is not here: the core has no Electron.
-//! Node fits the shell's PNG to the capture budget and re-encodes it as a JPEG with Chromium; the core has neither a resampler nor an
-//! encoder, so the image it returns is the PNG the shell wrote, at the size the shell wrote it.
+//! What the Node desktop host (`apps/desktop/src/main/computer`) answers on Linux that the helper does not: the `diagnose` report
+//! (`observation/inspect.ts`, `diagnose-probes.ts`). The capture of a screen is not here: the desktop's computer host takes and
+//! encodes it (`host/computer/capture`), as does the display list (`host/computer/displays`).
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_core_api::domain::process::ProcessManager;
 use serde_json::Map;
@@ -17,207 +12,9 @@ use serde_json::json;
 use super::computer_linux::Env;
 use super::computer_linux::Readiness;
 use super::computer_linux::State;
-use super::computer_linux::run_short;
 
 /// The session id of the host's window-arrivals worker: every command starts with a read of the windows through it.
 pub const ARRIVALS_SESSION_ID: &str = "__computer_window_arrivals__";
-/// `gnome-helper.ts` `CALL_TIMEOUT_SECONDS` plus the 5 s its process gets.
-const SHOT_LIMIT: Duration = Duration::from_secs(15);
-/// `capture-source-plan.ts` `GNOME_SHELL_CAPTURE_TIMEOUT_MS`: the whole shell capture ends here, above the 10 s gdbus call timeout.
-const CAPTURE_LIMIT: Duration = Duration::from_secs(12);
-/// The words of every failed pixel read on GNOME: Node reports only the code of the `capture_source_unavailable: …` error.
-const PIXEL_UNAVAILABLE_MESSAGE: &str = "exact screen capture unavailable; composited: capture_source_unavailable";
-
-/// Where the shell extension's file is read from and removed (`GnomeShotDeps.read` / `remove`).
-pub trait ShotFiles: Send + Sync {
-    fn read(&self, path: &str) -> std::io::Result<Vec<u8>>;
-    fn remove(&self, path: &str);
-}
-
-pub struct SystemFiles;
-
-impl ShotFiles for SystemFiles {
-    fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
-        std::fs::read(path)
-    }
-
-    fn remove(&self, path: &str) {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-/// A display as the host reports it (`display-reads.ts`): its bounds are the area the shell is asked for.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Display {
-    pub id: String,
-    pub x: i64,
-    pub y: i64,
-    pub width: i64,
-    pub height: i64,
-    pub scale_factor: f64,
-    pub primary: bool,
-}
-
-/// A JavaScript number as JSON: `1`, not `1.0`.
-fn number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() < 9.0e15 { json!(value as i64) } else { json!(value) }
-}
-
-impl Display {
-    fn report(&self, index: usize) -> Value {
-        json!({ "index": index, "id": self.id, "primary": self.primary, "scale_factor": number(self.scale_factor), "width": self.width, "height": self.height })
-    }
-}
-
-pub fn displays_report(displays: &[Display]) -> Value {
-    Value::Array(displays.iter().enumerate().map(|(index, display)| display.report(index)).collect())
-}
-
-/// The size a PNG declares (its IHDR); `None` for bytes that are no PNG, which Electron reads as an empty image.
-pub fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
-    if bytes.len() < 24 || bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
-        return None;
-    }
-    Some((u32::from_be_bytes(bytes[16..20].try_into().ok()?), u32::from_be_bytes(bytes[20..24].try_into().ok()?)))
-}
-
-/// What the shell is asked to photograph (`GnomeShotTarget`).
-pub enum Target<'a> {
-    Stage,
-    Area(&'a Display),
-}
-
-fn screenshot_args(target: &Target, path: &str) -> Vec<String> {
-    let (kind, x, y, width, height) = match target {
-        Target::Stage => ("stage", 0, 0, 0, 0),
-        Target::Area(display) => ("area", display.x, display.y, display.width, display.height),
-    };
-    let mut args: Vec<String> = ["call", "--session", "--timeout", "10", "--dest", "org.gnome.Shell", "--object-path", "/io/mixdog/Windows", "--method", "io.mixdog.Windows.Screenshot", "--"]
-        .iter()
-        .map(|arg| (*arg).to_owned())
-        .collect();
-    args.extend([format!("'{kind}'"), "0".into(), x.to_string(), y.to_string(), width.to_string(), height.to_string(), format!("'{path}'")]);
-    args
-}
-
-/// `gnomeShellScreenshot`: the PNG the extension wrote under `XDG_RUNTIME_DIR`, read back and removed. The error is why it could not.
-pub async fn screenshot(manager: &dyn ProcessManager, env: &Env, files: &dyn ShotFiles, id: &str, target: &Target<'_>) -> Result<Vec<u8>, String> {
-    let runtime = env.get("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()).ok_or("XDG_RUNTIME_DIR is not set")?;
-    let path = format!("{}/mixdog-shot-{id}.png", runtime.trim_end_matches('/'));
-    let args = screenshot_args(target, &path);
-    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-    let capture = async {
-        match run_short(manager, env, "gdbus", &argv, SHOT_LIMIT).await {
-            Some((true, _)) => files.read(&path).map_err(|error| error.to_string()),
-            Some((false, _)) => Err("gdbus failed".to_owned()),
-            None => Err("gdbus did not run".to_owned()),
-        }
-    };
-    let outcome = mixdog_rt::time::timeout(CAPTURE_LIMIT, capture)
-        .await
-        .unwrap_or_else(|_| Err("capture_timeout: GNOME shell capture timed out after 12000ms".to_owned()));
-    files.remove(&path);
-    outcome
-}
-
-/// The input observer as a capture reads it (`capture-input-observation.ts`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Observation {
-    pub ready: bool,
-    pub monitor: String,
-    pub sequence: u64,
-    pub reason: Option<String>,
-    pub target_sequence: Option<u64>,
-}
-
-fn safe_integer(value: Option<&Value>) -> Option<u64> {
-    value.and_then(Value::as_u64).filter(|n| *n <= (1 << 53) - 1)
-}
-
-/// `createInputObservationReader`'s read of one `input_idle_state` answer; `None` when it is not a usable observation.
-pub fn observation_of(result: &Map<String, Value>) -> Option<Observation> {
-    let monitor = result.get("monitor").and_then(Value::as_str).filter(|monitor| !monitor.is_empty())?;
-    let sequence = safe_integer(result.get("sequence"))?;
-    let ready = result.get("observer_ready") == Some(&json!(true));
-    let reason = if ready { None } else { result.get("observer_reason").and_then(Value::as_str).filter(|reason| !reason.is_empty()).map(str::to_owned) };
-    Some(Observation { ready, monitor: monitor.to_owned(), sequence, reason, target_sequence: safe_integer(result.get("target_sequence")) })
-}
-
-const INPUT_GAP_REASON: &str = "input_gap";
-
-/// `foregroundInputState`: whether the two reads that bracket a capture prove the foreground stayed untouched, and why not.
-pub fn foreground_state(before: Option<&Observation>, after: Option<&Observation>) -> (bool, Option<&'static str>) {
-    let ready = matches!((before, after), (Some(before), Some(after))
-        if before.ready && after.ready && before.monitor == after.monitor && after.sequence >= before.sequence
-            && after.target_sequence.unwrap_or(after.sequence) <= before.sequence);
-    if ready {
-        return (true, None);
-    }
-    let unavailable = |observation: Option<&Observation>| !observation.is_some_and(|o| o.ready) && observation.and_then(|o| o.reason.as_deref()) != Some(INPUT_GAP_REASON);
-    let reason = if unavailable(before) || unavailable(after) { "input_observer_unavailable" } else { "user_input_during_capture" };
-    (false, Some(reason))
-}
-
-fn capture_text(ok: bool, mode: &str, extra: Vec<(&str, Value)>, ready: bool, reason: Option<&str>) -> String {
-    let mut text = Map::new();
-    text.insert("ok".into(), json!(ok));
-    text.insert("action".into(), json!("capture"));
-    text.insert("mode".into(), json!(mode));
-    for (key, value) in extra {
-        text.insert(key.into(), value);
-    }
-    text.insert("foreground_input_ready".into(), json!(ready));
-    if let Some(reason) = reason {
-        text.insert("foreground_input_reason".into(), json!(reason));
-    }
-    Value::Object(text).to_string()
-}
-
-/// The reply text of a screen capture that produced a frame.
-pub fn frame_text(mode: &str, frame: u64, size: (u32, u32), ready: bool, reason: Option<&str>) -> String {
-    let mut text = Map::new();
-    text.insert("ok".into(), json!(true));
-    text.insert("action".into(), json!("capture"));
-    text.insert("mode".into(), json!(mode));
-    for (key, value) in [
-        ("coordinate_space", json!("frame")),
-        ("capture_source", json!("composited")),
-        ("total_elements", json!(0)),
-        ("returned_elements", json!(0)),
-        ("accessibility_status", json!("not_requested")),
-        ("pixel_status", json!("available")),
-        ("foreground_input_ready", json!(ready)),
-    ] {
-        text.insert(key.into(), value);
-    }
-    if let Some(reason) = reason {
-        text.insert("foreground_input_reason".into(), json!(reason));
-    }
-    text.insert("frame_id".into(), json!(format!("frame-{frame}")));
-    text.insert("width".into(), json!(size.0));
-    text.insert("height".into(), json!(size.1));
-    Value::Object(text).to_string()
-}
-
-/// The reply text of a screen capture that could not read pixels.
-pub fn unavailable_text(mode: &str, ready: bool, reason: Option<&str>) -> String {
-    capture_text(
-        false,
-        mode,
-        vec![
-            ("coordinate_space", json!("screen")),
-            ("total_elements", json!(0)),
-            ("returned_elements", json!(0)),
-            ("accessibility_status", json!("not_requested")),
-            ("pixel_status", json!("unavailable")),
-            ("pixel_unavailable", json!({ "code": "pixel_unavailable", "reason": "capture_source_unavailable", "message": PIXEL_UNAVAILABLE_MESSAGE })),
-            ("escalation", json!("recapture")),
-        ],
-        ready,
-        reason,
-    )
-}
 
 // --- diagnose ---
 
@@ -257,7 +54,8 @@ pub struct Diagnosis<'a> {
     pub accessibility: Option<Probe>,
     pub ocr: Probe,
     pub input: Probe,
-    pub displays: &'a [Display],
+    /// The desktop host's `readDisplays()` answer, as it sent it.
+    pub displays: &'a Value,
     pub readiness: &'a Readiness,
     pub observe_only: bool,
 }
@@ -441,7 +239,7 @@ pub fn diagnose_text(diagnosis: &Diagnosis) -> String {
             "capture_probe": "run capture against an exact target; diagnostics does not expose screen pixels",
         },
         "permissions": permissions_report(diagnosis.readiness),
-        "displays": displays_report(diagnosis.displays),
+        "displays": diagnosis.displays,
         "issues": issues,
     })
     .to_string()

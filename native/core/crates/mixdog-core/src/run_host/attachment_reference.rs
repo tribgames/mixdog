@@ -177,7 +177,7 @@ impl ReferencedMedia {
         }
         // The stored form: (reference, size, mime, filename, is_image).
         let (reference, size, mime, filename, image) = match part {
-            ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
+            ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
                 let stored = self.files.store_inline(data, mime_type, "").await?;
                 (stored.reference, stored.size_bytes, mime_type.clone(), String::new(), true)
             }
@@ -437,7 +437,7 @@ mod tests {
             }
         }
         // The image part: Node named it by file name, which an inline Rust image part does not carry.
-        let image = s.reference_part(&ContentPart::Image(ImageSource::Base64 { data: png.into(), mime_type: "image/png".into() })).await.unwrap();
+        let image = s.reference_part(&ContentPart::Image(ImageSource::Base64 { data: png.into(), mime_type: "image/png".into(), width: None, height: None })).await.unwrap();
         let ContentPart::Text(text, _) = image else { panic!("text") };
         assert!(text.starts_with("[Image kept on disk, not inlined: \"image\" (image/png, 70 bytes)\n"), "{text}");
     }

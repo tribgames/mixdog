@@ -601,12 +601,14 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
         match part {
             ToolPart::Text(text) => rendered.push(ContentPart::Text(text, None)),
             ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string(), None)),
-            ToolPart::Image { mime, data, .. } => {
+            ToolPart::Image { mime, data, width, height } => {
                 text_only = false;
                 let source = match data {
                     ImageData::Bytes(bytes) => ImageSource::Base64 {
                         data: base64::engine::general_purpose::STANDARD.encode(bytes),
                         mime_type: mime,
+                        width,
+                        height,
                     },
                     ImageData::Blob(digest) => ImageSource::FileId(digest.as_str().to_owned()),
                 };
@@ -1306,6 +1308,22 @@ mod coerce_session_tests;
 
 #[cfg(test)]
 mod tests {
+    /// An image the tool reported the size of reaches the model-bound block with it (Node's `{ type: 'image', width, height, source }`); one
+    /// with no known size has none.
+    #[test]
+    fn an_image_keeps_the_size_its_tool_reported() {
+        let image = |width, height| ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(vec![1, 2, 3]), width, height };
+        let Content::Parts(parts) = super::render_output(vec![ToolPart::Text("t".into()), image(Some(1280), Some(720)), image(None, None)]) else { panic!("parts") };
+        let sizes: Vec<_> = parts
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Image(ImageSource::Base64 { width, height, .. }) => Some((*width, *height)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sizes, [(Some(1280), Some(720)), (None, None)]);
+    }
+
     #[test]
     fn a_sleep_tool_with_any_prefix_grants_the_later_flush() {
         for name in ["sleep", "Sleep", "srv/sleep", "ns.SLEEP"] {

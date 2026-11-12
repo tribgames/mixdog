@@ -25,6 +25,11 @@ use std::time::Instant;
 use async_trait::async_trait;
 use base64::Engine;
 use futures::future::FutureExt;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::HostCapability;
+use mixdog_core_api::HostChannel;
+use mixdog_core_api::HostError;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::computer::ComputerAction;
@@ -103,6 +108,10 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 1_000_000;
 const MAX_IMAGE_CHARS: usize = 24 * 1024 * 1024;
 const DEFAULT_DELIVERY: &str = "background";
+/// The session a call without one belongs to.
+const DEFAULT_SESSION: &str = "default";
+/// `client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`.
+const BRIDGE_UNAVAILABLE_MESSAGE: &str = "computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings";
 /// Process handles are unique per manager, and one manager can serve several backends.
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 
@@ -326,8 +335,7 @@ pub struct ProcessComputerBackend {
     turn: mixdog_rt::Gate,
     next_id: AtomicI64,
     screen: Screen,
-    /// The next `frame-N` a screen capture gets (`allocateFrameId`: one count per host).
-    next_frame: AtomicU64,
+    desktop: Option<Arc<dyn HostChannel>>,
     /// The Linux session the preflight reads; `None` where the platform is not Linux and nothing is probed.
     linux: Option<LinuxSession>,
     /// A typed secret's field may still hold focus: reads are refused until the next action.
@@ -344,24 +352,13 @@ pub struct ProcessComputerBackend {
 /// The environment the Linux preflight reads, taken afresh for each action.
 struct LinuxSession {
     env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
-    /// The displays the desktop host reads from Electron (`display-reads.ts`); the core has no Electron, so none are known unless given.
-    displays: Box<dyn Fn() -> Vec<computer_gnome::Display> + Send + Sync>,
-    /// Where the shell extension's screenshot file is read back and removed.
-    files: Arc<dyn computer_gnome::ShotFiles>,
-    /// The name of one screenshot file (`randomUUID`).
-    shot_id: Box<dyn Fn() -> String + Send + Sync>,
 }
 
 impl LinuxSession {
     /// The machine this process runs on; no session on any other platform.
     #[cfg(not(test))]
     fn of_host() -> Option<Self> {
-        cfg!(target_os = "linux").then(|| Self {
-            env: Box::new(|| std::env::vars().collect()),
-            displays: Box::new(Vec::new),
-            files: Arc::new(computer_gnome::SystemFiles),
-            shot_id: Box::new(|| uuid::Uuid::new_v4().to_string()),
-        })
+        cfg!(target_os = "linux").then(|| Self { env: Box::new(|| std::env::vars().collect()) })
     }
 
     /// A test names its platform through `with_linux_session`: the host's own would silently decide whether it runs.
@@ -389,19 +386,15 @@ impl ProcessComputerBackend {
 
     /// Runs the Linux preflight against `env` whatever the platform this test runs on is.
     #[cfg(test)]
-    pub(crate) fn with_linux_session(
-        mut self,
-        env: computer_linux::Env,
-        displays: Vec<computer_gnome::Display>,
-        files: Arc<dyn computer_gnome::ShotFiles>,
-        shot_id: String,
-    ) -> Self {
-        self.linux = Some(LinuxSession {
-            env: Box::new(move || env.clone()),
-            displays: Box::new(move || displays.clone()),
-            files,
-            shot_id: Box::new(move || shot_id.clone()),
-        });
+    pub(crate) fn with_linux_session(mut self, env: computer_linux::Env) -> Self {
+        self.linux = Some(LinuxSession { env: Box::new(move || env.clone()) });
+        self
+    }
+
+    /// The desktop whose computer host takes the screen captures and reports the displays (`host/computer/*`). Without one a
+    /// capture of a screen is refused as Node's client refuses with no bridge.
+    pub fn with_desktop(mut self, desktop: Arc<dyn HostChannel>) -> Self {
+        self.desktop = Some(desktop);
         self
     }
 
@@ -426,7 +419,7 @@ impl ProcessComputerBackend {
             turn: mixdog_rt::Gate::new(),
             next_id: AtomicI64::new(1),
             screen: Screen::default(),
-            next_frame: AtomicU64::new(1),
+            desktop: None,
             linux: LinuxSession::of_host(),
             secret_focus: AtomicBool::new(false),
             executing: AtomicBool::new(false),
@@ -686,7 +679,7 @@ impl ProcessComputerBackend {
                 capture.insert("mode".into(), mode);
             }
             payload["capture_after"] = json!({ "ok": true, "action": "capture" });
-            let observed = self.capture(capture, cancel).await?;
+            let observed = self.capture(capture, "", cancel).await?;
             parts.push(ToolPart::Text(payload.to_string()));
             parts.extend(observed);
             return Ok(parts);
@@ -718,57 +711,43 @@ impl ProcessComputerBackend {
         }
     }
 
-    /// One `input_idle_state` read as a capture takes it; `None` when the helper gave no usable observation.
-    async fn observe_input(&self, cancel: &CancellationToken) -> Result<Option<computer_gnome::Observation>, ComputerError> {
-        match self.host_read("input_idle_state", Vec::new(), None, cancel).await {
-            Ok(result) => Ok(computer_gnome::observation_of(&result)),
-            Err(ComputerError::Cancelled) => Err(ComputerError::Cancelled),
-            Err(_) => Ok(None),
+    /// The desktop that serves the computer host's reads, or Node's refusal when none does (`client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`).
+    fn desktop(&self) -> Result<&Arc<dyn HostChannel>, ComputerError> {
+        match &self.desktop {
+            Some(desktop) if desktop.serves(HostCapability::Computer) => Ok(desktop),
+            _ => Err(bridge_unavailable()),
         }
     }
 
-    /// The capture of a screen as Node's desktop host takes it on GNOME Wayland: the Mixdog Shell extension writes the PNG
-    /// (`gdbus call … io.mixdog.Windows.Screenshot`), which is read back. A session whose pixels Node can only take through Electron
-    /// (`desktopCapturer`, the portal) is `Unavailable` here: the core has no Electron.
-    async fn capture_screen(&self, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        let Some(linux) = &self.linux else {
-            return Err(unsupported("capturing a screen goes through the desktop host's Electron capture, which the core does not have"));
-        };
-        let env = (linux.env)();
-        let session = computer_linux::detect_session(&env);
-        if session != "wayland" || computer_linux::detect_desktop(&env, session) != "gnome" {
-            return Err(unsupported("capturing a screen on this session goes through Electron's desktop capture, which the core does not have"));
+    /// One `host/computer/*` request to the desktop's computer host. The host's refusal is the text Node's client gives for a bridge
+    /// reply of `{ ok: false, error }`; a request that outlives the client's timeout is `computer bridge timed out`.
+    async fn ask_desktop(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, ComputerError> {
+        let desktop = self.desktop()?;
+        match desktop.request_scoped(HostCapability::Computer, Method(method), params, cancel).await {
+            Ok(value) => Ok(value),
+            Err(_) if cancel.is_cancelled() => Err(ComputerError::Cancelled),
+            Err(HostError::Rpc { message, .. }) => Err(host_error(&message)),
+            Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => {
+                Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: "Error: computer bridge timed out".into() })
+            }
+            Err(HostError::Core(_)) => Err(bridge_unavailable()),
         }
-        let mode = command.get("mode").and_then(Value::as_str).unwrap_or("vision").to_owned();
-        self.peek_arrivals(cancel).await?;
-        let before = self.observe_input(cancel).await?;
-        let displays = (linux.displays)();
-        // `screen` is an index into the displays; with none known the one screen is the whole stage.
-        let screen = command.get("screen").and_then(Value::as_i64);
-        let count = displays.len().max(1);
-        let Some(index) = screen.filter(|index| (0..count as i64).contains(index)).map(|index| index as usize) else {
-            return Err(ComputerError::Failed {
-                code: "computer_failed".into(),
-                message: format!("screen must be an integer from 0 to {}", count - 1),
-            });
-        };
-        let target = match displays.get(index) {
-            Some(display) => computer_gnome::Target::Area(display),
-            None => computer_gnome::Target::Stage,
-        };
-        let shot = computer_gnome::screenshot(&*self.manager, &env, &*linux.files, &(linux.shot_id)(), &target).await;
-        let size = shot.as_ref().ok().and_then(|png| computer_gnome::png_size(png)).filter(|(width, height)| *width > 0 && *height > 0);
-        let after = self.observe_input(cancel).await?;
-        let (ready, reason) = computer_gnome::foreground_state(before.as_ref(), after.as_ref());
-        let (Ok(png), Some(size)) = (shot, size) else {
-            // Every way the pixels can fail reads the same to the model.
-            return Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: computer_gnome::unavailable_text(&mode, ready, reason) });
-        };
-        let frame = self.next_frame.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![
-            ToolPart::Text(computer_gnome::frame_text(&mode, frame, size, ready, reason)),
-            ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(png), width: Some(size.0), height: Some(size.1) },
-        ])
+    }
+
+    /// The capture of a screen: the command Node's client posts to the bridge goes to the desktop's computer host
+    /// (`host/computer/capture`), which takes the pixels, fits them to the capture budget and encodes them; the reply is the one the
+    /// tool returns.
+    ///
+    /// `asked_mode` is the call's own `mode`: the reply text carries it (`args.input?.mode || 'state'`), not the one a Linux fallback rewrote.
+    async fn capture_screen(&self, command: &Map<String, Value>, asked_mode: &str, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let mode = if asked_mode.is_empty() { "state" } else { asked_mode };
+        let mut posted = command.clone();
+        // A call without a session sends none (the pool names it `default`).
+        if self.config.session_id != DEFAULT_SESSION {
+            posted.insert("session_id".into(), json!(self.config.session_id));
+        }
+        let reply = self.ask_desktop("host/computer/capture", json!({ "command": posted }), cancel).await?;
+        screen_parts(&reply, mode)
     }
 
     /// `diagnose` on a Linux session: the host's report of the windows, accessibility, OCR, input observation, displays and the
@@ -800,7 +779,7 @@ impl ProcessComputerBackend {
         let ocr = probe(self.host_read("ocr_status", vec![("ocr_language", json!(ocr_language))], None, cancel).await)?;
         let input = probe(self.host_read("input_idle_state", Vec::new(), None, cancel).await)?;
         let readiness = computer_gnome::readiness(self.manager.clone(), (linux.env)()).await;
-        let displays = (linux.displays)();
+        let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await?;
         let report = computer_gnome::Diagnosis {
             requested_window_id: &requested,
             ocr_language,
@@ -816,9 +795,9 @@ impl ProcessComputerBackend {
     }
 
     /// `capture`: the accessibility snapshot, plus the window's pixels unless the mode is `ax`.
-    async fn capture(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+    async fn capture(&self, mut command: Map<String, Value>, asked_mode: &str, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         if command.contains_key("screen") {
-            return self.capture_screen(&command, cancel).await;
+            return self.capture_screen(&command, asked_mode, cancel).await;
         }
         let mode = command.shift_remove("mode").and_then(|mode| mode.as_str().map(str::to_string)).unwrap_or_else(|| "state".into());
         let mut parts = Vec::new();
@@ -886,6 +865,75 @@ fn envelope(value: Value) -> Result<Map<String, Value>, String> {
         },
         _ => Ok(Map::new()),
     }
+}
+
+/// What Node's client answers when no desktop publishes the bridge: an error result of its own, with no recovery.
+fn bridge_unavailable() -> ComputerError {
+    ComputerError::Failed { code: REPORTED_CODE.into(), message: format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}") }
+}
+
+/// A screen capture's reply as the tool returns it (`computerToolResult`): the reply text in its canonical form, the image with the
+/// size that text reports, and an error result when the text says the capture failed.
+fn screen_parts(reply: &Value, mode: &str) -> Result<Vec<ToolPart>, ComputerError> {
+    let Value::Object(reply) = reply else {
+        return Err(ComputerError::Failed { code: "computer_invalid_reply".into(), message: "computer bridge returned invalid or oversized text".into() });
+    };
+    let mut parts = parts_of(reply)?;
+    let raw = match &parts[0] {
+        ToolPart::Text(text) if !text.is_empty() => text.clone(),
+        _ => "OK".to_owned(),
+    };
+    let text = canonical_capture_text(&raw, mode);
+    let size = reported_size(&text);
+    if let Some(ToolPart::Image { width, height, .. }) = parts.get_mut(1) {
+        (*width, *height) = size.map_or((None, None), |(w, h)| (Some(w), Some(h)));
+    }
+    if capture_failed(&text) {
+        return Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: text });
+    }
+    parts[0] = ToolPart::Text(text);
+    Ok(parts)
+}
+
+/// `canonicalComputerResultText` for a capture (`result-canonical.mjs`): the action and mode are the call's, and the host's own
+/// diagnostics stay out of what the model reads. A screen capture has no elements or OCR lines to render.
+fn canonical_capture_text(text: &str, mode: &str) -> String {
+    let Ok(Value::Object(mut value)) = serde_json::from_str::<Value>(text) else { return text.to_owned() };
+    if !value.get("action").is_some_and(Value::is_string) {
+        return text.to_owned();
+    }
+    value.insert("action".into(), json!("capture"));
+    value.insert("mode".into(), json!(mode));
+    let mut value = Value::Object(value);
+    drop_host_diagnostics(&mut value);
+    value.to_string()
+}
+
+fn drop_host_diagnostics(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(drop_host_diagnostics),
+        Value::Object(fields) => {
+            for field in ["timings_ms", "capture_attempts"] {
+                fields.shift_remove(field);
+            }
+            fields.values_mut().for_each(drop_host_diagnostics);
+        }
+        _ => {}
+    }
+}
+
+/// `computerImageDimensions`: the frame's real size, from the text's `width` and `height` (or its `observation`'s).
+fn reported_size(text: &str) -> Option<(u32, u32)> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    [Some(&value), value.get("observation")].into_iter().flatten().find_map(|frame| {
+        let edge = |key: &str| frame.get(key).and_then(Value::as_f64).filter(|edge| *edge > 0.0 && edge.is_finite());
+        Some((edge("width")? as u32, edge("height")? as u32))
+    })
+}
+
+/// `canonicalComputerResultIsError` for a capture.
+fn capture_failed(text: &str) -> bool {
+    serde_json::from_str::<Value>(text).is_ok_and(|value| value.get("action") == Some(&json!("capture")) && value.get("ok") == Some(&json!(false)))
 }
 
 fn host_exited() -> ComputerError {
@@ -1231,12 +1279,23 @@ impl ComputerSecretHost for ProcessComputerBackend {
 #[async_trait]
 impl ComputerBackend for ProcessComputerBackend {
     async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        // Node's client reads the bridge's discovery file before it validates, probes or dispatches anything; the calls that
+        // end at the desktop's computer host (a capture of a screen, the Linux diagnose with its displays) are refused first here too.
+        let reads_desktop = match request.action {
+            ComputerAction::Capture => request.input.get("screen").is_some(),
+            ComputerAction::Diagnose => self.linux.is_some(),
+            _ => false,
+        };
+        if reads_desktop {
+            self.desktop()?;
+        }
         let Some(input) = request.input.as_object() else {
             return Err(ComputerError::InvalidInput {
                 reason: format!("Computer Use action \"{}\" input must be an object", request.action.wire_name()),
             });
         };
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
+        let asked_mode = text(input, "mode");
         let mut command = host_command(request.action, input);
         // On Linux a default capture without window control becomes a full-screen capture, and an action whose own capability
         // (input device, window control, AT-SPI, ...) is missing is refused before anything is dispatched (`client.mjs:300,320`).
@@ -1276,7 +1335,7 @@ impl ComputerBackend for ProcessComputerBackend {
         }
         let result = match name.as_str() {
             "sequence" => self.act(command, &cancel).await,
-            "capture" => self.capture(command, &cancel).await,
+            "capture" => self.capture(command, asked_mode, &cancel).await,
             "zoom" => Err(unsupported("capture mode=\"zoom\" needs the desktop host's frame store")),
             "list_history" => Err(unsupported("list kind=\"history\" needs the desktop host's action ledger")),
             "wait_for_user" => Err(unsupported("wait_for_user needs the desktop host's user-wait service")),

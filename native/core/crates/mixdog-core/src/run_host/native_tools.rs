@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::time::Duration;
 use std::time::Instant;
@@ -28,6 +29,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerSessions;
+use mixdog_core_api::HostChannel;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::secret_input::ComputerSecretHosts;
 use mixdog_core_session::session::shell_jobs::OwnedShells;
@@ -212,6 +214,8 @@ pub struct ComputerSessionPool {
     wrap: WrapBackend,
     entries: Mutex<HashMap<String, Entry>>,
     presence: Arc<ComputerPresence>,
+    /// The desktop whose computer host takes the screen captures (`host/computer/*`); bound once the host channel exists.
+    desktop: OnceLock<Arc<dyn HostChannel>>,
 }
 
 /// The sessions with an open execution, oldest first, and the `computer` section that says so (SPEC R40): the pill
@@ -274,7 +278,12 @@ fn session_key(session: &str) -> String {
 
 impl ComputerSessionPool {
     pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>) -> Self {
-        Self { binary, manager, wrap, entries: Mutex::new(HashMap::new()), presence: Arc::new(ComputerPresence { publisher, open: Mutex::default() }) }
+        Self { binary, manager, wrap, entries: Mutex::new(HashMap::new()), presence: Arc::new(ComputerPresence { publisher, open: Mutex::default() }), desktop: OnceLock::new() }
+    }
+
+    /// Binds the desktop channel the sessions' backends ask for screen captures; the first binding stands, and only sessions made after it use it.
+    pub fn attach_desktop(&self, desktop: Arc<dyn HostChannel>) {
+        let _ = self.desktop.set(desktop);
     }
 
     fn entries(&self) -> MutexGuard<'_, HashMap<String, Entry>> {
@@ -287,9 +296,11 @@ impl ComputerSessionPool {
         let mut entries = self.entries();
         let entry = entries.entry(key.clone()).or_insert_with(|| {
             let observer = Arc::new(SessionPresence { presence: self.presence.clone(), session: key.clone() });
-            let process = Arc::new(
-                ProcessComputerBackend::new(ComputerConfig::new(self.binary.clone(), key.as_str()), self.manager.clone()).with_observer(observer),
-            );
+            let mut process = ProcessComputerBackend::new(ComputerConfig::new(self.binary.clone(), key.as_str()), self.manager.clone()).with_observer(observer);
+            if let Some(desktop) = self.desktop.get() {
+                process = process.with_desktop(desktop.clone());
+            }
+            let process = Arc::new(process);
             let backend = (self.wrap)(&key, process.clone());
             Entry { process, backend, idle: None }
         });

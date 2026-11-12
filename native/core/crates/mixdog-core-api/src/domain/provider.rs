@@ -50,7 +50,9 @@ pub enum Phase {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ImageSource {
-    Base64 { data: String, mime_type: String },
+    /// `width` / `height`: the image's pixel size where the tool that produced it reports it (Node's `{ type: 'image', width, height, source }`
+    /// block, which the context estimator prices by); `None` for an image whose size is not known.
+    Base64 { data: String, mime_type: String, width: Option<u32>, height: Option<u32> },
     Url(String),
     FileId(String),
 }

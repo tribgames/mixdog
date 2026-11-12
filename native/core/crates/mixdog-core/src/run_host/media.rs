@@ -553,6 +553,9 @@ impl MediaMeter for MediaLowering {
     fn part(&self, part: &ContentPart) -> PartMeter {
         match part {
             ContentPart::Text(text, _) => PartMeter { text: text.clone(), tokens: 0 },
+            ContentPart::Image(ImageSource::Base64 { width, height, .. }) => {
+                PartMeter { text: String::new(), tokens: image_allowance(width.map(f64::from), height.map(f64::from)) }
+            }
             ContentPart::Image(_) => PartMeter { text: String::new(), tokens: IMAGE_TOKEN_ALLOWANCE },
             _ => {
                 if let Some(reference) = is_image_ref(part) {
@@ -637,7 +640,7 @@ impl ImageIdentities for MediaLowering {
         if let Content::Parts(parts) = &message.message.content {
             for part in parts {
                 match part {
-                    ContentPart::Image(ImageSource::Base64 { data, mime_type }) => out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type)))),
+                    ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type)))),
                     ContentPart::Image(ImageSource::Url(url)) => out.push(plain(image_identity("url", url, ""))),
                     ContentPart::Image(ImageSource::FileId(id)) => out.push(plain(image_identity("file-id", id, ""))),
                     _ => {
@@ -715,6 +718,16 @@ mod tests {
         }
     }
 
+    /// An inline image is priced by the size its tool reported (`imageDescriptorAllowance`), the flat allowance when it reported none.
+    #[test]
+    fn an_inline_image_is_priced_by_its_reported_size() {
+        let l = lowering(false);
+        let image = |width, height| ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/jpeg".into(), width, height });
+        assert_eq!(l.part(&image(Some(50), Some(30))).tokens, 2);
+        assert_eq!(l.part(&image(Some(1280), Some(720))).tokens, 1_229);
+        assert_eq!(l.part(&image(None, None)).tokens, 1_568);
+    }
+
     fn lowering(no_documents: bool) -> MediaLowering {
         let store = Store(vec![("doc", b"hello".to_vec()), ("pdf", b"%PDF-1.4 body".to_vec()), ("office", b"PK".to_vec())]);
         MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(Docs), Arc::new(store), Arc::new(Facts), no_documents, ProviderId::from("anthropic"))
@@ -749,7 +762,7 @@ mod tests {
             ("labelled_pdf", file("%PDF-1.7 tiny", "application/pdf", None)),
             ("pdf_document", doc("application/pdf", &big, "Big")),
             ("text_document", doc("text/markdown", "# hi", "notes.md")),
-            ("image_inline", ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "image/png".into() })),
+            ("image_inline", ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "image/png".into(), width: None, height: None })),
             ("image_data_url", ContentPart::Image(ImageSource::Url("data:image/png;base64,AAAA".into()))),
         ];
         let lowering = lowering(false);
@@ -869,7 +882,7 @@ mod tests {
         let id = |name: &str| golden[name]["descriptors"][0]["identity"].as_str().unwrap().to_owned();
         let mut m = AgentMessage::user("x");
         m.message.content = Content::Parts(vec![
-            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into() }),
+            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into(), width: None, height: None }),
             ContentPart::Image(ImageSource::Url("http://x/y.png".into())),
             ContentPart::Image(ImageSource::FileId("file_2".into())),
         ]);
