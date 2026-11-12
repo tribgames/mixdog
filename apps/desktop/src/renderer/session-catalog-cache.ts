@@ -8,8 +8,12 @@ import { contentLocalStorage } from './remote-conversation-privacy';
 const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
 const SESSION_CATALOG_LIMIT = 500;
 
+// Version 1 dropped `agentSession`, so its rows painted every agent's worker session in the sidebar until the host
+// catalog arrived: a cache of that version is not read.
+const SESSION_CATALOG_VERSION = 2;
+
 interface CachedSessionCatalog {
-  version: 1;
+  version: typeof SESSION_CATALOG_VERSION;
   updatedAt: number;
   rows: DesktopSessionSummary[];
 }
@@ -46,6 +50,8 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
 
   return {
     id,
+    // What the sidebar hides a worker session by: without it the first paint lists every one of them.
+    ...(row.agentSession === true ? { agentSession: true } : {}),
     preview,
     title,
     updatedAt: finiteNumber(row.updatedAt),
@@ -97,7 +103,7 @@ function cachedAgentRoom(value: unknown): DesktopAgentRoomSummary | null {
 function normalizeCachedSessionCatalog(value: unknown): CachedSessionCatalog {
   const record =
     value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-  if (record?.version !== 1) return { version: 1, updatedAt: 0, rows: [] };
+  if (record?.version !== SESSION_CATALOG_VERSION) return { version: SESSION_CATALOG_VERSION, updatedAt: 0, rows: [] };
   const rows: DesktopSessionSummary[] = [];
   const seen = new Set<string>();
   for (const raw of Array.isArray(record.rows) ? record.rows : []) {
@@ -108,7 +114,7 @@ function normalizeCachedSessionCatalog(value: unknown): CachedSessionCatalog {
     if (rows.length >= SESSION_CATALOG_LIMIT) break;
   }
   return {
-    version: 1,
+    version: SESSION_CATALOG_VERSION,
     updatedAt: finiteNumber(record.updatedAt),
     rows,
   };
@@ -125,7 +131,7 @@ export function readCachedSessionCatalog(): DesktopSessionSummary[] {
 
 export function writeCachedSessionCatalog(rows: DesktopSessionSummary[], scope = catalogStorageScope()): void {
   const catalog = normalizeCachedSessionCatalog({
-    version: 1,
+    version: SESSION_CATALOG_VERSION,
     updatedAt: Date.now(),
     rows,
   });
