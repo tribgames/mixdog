@@ -124,6 +124,7 @@ pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
         | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" | "terminal/ensure" | "terminal/focus"
         | "terminal/dispose" | "terminal/profiles" => Lane::Interactive,
         "thread/approval/answer" | "thread/approval/answerNotification" => Lane::Critical,
+        method if crate::node_calls::is_session_action(method) => Lane::Interactive,
         _ if spec.class == RequestClass::C0 => Lane::Critical,
         _ => Lane::Normal,
     }

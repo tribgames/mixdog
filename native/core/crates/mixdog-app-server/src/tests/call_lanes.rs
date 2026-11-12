@@ -181,3 +181,90 @@ fn the_methods_the_node_calls_became_take_their_lanes() {
         assert_eq!(lane(method), lane_of_call(node_call, args), "{method} is Node's {node_call}");
     }
 }
+
+/// The whole table: every method of the protocol takes the lane of the Node call it became, as Node's `callLane` recorded it. The
+/// call a method became is its documented one ("Today's session configure/read action" in `methods.rs` is `session.configure` /
+/// `session.read`), the named ones below, and otherwise a desktop operation or a list, which Node leaves in the normal lane
+/// (`desktop.invoke` of a method that is not a terminal one, recorded as `openExternal`; `session.list`).
+#[test]
+fn every_method_takes_the_lane_of_the_node_call_it_became() {
+    let documented: std::collections::HashMap<String, &str> = {
+        let source = include_str!("../../../mixdog-app-protocol/src/methods.rs");
+        let (mut kind, mut found) = ("", std::collections::HashMap::new());
+        for line in source.lines().map(str::trim) {
+            if let Some(doc) = line.strip_prefix("///") {
+                kind = if doc.contains("Today's session configure action") {
+                    "session.configure"
+                } else if doc.contains("Today's session read action") {
+                    "session.read"
+                } else {
+                    ""
+                };
+            } else if let Some((_, rest)) = line.split_once(" => \"") {
+                if let Some((method, _)) = rest.split_once("\" {") {
+                    if !kind.is_empty() {
+                        found.insert(method.to_owned(), kind);
+                    }
+                    kind = "";
+                }
+            }
+        }
+        found
+    };
+    assert_eq!(documented.len(), 246, "the documented configure and read actions");
+    let term = |operation: &str| json!({ "method": operation });
+    let node_call = |method: &str| -> (&str, Value) {
+        if let Some(call) = documented.get(method) {
+            return (call, json!({}));
+        }
+        let call = match method {
+            "turn/interrupt" => "session.abort",
+            "thread/approval/answer" | "thread/approval/answerNotification" => "session.approve",
+            "thread/unsubscribe" | "feed/unsubscribe" => "session.unsubscribe",
+            "thread/start" => "session.create",
+            "thread/read" => "session.read",
+            "thread/resume" => "session.subscribe",
+            "turn/start" => "session.submit",
+            // `prioritizeQueued`, `retryFailedTurn`, `restoreQueued`, `renameSessionTitle`, `deleteSession`, `inheritFrom`,
+            // `continueSessionInModel`, `rewindToItem`, `clear`, `compact`, `goalControl`, the quota resume pair, the shell-job
+            // stops and `setRoute` / `setFast`.
+            "turn/steer" | "turn/retryFailed" | "thread/queue/delete" | "thread/name/set" | "thread/delete" | "thread/fork" | "thread/continueInModel"
+            | "thread/rewind" | "thread/clear" | "thread/compact/start" | "thread/goal/set" | "thread/goal/clear" | "thread/goal/control"
+            | "thread/quotaResume/schedule" | "thread/quotaResume/cancel" | "thread/backgroundTerminals/terminate"
+            | "thread/backgroundTerminals/release" | "thread/backgroundTerminals/clean" | "route/set" | "fast/set" => "session.configure",
+            // `attachmentHistory` and `messageStart` of `session.read`, `getTurnReviewDiff`, `getProviderSetup`.
+            "thread/attachment/list" | "thread/modelMessages/list" | "review/diff/get" | "account/refreshProviderSetup" => "session.read",
+            "project/list" => "project.list",
+            "project/read" => "project.inspect",
+            "project/create" => "project.add",
+            "project/touch" => "project.touch",
+            "project/update" => "project.rename",
+            "project/delete" => "project.remove",
+            "project/ensureDirectory" => "project.ensureDirectory",
+            "terminal/ensure" => return ("desktop.invoke", term("termEnsure")),
+            "terminal/focus" => return ("desktop.invoke", term("termResize")),
+            "terminal/dispose" => return ("desktop.invoke", term("termDispose")),
+            "terminal/profiles" => return ("desktop.invoke", term("termProfiles")),
+            "thread/list" | "config/read" => "session.list",
+            _ => return ("desktop.invoke", term("openExternal")),
+        };
+        (call, json!({}))
+    };
+    // Not calls in Node: the handshake, the feed opens and the op status query are control-plane routes (`/client/register`, the relay's
+    // `setRemoteLanes`), which "never enter this queue" (`call-lanes.mjs`). They run where they arrive, which is the lane that never queues.
+    const CONTROL_PLANE: [&str; 4] = ["initialize", "app/subscribe", "feed/subscribe", "op/status"];
+    let mut table = Vec::new();
+    for (method, spec) in crate::server::method_index() {
+        let node = if CONTROL_PLANE.contains(method) {
+            Lane::Critical
+        } else {
+            let (call, args) = node_call(method);
+            lane_of_call(call, args)
+        };
+        table.push((*method, node, crate::server::lane_of(spec)));
+    }
+    table.sort_by_key(|row| row.0);
+    assert_eq!(table.len(), 480, "every method of the table");
+    let wrong: Vec<_> = table.iter().filter(|(_, node, core)| node != core).map(|(method, node, core)| format!("{method}: node {node:?}, core {core:?}")).collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
