@@ -4681,7 +4681,27 @@ async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain
     marks.carry(&child.id, &parent.id);
     let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
     assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
-    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped, &*rig.prompts_wrote], || held().is_empty().then_some(())).await;
+    // The files are read after the index holds every write acked so far: the rewrite's index rows are projected behind their ack and
+    // nothing signals the projection, so a probe woken only by the owners' steps and the prompt history read the index before it
+    // had them and then waited for a wake that never came.
+    super::testing::awaiting(
+        || format!("until no file holds the value: {:?}", held()),
+        async {
+            let wakes = [&parent.cell.stepped, &child.cell.stepped, &grandchild.cell.stepped, &*rig.prompts_wrote];
+            loop {
+                let mut waits: Vec<_> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+                for wait in &mut waits {
+                    wait.as_mut().enable();
+                }
+                threads.projected().await;
+                if held().is_empty() {
+                    return;
+                }
+                futures::future::select_all(waits).await;
+            }
+        },
+    )
+    .await;
     assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
     assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
 }

@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
@@ -59,6 +60,11 @@ struct Starved {
     waiting: AtomicBool,
     /// A read found nothing.
     notify: Notify,
+    /// How many times hyper has written: it writes a request's head once it has taken the request, so a count that
+    /// grows is hyper holding the request ([`Conn::exchange`]).
+    writes: AtomicU64,
+    /// `writes` grew.
+    wrote: Notify,
 }
 
 /// The read half of the connection, handed to hyper in place of the whole: what hyper writes goes nowhere.
@@ -78,6 +84,8 @@ impl AsyncRead for ReadOnly {
 
 impl AsyncWrite for ReadOnly {
     fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.1.writes.fetch_add(1, Ordering::SeqCst);
+        self.1.wrote.notify_waiters();
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -174,15 +182,29 @@ impl Conn {
     /// body) and `connection: close`. It is never told `Expect` (refused before the socket, `check_headers`) or a
     /// `CONNECT` (refused in `NodeClient::send`), the two requests whose answers hyper frames differently.
     pub async fn exchange(&mut self, head: &[u8], body: &[u8], method: &str, close: bool) -> Exchange {
-        let Self { send, write, .. } = self;
+        let Self { send, write, starved, .. } = self;
         let mut request = hyper::Request::builder().method(method).uri("/");
         if close {
             request = request.header("connection", "close");
         }
         let request = request.body(Empty::<Bytes>::new()).expect("a request hyper reads no more of than its method");
+        let before = starved.writes.load(Ordering::SeqCst);
         let response = send.send_request(request);
         tokio::pin!(response);
         let written = async {
+            // Bytes that reach hyper's read side before it has taken the request are an answer to nothing: it closes the
+            // connection as unexpected, and the request fails though the server answered. hyper takes the request on its
+            // own task, which a busy machine runs after a loopback server's whole round trip, so the socket is written
+            // only once hyper has written (discarded) the request's head.
+            loop {
+                let taken = starved.wrote.notified();
+                tokio::pin!(taken);
+                taken.as_mut().enable();
+                if starved.writes.load(Ordering::SeqCst) > before {
+                    break;
+                }
+                taken.await;
+            }
             write.write_all(head).await?;
             write.write_all(body).await?;
             write.flush().await
@@ -571,6 +593,40 @@ mod tests {
             _ => panic!("the answer is the outcome"),
         }
         drop(server);
+    }
+
+    // An answer that reaches hyper before it has taken the request closes the connection as an unexpected message, and the
+    // request fails though the server answered (a loopback server's round trip is shorter than a busy machine's wait for
+    // hyper's task). So nothing reaches the socket until hyper has taken the request: after one poll of the exchange, on
+    // the one thread hyper's task shares with it, the far end has received nothing; once hyper runs, the request goes out
+    // and its answer is heard.
+    #[tokio::test]
+    async fn nothing_is_written_to_the_socket_before_hyper_has_taken_the_request() {
+        let (near, mut far) = tokio::io::duplex(1 << 16);
+        let mut conn = Conn::open(Box::new(near), 0, 0).await.unwrap();
+        let exchange = conn.exchange(b"GET / HTTP/1.1\r\n\r\n", b"", "GET", false);
+        tokio::pin!(exchange);
+        assert!(futures::poll!(exchange.as_mut()).is_pending(), "the answer cannot be in yet");
+        let mut byte = [0u8; 1];
+        assert!(futures::poll!(Box::pin(far.read(&mut byte))).is_pending(), "a byte reached the socket before hyper took the request");
+        let server = async {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                far.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            far.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await.unwrap();
+            head
+        };
+        // Without the handoff the exchange waits for hyper and the server for the request: neither ends.
+        let (outcome, head) = mixdog_rt::time::timeout(Duration::from_secs(20), async { tokio::join!(exchange, server) })
+            .await
+            .expect("hyper took the request, it went out and its answer came back within 20 s");
+        assert_eq!(head, b"GET / HTTP/1.1\r\n\r\n");
+        match outcome {
+            Exchange::Answered { response, written } => assert_eq!((response.status().as_u16(), written), (200, true)),
+            _ => panic!("the answer is the outcome"),
+        }
     }
 
     // H4: hyper cannot write the head Node writes: it lowercases every header name (the provider's `OpenAI-Beta`,
