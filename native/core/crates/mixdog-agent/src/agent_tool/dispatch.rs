@@ -128,6 +128,44 @@ fn cancel_session_tasks(tasks: &dyn Tasks, session_id: &str, target: &str, scope
     }
 }
 
+/// `cancelAgentTree` (`agent-cancel.mjs:112-150`): the session and every agent below it close,
+/// descendants first and one at a time, all refusing admission until the last has closed. Each
+/// member's own jobs go first with the tree's `reason` (the agent jobs it started, then the jobs
+/// bound to it), so the owner of a running turn hears `cancelled` with the turn's partial output
+/// rather than the closed turn failing the job. A member that cannot close never skips the rest.
+/// Whether every member closed.
+pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, session_id: &str, reason: &str, options: CloseOptions) -> bool {
+    let id = mixdog_js::js_trim(session_id);
+    if id.is_empty() {
+        return false;
+    }
+    let mut ordered = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    visit_descendants_first(sessions, id, &mut seen, &mut ordered);
+    let _cancelling = sessions.begin_cancellation(&ordered);
+    let mut closed = true;
+    for current in &ordered {
+        tasks.cancel_owned(current, reason);
+        for row in tasks.list(&Scope::default()) {
+            if row.session_id.as_deref() == Some(current.as_str()) {
+                tasks.cancel(&row.task_id, reason);
+            }
+        }
+        closed &= sessions.close_session(current, reason, options).await;
+    }
+    closed
+}
+
+fn visit_descendants_first(sessions: &dyn Sessions, current: &str, seen: &mut std::collections::HashSet<String>, ordered: &mut Vec<String>) {
+    if !seen.insert(current.to_owned()) {
+        return;
+    }
+    for child in sessions.child_session_ids(current) {
+        visit_descendants_first(sessions, &child, seen, ordered);
+    }
+    ordered.push(current.to_owned());
+}
+
 /// The collaborators of [`close_resolved`].
 #[derive(Clone, Copy)]
 pub struct CloseParts<'a> {
@@ -161,7 +199,7 @@ pub async fn close_resolved(
     // session deletion may tombstone the conversation. An owner's close (not a process
     // exit's) is recorded on the session itself, so a later reuse of its reaped tag never
     // continues it.
-    let ok = sessions.close_session(session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await;
+    let ok = cancel_agent_tree(sessions, tasks, session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await;
     if let Some(id) = &task_id_out {
         tasks.cancel(id, CLOSE_REASON);
     }

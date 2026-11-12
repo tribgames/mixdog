@@ -7,7 +7,7 @@
 // public `agentLoop` entry point and the normalized transcript, result fields
 // and the requests it built are written to `golden/<name>.json`. Scenarios
 // themselves are written to `scenarios/<name>.json`.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -335,6 +335,7 @@ try {
 }
 refreshSetManifest(stage, nodeRoot, 'HEAD', {
   exclusions: {
+    ...JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8')).exclusions,
     'run events other than the text deltas (golden/*.json "deltas")': 'the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run\'s RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario',
   },
 });
