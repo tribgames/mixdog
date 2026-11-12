@@ -50,6 +50,8 @@ pub(crate) enum Kind {
     /// `{enabled, profileId}`; always stored, so an explicit "off" never falls back to the on
     /// default.
     CookieAutoImport,
+    /// Any value; stored as Node's `markdownDefaultViewSetting` reads it: `rich`, `source`, else `preview`.
+    MarkdownView,
     /// The whole `notifications` document, or one of its typed parts.
     NotificationsDoc,
     NotificationsMigratedAt,
@@ -114,7 +116,7 @@ pub(crate) fn registry() -> Vec<Key> {
         key("desktop.activityRailPins", Kind::Pins, None),
         key("desktop.browserPermissions", Kind::BrowserPermissions, None),
         key("desktop.browserCookieAutoImport", Kind::CookieAutoImport, None),
-        key("desktop.editor.markdownDefaultView", Kind::String, None),
+        key("desktop.editor.markdownDefaultView", Kind::MarkdownView, None),
         key("desktop.retentionState", Kind::Any, None),
         key("desktop.unclassifiedWorkspaceRoot", Kind::String, None),
         flag("agent.autoClear.enabled", true),
@@ -157,7 +159,8 @@ pub(crate) fn expected(kind: Kind) -> String {
         Kind::IntRange(lo, hi) => format!("integer {lo}..={hi}"),
         Kind::IntChoice(choices) => format!("one of {choices:?}"),
         Kind::String => "string".into(),
-        Kind::Pins => "array of activity rail destinations".into(),
+        Kind::Pins => "Activity rail pins must be an array of supported destinations.".into(),
+        Kind::MarkdownView => "any value".into(),
         Kind::BrowserPermissions => "site permission policy object".into(),
         Kind::CookieAutoImport => {
             "{enabled: boolean, profileId: a Chrome profile directory name of at most 120 \
@@ -187,9 +190,49 @@ pub(crate) fn accepts(kind: Kind, value: &Value) -> bool {
         | Kind::NotificationDevice
         | Kind::NotificationOverrides => stored_notifications(kind, value).is_some(),
         Kind::Pins => normalize_pins(value).is_some(),
-        Kind::Any => true,
+        Kind::MarkdownView | Kind::Any => true,
     }
 }
+
+/// `markdownDefaultViewSetting` (workspace-config.ts): the Markdown default view as stored.
+pub(crate) fn markdown_view(value: &Value) -> Value {
+    match value.as_str() {
+        Some(view @ ("rich" | "source")) => Value::from(view),
+        _ => Value::from("preview"),
+    }
+}
+
+/// The keys `DesktopSettingsStore.update` writes (settings-store.ts): each leaves `agent` an object, as its `next.agent = agent` does.
+pub(crate) const SETTING_UPDATE_PATHS: &[&str] = &[
+    "agent.autoClear.enabled",
+    "agent.compaction.auto",
+    "desktop.keepAwake",
+    "desktop.runInBackground",
+    "desktop.usagePinned",
+    "desktop.usageRailShortLong",
+    "desktop.usageAccountsExpanded",
+    "desktop.usageRailSlotsThree",
+    "desktop.usageRailSlotsAll",
+    "desktop.computerControl",
+    "desktop.computerObserveOnly",
+    "desktop.browserControl",
+    "desktop.browserAutoSignIn",
+    "desktop.browserHidDevices",
+    "desktop.saveChatLogins",
+    "desktop.computerInstalled",
+    "desktop.browserInstalled",
+];
+
+/// The keys whose Node writer copies the `desktop` section (`{ ...record(current.desktop) }`) before it stores or drops its
+/// value, so the section exists afterwards: the flags of [`SETTING_UPDATE_PATHS`] and the other settings-store writers.
+pub(crate) const DESKTOP_WRITER_PATHS: &[&str] = &[
+    "desktop.notificationVolume",
+    "desktop.sessionAutoArchiveDays",
+    "desktop.sessionAutoDeleteDays",
+    "desktop.browserPermissions",
+    "desktop.activityRailPins",
+    "desktop.browserCookieAutoImport",
+];
 
 /// A `notifications` value as stored (the protocol type's form), or `None` when it is not valid.
 pub(crate) fn stored_notifications(kind: Kind, value: &Value) -> Option<Value> {
