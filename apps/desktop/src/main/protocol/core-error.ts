@@ -8,6 +8,11 @@ import { coreFailure } from '../../shared/core-error';
 import { worktreeErrorWithCode } from '../worktree-validation';
 
 export function coreErrorForWindow(error: unknown): unknown {
+  // A refused argument names Node's own sentence (the TypeError its handler threw): the core's `expected` is that text.
+  const refused = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; expected?: unknown } } } | null)?.detail;
+  if (refused?.kind === 'rpc' && refused.data?.reason === 'invalidParams' && typeof refused.data.expected === 'string' && refused.data.expected) {
+    return new TypeError(refused.data.expected, { cause: error });
+  }
   return coreFailure(error, (coded) => {
     const { code, details } = coded as Error & { code: string; details?: Record<string, unknown> };
     const shown = worktreeErrorWithCode(coded) as Error & { details?: unknown };
