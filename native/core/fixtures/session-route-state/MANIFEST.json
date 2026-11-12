@@ -2,7 +2,8 @@
   "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree>",
   "entry": "Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file's inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).",
   "exclusions": [
-    "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it"
+    "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it",
+    "cases 306 and 372, the heir's stored header: compared whole against the recorded target (without `messages`), by key name, except four keys the test adds to the recorded target because Node's header has them elsewhere or never: `id` (Node's target holds it beside the header), `selectedContextWindow` (the core's name for the picked window Node's route carried, seeded from the case's heir window), and `offloadSources: [\"source\"]` with `offloadSourcesRules: 2` (the core's reference set of the sessions whose offloaded tool results the heir may read, which every session the core creates holds from its first record and Node's session does not have: offload_sources.rs). The test a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save reads a header written as Node wrote it (the recorded 372 failing target, no reference set) and shows a save leaves it without one"
   ],
   "fileCount": 1,
   "files": [
