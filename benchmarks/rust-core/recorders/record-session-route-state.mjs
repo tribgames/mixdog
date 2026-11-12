@@ -5,8 +5,18 @@
 // The compactor is a scripted endpoint: every call it receives is recorded.
 //
 //   node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <dir>
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { exact as encode, exactArgs as encodeArgs, fromExact } from './lib/exact.mjs';
 import { runSessionRecorder } from './lib/session-rec.mjs';
+
+// The session store and the provider catalog's roster files live in the plugin data dir: a fixed scratch one, emptied first.
+const DATA = join(tmpdir(), 'rec-session-route-state');
+rmSync(DATA, { recursive: true, force: true });
+mkdirSync(DATA, { recursive: true });
+process.env.MIXDOG_DATA_DIR = DATA;
+process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 
 // A copy of a value as it is at this moment (later mutation of the original does not reach it), still a plain value:
 // `add` encodes the whole case through `exact` once, so a snapshot must not be encoded already.
@@ -23,10 +33,14 @@ async function outcome(fn) {
 await runSessionRecorder(import.meta.url, {
   set: 'session-route-state',
   testFile: 'src/session-runtime/session-lifecycle.test.mjs',
-  entry: 'Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file\'s inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).',
-  replay: 'mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_effort_state, resolve_route_context_state, selection_fast_capable, save_model_settings, resolve_route, window_meta_of) for cases 10, 27, 49, 74, 104, 149, 229, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir\'s conversation. Not compared: the compactor calls Node\'s mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir\'s conversation and the refusal text are their observable consequence.',
+  entry: 'Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file\'s inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction). Cases 27, 49, 74, 149 and 229 also carry `routeSets`: the client\'s `route/set` (createModelRouteApi setRoute with the options routes-write.mjs passes: switchEstablished, deferUntilNextTurn, keepMainModel true) over the real route-resolution.mjs refreshRouteEffort (the provider catalog\'s roster files written to the data dir), the real session store (saveSessionAsync / loadSession on a temp MIXDOG_DATA_DIR) and the config save as the lifecycle writes it (createConfigPatch applied to the file document, as record-route-service.mjs); each records the call\'s inputs, the whole reply as JSON, the session record before and after and the config document after.',
+  replay: 'mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_context_state, save_model_settings, window_meta_of) for cases 10 and 104 directly, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 27, 49, 74, 149 and 229 are played through `route/set` (RouteSetService over the real RouteService, SessionRoutes, SessionRouteAdapter, the real thread store created from the recorded session record and the real config file): the whole reply, the whole stored session record and the whole stored config document are compared with `routeSets`. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir\'s conversation. Not compared: the compactor calls Node\'s mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir\'s conversation and the refusal text are their observable consequence.',
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
-  exclusions: ['no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it'],
+  exclusions: [
+    'routeSets session record: the top-level fields of the stored session are compared in key order sorted on both sides (Node\'s loader assembles the record as header fields, messages, then tools; the core\'s thread keeps the order the fields were written); every value, every nested order and the set of fields are compared whole',
+    'routeSets reply: the top-level fields are compared in key order sorted on both sides (Node\'s route object keeps the position of a key first set to undefined, such as contextPercent, which JSON key order of the core\'s reply does not reproduce; no client reads key order); every value, nested order and the set of fields are compared whole. The reply is the JSON the client receives (a property Node leaves undefined is absent)',
+    'routeSets config document: the file\'s `agent` section, compared whole in recorded order',
+    'no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it'],
 }, async ({ imp }) => {
   const { makeResolveRoute } = await imp('src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs');
   const { resolveRouteContextState, resolveRouteEffortState } = await imp('src/session-runtime/session-lifecycle.mjs');
@@ -34,12 +48,87 @@ await runSessionRecorder(import.meta.url, {
   const { inheritanceFit, inheritanceRouteTarget } = await imp('src/session-runtime/inheritance-fit.mjs');
   const { selectionFastCapable } = await imp('src/session-runtime/route-state.mjs');
   const { saveModelSettings } = await imp('src/runtime/agent/orchestrator/runtime-core/model-capabilities.mjs');
+  const { createModelRouteApi } = await imp('src/session-runtime/model-route-api.mjs');
+  const { createRouteResolution } = await imp('src/session-runtime/route-resolution.mjs');
+  const cfgMod = await imp('src/runtime/agent/orchestrator/config.mjs');
+  const patchMod = await imp('src/runtime/shared/config-patch.mjs');
+  const store = await imp('src/runtime/agent/orchestrator/session/store.mjs');
 
   const cases = [];
-  // Input and result are encoded here, right after the case computed them.
+  // Input and result are encoded here, right after the case computed them. `routeSets` (lines driven through `route/set`) are
+  // the client's calls: each holds the call's inputs and what Node answered and stored.
   const FIXED_NOW = 1_700_000_000_000; // the inheritance record stamps Date.now(): a recorded input, fixed here
   Date.now = () => FIXED_NOW;
-  const add = (name, line, input, result) => cases.push({ name, testLine: line, input: encode({ ...input, clock: { 'Date.now()': FIXED_NOW } }), result: encode(result) });
+  const add = (name, line, input, result, routeSets) =>
+    cases.push({ name, testLine: line, input: encode({ ...input, clock: { 'Date.now()': FIXED_NOW } }), result: encode(result), ...(routeSets ? { routeSets: encode(routeSets) } : {}) });
+
+  // The client's `route/set` (`createRouteWrite.setRoute`, tui/session/session-api/routes-write.mjs) of one session: Node's
+  // real setRoute with the options that write passes (switchEstablished + deferUntilNextTurn; keepMainModel true unless named),
+  // over the real route resolution (refreshRouteEffort, which reads the provider catalog's cached windows from the data dir's
+  // roster files), the real session store and the config as the lifecycle's save writes it (the stored-form patch applied to the
+  // file's document, as record-route-service.mjs). Answers the inputs and the whole outcome: the reply as the client's JSON
+  // carries it, the session record before and after (store.loadSession) and the config document in the file after.
+  const dataDir = process.env.MIXDOG_DATA_DIR;
+  let sessions = 0;
+  const routeSet = async ({ config, meta, route, windows = {}, defaultProvider = 'cursor-oauth' }) => {
+    const SESSION_ID = `sess_route_set_${(sessions += 1)}`;
+    const rosters = {};
+    for (const [key, row] of Object.entries(windows)) {
+      const [provider, model] = key.split('/');
+      (rosters[`${provider}-models.json`] ??= []).push({ id: model, ...row });
+    }
+    for (const [file, models] of Object.entries(rosters)) writeFileSync(join(dataDir, file), JSON.stringify({ models }));
+    try {
+      const state = { config: structuredClone(config), route: {}, file: structuredClone(config) };
+      let baseline = structuredClone(config);
+      const session = { id: SESSION_ID, generation: 0, closed: false, provider: 'openai-oauth', model: 'gpt-6-astra', messages: [] };
+      await store.saveSessionAsync(structuredClone(session), {});
+      const before = exact(store.loadSession(SESSION_ID));
+      const resolveRoute = makeResolveRoute(() => defaultProvider);
+      const lookupModelMeta = async () => structuredClone(meta);
+      const ensureProvidersReady = async () => {};
+      const rt = { get route() { return state.route; }, set route(next) { state.route = next; }, get config() { return state.config; } };
+      const { refreshRouteEffort } = createRouteResolution({ rt, collectProviderModels: async () => [], ensureProvidersReady, lookupModelMeta });
+      const saveConfigAndAdopt = (next) => {
+        state.config = next;
+        state.file = patchMod.applyConfigPatch(state.file, cfgMod.createConfigPatch(baseline, next));
+        baseline = structuredClone(next);
+        return next;
+      };
+      let persisted = Promise.resolve();
+      const api = createModelRouteApi({
+        getConfig: () => state.config,
+        getConfigHasSecrets: () => false,
+        getRoute: () => state.route,
+        setRouteState: (next) => { state.route = next; },
+        getSession: () => session,
+        getSessionGeneration: () => 0,
+        getAddressedSessionId: () => SESSION_ID,
+        setSession: () => {},
+        persistSession: (held) => { persisted = store.saveSessionAsync(held, { expectedGeneration: held.generation }); },
+        cfgMod: { loadConfig: () => state.config },
+        resolveRoute,
+        lookupModelMeta,
+        ensureProvidersReady,
+        adoptConfig: (value) => { state.config = value; return value; },
+        saveConfigAndAdopt,
+        persistLeadRoute: () => { throw new Error('route/set keeps the main model'); },
+        refreshRouteEffort,
+        refreshStatuslineUsageSnapshot: () => {},
+        invalidateContextStatusCache: () => {},
+        statusRoutes: {},
+        mgr: {},
+      });
+      const reply = await api.setRoute(structuredClone(route), { applyToCurrentSession: false, keepMainModel: true, switchEstablished: true, deferUntilNextTurn: true });
+      await persisted;
+      return {
+        input: { config, meta, route, windows, defaultProvider, session: before },
+        outcome: { reply: JSON.parse(JSON.stringify(reply)), session: exact(store.loadSession(SESSION_ID)), file: JSON.parse(JSON.stringify(state.file)) },
+      };
+    } finally {
+      for (const file of Object.keys(rosters)) rmSync(join(dataDir, file), { force: true });
+    }
+  };
 
   // 1 placeholder metadata keeps a saved Fast setting
   {
@@ -59,13 +148,14 @@ await runSessionRecorder(import.meta.url, {
   }
 
   // 2-4 effort state
-  const effort = (name, line, route, meta) => add(name, line, { route, meta }, resolveRouteEffortState(route, meta));
-  effort('cold-metadata-preserves-effort-and-fast', 27,
+  const effort = async (name, line, route, meta) =>
+    add(name, line, { route, meta }, resolveRouteEffortState(route, meta), [await routeSet({ config: {}, meta, route })]);
+  await effort('cold-metadata-preserves-effort-and-fast', 27,
     { provider: 'cursor-oauth', model: 'kimi-k3', effort: 'high', fast: true }, { id: 'kimi-k3', provider: 'cursor-oauth' });
-  effort('resolved-metadata-is-authoritative', 49,
+  await effort('resolved-metadata-is-authoritative', 49,
     { provider: 'cursor-oauth', model: 'kimi-k3', effort: 'max', fast: true },
     { id: 'kimi-k3', provider: 'cursor-oauth', reasoningLevels: ['high'], fastCapable: false, fastEfforts: [] });
-  effort('cursor-parameter-variants-validate-fast', 74,
+  await effort('cursor-parameter-variants-validate-fast', 74,
     { provider: 'cursor-oauth', model: 'gpt-5.6-sol', effort: 'high', fast: true, modelParameters: { context: '272k' } },
     {
       id: 'gpt-5.6-sol', provider: 'cursor-oauth', reasoningLevels: ['high', 'max'], fastCapable: true, fastEfforts: ['high'],
@@ -101,7 +191,9 @@ await runSessionRecorder(import.meta.url, {
       const state = exact(resolveRouteContextState(route, placeholder(route), windowLookup));
       return { route, meta: placeholder(route), state, lookups: lookups.slice(before) };
     });
-    add('placeholder-model-meta-resolves-selected-window-from-catalog', 149, { table }, results);
+    const routeSets = [];
+    for (const route of inputs) routeSets.push(await routeSet({ config: {}, meta: placeholder(route), route, windows: table }));
+    add('placeholder-model-meta-resolves-selected-window-from-catalog', 149, { table }, results, routeSets);
   }
 
   // 7 cleared context percentage
@@ -109,7 +201,8 @@ await runSessionRecorder(import.meta.url, {
     const resolveRoute = makeResolveRoute(() => 'cursor-oauth');
     const config = { modelSettings: { 'cursor-oauth/gpt-5.4': { contextPercent: null } } };
     const route = { provider: 'cursor-oauth', model: 'gpt-5.4' };
-    add('cleared-context-percent-is-model-default-intent', 229, { config, route, defaultProvider: 'cursor-oauth' }, resolveRoute(config, route).contextPercent);
+    add('cleared-context-percent-is-model-default-intent', 229, { config, route, defaultProvider: 'cursor-oauth' }, resolveRoute(config, route).contextPercent,
+      [await routeSet({ config, meta: {}, route, defaultProvider: 'cursor-oauth' })]);
   }
 
   // inheritance
@@ -151,6 +244,12 @@ await runSessionRecorder(import.meta.url, {
   };
   const shape = (target) => ({ target: exact(target) });
 
+  // The scripted compactor's answers (recorded as inputs): what it returns for each scenario that compacts.
+  const COMPACTOR_ANSWERS = {
+    compacting: { messages: [{ role: 'user', content: 'Compacted for the heir.' }] },
+    compact: { messages: [{ role: 'user', content: 'Summarized on request.' }] },
+  };
+
   // 9 preflight is the same verdict the carry reaches
   {
     const out = {};
@@ -159,7 +258,7 @@ await runSessionRecorder(import.meta.url, {
       const calls = [];
       const h = open(src, 20_000, async ({ budgetTokens, session }) => {
         calls.push({ budgetTokens, isSource: session === src, session: exact(session) });
-        return { messages: [{ role: 'user', content: 'Compacted for the heir.' }] };
+        return structuredClone(COMPACTOR_ANSWERS.compacting);
       });
       const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.compacting = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), calls, ...shape(h.target), saves: h.saves };
@@ -177,7 +276,7 @@ await runSessionRecorder(import.meta.url, {
       const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.accepted = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), ...shape(h.target), saves: h.saves };
     }
-    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000] }, out);
+    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000], compactorAnswers: { compacting: COMPACTOR_ANSWERS.compacting, emptyCompaction: { messages: [] } } }, out);
   }
 
   // 10 compact:true
@@ -188,7 +287,7 @@ await runSessionRecorder(import.meta.url, {
       const calls = [];
       const h = open(src, 500_000, async ({ session }) => {
         calls.push({ session: exact(session), isSource: session === src });
-        return { messages: [{ role: 'user', content: 'Summarized on request.' }] };
+        return structuredClone(COMPACTOR_ANSWERS.compact);
       });
       out.preflight = exact(h.api.inheritancePreflight(src.id, h.route));
       out.compact = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), calls, sourceCompaction: exact(src.compaction), ...shape(h.target) };
@@ -211,7 +310,7 @@ await runSessionRecorder(import.meta.url, {
       const h = open(src, 500_000, async () => ({ messages: [] }));
       out.empty = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), ...shape(h.target) };
     }
-    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' } }, out);
+    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' }, compactorAnswers: { compact: COMPACTOR_ANSWERS.compact, empty: { messages: [] } } }, out);
   }
 
   return { cases };

@@ -30,7 +30,7 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).

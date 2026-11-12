@@ -63,7 +63,7 @@ impl Resident for Fixed {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_judgment_answers_while_every_cpu_bulk_thread_is_held_and_its_queue_is_full() {
     let mut rt = mixdog_rt::exec::RtConfig::for_cores(4);
-    rt.cpu_bulk = mixdog_rt::exec::PoolParams { threads: 1, queue: 1 };
+    rt.cpu_bulk = mixdog_rt::exec::PoolParams::fixed(1, 1, 1);
     let (_executors, tokens) = mixdog_rt::exec::boot(rt).unwrap();
     let (entered_tx, entered_rx) = mpsc::channel::<u32>();
     let (release_tx, release_rx) = mpsc::channel::<()>();

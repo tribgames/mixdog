@@ -73,7 +73,7 @@ name = "exit_window"
 required-features = ["core-test"]
 
 [[test]]
-name = "adoption_failure"
+name = "atomic_job"
 required-features = ["core-test"]
 
 [[test]]

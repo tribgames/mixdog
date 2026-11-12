@@ -158,15 +158,49 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Test seam (feature `test-support`): each scope's operations as a replay of Node's scripted connector
+/// (`connectConfiguredMcp`, `cancelMcpLogin`) sees them.
+#[cfg(feature = "test-support")]
+#[async_trait]
+pub trait OpWatch: Send + Sync {
+    /// `op` is about to resolve its configuration on `scope` in its turn; it waits for this.
+    async fn connecting(&self, scope: &str, op: &Op);
+    /// `op` was applied on `scope` (or voided).
+    fn connected(&self, scope: &str, op: &Op);
+    /// A disable asks the server's sign-in in flight to end (`cancelMcpLogin`).
+    fn cancelling_login(&self, server: &str);
+}
+
 pub struct ScopeRuntime {
     hub: Arc<McpHub>,
     configs: Arc<dyn ScopeConfigs>,
     table: Mutex<Table>,
+    #[cfg(feature = "test-support")]
+    watch: std::sync::OnceLock<Arc<dyn OpWatch>>,
 }
 
 impl ScopeRuntime {
     pub fn new(hub: Arc<McpHub>, configs: Arc<dyn ScopeConfigs>) -> Arc<Self> {
-        Arc::new(Self { hub, configs, table: Mutex::default() })
+        Arc::new(Self {
+            hub,
+            configs,
+            table: Mutex::default(),
+            #[cfg(feature = "test-support")]
+            watch: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// Connects the test's watch of the operations; once.
+    #[cfg(feature = "test-support")]
+    pub fn watch(&self, watch: Arc<dyn OpWatch>) {
+        let _ = self.watch.set(watch);
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(crate) fn cancelling_login(&self, server: &str) {
+        if let Some(watch) = self.watch.get() {
+            watch.cancelling_login(server);
+        }
     }
 
     /// Opens `scope` for `owner`, working in `cwd`, and returns once its first connect settled. A
@@ -340,8 +374,18 @@ impl ScopeRuntime {
             Op::Only(name, _) => Some(name.as_str()),
             _ => None,
         };
+        #[cfg(feature = "test-support")]
+        let watch = self.watch.get().cloned();
+        #[cfg(feature = "test-support")]
+        if let Some(watch) = &watch {
+            watch.connecting(&cell.scope, op).await;
+        }
         let resolved = self.configs.resolve(&cell.scope, &cell.cwd, only).await;
         self.connect(&cell.scope, generation, op, resolved).await;
+        #[cfg(feature = "test-support")]
+        if let Some(watch) = &watch {
+            watch.connected(&cell.scope, op);
+        }
         // An operation that was applied (not voided) puts the scope as its configuration asks.
         if self.stands(&cell.scope, generation) {
             *lock(&cell.failure) = None;
@@ -354,32 +398,34 @@ impl ScopeRuntime {
         let Resolved { mut configs, targets } = resolved;
         match op {
             Op::Reset => {
-                if !self.hub.apply_at(scope, generation, Vec::new()) {
+                if !self.hub.apply_at(scope, generation, Vec::new(), &|_| true) {
                     return;
                 }
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if self.hub.apply_at(scope, generation, configs) {
+                if self.hub.apply_at(scope, generation, configs, &|_| true) {
                     self.settled(scope, &names).await;
                 }
             }
             Op::Reconcile => {
-                let before: HashSet<String> = self.hub.servers_in(scope).iter().map(|s| s.name().to_owned()).collect();
+                // The apply connects new and changed servers and those whose last connect failed
+                // (a sign-in or a stored credential may have changed), once each.
+                let before: HashSet<String> = self
+                    .hub
+                    .servers_in(scope)
+                    .iter()
+                    .filter(|s| !matches!(&*s.state(), ServerState::Failed { .. }))
+                    .map(|s| s.name().to_owned())
+                    .collect();
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if !self.hub.apply_at(scope, generation, configs) {
+                if !self.hub.apply_at(scope, generation, configs, &|_| true) {
                     return;
                 }
                 self.settled(scope, &names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>()).await;
-                // A server whose last connect failed is retried (a sign-in or a stored credential may have changed).
-                for server in self.hub.servers_in(scope) {
-                    if matches!(&*server.state(), ServerState::Failed { .. }) {
-                        let _ = server.reconnect().await;
-                    }
-                }
             }
             Op::Only(_, enabled) => {
                 if !*enabled {
                     configs.retain(|c| !targets.contains(&c.name));
-                    self.hub.apply_at(scope, generation, configs);
+                    self.hub.apply_at(scope, generation, configs, &|_| false);
                     return;
                 }
                 let kept: Vec<_> = targets
@@ -387,11 +433,15 @@ impl ScopeRuntime {
                     .filter_map(|t| self.hub.server_in(scope, t))
                     .filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config()))
                     .collect();
-                if !self.hub.apply_at(scope, generation, configs) {
+                // The toggle connects its own servers only (`reconnectSingleMcpServer`).
+                if !self.hub.apply_at(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) {
                     return;
                 }
+                // A failed one was replaced by the apply, which connects it.
                 for server in kept {
-                    let _ = server.reconnect().await;
+                    if self.hub.server_in(scope, server.name()).is_some_and(|now| Arc::ptr_eq(&now, &server)) {
+                        let _ = server.reconnect().await;
+                    }
                 }
                 self.settled(scope, &targets).await;
             }

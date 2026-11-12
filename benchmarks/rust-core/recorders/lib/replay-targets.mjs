@@ -85,6 +85,9 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/accounts/policy.rs', 337, 'choose_account'), r('mixdog-ai/src/accounts/policy.rs', 270, 'account_limit'), r('mixdog-ai/src/accounts/policy.rs', 308, 'account_exhausted_for_model_only'), r('mixdog-ai/src/accounts/mod.rs', 299, 'AccountStore::pool'), r('mixdog-ai/src/accounts/mod.rs', 368, 'AccountStore::register'), r('mixdog-ai/src/accounts/mod.rs', 405, 'AccountStore::change'), r('mixdog-ai/src/accounts/mod.rs', 503, 'AccountStore::record_usage')],
     missing: [],
   },
+  'room-user-send-cases': {
+    protocolMethods: ['room/send (mixdog-app-protocol/src/methods.rs RoomSend; served by mixdog-core-rooms/src/rooms/service.rs RoomService, whose send step is rooms/user_send.rs UserSend over live.rs LiveRooms::send)'],
+  },
   'quiet-progress-cases': {
     rust: [r('mixdog-core-agents/src/agents/pool_list.rs', 139, 'AgentPool', 'list (pool_list.rs:624) returns the pool rows decorated with progressAt, progressStage (model_thinking while a sent request awaits its headers), progressTool and stallWarnMs from the private with_progress (:785); re-exported by agents/mod.rs:50'), r('mixdog-agent/src/agent_tool/watchdog.rs', 123, 'stall_warn_ms')],
     missing: ['the quiet cue and its labels (quietProgress / quietProgressParts / quietWaitKind, "quiet for 3m · running shell", the cue window and the freeze until the warn point): no Rust code; agent_tool/progress.rs:300 builds a different text ("tool possibly hung", task progress)'],

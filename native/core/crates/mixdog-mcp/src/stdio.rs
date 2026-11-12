@@ -68,7 +68,7 @@ fn shell_command(file: &str, args: &[String]) -> Command {
 
 /// Starts the server the way Node's SDK does ([`cross_spawn`]); a failed start reads as Node's
 /// `spawn <command> <code>`.
-fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Result<Child, TransportError> {
+fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Result<(Child, Containment), TransportError> {
     let (shown, mut process) = match cross_spawn::parse(lane, command, args, cwd, env) {
         Launch::Direct { shown, program, args } => {
             let mut process = Command::new(program);
@@ -77,25 +77,39 @@ fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&st
         }
         Launch::Shell { file, args } => (file.clone(), shell_command(&file, &args)),
     };
+    process.env_clear().envs(env);
+    if let Some(cwd) = cwd {
+        process.current_dir(cwd);
+    }
+    spawn_contained(process, &shown).map_err(|(error, _child)| error)
+}
+
+/// Creates `process` with piped stdio and puts it under containment. A tree that cannot be contained is not started: the
+/// server would outlive its kill. The child of a failed attach (never resumed) is ended and handed back with the error.
+fn spawn_contained(mut process: Command, shown: &str) -> Result<(Child, Containment), (TransportError, Option<Child>)> {
     process
-        .env_clear()
-        .envs(env)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    if let Some(cwd) = cwd {
-        process.current_dir(cwd);
-    }
     #[cfg(unix)]
     process.process_group(0);
+    // CREATE_NO_WINDOW | CREATE_SUSPENDED: the child joins its job before it runs (`Containment::attach`).
     #[cfg(windows)]
-    process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    process.spawn().map_err(|source| TransportError::Spawn {
-        file: shown,
+    process.creation_flags(0x0800_0000 | 0x0000_0004);
+    let spawn_error = |source: std::io::Error| TransportError::Spawn {
+        file: shown.to_owned(),
         code: crate::uv_error::error_code(&source).unwrap_or("UNKNOWN"),
         source,
-    })
+    };
+    let mut child = process.spawn().map_err(|source| (spawn_error(source), None))?;
+    match Containment::attach(&child) {
+        Ok(containment) => Ok((child, containment)),
+        Err(source) => {
+            let _ = child.start_kill();
+            Err((spawn_error(source), Some(child)))
+        }
+    }
 }
 
 fn push_tail(tail: &Mutex<String>, chunk: &str) {
@@ -129,9 +143,8 @@ impl StdioTransport {
                 start(lane, &command, &args, cwd.as_deref(), &env)
             })
             .map_err(|_| TransportError::LaneFull)?;
-        let mut child = job.await.map_err(|_| TransportError::Closed)??;
-
-        let containment = Containment::attach(&child).ok();
+        let (mut child, containment) = job.await.map_err(|_| TransportError::Closed)??;
+        let containment = Some(containment);
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -285,5 +298,74 @@ impl Transport for StdioTransport {
 
     fn stderr_tail(&self) -> String {
         self.tail.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::containment::FAIL_NEXT_ATTACH;
+
+    /// A child that starts a grandchild (holding the child's stdout) at once, then prints `ready` and stays alive.
+    fn starts_a_grandchild() -> Command {
+        #[cfg(windows)]
+        {
+            let mut command = Command::new("cmd");
+            command.raw_arg("/d /c \"start /b ping -n 100 127.0.0.1 & echo ready & ping -n 100 127.0.0.1 >nul\"");
+            command
+        }
+        #[cfg(unix)]
+        {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 100 & echo ready; wait"]);
+            command
+        }
+    }
+
+    /// A child that starts a grandchild at its first instruction is ended, grandchild included, when its containment
+    /// ends: the grandchild holds the child's stdout, so the pipe reaches its end only once every process of the tree is
+    /// gone.
+    #[tokio::test]
+    async fn a_child_that_starts_a_grandchild_at_once_ends_with_its_job() {
+        let Ok((mut child, containment)) = spawn_contained(starts_a_grandchild(), "grandchild") else {
+            panic!("the start failed");
+        };
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        mixdog_rt::time::timeout(Duration::from_secs(30), async {
+            loop {
+                line.clear();
+                assert!(stdout.read_line(&mut line).await.unwrap() > 0, "the child ended before it said ready");
+                if line.trim() == "ready" {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("the child says ready (its grandchild runs) in 30 s");
+        containment.terminate();
+        let mut rest = Vec::new();
+        mixdog_rt::time::timeout(Duration::from_secs(30), stdout.read_to_end(&mut rest))
+            .await
+            .expect("the grandchild ended with the job: its end of the stdout pipe closed in 30 s")
+            .unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait()).await.expect("the child ended in 30 s").unwrap();
+    }
+
+    /// A child the job refuses is not started: the start fails and the child, created suspended and never resumed, is
+    /// ended.
+    #[tokio::test]
+    async fn a_failed_attach_fails_the_start_with_the_child_ended() {
+        FAIL_NEXT_ATTACH.with(|fail| fail.set(true));
+        let (error, child) = match spawn_contained(starts_a_grandchild(), "grandchild") {
+            Ok(_) => panic!("a child that could not be contained was started"),
+            Err(failed) => failed,
+        };
+        assert!(matches!(error, TransportError::Spawn { .. }), "{error:?}");
+        let mut child = child.expect("the child was created");
+        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait())
+            .await
+            .expect("the child of a failed attach ended in 30 s, not left suspended")
+            .unwrap();
     }
 }

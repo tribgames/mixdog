@@ -69,6 +69,22 @@ fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
 }
 
 
+/// A conversation of more records than the durability lane holds (here a lane of 5 against 40 rows) is stored whole and in order, as
+/// the heir of an inheritance is (`thread/inheritedRows/append`): the outbox hands records on as acks free the lane.
+#[tokio::test(start_paused = true)]
+async fn an_inherited_conversation_larger_than_the_lane_is_stored_whole_and_in_order() {
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.limits = super::SessionLimits { window_records: 2, reserve_records: 1, control_lane: 1, ..super::SessionLimits::default() };
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let messages: Vec<Value> = (0..40).map(|n| json!({ "role": if n % 2 == 0 { "user" } else { "assistant" }, "content": format!("m{n}") })).collect();
+    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages.clone() }), op: None, ctx: CallContext::internal("test") };
+    handle.request(append).await.expect("the whole conversation is stored");
+    let stored: Vec<Value> = directory.model_context(&handle.id).read().await.expect("stored rows").into_iter().map(|(_, message)| message).collect();
+    assert_eq!(stored, messages);
+}
+
 /// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
 /// and a cancelled one never fires.
 #[tokio::test(start_paused = true)]
@@ -2396,6 +2412,22 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(runs_started(&rig, &handle.id), 1);
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
+}
+
+/// The restart notice's queue (`enqueuePendingMessage` then `settlePendingMessageWrites`, `restart-notify.mjs:116-119`): the
+/// call answers only once the entry's record is stored, and the same execution queued again (a retry after a crash before the
+/// row's stamp) stays one entry and is answered too.
+#[tokio::test(start_paused = true)]
+async fn a_durable_completion_answers_once_stored_and_a_repeat_is_one_entry() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let owner = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
+    for attempt in 0..2 {
+        directory.queue_completion_durably(&owner.id, "agent", "restart:t-1", "failed", "lost".into()).await.expect("stored");
+        let queued = rig.store.records(&owner.id).into_iter().filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_))).count();
+        assert_eq!(queued, 1, "attempt {attempt}: one entry, stored before the answer");
+    }
 }
 
 /// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
@@ -5006,6 +5038,64 @@ async fn a_room_post_stores_each_message_once_and_shows_it() {
         Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), "session sess_gone is not available"),
         other => panic!("{other:?}"),
     }
+}
+
+/// A room post admitted while its log is released on close (Node: the post's save is dropped by the generation fence of the
+/// log's detach, and the fixed `commit` fails with `session <id> is not available`; recorded: `startup-interrupted-post-behind-detach`):
+/// the post is refused in Node's words and no row is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_admitted_while_its_log_is_released_on_close_is_refused_and_writes_nothing() {
+    struct NoShells;
+    impl super::shell_jobs::OwnedShells for NoShells {
+        fn cancel_owned(&self, _: &ThreadId) {}
+    }
+    struct NoProviders;
+    #[async_trait::async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Err(format!("no {name}"))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            false
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
+    let close = super::close::SessionClose::new(directory.clone(), providers, Arc::new(NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)));
+    let row = json!({
+        "role": "assistant",
+        "content": "interrupted",
+        "meta": { "source": "agent-room", "room": { "kind": "interrupted" }, "transcript": { "at": 5, "messageId": "row_1" } },
+    });
+    // The post's log is open (admitted) when the log's detach lands.
+    assert!(close.detach(id.as_str(), "test", false).await);
+    let refused = super::room_log::post_on_opened(&handle, vec![row]).await;
+    match refused {
+        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), format!("session {id} is not available")),
+        other => panic!("{other:?}"),
+    }
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(value) = reread
+        .request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("messages")
+    else {
+        panic!("a value")
+    };
+    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
+    assert!(!texts.contains(&"interrupted"), "the refused post wrote nothing: {texts:?}");
 }
 
 /// A hook's `transcript_path` over the real thread store: Node's `<id>.json` before the session

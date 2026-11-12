@@ -229,7 +229,9 @@ pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<Recovered
             }
             body
         };
-        if known.get(index).is_some_and(|was| was == message) {
+        // A cancelled result an earlier recovery saved is the one derived again for its call, whatever else of the row it carries.
+        let saved = |was: &AgentMessage| index >= origin && was.role() == Role::Tool && message.role() == Role::Tool && was.tool_call_id() == message.tool_call_id();
+        if known.get(index).is_some_and(|was| was == message || saved(was)) {
             out.push(RecoveredRow::Kept { index, body: stamp(rows[index].clone()) });
         } else {
             let role = match message.role() {

@@ -43,7 +43,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }
 mixdog-core-goal = { workspace = true }
-mixdog-core-rooms = { workspace = true }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
@@ -69,7 +69,7 @@ mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
@@ -92,3 +92,6 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }

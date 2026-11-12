@@ -120,7 +120,7 @@ struct Job {
 /// `tests/lane_pushes.rs` replays), a control-plane message that never enters a lane; they run where they arrive.
 pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
     match spec.method {
-        "thread/resume" | "thread/start" | "thread/read" | "turn/start" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
+        "thread/resume" | "thread/start" | "thread/read" | "turn/start" | "room/send" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
         | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" | "terminal/ensure" | "terminal/focus"
         | "terminal/dispose" | "terminal/profiles" => Lane::Interactive,
         "thread/approval/answer" | "thread/approval/answerNotification" => Lane::Critical,

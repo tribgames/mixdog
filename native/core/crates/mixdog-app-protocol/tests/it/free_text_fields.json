@@ -1915,6 +1915,15 @@
       ""
      ]
     }
+   },
+   "room/send": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/user_send.rs UserMessage::of",
+     "fields": [
+      "/threadId"
+     ],
+     "schema": "client_request.json#TurnInput"
+    }
    }
   },
   "notification": {
@@ -2288,6 +2297,12 @@
    "class": "free",
    "reason": "The text of a turn, a steer or a queued message (the steer and the queue send turn/start's input), a `/goal` command typed in the composer, the composer's text handed back with a queued entry.",
    "fields": [
+    "request room/send /input/options/displayText",
+    "request room/send /input/options/goalCommand",
+    "request room/send /input/options/pastedImages/*/metadataText",
+    "request room/send /input/options/pastedTexts/*/text",
+    "request room/send /input/prompt",
+    "request room/send /input/prompt/*/text",
     "request thread/start /initialInput/options/displayText",
     "request thread/start /initialInput/options/goalCommand",
     "request thread/start /initialInput/options/pastedImages/*/metadataText",
@@ -2437,6 +2452,9 @@
     "request modelProxy/run /call/request/messages/*/content/*/filename",
     "request projectFs/create /name",
     "request projectFs/rename /newName",
+    "request room/send /input/options/pastedImages/*/filename",
+    "request room/send /input/options/pastedTexts/*/filename",
+    "request room/send /input/prompt/*/filename",
     "request thread/resizeImage /input/filename",
     "request thread/start /initialInput/options/pastedImages/*/filename",
     "request thread/start /initialInput/options/pastedTexts/*/filename",
@@ -2746,6 +2764,11 @@
     "request review/diff/get /files/*/0",
     "request review/diff/get /scope",
     "request review/diff/get /source",
+    "request room/send /input/options/pastedImages/*/type",
+    "request room/send /input/options/pastedTexts/*/source",
+    "request room/send /input/options/priority",
+    "request room/send /input/prompt/*/textKind",
+    "request room/send /input/prompt/*/type",
     "request thread/agentControl /args/scope",
     "request thread/agentControl /args/taskType",
     "request thread/agentControl /args/term",
@@ -2842,6 +2865,9 @@
     "request mcp/saveMcpServer /input/headers/{}",
     "request modelProxy/run /call/request/options/modelParameters/{}",
     "request process/spawn /env/{}",
+    "request room/send /input/options/attachmentSizes/{}",
+    "request room/send /input/options/pastedImages/{}",
+    "request room/send /input/options/pastedTexts/{}",
     "request route/set /route/modelParameters/{}",
     "request thread/approval/answer /result/editedArgs/{}",
     "request thread/continueInModel /route/modelParameters/{}",
@@ -3159,6 +3185,7 @@
     "request review/diff/get /files/*/path",
     "request review/diff/get /oldPath",
     "request review/diff/get /path",
+    "request room/send /input/options/pastedImages/*/sourcePath",
     "request search/start /roots/*",
     "request skills/setDisabledSkills /names/*",
     "request skills/skillsStatus /options/cwd",
@@ -4077,6 +4104,15 @@
     "request room/remove /opId",
     "request room/reset /input/roomId",
     "request room/reset /opId",
+    "request room/send /input/options/clientSubmissionId",
+    "request room/send /input/options/pastedImages/*/attachmentRef",
+    "request room/send /input/options/pastedImages/*/originalRef",
+    "request room/send /input/options/pastedTexts/*/attachmentRef",
+    "request room/send /input/options/retryAttemptId",
+    "request room/send /input/options/retryTurnId",
+    "request room/send /input/prompt/*/attachmentRef",
+    "request room/send /input/threadId",
+    "request room/send /opId",
     "request room/update /input/members/*",
     "request room/update /input/roomId",
     "request room/update /opId",
@@ -4318,6 +4354,7 @@
    "class": "refused",
    "reason": "an image's bytes (base64) and the metadata line the resize wrote from it, not typed text",
    "fields": [
+    "request room/send /input/options/pastedImages/*/content",
     "request thread/start /initialInput/options/pastedImages/*/content",
     "request turn/start /input/options/pastedImages/*/content"
    ]
@@ -4373,6 +4410,11 @@
     "request modelProxy/run /call/request/messages/*/content/*/source/mimeType",
     "request process/writeStdin /bytesB64",
     "request projectFs/writeText /encoding",
+    "request room/send /input/options/pastedImages/*/mediaType",
+    "request room/send /input/options/pastedImages/*/originalMediaType",
+    "request room/send /input/options/pastedTexts/*/mimeType",
+    "request room/send /input/prompt/*/data",
+    "request room/send /input/prompt/*/mimeType",
     "request thread/resizeImage /input/data",
     "request thread/resizeImage /input/mimeType",
     "request thread/stageAttachmentOriginal /input/data",
@@ -4396,6 +4438,7 @@
    "class": "refused",
    "reason": "host-only (an agent queue entry's context): a connection's request carrying it is invalidParams before any check of its text",
    "fields": [
+    "request room/send /input/options/context",
     "request thread/start /initialInput/options/context",
     "request turn/start /input/options/context"
    ]

@@ -44,6 +44,7 @@ use mixdog_core_run::run_host::progress::ProgressPublisher;
 use mixdog_core_run::run_host::progress::StreamKind;
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
+use super::quiet_watch::QuietWatch;
 use super::tool_progress::{RunToolProgress, ToolHints};
 use mixdog_core_session::session::turn_snapshot::ReviewGate;
 use mixdog_core_session::session::failure_record::provider_turn_error;
@@ -975,6 +976,7 @@ async fn drive(
     };
     parts.reset_turn_shells(&thread);
     let hints = ToolHints::start(progress.subscribe(), port.clone());
+    let quiet_changes = progress.subscribe();
     let watched = progress.subscribe();
     let tool_progress = RunToolProgress::new(progress.clone());
     let mut stored = match context.read().await {
@@ -1172,6 +1174,11 @@ async fn drive(
     } else {
         None
     };
+    // The quiet-time cue of a turn a person watches (`startQuietWatch` in the lead turn, `turn.mjs:781`), against the lead's warn point.
+    let quiet_watch = (!unattended).then(|| {
+        let warn_ms = mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
+        QuietWatch::start(quiet_changes, port.clone(), clock.clone(), Arc::new(TimerWait), warn_ms as f64)
+    });
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
     drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
@@ -1250,6 +1257,9 @@ async fn drive(
     closing.end_reasoning();
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
+    if let Some(quiet_watch) = quiet_watch {
+        quiet_watch.finish().await;
+    }
     // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
     // A cancelled run's token has fired, but Node saves after the abort (`finalizeCancelledTurn`).
     let end_port = if cancel.is_cancelled() { port.closing() } else { port.clone() };
@@ -2580,7 +2590,7 @@ mod tests {
             exclusions: Arc::default(),
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
-            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
+            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, workspace.path().to_path_buf(), Default::default())),
             blobs: Arc::new(NoBlobs),
             tool_pool: pool,
             mcp: Arc::new(NoMcp),
@@ -2997,4 +3007,7 @@ mod tests {
 
     #[path = "../../restart_prefix_tests.rs"]
     mod restart_prefix;
+
+    #[path = "../../session_message_sanitize_replay.rs"]
+    mod session_message_sanitize_replay;
 }

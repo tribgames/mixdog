@@ -3,9 +3,9 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs::{metadata, File, OpenOptions};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
-#[cfg(windows)]
-use std::process::Child;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::ExitStatus;
+#[cfg(unix)]
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -16,24 +16,39 @@ use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
+    CreateJobObjectW, JobObjectBasicAccountingInformation,
     JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
     TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
+#[cfg(windows)]
+mod console_hosts;
 mod wire;
 use wire::*;
 mod process;
 use process::*;
 mod output;
 use output::*;
+#[cfg(windows)]
+mod winspawn;
+
+#[cfg(windows)]
+type ChildProcess = winspawn::WinProcess;
+#[cfg(unix)]
+type ChildProcess = Child;
+
+/// A started command's root process and the parent's ends of its pipes.
+struct StartedChild {
+    process: ChildProcess,
+    stdin: Option<Box<dyn Write + Send>>,
+    stdout: Option<Box<dyn Read + Send>>,
+    stderr: Option<Box<dyn Read + Send>>,
+}
 
 #[cfg(unix)]
 fn close_inherited_file_descriptors() {
@@ -53,11 +68,6 @@ fn close_inherited_file_descriptors() {
     }
 }
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-// The root starts suspended and runs only once it is in its job.
-#[cfg(windows)]
-const CREATE_SUSPENDED: u32 = 0x0000_0004;
 // A killed contained job is verified empty for this long before the command's
 // completion is reported. One still occupied then is watched on (its kill
 // re-issued) at LATE_EMPTY_POLL, for at most LATE_VERIFY_DEADLINE and
@@ -71,10 +81,6 @@ const LATE_EMPTY_POLL: Duration = Duration::from_millis(500);
 const LATE_VERIFY_DEADLINE: Duration = Duration::from_secs(60);
 #[cfg(windows)]
 const LATE_FAILURE_LIMIT: u32 = 10;
-// A root that exited on its own leaves its console host for a moment: the job
-// is given this long to empty before what remains is taken for survivors.
-#[cfg(windows)]
-const EXIT_SETTLE: Duration = Duration::from_millis(500);
 // Those survivors are kept in their job (breakaway still refused) and watched
 // at LATE_EMPTY_POLL for at most KEPT_WATCH: a targeted cancel kills them
 // through the job, an emptied job is reported, and at the deadline they are
@@ -134,7 +140,7 @@ fn now_ms() -> u64 {
 /// the process table's creation dates so those older processes are not taken
 /// for this child's descendants.
 #[cfg(windows)]
-fn creation_filetime(child: &Child) -> Option<u64> {
+fn creation_filetime(child: &ChildProcess) -> Option<u64> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::GetProcessTimes;
     let zero = FILETIME {
@@ -159,6 +165,90 @@ fn creation_filetime(child: &Child) -> Option<u64> {
 /// The child command a spawn request describes: stdio wiring (capture files
 /// when both opened, pipes otherwise), cwd, a replaced environment, and the
 /// platform flags that keep the child windowless / in its own process group.
+#[cfg(windows)]
+fn start_child(
+    req: &SpawnRequest,
+    capture_files: Option<(File, File)>,
+    control: &ProcessControl,
+) -> std::io::Result<StartedChild> {
+    use std::os::windows::io::AsHandle;
+    let stdin = if req.stdin_pipe {
+        Some(std::io::pipe()?)
+    } else {
+        None
+    };
+    let (stdout, stderr) = match capture_files {
+        Some(_) => (None, None),
+        None => (Some(std::io::pipe()?), Some(std::io::pipe()?)),
+    };
+    let env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>> = req
+        .env
+        .as_ref()
+        .map(|env| env.iter().map(|(k, v)| (k.into(), v.into())).collect());
+    let mut command_line = winspawn::quote_windows_arg(&req.program);
+    for arg in &req.args {
+        command_line.push(' ');
+        command_line.push_str(&winspawn::quote_windows_arg(arg));
+    }
+    let cwd = req
+        .cwd
+        .as_deref()
+        .filter(|cwd| !cwd.is_empty())
+        .map(std::path::Path::new);
+    let process = winspawn::spawn(
+        control.handle,
+        &winspawn::Spawn {
+            program: &req.program,
+            command_line: &command_line,
+            cwd,
+            env: env.as_deref(),
+            stdio: winspawn::Stdio::Handles {
+                stdin: stdin.as_ref().map(|(read, _)| read.as_handle()),
+                stdout: capture_files
+                    .as_ref()
+                    .map(|(out_file, _)| out_file.as_handle())
+                    .or_else(|| stdout.as_ref().map(|(_, write)| write.as_handle())),
+                stderr: capture_files
+                    .as_ref()
+                    .map(|(_, err_file)| err_file.as_handle())
+                    .or_else(|| stderr.as_ref().map(|(_, write)| write.as_handle())),
+            },
+        },
+    )?;
+    // The ends the child owns close here (the pipe tuples drop their write halves), so each
+    // reader ends with the child's tree.
+    Ok(StartedChild {
+        process,
+        stdin: stdin.map(|(_, write)| Box::new(write) as Box<dyn Write + Send>),
+        stdout: stdout.map(|(read, _)| Box::new(read) as Box<dyn Read + Send>),
+        stderr: stderr.map(|(read, _)| Box::new(read) as Box<dyn Read + Send>),
+    })
+}
+
+#[cfg(unix)]
+fn start_child(
+    req: &SpawnRequest,
+    capture_files: Option<(File, File)>,
+) -> std::io::Result<StartedChild> {
+    let mut child = build_command(req, capture_files).spawn()?;
+    Ok(StartedChild {
+        stdin: child
+            .stdin
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Write + Send>),
+        stdout: child
+            .stdout
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+        stderr: child
+            .stderr
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+        process: child,
+    })
+}
+
+#[cfg(unix)]
 fn build_command(req: &SpawnRequest, capture_files: Option<(File, File)>) -> Command {
     let mut cmd = Command::new(&req.program);
     cmd.args(&req.args).stdin(if req.stdin_pipe {
@@ -182,9 +272,6 @@ fn build_command(req: &SpawnRequest, capture_files: Option<(File, File)>) -> Com
         cmd.env_clear();
         cmd.envs(env);
     }
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
-    #[cfg(unix)]
     cmd.process_group(0);
     cmd
 }
@@ -427,8 +514,9 @@ fn pause(id: u64, point: &'static str) {
 fn pause(_id: u64, _point: &'static str) {}
 
 /// After the root's exit. A killed contained job must empty (verify_kill).
-/// One whose root exited on its own is given EXIT_SETTLE to empty and stays
-/// Open, so killable, meanwhile: a cancel, deadline or the shutdown reap that
+/// One whose root exited on its own first lets the console hosts it left
+/// signal their exit (console_hosts::settle) and stays Open, so killable,
+/// meanwhile: a cancel, deadline or the shutdown reap that
 /// lands then makes it a killed job (Killing), verified like any other.
 /// Otherwise, decided in one state-lock hold: EMPTY; or its survivors, which a
 /// natural exit never kills, are kept in the job (PRESERVED, watch_kept),
@@ -442,7 +530,7 @@ fn settle_tree(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>, exited_on_
     }
     let id = managed.request_id;
     if exited_on_its_own {
-        control.await_empty(EXIT_SETTLE, || rekill(managed));
+        console_hosts::settle(control.handle, console_hosts::SETTLE_DEADLINE, || {});
         pause(id, "settle:check");
         let mut state = managed.lock_state();
         if state.tree == Tree::Open {
@@ -650,7 +738,6 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     }
     let capture_files = open_capture_files(req.stdout_path.as_deref(), req.stderr_path.as_deref());
     let file_capture = capture_files.is_some();
-    let mut cmd = build_command(&req, capture_files);
 
     // Windows only; a POSIX command's process group is its only boundary.
     let contained = cfg!(windows) && req.contain;
@@ -663,22 +750,23 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         }
     };
 
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
+    #[cfg(windows)]
+    let started = start_child(&req, capture_files, &control);
+    #[cfg(unix)]
+    let started = start_child(&req, capture_files);
+    let StartedChild {
+        process: mut child,
+        stdin: stdin_handle,
+        stdout: child_stdout,
+        stderr: child_stderr,
+    } = match started {
+        Ok(started) => started,
         Err(error) => {
             spawn_io_error(id, error);
             return;
         }
     };
     let pid = child.id();
-    let stdin_handle = child.stdin.take();
-
-    #[cfg(windows)]
-    if let Err(error) = control.assign_and_resume(&child) {
-        let _ = child.kill();
-        spawn_io_error(id, error);
-        return;
-    }
     #[cfg(unix)]
     let control = ProcessControl { pid };
 
@@ -749,7 +837,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let stdout_pump = start_pump(
         id,
         "stdout",
-        child.stdout.take(),
+        child_stdout,
         &managed,
         stream,
         req.raw_output,
@@ -757,7 +845,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let stderr_pump = start_pump(
         id,
         "stderr",
-        child.stderr.take(),
+        child_stderr,
         &managed,
         stream,
         req.raw_output,
@@ -1289,11 +1377,11 @@ mod tests {
         use super::*;
 
         /// Killed (and reaped) when dropped: a process this test started.
-        struct Member(Child);
+        struct Member(winspawn::WinProcess);
 
         impl Drop for Member {
             fn drop(&mut self) {
-                let _ = self.0.kill();
+                let _ = self.0.terminate(1);
                 let _ = self.0.wait();
             }
         }
@@ -1313,15 +1401,22 @@ mod tests {
             .unwrap();
             let control = ProcessControl::create(true).unwrap();
             let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
-            let member = Command::new(format!("{root}\\System32\\PING.EXE"))
-                .args(["-n", pings, "127.0.0.1"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED)
-                .spawn()
-                .unwrap();
-            control.assign_and_resume(&member).unwrap();
+            let program = format!("{root}\\System32\\PING.EXE");
+            let member = winspawn::spawn(
+                control.handle,
+                &winspawn::Spawn {
+                    program: &program,
+                    command_line: &format!("{program} -n {pings} 127.0.0.1"),
+                    cwd: None,
+                    env: None,
+                    stdio: winspawn::Stdio::Handles {
+                        stdin: None,
+                        stdout: None,
+                        stderr: None,
+                    },
+                },
+            )
+            .unwrap();
             let managed = Arc::new(ManagedProcess {
                 request_id: id,
                 pid: member.id(),

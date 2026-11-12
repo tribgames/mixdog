@@ -58,6 +58,12 @@ jobs:
       - name: Unit tests
         run: "cargo test -p mixdog-app-server-daemon --lib -- ownership:: barrier:: verdict:: discovery::"
 
+      # A text search's read of a FIFO, a socket or a terminal waits with poll beside its thread's interrupt, which its
+      # cancel fires (no signal); reads that ignore the cancel are given up, a volume's within a stated bound, charged to
+      # the mount they read on (mixdog-workspace localfs).
+      - name: Search read cancel
+        run: "cargo test -p mixdog-workspace --lib -- localfs::unix_io:: localfs::tests::a_producer_in_a_blocked_pipe_read localfs::tests::ten_thousand_reads localfs::tests::ten_thousand_searches_queued localfs::tests::nine_running_searches localfs::tests::a_search_past_the_queue_capacity"
+
       - name: Tag tree
         run: |
           tree="$RUNNER_TEMP/tag145"

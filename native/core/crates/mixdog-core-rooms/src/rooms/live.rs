@@ -19,9 +19,12 @@ use rand::Rng;
 use serde_json::{Map, Value, json};
 
 use super::RoomError;
-use super::exchange::{Action, Decision};
+use super::calls::{CallRunner, Request, RoomCalls};
+use super::config::{AskError, MemberName, parse_room_ask};
+use super::exchange::Decision;
+use super::user_send::{UserMessage, prompt_text, room_upload, submission_row_id};
 use super::exchange_run::{RoomExchangeHost, RoomHosts, SupervisorStep};
-use super::maintainer::{Maintained, Maintainer};
+use super::maintainer::Maintainer;
 use super::member_turn::{MemberHost, PersistFuture, SubmitOptions};
 use super::records::{RoomDoc, RoomRecord as Stored, RoomStore, Rooms, Running, TurnFields};
 use super::row_message::{normalize_room_row, room_row_message};
@@ -29,7 +32,6 @@ use super::runner::RoomRowsSource;
 use super::service::{new_room_id, route_params};
 use super::sessions::{AgentCatalog, SessionOps};
 use super::turn_post::approval_id;
-use super::supervisor::{SupervisorInput, parse_room_decision, supervisor_prompt};
 use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_prompt::RoomPrompt;
 
@@ -127,6 +129,8 @@ pub struct RoomPorts {
     pub maintainer: Arc<dyn Maintainer>,
     pub preview: Preview,
     pub log: LogLine,
+    /// `now()` of the room host: the wall clock in ms (`Date.now()`).
+    pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
 /// The save of a running room's own fields.
@@ -312,6 +316,71 @@ impl LiveRooms {
         View { shared: self.shared.clone(), live, room_id: room_id.to_owned() }.republish();
     }
 
+    /// A user's message into its room (`agent-room-messages.ts:62-112` `acceptSend`), in Node's order: the intake latch, the
+    /// room, a submission accepted before (acknowledged, nothing posted: false), the addressees (`/ask`) against every member, a
+    /// switched-off one refused, the files going up with the row, the row posted (the log's intake stores the files or
+    /// refuses them), the room's last line, the route (unless stopped meanwhile), the room saved with the submission id.
+    pub async fn send<S: RoomStore + 'static, R: CallRunner + 'static>(&self, rooms: &Rooms<S>, calls: &Arc<RoomCalls<R>>, message: &UserMessage) -> Result<bool, RoomError> {
+        let room_id = room_id_of_session(&message.session_id).unwrap_or_default();
+        let intake = calls.intake(&room_id);
+        // A plain `Error` in Node (`agent-room-records.ts:102-105`): no code on the wire.
+        let gone = || RoomError::Refused("This room no longer exists.".into());
+        let live = lock(&self.shared.live).get(&room_id).cloned().ok_or_else(gone)?;
+        let stored = rooms.get(&room_id).await?;
+        if !message.submission_id.is_empty() && stored.submissions.contains(&message.submission_id) {
+            return Ok(false);
+        }
+        let view = View { shared: self.shared.clone(), live: live.clone(), room_id: room_id.clone() };
+        let labels = RoomExchangeHost::labels(&view).await.map_err(RoomError::Port)?;
+        let members: Vec<MemberName> =
+            view.members().iter().filter_map(|id| labels.get(id)).map(|label| MemberName { id: label.id.clone(), name: label.name.clone() }).collect();
+        let parsed = parse_room_ask(&prompt_text(&message.prompt), &members);
+        if parsed.error == Some(AskError::Member) {
+            return Err(RoomError::Refused("No member of this room has that name.".into()));
+        }
+        let name_of = |id: &String| labels.get(id).map_or_else(|| id.clone(), |label| label.name.clone());
+        if let Some(off) = parsed.to.iter().find(|id| labels.get(*id).is_some_and(|label| label.disabled)) {
+            return Err(RoomError::SwitchedOff(name_of(off)));
+        }
+        let upload = room_upload(message);
+        if parsed.text.is_empty() && upload.is_none() {
+            return Err(RoomError::Refused("Write a message to send.".into()));
+        }
+        let id = submission_row_id(&message.submission_id).map_or_else(|| format!("user_{}", view.new_id()), str::to_owned);
+        let at = view.now();
+        let mut row = Map::new();
+        row.insert("id".into(), json!(id));
+        row.insert("kind".into(), json!("user"));
+        row.insert("at".into(), json!(at));
+        row.insert("text".into(), json!(parsed.text));
+        if !parsed.to.is_empty() {
+            row.insert("to".into(), json!(parsed.to));
+            row.insert("toName".into(), json!(parsed.to.iter().map(name_of).collect::<Vec<_>>()));
+        }
+        if let Some(upload) = upload {
+            row.insert("upload".into(), upload);
+        }
+        view.post(vec![Value::Object(row)]).await.map_err(RoomError::Refused)?;
+        {
+            let mut record = lock(&live.record);
+            record.last_speaker = Some("user".into());
+            record.last_at = Some(at);
+        }
+        // Recorded once the row is in the log, before the route and the save (`agent-room-messages.ts:103`): the id is held
+        // in the live records even when its save fails, so a retry posts nothing.
+        let held = if message.submission_id.is_empty() { Ok(()) } else { rooms.accept_submission(&room_id, &message.submission_id).await };
+        // Taken up as soon as the row is in the log, before the save yields: a member's older answer cannot land meanwhile.
+        if !intake.stopped() {
+            let everyone = parsed.to.is_empty();
+            calls.route(&room_id, Request { to: parsed.to, waiting: true, everyone, only: false, calls: Vec::new() });
+        }
+        drop(intake);
+        let saved = view.persist().await.map_err(RoomError::Port);
+        held?;
+        saved?;
+        Ok(true)
+    }
+
     /// Hands the scheduler's relay queue to the rooms (`failRelays`). Until then no room is hosted.
     pub fn bind_relays(&self, fail: FailRelays) {
         let _ = self.shared.relays.set(fail);
@@ -331,7 +400,8 @@ impl LiveRooms {
     }
 
     /// `recover` after `ready` (`agent-rooms.ts:470-479`): an exchange a restart cut off is marked interrupted, its members are
-    /// stopped, and nothing resumes on its own; the catalog is republished. The rooms to republish.
+    /// stopped, and nothing resumes on its own. The rooms cut off; the caller republishes the catalog (`:478`), awaited, so its
+    /// pass reads the rooms before a mutation that awaited the same load writes (`ready::recover`).
     pub async fn recover<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
         let cut = rooms.recover().await?;
         for room in &cut {
@@ -348,7 +418,6 @@ impl LiveRooms {
                 view.log(&format!("room {} interrupted notice: {error}", room.id));
             }
         }
-        self.shared.ports.daemon.republish_catalog();
         Ok(cut.into_iter().map(|room| room.id).collect())
     }
 }
@@ -472,7 +541,7 @@ impl RoomTurnHost for View {
     }
 
     fn now(&self) -> i64 {
-        chrono::Utc::now().timestamp_millis()
+        (self.shared.ports.now)()
     }
 
     fn new_id(&self) -> String {
@@ -632,12 +701,7 @@ impl RoomExchangeHost for View {
 
     /// `decideRoomTurn`: one step on the Maintainer model. `Ok(None)`: no usable answer.
     async fn decide_turn(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        let prompt = supervisor_prompt(&SupervisorInput { room_name: &step.room_name, members: &step.members, rows: &step.rows, decide: &step.decide });
-        Ok(match self.shared.ports.maintainer.ask(&prompt.system, &prompt.user).await {
-            Maintained::Unmanaged => Some(Decision { action: Action::Unmanaged, scene: None }),
-            Maintained::Failed => None,
-            Maintained::Text(reply) => parse_room_decision(&reply, &step.members),
-        })
+        self.shared.ports.maintainer.decide(step).await
     }
 
     fn republish_catalog(&self) {

@@ -1,0 +1,262 @@
+{
+  "name": "search-saturated",
+  "standin": true,
+  "files": {
+    "t/a.ts": "needle one\nother one\n",
+    "t/b.md": "needle two\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "mode": "files"
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "t",
+          "u"
+        ],
+        "context": 0
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "# grep t\nError: native search queue saturated\n\n# grep u\nError: native search queue saturated",
+      "isError": false,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "# grep pattern:\"needle\"\nError: native search queue saturated\n\n# grep pattern:\"other\"\nError: native search queue saturated",
+      "isError": false,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "t"
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: rg failed for t: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": [
+          "*.ts",
+          "*.md"
+        ]
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: rg failed for .: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "a",
+        "path": "t"
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "a"
+      },
+      "server": {
+        "saturated": true
+      },
+      "text": "Error: native search queue saturated",
+      "isError": true,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "saturated": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "context": 0
+      },
+      "server": {},
+      "text": "t/a.ts\n  1: needle one\nt/b.md\n  1: needle two",
+      "isError": false,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "answered": 0,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "t"
+      },
+      "server": {},
+      "text": "t/a.ts",
+      "isError": false,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "answered": 0,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "a",
+        "path": "t"
+      },
+      "server": {},
+      "text": "a.ts",
+      "isError": false,
+      "compare": [],
+      "searchServer": {
+        "requests": 0,
+        "answered": 0,
+        "cancelled": 0,
+        "killed": false
+      }
+    }
+  ]
+}

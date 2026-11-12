@@ -103,8 +103,10 @@ export type TranscriptHistoryRead = (
 ) => Promise<DesktopTranscriptHistoryPage>;
 
 /** What one paging step did: 'unsupported' — the host cannot read history
- *  by position, so the caller grows its window instead. */
-export type TranscriptPagingOutcome = 'paged' | 'idle' | 'unsupported';
+ *  by position, so the caller grows its window instead; 'moved' — the rows
+ *  changed under the page read, which was dropped: the caller reads the
+ *  window again by growing it. */
+export type TranscriptPagingOutcome = 'paged' | 'idle' | 'unsupported' | 'moved';
 
 /**
  * One session's history window: null while the reader is on the live tail.
@@ -121,6 +123,9 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
   private disposed = false;
   /** Bumped by toLive: a page read under an older one never applies. */
   private generation = 0;
+  /** The rows held when the page read that 'moved' was asked: the window to read again is that many rows plus a page, not one
+   *  grown from the rows held after the movement. */
+  movedFrom = 0;
 
   constructor(
     readonly sessionId: string,
@@ -193,13 +198,19 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
     const base = this.window ?? { items: live.items, hasOlder: live.hasOlder, hasNewer: false };
     const row = base.items[0];
     const boundary = row?.id;
+    const newest = base.items.at(-1)?.id;
     if (!base.hasOlder || typeof boundary !== 'string' || !boundary) return 'idle';
     const page = await this.fetch(row, true);
     if (page === null || page === 'unsupported') return page ?? 'idle';
     if (page.reset) return this.toLive();
     const current = this.window ?? { items: this.live().items, hasOlder: true, hasNewer: false };
-    // The rows moved while the page was on its way: it no longer fits.
-    if (current.items[0]?.id !== boundary) return 'idle';
+    // The rows moved while the page was on its way (the held rows lost their first, or the session changed after the newest): the
+    // page no longer fits, and the window the request was made for is read again whole from the live tail, as Node's host answered it.
+    if (current.items[0]?.id !== boundary || current.items.at(-1)?.id !== newest) {
+      this.movedFrom = base.items.length;
+      this.toLive();
+      return 'moved';
+    }
     this.window = prependHistoryPage(current, this.remember(page), page.hasOlder);
     this.onChange();
     return 'paged';

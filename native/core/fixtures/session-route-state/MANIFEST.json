@@ -1,22 +1,24 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree>",
-  "entry": "Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file's inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).",
+  "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "entry": "Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file's inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction). Cases 27, 49, 74, 149 and 229 also carry `routeSets`: the client's `route/set` (createModelRouteApi setRoute with the options routes-write.mjs passes: switchEstablished, deferUntilNextTurn, keepMainModel true) over the real route-resolution.mjs refreshRouteEffort (the provider catalog's roster files written to the data dir), the real session store (saveSessionAsync / loadSession on a temp MIXDOG_DATA_DIR) and the config save as the lifecycle writes it (createConfigPatch applied to the file document, as record-route-service.mjs); each records the call's inputs, the whole reply as JSON, the session record before and after and the config document after.",
   "exclusions": [
-    "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it",
-    "cases 306 and 372, the heir's stored header: compared whole against the recorded target (without `messages`), by key name, except four keys the test adds to the recorded target because Node's header has them elsewhere or never: `id` (Node's target holds it beside the header), `selectedContextWindow` (the core's name for the picked window Node's route carried, seeded from the case's heir window), and `offloadSources: [\"source\"]` with `offloadSourcesRules: 2` (the core's reference set of the sessions whose offloaded tool results the heir may read, which every session the core creates holds from its first record and Node's session does not have: offload_sources.rs). The test a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save reads a header written as Node wrote it (the recorded 372 failing target, no reference set) and shows a save leaves it without one"
+    "routeSets session record: the top-level fields of the stored session are compared in key order sorted on both sides (Node's loader assembles the record as header fields, messages, then tools; the core's thread keeps the order the fields were written); every value, every nested order and the set of fields are compared whole",
+    "routeSets reply: the top-level fields are compared in key order sorted on both sides (Node's route object keeps the position of a key first set to undefined, such as contextPercent, which JSON key order of the core's reply does not reproduce; no client reads key order); every value, nested order and the set of fields are compared whole. The reply is the JSON the client receives (a property Node leaves undefined is absent)",
+    "routeSets config document: the file's `agent` section, compared whole in recorded order",
+    "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1932480,
+      "bytes": 1956572,
       "path": "recording.json",
-      "sha256": "8445d521b623d514bbd4ed3bd11b825787ea65e0731ec13af444e7bd0c43333a"
+      "sha256": "c47ea21aca537c3baef8987d3bbd926e485f9b7813730438c9ec08896f3a05d7"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -28,32 +30,67 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "da1f370e4e41df1b21edd733ec5db174423ef54a4cf7712d5b97922844c2e7b3"
+      "sha256": "567e31cf4d690d0623a96e871e1190bf780ea698f93c57e6ab7534dfd3a6dc31"
     }
   ],
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9141,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+        "src/runtime/agent/orchestrator/session/store.mjs",
+        "src/runtime/agent/orchestrator/session/store/listing.mjs",
+        "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+        "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+        "src/session-runtime/lifecycle/inheritance.mjs"
+      ],
+      "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+    },
+    "patches": [
+      {
+        "file": "node-fix-prune-after-save.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+          "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+          "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+          "src/runtime/agent/orchestrator/session/store.mjs",
+          "src/runtime/agent/orchestrator/session/store/listing.mjs",
+          "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+          "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+          "src/session-runtime/lifecycle/inheritance.mjs"
+        ],
+        "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 10
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "f3e563ff218101a46a85c00908df08efb9990810a264aa79aadb5428a2385eeb",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-route-state.mjs",
-  "recorderSha256": "f4ef10d33ff2b4f145af20b1268d678c15f7b1c93a11e399b7c21fbc3e780add",
-  "replay": "mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_effort_state, resolve_route_context_state, selection_fast_capable, save_model_settings, resolve_route, window_meta_of) for cases 10, 27, 49, 74, 104, 149, 229, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir's conversation. Not compared: the compactor calls Node's mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir's conversation and the refusal text are their observable consequence.",
+  "recorderSha256": "6002016d05883cf4ce40565d6f4071e018a28ec3b6841d624c77ee2756503ab7",
+  "replay": "mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_context_state, save_model_settings, window_meta_of) for cases 10 and 104 directly, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 27, 49, 74, 149 and 229 are played through `route/set` (RouteSetService over the real RouteService, SessionRoutes, SessionRouteAdapter, the real thread store created from the recorded session record and the real config file): the whole reply, the whole stored session record and the whole stored config document are compared with `routeSets`. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir's conversation. Not compared: the compactor calls Node's mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir's conversation and the refusal text are their observable consequence.",
   "set": "session-route-state",
   "testFile": "src/session-runtime/session-lifecycle.test.mjs",
-  "totalBytes": 1932480,
+  "totalBytes": 1956572,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

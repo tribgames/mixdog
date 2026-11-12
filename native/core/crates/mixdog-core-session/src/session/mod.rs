@@ -180,6 +180,16 @@ mod sensitive_record_tests;
 #[cfg(test)]
 mod sensitive_carry_tests;
 #[cfg(test)]
+mod message_sanitize_replay;
+#[cfg(test)]
+mod address_replay;
+#[cfg(test)]
+mod switch_replay;
+#[cfg(test)]
+mod lifecycle_replay;
+#[cfg(test)]
+mod sequence_replay;
+#[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
 mod goal_snapshot_replay_tests;
@@ -201,6 +211,8 @@ mod assembly_tests;
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
+#[cfg(test)]
+mod session_reentry_tests;
 #[cfg(test)]
 mod new_task_tests;
 #[cfg(test)]
@@ -372,6 +384,8 @@ pub struct SessionDeps {
     pub live_workspace: Arc<dyn worktree::LiveWorkspace>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
+    /// The session's shell-job strip at load (`shell_jobs::ShellStrips`).
+    pub shell_strips: Arc<dyn shell_jobs::ShellStrips>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,

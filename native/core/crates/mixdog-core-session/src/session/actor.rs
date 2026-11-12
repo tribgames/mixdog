@@ -222,6 +222,9 @@ pub(crate) enum Inbox {
         /// The thread was loaded when the job finished (Node's owner is the runtime's live
         /// session, `notification-bus.mjs:41`); one opened for the completion is never woken.
         live: bool,
+        /// Answered once the queued entry is durable (Node's `settlePendingMessageWrites` after
+        /// `enqueuePendingMessage`), or once the same entry, already queued, is.
+        durable: Option<oneshot::Sender<Result<(), RunError>>>,
     },
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
@@ -507,10 +510,18 @@ const SUBMISSION_MEMORY: usize = 256;
 struct Submissions {
     order: std::collections::VecDeque<String>,
     answers: std::collections::HashMap<String, Value>,
+    /// The submission whose start is reading its input row's facts (its answer is not known yet), and the retried sends of it
+    /// that joined meanwhile: they hear the original's answer, as Node's memory took the id when the send was admitted.
+    starting: Option<(String, Vec<Waiter>)>,
 }
 
 impl Submissions {
     fn remember(&mut self, id: &str, answer: Value) {
+        if let Some((_, joined)) = self.starting.take_if(|(starting, _)| starting == id) {
+            for waiter in joined {
+                let _ = waiter.send(Ok(Reply::Value(answer.clone())));
+            }
+        }
         if self.answers.insert(id.to_owned(), answer).is_none() {
             self.order.push_back(id.to_owned());
         }
@@ -525,6 +536,22 @@ impl Submissions {
         if self.answers.remove(id).is_some() {
             self.order.retain(|kept| kept != id);
         }
+    }
+
+    /// A send of the starting submission: it waits for the original's answer. Gives the waiter back when none is starting.
+    fn join(&mut self, id: &str, waiter: Waiter) -> Option<Waiter> {
+        match &mut self.starting {
+            Some((starting, joined)) if starting == id => {
+                joined.push(waiter);
+                None
+            }
+            _ => Some(waiter),
+        }
+    }
+
+    /// The start never happened: the joined sends hear the drop, as the original's waiter does.
+    fn unstarted(&mut self) {
+        self.starting = None;
     }
 }
 
@@ -2259,7 +2286,7 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
+            Section::Runtime(_) | Section::ProgressHint(_) | Section::SpinnerQuiet(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
             Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
             Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
@@ -2344,6 +2371,7 @@ impl SessionActor {
                 self.settle_goal(settle);
             }
             Effect::AfterPublish(tx) => self.after_publish.push(tx),
+            Effect::Decided(_) => {}
         }
     }
 
@@ -2410,14 +2438,32 @@ impl SessionActor {
                 Effect::AfterPublish(tx) => {
                     let _ = tx.send(Err(error.clone()));
                 }
+                Effect::Decided(_) => {}
             }
         }
     }
 
-    /// A barrier failed: nothing after the acked state is applied (RL §6.1).
+    /// A barrier failed: nothing after the acked state is applied (RL §6.1). A conditional header patch behind the
+    /// record that failed was decided against a header that never landed: its caller hears `conflict` with the header
+    /// as it holds and computes it again, as Node's write accepted behind a failed one runs on what that one did.
     fn fail_all(&mut self, error: CoreError) {
-        for entry in self.outbox.fail_all() {
-            self.fail_entry(entry, &error);
+        for (index, entry) in self.outbox.fail_all().into_iter().enumerate() {
+            let decided = entry.effects.iter().find_map(|effect| match effect {
+                Effect::Decided(keys) => Some(keys.clone()),
+                _ => None,
+            });
+            match decided {
+                Some(keys) if index > 0 => {
+                    let current: serde_json::Map<String, Value> =
+                        keys.into_iter().map(|key| (key.clone(), self.acked.header.get(&key).cloned().unwrap_or(Value::Null))).collect();
+                    for effect in entry.effects {
+                        if let Effect::Reply { tx: Some(tx), .. } = effect {
+                            let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
+                        }
+                    }
+                }
+                _ => self.fail_entry(entry, &error),
+            }
         }
         self.generation += 1;
         self.projected = self.acked.clone();
@@ -2654,9 +2700,10 @@ impl SessionActor {
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::CwdApplied { changed } => self.cwd_applied(changed),
             Ctl::Unsubscribed => self.try_unload(),
-            Ctl::Closed => {
+            Ctl::Closed(taken) => {
                 self.tombstoned = true;
                 self.try_unload();
+                let _ = taken.send(());
             }
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
@@ -4193,7 +4240,8 @@ impl SessionActor {
                 text,
                 origin,
                 live,
-            } => self.task_notification(&surface, task_id, status, text, origin, live),
+                durable,
+            } => self.task_notification(&surface, task_id, status, text, origin, live, durable),
             Inbox::AgentActivity => self.agent_activity(),
             Inbox::SensitiveCarried => {
                 self.redact_prompts();
@@ -4410,6 +4458,13 @@ impl SessionActor {
                 let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
                 return Ok(());
             }
+            // A save issued for an ownership generation (`saveSessionAsync(session, { expectedGeneration })`): dropped
+            // when the header it would land on is past that generation (`_dropsAgainst`, `store.mjs:149-153`).
+            let expected = req.params.get("expectedGeneration").and_then(Value::as_f64);
+            if super::close::drops_against(&self.projected.header, expected) {
+                let _ = tx.send(Ok(Reply::Value(json!({ "dropped": true }))));
+                return Ok(());
+            }
         }
         // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
         // `count: 0` and the composer's own text, not an error.
@@ -4428,6 +4483,18 @@ impl SessionActor {
             let _ = tx.send(Ok(Reply::Value(answer.clone())));
             return Ok(());
         }
+        let tx = if req.method.as_str() == "turn/start"
+            && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
+            && display_text(&params.input) != ""
+            && let Some(id) = submission_id(&params.input)
+        {
+            match self.submissions.join(id, tx) {
+                Some(tx) => tx,
+                None => return Ok(()),
+            }
+        } else {
+            tx
+        };
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -4446,6 +4513,17 @@ impl SessionActor {
                 // post, an import) are kept for the next write when theirs fails, as Node's recorder keeps them.
                 self.outbox.begin_unit(req.method.as_str() == "thread/roomRows/commit");
                 self.apply_plan(plan, req.op.clone(), tx);
+                if req.method.as_str() == "thread/header/patch" {
+                    let mut keys: Vec<String> = req.params.get("expect").and_then(Value::as_object).map(|expect| expect.keys().cloned().collect()).unwrap_or_default();
+                    if req.params.get("expectedGeneration").and_then(Value::as_f64).is_some() {
+                        keys.extend(["generation".to_owned(), "closed".to_owned()]);
+                    }
+                    if !keys.is_empty()
+                        && let Some(entry) = self.outbox.last_mut()
+                    {
+                        entry.effects.push(Effect::Decided(keys));
+                    }
+                }
                 self.outbox.end_unit();
                 Ok(())
             }
@@ -4527,6 +4605,9 @@ impl SessionActor {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
+            if let Some(submission) = submission_id(&params.input) {
+                self.submissions.starting = Some((submission.to_owned(), Vec::new()));
+            }
             return Ok(Plan {
                 kind: PlanKind::StartRun(params.input, op_ref),
                 value,
@@ -5303,21 +5384,47 @@ impl SessionActor {
     /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
-    fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, origin: Option<&'static str>, live: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn task_notification(
+        &mut self,
+        surface: &str,
+        task_id: String,
+        status: String,
+        text: String,
+        origin: Option<&'static str>,
+        live: bool,
+        durable: Option<oneshot::Sender<Result<(), RunError>>>,
+    ) {
+        // A closing or closed owner never queues a completion (`notification-bus.mjs` `notifySessionCompletion`: `if
+        // (!open) return handled`): the close cancels the session's shells, and their completions must not enqueue
+        // model work for it.
+        if origin.is_none() && (self.deleting || self.tombstoned || self.cell.closed.load(SeqCst) || self.acked.header.get("closed") == Some(&Value::Bool(true))) {
+            if let Some(durable) = durable {
+                let _ = durable.send(Err(RunError::NotApplied));
+            }
+            return;
+        }
         let now = self.deps.clock.now_ms();
         let built = match origin {
             None => completions::entry(surface, &task_id, &status, &text, now),
             Some(_) => completions::channel_entry(&text, now).map(|entry| (new_id(), entry)),
         };
         let Some((qid, mut entry)) = built else {
+            if let Some(durable) = durable {
+                let _ = durable.send(Err(RunError::NotApplied));
+            }
             return;
         };
+        let acks = |durable: Option<oneshot::Sender<Result<(), RunError>>>| durable.map(Effect::ItemAck).into_iter().collect::<Vec<_>>();
         // Queued by the listener that showed it (`execution-delivery.mjs` `suppressDisplay`).
         if self.listened.remove(&task_id) {
             entry["suppressDisplay"] = Value::Bool(true);
         }
-        // The same completion queued twice is one entry (`pendingIdStillQueued`).
+        // The same completion queued twice is one entry (`pendingIdStillQueued`); its waiter hears when that one is durable.
         if self.projected.queue.iter().any(|q| q.qid == qid) {
+            if durable.is_some() {
+                self.outbox.push(None, Change::Barrier, Vec::new(), acks(durable));
+            }
             return;
         }
         let record = Record::Queue(QueueRecord {
@@ -5327,7 +5434,7 @@ impl SessionActor {
             op: None,
             entry: Some(Slot::Inline(entry)),
         });
-        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.accept_record(record, Class::Normal, Display::None, Vec::new(), acks(durable));
         self.deps
             .wakes
             .interrupt(&self.id, WakeReason::Notification, Some(task_id).filter(|id| !id.is_empty()));
@@ -5448,8 +5555,9 @@ impl SessionActor {
         });
     }
 
-    /// A turn that does not start: its waiter hears why (never a dropped reply).
+    /// A turn that does not start: its waiter hears why (never a dropped reply), and the sends that joined it hear the drop.
     fn refuse_start(&mut self, reply: Option<Effect>, error: &CoreError) {
+        self.submissions.unstarted();
         if let Some(Effect::Reply { op, tx, .. }) = reply {
             if let Some(op) = &op {
                 self.ops.failed(op, error);
