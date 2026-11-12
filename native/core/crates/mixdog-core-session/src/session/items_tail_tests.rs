@@ -27,6 +27,8 @@ use super::SessionLanes;
 use super::ThreadStore;
 use super::Transcript;
 use super::reads::History;
+use super::reads::Before;
+use super::reads::history_before;
 use super::reads::history_tail;
 use super::reads::items_window;
 use super::reads::list_from_tail;
@@ -211,14 +213,23 @@ async fn whole(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, 
 async fn tailed(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, params: &Value) -> (Result<Reply, CoreError>, usize) {
     let transcript: Arc<dyn Transcript> = Arc::new(RecordTranscript::new());
     let widest = std::cell::Cell::new(0);
-    let got = list_from_tail(id, &serde_json::from_value(params.clone()).expect("params"), |n| {
-        widest.set(widest.get().max(n));
-        let (store, transcript, id) = (store.clone(), transcript.clone(), id.clone());
-        async move {
-            let (History { rev, rows }, complete) = history_tail(&store, &transcript, lanes(tokens), &id, n).await?;
-            Ok((rev, rows, complete))
-        }
-    })
+    let got = list_from_tail(
+        id,
+        &serde_json::from_value(params.clone()).expect("params"),
+        |n| {
+            widest.set(widest.get().max(n));
+            let (store, transcript, id) = (store.clone(), transcript.clone(), id.clone());
+            async move {
+                let (History { rev, rows }, complete) = history_tail(&store, &transcript, lanes(tokens), &id, n).await?;
+                Ok((rev, rows, complete))
+            }
+        },
+        |anchor, n| -> futures::future::BoxFuture<'static, Result<Option<Before>, CoreError>> {
+            let (store, transcript, id, anchor) = (store.clone(), transcript.clone(), id.clone(), anchor.to_owned());
+            Box::pin(async move { history_before(&store, &transcript, lanes(tokens), &id, anchor, n).await })
+
+        },
+    )
     .await;
     (got, widest.get())
 }
@@ -319,4 +330,70 @@ async fn a_page_from_the_newest_rows_equals_the_page_of_the_whole_history() {
     drop(live);
     completeness(&stores, tokens).await;
     compare("stored", &stores, tokens).await;
+}
+
+/// [`create`] with the rows committed 100 at a time, as a running session writes them, so the log carries its checkpoints.
+async fn create_long(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, total: usize) -> Log {
+    let (threads, thread) = (threads.clone(), ThreadId::from(thread));
+    let session = commit(json!({"k":"session","v":2,"id":thread.as_str(),"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
+    LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+        let (mut log, _) = threads.create_log(lane, &thread, &session).expect("created");
+        for first in (0..total).step_by(100) {
+            let batch: Vec<CommitRecord> = (first..(first + 100).min(total)).map(long_row).collect();
+            log.commit(lane, &batch).expect("appended");
+        }
+        Arc::new(Mutex::new(log))
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+}
+
+/// A row of a long session: about 300 bytes of text; every 25th row a user prompt, a new turn every 20 rows.
+fn long_row(i: usize) -> CommitRecord {
+    let turn = format!("t{}", i / 20);
+    if i % 25 == 0 {
+        return user(&format!("u{i}"), &format!("s{i}"), &turn);
+    }
+    let id = format!("a{i}");
+    row(&id, &turn, true, json!({ "kind": "assistant", "id": id, "text": format!("{i} {}", "lorem ipsum dolor sit amet ".repeat(11)) }))
+}
+
+/// Opening a long session (the newest page) and paging back through it (three older pages, each by the previous page's
+/// `nextCursor`) reads rows in proportion to the page, not to the session: the rows the store reads from its index and
+/// from the log are counted per call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn opening_and_paging_a_long_history_reads_rows_in_proportion_to_the_page() {
+    const LIMIT: usize = 50;
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let mut live = Vec::new();
+    let mut over = Vec::new();
+    for total in [1_000usize, 14_000] {
+        let name = format!("long{total}");
+        live.push(create_long(&threads, tokens, &name, total).await);
+        let id = ThreadId::from(name.as_str());
+        let mut cursor: Option<String> = None;
+        for call in 0..4 {
+            let mut shape = json!({ "threadId": id, "limit": LIMIT });
+            if let Some(cursor) = &cursor {
+                shape["cursor"] = json!(cursor);
+            }
+            let (got, _) = tailed(&store, tokens, &id, &shape).await;
+            let read = mixdog_store::read_count::take(&name);
+            let Reply::Value(page) = got.expect("a page") else { panic!("a value") };
+            assert_eq!(page["data"].as_array().map(Vec::len), Some(LIMIT), "{name} call {call}");
+            if read > (8 * LIMIT) as u64 {
+                over.push(format!("{name} call {call} read {read} rows for a page of {LIMIT}"));
+            }
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+        }
+    }
+    assert!(over.is_empty(), "{over:#?}");
 }
