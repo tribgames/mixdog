@@ -219,7 +219,7 @@ impl ApiUsageService {
             }
         }
         let stored = self.vault.get(OPENAI_USAGE_SESSION_KEY_ACCOUNT).await.ok().flatten().filter(|v| !v.is_empty());
-        crate::oauth::carried::keep(&crate::registry::keys::keychain_source(OPENAI_USAGE_SESSION_KEY_ACCOUNT), &stored.as_deref().into_iter().collect::<Vec<_>>());
+        crate::oauth::carried::keep(&crate::registry::keys::keychain_source(&self.vault.identity(), OPENAI_USAGE_SESSION_KEY_ACCOUNT), &stored.as_deref().into_iter().collect::<Vec<_>>());
         stored
     }
 
