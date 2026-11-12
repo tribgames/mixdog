@@ -16,6 +16,7 @@ pub use projection::project_litellm;
 pub use rates::Obj;
 pub use rates::RATE_KEYS;
 pub use projection::project_models_dev;
+pub use registry::ANTIGRAVITY_FALLBACK;
 pub use registry::models_dev_provider_id;
 pub use registry::seed_display_name;
 pub use registry::seed_roster;

@@ -359,7 +359,9 @@ impl Shared {
             self.reject_core(conn, &id, &error);
             return Inbound::Continue;
         }
-        let cap = self.config.limits.inflight.cap(spec.class);
+        // Node's model-proxy host runs every call it is sent and refuses by payload size alone (`MODEL_PROXY_BUSY`, which
+        // `ModelProxyService` answers): no count of calls in flight is a cap, so the class cap does not count them.
+        let cap = if spec.method == "modelProxy/run" { u32::MAX } else { self.config.limits.inflight.cap(spec.class) };
         let started = |request: &JsonRpcRequest| {
             let no_params = serde_json::Value::Null;
             self.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params))

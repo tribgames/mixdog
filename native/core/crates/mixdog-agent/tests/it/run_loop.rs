@@ -143,6 +143,8 @@ struct Scripted {
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
     /// The log each request is appended to as it arrives, where the sends of other senders (a summary route) are too.
     order: Option<Arc<SendLog>>,
+    /// Every `release_send` the loop made (what its guard lets go with no runtime).
+    released: Mutex<Vec<String>>,
 }
 
 /// One send as it was received: whether it is a summary request, and its messages as (role, text).
@@ -167,6 +169,7 @@ impl Scripted {
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
             order: None,
+            released: Mutex::new(Vec::new()),
         })
     }
 
@@ -214,6 +217,9 @@ impl ProviderAdapter for Scripted {
     }
     async fn settle_send(&self, group: &str, end: mixdog_core_api::domain::provider::SendEnd) {
         self.settled.lock().unwrap().push((group.to_owned(), end));
+    }
+    fn release_send(&self, group: &str) {
+        self.released.lock().unwrap().push(group.to_owned());
     }
 }
 
@@ -2316,6 +2322,7 @@ async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
         requests: Mutex::new(Vec::new()),
         settled: Mutex::new(Vec::new()),
         order: None,
+        released: Mutex::new(Vec::new()),
     });
     let breaks = Arc::new(CacheBreaks::default());
     h.failures = Some(breaks.clone());
@@ -2437,6 +2444,7 @@ async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
             order: None,
+            released: Mutex::new(Vec::new()),
         });
         let breaks = Arc::new(CacheBreaks::default());
         h.failures = Some(breaks.clone());
@@ -2512,6 +2520,7 @@ async fn real_turns_trace_and_refuse_the_breaks_node_does() {
                 requests: Mutex::new(Vec::new()),
                 settled: Mutex::new(Vec::new()),
                 order: None,
+                released: Mutex::new(Vec::new()),
             });
             let breaks = Arc::new(CacheBreaks::default());
             h.failures = Some(breaks.clone());
@@ -2777,6 +2786,7 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
                 requests: Mutex::new(Vec::new()),
                 settled: Mutex::new(Vec::new()),
                 order: Some(log.clone()),
+                released: Mutex::new(Vec::new()),
             });
             let breaks = Arc::new(CacheBreaks::default());
             h.failures = Some(breaks.clone());
@@ -2959,6 +2969,29 @@ async fn a_dropped_turn_settles_its_group_as_cancelled() {
     }
     let groups = h.provider.groups();
     assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Cancelled)]);
+}
+
+/// The turn's future is dropped where no Tokio runtime is entered: the group's hold on what other sends wait for is let go
+/// by the guard itself, which needs no runtime.
+#[test]
+fn a_turn_dropped_outside_a_runtime_lets_go_of_its_group() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let h = Harness::new(vec![turn(vec![text("a"), Step::Hang])]);
+    let mut run = Box::pin(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    runtime.block_on(async {
+        while h.provider.requests().is_empty() {
+            std::future::poll_fn(|cx| {
+                let _ = std::future::Future::poll(run.as_mut(), cx);
+                std::task::Poll::Ready(())
+            })
+            .await;
+            tokio::task::yield_now().await;
+        }
+    });
+    assert!(h.provider.released.lock().unwrap().is_empty(), "the send is still in flight");
+    drop(run);
+    let groups = h.provider.groups();
+    assert_eq!(*h.provider.released.lock().unwrap(), [groups[0].clone().unwrap()]);
 }
 
 #[tokio::test]

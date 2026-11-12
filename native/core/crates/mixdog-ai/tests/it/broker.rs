@@ -228,6 +228,7 @@ impl ModelStream for ScriptedStream {
 
 #[async_trait]
 impl ProviderAdapter for Scripted {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         self.inner.id()
     }

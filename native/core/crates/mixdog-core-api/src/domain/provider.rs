@@ -934,6 +934,26 @@ pub enum TransportFault {
     },
 }
 
+impl TransportFault {
+    /// The errno name Node gives the socket error of this fault (`error.code`): `ECONNRESET` for a reset,
+    /// and for a connect or I/O failure the name of its OS error: `ECONNREFUSED`, `ETIMEDOUT` or `EPIPE`.
+    /// The OS error is read through the platform's own mapping, so a Windows or a Unix number names the same code.
+    pub fn errno_name(&self) -> Option<&'static str> {
+        use std::io::ErrorKind as K;
+        match self {
+            Self::Reset => Some("ECONNRESET"),
+            Self::Connect { os_code: Some(code) } | Self::Io { os_code: Some(code) } => match std::io::Error::from_raw_os_error(*code).kind() {
+                K::ConnectionRefused => Some("ECONNREFUSED"),
+                K::TimedOut => Some("ETIMEDOUT"),
+                K::BrokenPipe => Some("EPIPE"),
+                K::ConnectionReset => Some("ECONNRESET"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
 /// Classified once at the adapter boundary; downstream reads fields only.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ProviderError {
@@ -1125,6 +1145,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// cancelled it. Called by the loop once per group, before any other send; a provider that
     /// accounts sends writes what the group held back. Nothing to do by default.
     async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+    /// The logical send `group` is over for good, however it ended (answer, error, cancel, the caller's future
+    /// dropped, a panic): let go what it holds that other sends wait for. Synchronous, so a drop outside any
+    /// runtime can call it. Required: a wrapper must forward it; a stateless adapter writes an explicit no-op.
+    fn release_send(&self, group: &str);
     /// The session was deleted (`__mixdogCloseProviderConnectionsForSession(id,
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
@@ -1143,6 +1167,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// `provider.nativeDocuments`: `Some(false)` means the provider takes no document block of any
     /// kind, so every document variant is lowered to text. Unset by default.
     fn native_documents(&self) -> Option<bool> {
+        None
+    }
+    /// `instance.constructor.inputExcludesCache` where the instance's class is not told by its registered name: a
+    /// custom provider on the anthropic protocol is an `AnthropicProvider` subclass (`custom-provider.mjs:162`) and
+    /// inherits `true`. `None` leaves the answer to the name (`accounted::input_excludes_cache`).
+    fn input_excludes_cache(&self) -> Option<bool> {
         None
     }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`

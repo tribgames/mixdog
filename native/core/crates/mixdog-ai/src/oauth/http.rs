@@ -81,11 +81,10 @@ pub fn network_cause(error: &ProviderError) -> String {
     if error.timed_out {
         return "timed out".to_owned();
     }
-    match error.transport {
+    match &error.transport {
         Some(TransportFault::Dns) => "ENOTFOUND".to_owned(),
-        Some(TransportFault::Reset) => "ECONNRESET".to_owned(),
-        Some(TransportFault::Connect { os_code: Some(111 | 10061) }) => "ECONNREFUSED".to_owned(),
-        _ => "network error".to_owned(),
+        Some(fault) => fault.errno_name().unwrap_or("network error").to_owned(),
+        None => "network error".to_owned(),
     }
 }
 

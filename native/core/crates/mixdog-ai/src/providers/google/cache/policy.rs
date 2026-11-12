@@ -52,7 +52,7 @@ fn parse_int(text: &str) -> f64 {
 
 /// `resolveTimeoutMs`: the first env name holding a positive number, clamped,
 /// else the fallback, clamped.
-fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
+pub(crate) fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
     for name in names {
         if let Some(raw) = get(name).filter(|r| !r.is_empty()) {
             let n = string_to_number(&raw);
@@ -66,7 +66,7 @@ fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fal
 
 /// `stall-policy.mjs`: the provider deadlines derive from the stall thresholds. The stall warning
 /// window in ms and `PROVIDER_MAX_BEFORE_WARN_MS`.
-fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
+pub(crate) fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
     let abort_s = get("STALL_TIMEOUT_S").map_or(f64::NAN, |v| parse_int(&v));
     let abort_s = if abort_s.is_finite() && abort_s > 0.0 { abort_s } else { 600.0 };
     let warn_s = if abort_s > 300.0 { 300.0 } else { (abort_s / 2.0).floor() };

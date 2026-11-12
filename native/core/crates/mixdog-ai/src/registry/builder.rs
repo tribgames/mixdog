@@ -3,9 +3,9 @@
 //! config entry, its credentials and the host's seams.
 //!
 //! Admission and account rotation wrap sends above the adapter, so each
-//! built adapter is the plain one. `mixdog-local` is not built here: its
-//! adapter is made per turn from the endpoint the managed runtime reports
-//! (`providers::local::adapter`).
+//! built adapter is the plain one. `mixdog-local` is registered over the host's
+//! managed runtime (`BuilderEnv::local`): its server, and so its endpoint, starts on a send
+//! (`providers::local::RegisteredAdapter`).
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -146,6 +146,9 @@ pub struct BuilderEnv {
     pub io: CredentialIo,
     /// `providerAvailable`: names a Developer option currently gates off.
     pub gated_off: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    /// The managed local runtime `mixdog-local` is registered over (`ensureLocalProviderServer`,
+    /// `installedLocalProviderModels`); a host without one cannot enable that provider.
+    pub local: Option<Arc<dyn crate::providers::local::LocalRuntime>>,
 }
 
 /// A built custom provider and its listing (see [`DefaultProviderBuilder::build_custom_parts`]).
@@ -1156,7 +1159,8 @@ impl DefaultProviderBuilder {
             let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> { handle.clone() });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
-                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
+                    // Node's custom class on the anthropic protocol is an `AnthropicProvider` subclass.
+                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false)).with_input_excludes_cache(protocol == Protocol::Anthropic);
                     Arc::new(match listing {
                         Some(listing) => engine.with_listing(listing),
                         None => engine,
@@ -1283,7 +1287,18 @@ impl DefaultProviderBuilder {
                 self.declare(name, built.clone());
                 Ok(built)
             }
-            "mixdog-local" => Err("mixdog-local is built per turn from the managed runtime's endpoint".into()),
+            // `registry.mjs`: `MixdogLocalProvider`, constructed with no endpoint; the server starts on a send.
+            "mixdog-local" => match &self.env.local {
+                Some(runtime) => {
+                    // The installed models are read once now, so `getCachedModelInfo` has its answer from the moment the
+                    // provider exists (Node reads the disk on every call); a failed read leaves it a miss until the next.
+                    let _ = runtime.installed().await;
+                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()));
+                    self.declare(name, built.clone());
+                    Ok(built)
+                }
+                None => Err("mixdog-local needs the managed local runtime, which this host does not have".into()),
+            },
             other => Err(format!("unknown enabled provider: {other}")),
         }
     }
@@ -1306,11 +1321,8 @@ impl ProviderBuilder for DefaultProviderBuilder {
     /// inherited; verified at `b6f10295a` under `src/runtime/agent/orchestrator/providers/`): `custom-*`
     /// (`custom-provider.mjs:109`), the compat family whose profile says so (`openai-compat.mjs:280`; `WireGatewayProvider`,
     /// `wire-gateway.mjs:166`, for deepseek and openrouter), `cursor-oauth` / `cursor-api` (`cursor.mjs:601`),
-    /// `devin-oauth` (`devin.mjs:316`). `mixdog-local` also has it at `b6f10295a` (`mixdog-local.mjs:91`, registered when
-    /// `providers['mixdog-local'].enabled`, `registry.mjs:199`, `config.mjs:144`) and is reachable through `lookupModelMeta`
-    /// there, but it is EXCLUDED here: the Rust registry never holds it (`build_unversioned` refuses it, the managed
-    /// runtime's endpoint exists only per turn), so the memo answers its unmarked fallback where Node answers the
-    /// installed model's row. `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
+    /// `devin-oauth` (`devin.mjs:316`), `mixdog-local` (`mixdog-local.mjs:91`: the installed model's row, which the managed
+    /// runtime keeps current for a synchronous read, `LocalRuntime::installed_now`). `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
     /// `antigravity-oauth`, `grok-oauth`, `mimo-oauth` and `command-code-oauth` define none.
     fn cached_model_info(&self, name: &str) -> Option<Arc<dyn CachedModelInfo>> {
         self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(name).cloned()

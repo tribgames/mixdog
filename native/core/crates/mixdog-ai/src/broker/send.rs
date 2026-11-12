@@ -4,6 +4,7 @@ use std::time::Duration;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::retry::RetryClass;
@@ -73,6 +74,34 @@ impl ModelBroker {
     /// state across attempts. The permit is held across retries, so a retry
     /// never re-queues.
     pub async fn send(
+        &self,
+        adapter: &dyn ProviderAdapter,
+        mut send: SendRequest,
+        sink: &mut dyn AttemptSink,
+        cancel: &CancellationToken,
+    ) -> Result<u32, SendError> {
+        if send.request.options.send_group.is_some() {
+            return self.run(adapter, send, sink, cancel).await;
+        }
+        // Node's proxy calls the provider's one send, which holds its queue slot and its measurement across the inner
+        // retries: the attempts of this send are one send group, and the guard ends it on every exit.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = format!("broker-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        let mut request = (*send.request).clone();
+        request.options.send_group = Some(id.clone());
+        send.request = Arc::new(request);
+        let mut group = Group { adapter, id, open: true };
+        let result = self.run(adapter, send, sink, cancel).await;
+        group.open = false;
+        match &result {
+            Ok(_) => adapter.release_send(&group.id),
+            Err(SendError::Cancelled) => adapter.settle_send(&group.id, SendEnd::Cancelled).await,
+            Err(_) => adapter.settle_send(&group.id, SendEnd::Surfaced).await,
+        }
+        result
+    }
+
+    async fn run(
         &self,
         adapter: &dyn ProviderAdapter,
         send: SendRequest,
@@ -206,6 +235,22 @@ impl ModelBroker {
                     return Err(Stop::Failed(fault));
                 }
             }
+        }
+    }
+}
+
+/// The broker's own send group while its future is alive: dropped open (the caller's future dropped, a panic), it lets
+/// go what the send holds that other sends wait for, which needs no runtime.
+struct Group<'a> {
+    adapter: &'a dyn ProviderAdapter,
+    id: String,
+    open: bool,
+}
+
+impl Drop for Group<'_> {
+    fn drop(&mut self) {
+        if self.open {
+            self.adapter.release_send(&self.id);
         }
     }
 }

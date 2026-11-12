@@ -3115,19 +3115,21 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(mixdog_core_domains::domains::ai_account::usage::UsageService::new(ledger_source.clone(), directory.clone(), usage_sources.clone(), account_store.clone(), dashboards.clone()))?;
     // modelProxy/run, modelProxy/cancel (and the `modelProxy/run/event` notifications): the PC end of the model proxy (model-proxy-1). They are in the method and notification tables at 51e73b496, so the
     // unclaimed check asks for them. Every input is an instance held above: the registry, the one broker, the one account store and OAuth usage, the config, the registry's builder, key store and env.
+    // The PC's provider config is also its provider lookup (`runtime.provider`): a server reaches only what this PC's config enables.
+    let proxy_config = Arc::new(mixdog_core::run_host::model_proxy_pc::PcProviderConfig::new(
+        { let config = config.clone(); Arc::new(move || config.agent().get("providers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default()) },
+        registry.clone(),
+        Arc::new(mixdog_core::run_host::model_proxy_pc::RegistryCredentials { builder: default_builder.clone(), keys: media_keys.clone(), env: process.env.clone() }),
+    ));
     let proxy_runner = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::ProxyRunner {
-        providers: registry.clone(),
+        providers: proxy_config.clone(),
         broker: broker.clone(),
         quota: Arc::new(mixdog_core::run_host::model_proxy_pc::PcQuotaProbe::new(
             Arc::new(mixdog_core::run_host::model_proxy_pc::UsageMeasure(Arc::new(mixdog_core::run_host::quota_usage::UsageReadings { store: account_store.clone(), usage: oauth_usage.clone() }))),
             { let now = now_ms_epoch.clone(); Arc::new(move || now() as i64) },
         )),
         wire: Arc::new(mixdog_core::run_host::model_proxy_pc::PcWireRouter),
-        config: Arc::new(mixdog_core::run_host::model_proxy_pc::PcProviderConfig::new(
-            { let config = config.clone(); Arc::new(move || config.agent().get("providers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default()) },
-            registry.clone(),
-            Arc::new(mixdog_core::run_host::model_proxy_pc::RegistryCredentials { builder: default_builder.clone(), keys: media_keys.clone(), env: process.env.clone() }),
-        )),
+        config: proxy_config,
         catalog: b.catalog.clone(),
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));

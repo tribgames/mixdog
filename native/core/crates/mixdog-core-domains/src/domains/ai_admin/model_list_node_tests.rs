@@ -316,6 +316,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
             home_dir: dir.path().to_path_buf(),
             io: io(),
             gated_off: Arc::new(|name| GATED.contains(&name)),
+            local: None,
         }),
         fail,
     });

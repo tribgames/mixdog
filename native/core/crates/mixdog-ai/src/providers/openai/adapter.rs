@@ -623,6 +623,7 @@ fn ws_request(wire: &WireRequest) -> Result<Request, ProviderError> {
 
 #[async_trait]
 impl ProviderAdapter for OpenAiAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

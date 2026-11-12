@@ -2113,6 +2113,8 @@
     "notification model/proxy/event /event/calls/*/arguments/**",
     "notification model/proxy/event /event/delta",
     "notification model/proxy/event /event/message",
+    "notification model/proxy/event /event/pointer",
+    "notification model/proxy/event /event/reason",
     "notification model/proxy/event /event/replay/items/**",
     "notification model/proxy/event /event/stop/value",
     "notification model/proxy/event /event/text",
@@ -3426,6 +3428,9 @@
     "notification model/proxy/event /event/call/name",
     "notification model/proxy/event /event/calls/*/name",
     "notification model/proxy/event /event/name",
+    "request modelProxy/run /call/request/messages/*/accountRouting/accountId",
+    "request modelProxy/run /call/request/messages/*/accountRouting/provider",
+    "request modelProxy/run /call/request/messages/*/accountRouting/sessionAccountId",
     "request modelProxy/run /call/request/messages/*/toolCalls/*/name",
     "request modelProxy/run /call/request/tools/*/name"
    ]

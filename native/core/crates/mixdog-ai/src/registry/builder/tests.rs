@@ -60,6 +60,7 @@ fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultPr
         home_dir: dir.path().to_path_buf(),
         io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         gated_off: Arc::new(|name| name == "gated"),
+        local: None,
     })
 }
 
@@ -176,7 +177,7 @@ async fn a_name_without_an_adapter_says_why() {
     assert_eq!(err("nope", json!({})).await, "unknown enabled provider: nope");
     assert_eq!(
         err("mixdog-local", json!({})).await,
-        "mixdog-local is built per turn from the managed runtime's endpoint"
+        "mixdog-local needs the managed local runtime, which this host does not have"
     );
     let wires = |protocol: &str, extra: Value| {
         let mut cfg = json!({"type": "custom", "protocol": protocol, "baseURL": "http://x/v1"});

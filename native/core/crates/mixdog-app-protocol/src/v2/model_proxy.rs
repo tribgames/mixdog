@@ -141,6 +141,18 @@ pub struct ProxyMessage {
     pub source: Option<ProxyMessageSource>,
     pub turn_reminder: Option<String>,
     pub provider_replay: Vec<ProxyReplay>,
+    /// The account that served this answer, as the server kept it from the run's `accountRouting` event (Node
+    /// `providerMetadata.accountRouting`): the PC's pool reads it back from the history to keep the conversation on that account.
+    pub account_routing: Option<ProxyAccountRouting>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyAccountRouting {
+    pub provider: String,
+    pub account_id: String,
+    pub session_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -223,6 +235,11 @@ pub struct ProxyOptions {
     pub hosted_tools: Vec<ProxyHostedTool>,
     pub shared_cache_prefix_count: Option<u32>,
     pub provider_state: Option<JsonValue>,
+    /// The server forked this request from a session (a side question) and gave it a transport scope of its own
+    /// (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and
+    /// releases it when the request ends.
+    #[serde(default)]
+    pub forked_transport_scope: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -681,16 +698,27 @@ pub enum ProxyEvent {
     /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
     #[serde(rename_all = "camelCase")]
     AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
-    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`);
+    /// credential-shaped text in the message is redacted.
     #[serde(rename_all = "camelCase")]
     AccountSwitching { message: String },
     /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    /// The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.
     #[serde(rename_all = "camelCase")]
     AccountChanged {
         provider: String,
-        account_id: String,
         #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
+    },
+    /// A tool of the request the PC's adapter left out for its input schema (`ToolExclusionReport`, Node
+    /// `onToolExcluded`); credential-shaped text in each string is redacted.
+    ToolExcluded {
+        name: String,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        index: u64,
+        pointer: String,
+        reason: String,
+        message: String,
     },
     /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
     /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
