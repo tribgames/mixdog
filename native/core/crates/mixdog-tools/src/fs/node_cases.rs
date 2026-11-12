@@ -52,6 +52,36 @@ fn output_markers_read_as_node_writes_them() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Node's `list` over a folder of 101 files: the default page of 100 with its continuation, the explicit limits and offsets.
+#[tokio::test]
+async fn list_pages_as_node_pages_it() {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::tool::Tool as _;
+    use std::sync::Arc;
+    let doc = recorded(mixdog_testkit::fixture!("../../fixtures/tools-untested/fs-list-page.json"));
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws");
+    mixdog_testkit::create_dir_all(&ws);
+    for index in 0..doc["count"].as_u64().unwrap() {
+        mixdog_testkit::write(ws.join(format!("entry-{index:03}.txt")), b"ok");
+    }
+    let root = AbsPath::new(&ws).unwrap();
+    let ctx = super::tests::context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
+    let list = super::ListTool::new();
+    let raw = ws.to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let mut failures = Vec::new();
+    for call in doc["calls"].as_array().unwrap() {
+        let args: Value = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", &fwd)).unwrap();
+        let (is_error, text) = super::tests::text_of(list.call(&ctx, super::tests::schema_args("list", args)).await);
+        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+        if text != call["text"].as_str().unwrap() || is_error != call["isError"].as_bool().unwrap() {
+            failures.push(format!("{}:\n  Node ({}) {:?}\n  here ({is_error}) {text:?}", call["input"], call["isError"], call["text"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
 fn v4a_patches_are_parsed_as_node_parses_them() {
     use super::patch_hunk::Kind;
