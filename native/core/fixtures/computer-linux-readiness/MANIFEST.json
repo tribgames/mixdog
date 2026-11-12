@@ -3,7 +3,8 @@
   "command": "node benchmarks/rust-core/recorders/record-computer-linux-readiness.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": "computer-bridge/client.mjs executeComputerTool (validation, linuxCaptureFallback, linuxComputerPreflight, the dispatch and the fallback note), over linux-readiness.mjs probing its own machine (process.env, fs.accessSync/existsSync, child_process.spawn gdbus/gsettings, Date.now); detectSession, detectDesktop; linux-action-capabilities.mjs requiredCapabilities",
   "exclusions": {
-    "bridge": "the desktop bridge is a stand-in HTTP endpoint (fetch) that records the dispatched command and answers ok: the helper and its screenshots are not run",
+    "bridge": "the desktop bridge is a stand-in HTTP endpoint (fetch) that records the dispatched command and answers ok, with a real 2x2 PNG screenshot for a capture that is not accessibility-only and for a sequence that observes its window; the desktop host is not run",
+    "layers": "Node dispatches one command per tool call to the desktop host, which does its own steps; Rust drives the helper step by step. The replay therefore derives the helper requests from each recorded dispatched command (sequence = one request per step then the observing capture; capture = snapshot then window_capture; diagnose = the two probes; list_apps/verify renamed) and compares them whole; the content is compared whole except that the text of an act (composed by the host in Node, by the client in Rust from the stand-in answers) is not compared, and a diagnose answers once per probe",
     "machine": "the machine under the probes is virtual (environment, executables, writable and existing paths, gdbus/gsettings answers); the Rust side reads the same world through its process manager, where Node reads it through fs and spawn, so the shell checks Rust uses for PATH/uinput/files are answered from that world and only the gdbus/gsettings spawns are compared one to one",
     "notRecorded": "the recording keeps no readiness object: a session is judged by what the tool returned and dispatched",
     "platform": "process.platform is set to linux (or the named platform) for each case: the recorder runs on Windows"
@@ -11,9 +12,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1331605,
+      "bytes": 1448471,
       "path": "golden.json",
-      "sha256": "4904674161edc71b09ca0d3760314445de6a6bc699b80fecbfc2cdece87fa58b"
+      "sha256": "a2e49c0599a92d67ceadb851d1b90e31ce8a4a24a910d71388f90bf4f5e8e564"
     }
   ],
   "inputs": [
@@ -69,7 +70,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-computer-linux-readiness.mjs",
-  "recorderSha256": "ceaf09cdda418e94dadae23e101ab74da0d1f78200d4255112fdf4b21133c707",
+  "recorderSha256": "353cb2e7cd66db0c8a145a491cedfa3b19c6b6b7c6dde9bc96e644d3ac0385fc",
   "replay": {
     "compare": "mixdog-tools desktop::computer_linux tests: each recorded tool call through ProcessComputerBackend::run on the Linux path (probes injected at the process manager and environment, the 3 s cache on the runtime clock, one cache for every session), compared whole with the recorded outcome; detect_session/detect_desktop, required_capabilities",
     "entry": "Drive these public items on o1: mixdog-tools/src/desktop/computer_backend.rs:317 ProcessComputerBackend (run: the preflight and the capture rewrite before any dispatch, on the Linux path the platform seam selects); mixdog-tools/src/desktop/computer_linux.rs:231 check_readiness; mixdog-tools/src/desktop/computer_linux.rs:464 missing_capabilities; mixdog-tools/src/desktop/computer_linux.rs:551 preflight; mixdog-tools/src/desktop/computer_linux.rs:583 capture_fallback; mixdog-tools/src/desktop/computer_linux.rs:377 required_capabilities; mixdog-tools/src/desktop/computer_linux.rs:162 detect_session; mixdog-tools/src/desktop/computer_linux.rs:167 detect_desktop; mixdog-tools/src/desktop/computer_linux.rs:649 SystemProbes.",
@@ -130,6 +131,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "computer-linux-readiness",
-  "totalBytes": 1331605,
+  "totalBytes": 1448471,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
