@@ -2675,6 +2675,7 @@ mod tests {
             shells: None,
             liveness,
             search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
+            reuses: Arc::default(),
             deps: Box::new({
                 let store = rig.store.clone();
                 let rig_deps = rig.deps_parts(store);
@@ -3126,6 +3127,7 @@ mod tests {
             io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             data_dir: workspace.path().join("data"),
             blobs: Arc::new(NoBlobs),
+            reuses: Arc::default(),
         });
         let answer = manual.compact(&id, "manual", false).await.expect("the compaction").expect("a compaction answer");
         assert_eq!(answer["changed"], true, "{answer}");
@@ -3946,4 +3948,7 @@ mod tests {
 
     #[path = "../../session_message_sanitize_replay.rs"]
     mod session_message_sanitize_replay;
+
+    #[path = "../../session_read_cache_replay.rs"]
+    mod session_read_cache_replay;
 }
