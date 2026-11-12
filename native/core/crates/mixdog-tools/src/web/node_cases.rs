@@ -36,8 +36,13 @@ fn documents_are_extracted_as_node_extracts_them() {
             (Some(code), other) => failures.push(format!("{label}: Node fails with {code}, here {:?}", other.map(|page| page.content).map_err(|e| e.code()))),
             (None, Err(error)) => failures.push(format!("{label}: Node extracts, here {}", error.code())),
             (None, Ok(page)) => {
-                if page.content != case["content"].as_str().unwrap() || page.extractor != case["extractor"].as_str().unwrap() || page.title != case["title"].as_str().unwrap() {
-                    failures.push(format!("{label}:\n  Node {} {:?} {:?}\n  here {} {:?} {:?}", case["extractor"], case["title"], case["content"], page.extractor, page.title, page.content));
+                // Node's whole payload; its `url` is the input.
+                let here = serde_json::json!({
+                    "url": case["url"], "title": page.title, "content": page.content, "excerpt": page.excerpt,
+                    "extractor": page.extractor, "format": page.format, "contentType": page.content_type,
+                });
+                if here != case["page"] {
+                    failures.push(format!("{label}:\n  Node {}\n  here {here}", case["page"]));
                 }
             }
         }

@@ -255,6 +255,12 @@ pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>)
     configured.max(hold)
 }
 
+/// Whether the foreground run is promoted when the foreground window ends (`promoteAtTimeout`): with no run limit, or one
+/// longer than the window, there is budget left to hand to a background task.
+pub(super) fn promotes_at_timeout(background_enabled: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> bool {
+    background_enabled && (time_limit == 0 || time_limit > foreground_cap_ms(hold, env))
+}
+
 /// The run limit: an explicit `timeout_ms`, else the background safety net
 /// `MIXDOG_SHELL_BACKGROUND_MAX_MS`, else none.
 pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
@@ -928,7 +934,7 @@ impl ShellTool {
                 () = hold_timer => {
                     reason = if args.background == Some(true) {
                         PromotionReason::Background
-                    } else if time_limit > foreground_cap_ms(hold, &process_env) && hold == foreground_cap_ms(hold, &process_env) {
+                    } else if time_limit > 0 && promotes_at_timeout(true, time_limit, hold, &process_env) && hold == foreground_cap_ms(hold, &process_env) {
                         PromotionReason::Timeout
                     } else {
                         PromotionReason::Threshold
