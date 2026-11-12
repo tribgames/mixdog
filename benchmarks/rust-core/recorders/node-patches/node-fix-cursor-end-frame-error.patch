@@ -1,0 +1,33 @@
+diff --git a/src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs b/src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs
+index 12e1793..578436d 100644
+--- a/src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs
++++ b/src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs
+@@ -145,6 +145,9 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
+   let dataHandler = null;
+   let closeHandler = null;
+   let closed = false;
++  // `close()` cancels the request itself, and the stream reports that cancel as `aborted` before `close` reaches `finish`: that report
++  // must not take the place of the error `close` was given (a Connect end frame carrying the server's error).
++  let closing = false;
+   let status = 0;
+   let responseHeaders = null;
+   let closeError = null;
+@@ -197,6 +200,7 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
+   };
+   const close = (error = null) => {
+     if (closed) return;
++    closing = true;
+     try {
+       request?.close(http2.constants.NGHTTP2_CANCEL);
+     } catch {
+@@ -227,7 +231,9 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
+       dataHandler?.(Buffer.from(chunk));
+     });
+     request.on('end', () => finish());
+-    request.on('aborted', () => finish(cursorError('Cursor stream was aborted', { code: 'stream_aborted' })));
++    request.on('aborted', () => {
++      if (!closing) finish(cursorError('Cursor stream was aborted', { code: 'stream_aborted' }));
++    });
+     request.on('error', (error) => finish(error));
+     session.on('error', (error) => finish(error));
+     session.on('goaway', (errorCode) => {

@@ -299,7 +299,7 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
         ModelConfig::in_data_dir(data_dir, ort_library),
         mixdog_services::effort_judge::JudgeLanes::of(tokens),
         // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
-        JudgeOptions { tick: tick.clone(), manifest: None, progress: None, timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()) },
+        JudgeOptions { tick: tick.clone(), timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()), ..JudgeOptions::default() },
     )
     .map_err(ComposeError::EffortJudge)?;
     Ok(Models { tick, embeddings, effort_judge })
@@ -461,6 +461,20 @@ impl ComposedCore {
     /// The daemon never calls it; its process exit closes them.
     pub fn close_data_files(&self) {
         self.real.close_data_files();
+    }
+
+    /// Returns once every open MCP scope's first connect settled (connected or failed): what the recording waits on (Node's
+    /// `mcp:ready` / `mcp:failed` boot line) before it submits a turn.
+    #[cfg(test)]
+    pub(crate) async fn mcp_connections_settled(&self) {
+        self.real.mcp_glue.connections_settled().await;
+    }
+
+    /// How many callers wait for a scope's first connect now: a replay of a `load_tool` that waits for a server still connecting lets the
+    /// held connect go only once this is 1.
+    #[cfg(test)]
+    pub(crate) fn mcp_first_connect_waiters(&self) -> tokio::sync::watch::Receiver<usize> {
+        self.real.mcp_glue.first_connect_waiters()
     }
 
     /// The memory database handle, for the readiness test that makes a first use.
@@ -880,6 +894,10 @@ mod review_restart_tests;
 mod office_startup_tests;
 #[cfg(test)]
 mod state_set_aside_tests;
+#[cfg(test)]
+mod session_send_tests;
+#[cfg(test)]
+mod session_project_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1080,10 +1098,12 @@ mod tests {
             let recorder = Arc::new(Recorder::default());
             let ample = Duration::from_secs(3600);
             let budgets = ReleaseBudgets { final_barriers: ample, close_connections: ample, close_ext_host: ample, record_exit: ample, withdraw_discovery: ample, close_data_handles: ample };
-            let lifecycle = Lifecycle::with_budgets(
+            let lifecycle = Lifecycle::with_grace(
                 LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: dir.clone() },
                 Ports { core: Arc::new(Entry { core: core.clone(), inner: recorder.clone(), requested_at_first_step: requested_at_first_step.clone() }), discovery: recorder.clone(), exiter: recorder.clone() },
                 budgets,
+                crate::lifecycle::ClientGrace::immediate(),
+                crate::lifecycle::testing::ManualTimer::new(),
             );
             lifecycle.set_serving().unwrap();
             drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));

@@ -18,6 +18,11 @@ pub struct Facets {
     pub text: bool,
     /// The tool calls the message carries or answers, in order, without the empty ids.
     pub calls: Vec<String>,
+    /// The message's stable id (`messageIdOf`: `meta.transcript.messageId`), which a compaction's
+    /// identities name. A row stored with none is named by its own `iid` (a session imported from
+    /// 1.4.5 takes the message id as its `iid`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// JS truthiness of a parsed JSON value.
@@ -67,12 +72,19 @@ impl Facets {
                 ids.push(result);
             }
         }
-        Facets { role, text: has_text(message.get("content")), calls: ids }
+        let message_id = message.pointer("/meta/transcript/messageId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
+        Facets { role, text: has_text(message.get("content")), calls: ids, message_id }
+    }
+
+    /// The id a compaction's identities name this message by.
+    pub fn id_of<'a>(&'a self, iid: &'a str) -> &'a str {
+        self.message_id.as_deref().unwrap_or(iid)
     }
 
     /// The transcript rows the message stands for: its text row and one tool card per
     /// call. A message with neither is one row decided by its id alone.
     pub fn rows(&self, iid: &str) -> FacetRows {
+        let iid = self.id_of(iid);
         let kind = if matches!(self.role.as_str(), "user" | "assistant") { self.role.as_str() } else { "notice" };
         let text_row = |kind: &str| ArchiveRow {
             kind: kind.into(),

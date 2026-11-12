@@ -41,6 +41,12 @@ pub trait ThreadDirectory: Send + Sync {
     /// Thread-namespace methods not addressed to one loaded thread (`thread/start`,
     /// `thread/list`, …).
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError>;
+
+    /// `thread/read` of `id`, which [`open`](Self::open) answered `threadNotFound`: a reaped agent child is still read
+    /// through the parents that carry its result (Node's `readVanishedSessionTranscript` → `readArchivedAgentResult`).
+    async fn read_vanished(&self, id: &ThreadId, _req: CoreRequest) -> Result<Reply, CoreError> {
+        Err(CoreError::ThreadNotFound { thread_id: id.clone() })
+    }
 }
 
 /// A `turn/interrupt` as the control plane receives it.

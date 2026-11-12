@@ -1,5 +1,6 @@
 pub mod agent_mode;
 mod archive_index;
+pub mod archived_agent;
 pub mod blobs;
 pub mod compaction_view;
 pub mod context;
@@ -11,6 +12,7 @@ pub mod routine_result;
 pub mod session_text;
 pub mod user_message_kind;
 mod crc32c;
+pub mod draft_file;
 pub mod encode;
 pub mod fold;
 pub mod framing;

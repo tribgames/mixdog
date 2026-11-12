@@ -157,6 +157,7 @@ impl LoginFlow for CursorLogin {
         Ok(start_session(guard, first, false, move |ctx, _cancel| async move {
             ctx.set(LoginState::Waiting);
             let tokens = poll_tokens(http.as_ref(), pace.as_ref(), &uuid, &pkce.verifier).await?;
+            file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
             file.save(&tokens)
                 .await
                 .map_err(|_| failed("storage", "the tokens could not be stored"))?;

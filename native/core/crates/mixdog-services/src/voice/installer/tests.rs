@@ -211,7 +211,7 @@ async fn installs_match_nodes_recording() {
         match (outcome, scenario.get("error").and_then(Value::as_str)) {
             (Ok(()), None) => {}
             (Err(got), Some(want)) if name == "whisper-corrupt-zip" => {
-                let lead = "[voice-runtime] zip extract failed via Expand-Archive: ";
+                let lead = "[voice-runtime] zip extract failed via tar: ";
                 assert!(got.starts_with(lead) && want.starts_with(lead), "{name}: {got}");
             }
             (Err(got), Some(want)) => assert_eq!(mask(&got, &base), recorded["error"].as_str().unwrap(), "{name}: {want}"),

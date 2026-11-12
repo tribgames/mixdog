@@ -158,3 +158,57 @@ fn a_log_that_is_not_the_manifests_publishes_nothing() {
     assert!(!roots.data.join("quarantine").exists(), "the log was not set aside");
     assert_eq!(std::fs::read_to_string(&path).expect("log"), changed, "the source stays as it is");
 }
+
+/// Each legacy session json of `fixtures/session-gaps/legacy-json-keys.json` migrates as 1.4.5's own loader
+/// (`loadLegacySession` over `readTopLevelLifecycleRecord`) read the same bytes: a record 1.4.5 found unreadable
+/// (a top-level key named twice, escaped equivalents included) is quarantined and nothing is published; a record it
+/// read migrates to one session whose header and messages, put back together, are the whole document it read.
+#[test]
+fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/legacy-json-keys.json");
+    let recorded: Value = serde_json::from_slice(&std::fs::read(path).expect("the recording")).expect("json");
+    let id = recorded["sessionId"].as_str().expect("sessionId");
+    let cases = recorded["cases"].as_array().expect("cases");
+    assert_eq!(cases.len(), 11);
+    for case in cases {
+        let name = case["name"].as_str().expect("name");
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let roots = roots_in(dir.path());
+        std::fs::write(roots.data.join(format!("sessions/{id}.json")), case["text"].as_str().expect("text")).expect("write");
+        let complete = run(&roots);
+        let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
+        let document = mixdog_testkit::exact::Exact::decode(&case["document"]).expect("document");
+        // A key holding a lone surrogate: 1.4.5 keeps each as read (two distinct lone surrogates are two keys); the
+        // core's store holds UTF-8 text, so its reader reads each lone surrogate as U+FFFD
+        // (`mixdog-migrate json::replace_lone_surrogates`) and keys equal after it are one, the last value at the
+        // first's place. That is the one difference, compared as such: Node's document with the same replacement.
+        let document = match document {
+            mixdog_testkit::exact::Exact::Utf16Keyed(entries) => {
+                assert_eq!(name, "two-distinct-lone-surrogates", "the only recorded document with a lone surrogate");
+                let mut map = serde_json::Map::new();
+                for (key, value) in entries {
+                    map.insert(String::from_utf16_lossy(&key), value.to_plain().expect("plain value"));
+                }
+                Value::Object(map)
+            }
+            other => other.to_plain().expect("document"),
+        };
+        if document.is_null() {
+            assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (1, 0), "{name}: 1.4.5 could not read it");
+            continue;
+        }
+        assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (0, 1), "{name}: 1.4.5 read it");
+        let session = &sessions[id];
+        let mut read = serde_json::to_value(&session.header).expect("header");
+        read["messages"] = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+        // The sidecar reference set the migration stamps on every header (`offload_sources::stamp`) is the core's own: 1.4.5's
+        // document has none.
+        if let Some(header) = read.as_object_mut() {
+            header.remove("offloadSources");
+            header.remove("offloadSourcesRules");
+        }
+        // Through the same number form as the recording (every JS number an f64): `2` and `2.0` are one value.
+        let read = mixdog_testkit::exact::Exact::plain(&read).to_plain().expect("plain");
+        assert_eq!(read, document, "{name}: the document 1.4.5 read");
+    }
+}

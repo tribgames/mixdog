@@ -95,6 +95,7 @@ use mixdog_mcp::plugin_admin::GitRunner;
 use mixdog_mcp::plugin_admin::PluginAdmin;
 pub use adapters::DoctorHost;
 pub use adapters::LateDomains;
+pub use adapters::ServiceMcpStatus;
 pub use local::LocalSeams;
 pub use local::VoiceToggle;
 pub use local::build_local_provider;

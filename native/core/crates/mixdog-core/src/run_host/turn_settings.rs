@@ -29,6 +29,10 @@ pub trait TurnSettings: Send + Sync + 'static {
         Ok(())
     }
 
+    /// `awaitInitialMcpConnect()`: returns once the thread's initial MCP connect settled or its startup budget passed.
+    /// A host with no MCP scope has nothing to wait for.
+    async fn await_initial_mcp(&self, _thread: &ThreadId) {}
+
     /// `migrateToolExposureAtBoundary(session, messages)` at a request boundary: `rows` is the transcript the request is
     /// built from. The thread's header once migrated, `None` when there was nothing to migrate or a tool call waits for
     /// its result. A host with no deferred surface migrates nothing.
@@ -88,6 +92,12 @@ impl TurnSettings for LateTurnSettings {
         match self.0.get() {
             Some(host) => host.refresh_mcp(thread).await,
             None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn await_initial_mcp(&self, thread: &ThreadId) {
+        if let Some(host) = self.0.get() {
+            host.await_initial_mcp(thread).await;
         }
     }
 

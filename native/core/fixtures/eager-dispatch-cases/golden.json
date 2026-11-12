@@ -1,0 +1,430 @@
+{
+  "note": "Node's tool dispatch at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-eager-dispatch-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/session/eager-dispatch.test.mjs",
+  "cases": [
+    {
+      "case": "eager dispatch serializes Git mutations, file edits, and shell verification",
+      "kind": "order",
+      "calls": [
+        {
+          "id": "git",
+          "name": "git",
+          "arguments": {
+            "command": "git add --all"
+          }
+        },
+        {
+          "id": "patch",
+          "name": "apply_patch",
+          "arguments": {
+            "patch": "test"
+          }
+        },
+        {
+          "id": "shell",
+          "name": "shell",
+          "arguments": {
+            "command": "git status"
+          }
+        }
+      ],
+      "checkpoints": [
+        {
+          "released": null,
+          "events": [
+            "git:start"
+          ]
+        },
+        {
+          "released": "git",
+          "events": [
+            "git:start",
+            "git:end",
+            "apply_patch:start"
+          ]
+        },
+        {
+          "released": "apply_patch",
+          "events": [
+            "git:start",
+            "git:end",
+            "apply_patch:start",
+            "apply_patch:end",
+            "shell:start",
+            "shell:end"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "same-file edits serialize while different-file edits stay parallel",
+      "kind": "edits",
+      "calls": [
+        {
+          "id": "e1",
+          "name": "edit",
+          "arguments": {
+            "file_path": "a.txt",
+            "old_string": "a1",
+            "new_string": "x"
+          }
+        },
+        {
+          "id": "e2",
+          "name": "edit",
+          "arguments": {
+            "file_path": "A.TXT",
+            "old_string": "a2",
+            "new_string": "y"
+          }
+        },
+        {
+          "id": "e3",
+          "name": "edit",
+          "arguments": {
+            "file_path": "b.txt",
+            "old_string": "b1",
+            "new_string": "z"
+          }
+        }
+      ],
+      "checkpoints": [
+        {
+          "released": null,
+          "events": [
+            "end:b.txt#b1",
+            "start:a.txt#a1",
+            "start:b.txt#b1"
+          ]
+        },
+        {
+          "released": "e1",
+          "events": [
+            "end:A.TXT#a2",
+            "end:a.txt#a1",
+            "end:b.txt#b1",
+            "start:A.TXT#a2",
+            "start:a.txt#a1",
+            "start:b.txt#b1"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "Computer Use limits its own calls without delaying independent tools",
+      "kind": "computer",
+      "calls": [
+        {
+          "id": "computer-1",
+          "name": "computer",
+          "arguments": {
+            "value": 1
+          }
+        },
+        {
+          "id": "computer-2",
+          "name": "computer",
+          "arguments": {
+            "value": 2
+          }
+        },
+        {
+          "id": "shell-1",
+          "name": "shell",
+          "arguments": {
+            "value": 3
+          }
+        }
+      ],
+      "checkpoints": [
+        {
+          "released": null,
+          "events": [
+            "computer:1",
+            "shell:3"
+          ]
+        },
+        {
+          "released": "computer-1",
+          "events": [
+            "computer:1",
+            "shell:3"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "Computer Use batch returns an error result for every blocked extra call",
+      "kind": "batch",
+      "calls": [
+        {
+          "id": "computer-1",
+          "name": "computer",
+          "arguments": {
+            "value": 1
+          }
+        },
+        {
+          "id": "computer-2",
+          "name": "computer",
+          "arguments": {
+            "value": 2
+          }
+        }
+      ],
+      "recorded": {
+        "executed": [
+          "computer:1"
+        ],
+        "answered": [
+          {
+            "toolCallId": "computer-1",
+            "toolKind": "normal",
+            "content": "ok"
+          },
+          {
+            "toolCallId": "computer-2",
+            "toolKind": "error",
+            "content": "[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id=computer-1). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain."
+          }
+        ]
+      }
+    },
+    {
+      "case": "repeat failure signatures normalize paths and detect alternating cycles (paths)",
+      "kind": "repeat",
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p1",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p2",
+              "name": "probe",
+              "arguments": {
+                "file_path": "<cwd>/missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p3",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p4",
+              "name": "probe",
+              "arguments": {
+                "file_path": "<cwd>/missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "done",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "recorded": {
+        "content": "done",
+        "answered": [
+          {
+            "toolCallId": "p1",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p2",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p3",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p4",
+            "toolKind": "error",
+            "content": "[repeat-failure-guard] Identical normalized `probe` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved."
+          }
+        ]
+      }
+    },
+    {
+      "case": "repeat failure signatures normalize paths and detect alternating cycles (cycles)",
+      "kind": "repeat",
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p1",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p2",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/other.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p3",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p4",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/other.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p5",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p6",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/other.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p7",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/file.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "p8",
+              "name": "probe",
+              "arguments": {
+                "file_path": "missing/other.txt"
+              }
+            }
+          ]
+        },
+        {
+          "content": "done",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "recorded": {
+        "content": "done",
+        "answered": [
+          {
+            "toolCallId": "p1",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p2",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p3",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p4",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p5",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p6",
+            "toolKind": "error",
+            "content": "Error: missing"
+          },
+          {
+            "toolCallId": "p7",
+            "toolKind": "error",
+            "content": "[repeat-failure-guard] A 2-call normalized failure pattern repeated 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved."
+          },
+          {
+            "toolCallId": "p8",
+            "toolKind": "error",
+            "content": "Error: missing"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -330,7 +330,8 @@ impl VertexAuth {
     }
 
     async fn grant_token(&self, grant: &Grant) -> Result<TokenGrant, ProviderError> {
-        let form_header = vec![("content-type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
+        // Spelled as Node's fetch call writes it (`vertex-ai-auth`), which the wire keeps.
+        let form_header = vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
         let body = match grant {
             Grant::AuthorizedUser { client_id, client_secret, refresh_token } => form_body(&[
                 ("grant_type", "refresh_token"),
@@ -343,8 +344,17 @@ impl VertexAuth {
                 form_body(&[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)])
             }
         };
+        // The login's secrets are credentials before the grant request carries any of them; the grant's token joins them.
+        let secret = match grant {
+            Grant::AuthorizedUser { client_secret, refresh_token, .. } => [client_secret.as_str(), refresh_token.as_str()],
+            Grant::ServiceAccount { private_key, .. } => [private_key.as_str(), ""],
+        };
+        let source = format!("vertex {}", self.credential.identity);
+        crate::oauth::carried::keep(&source, &secret);
         let reply = self.post(TOKEN_URI, form_header, body, "Vertex AI token request").await?;
-        parse_token_grant(&reply, "Vertex AI token")
+        let token = parse_token_grant(&reply, "Vertex AI token")?;
+        crate::oauth::carried::keep(&source, &[&token.access_token, secret[0], secret[1]]);
+        Ok(token)
     }
 
     async fn mint(&self) -> Result<Minted, ProviderError> {
@@ -361,8 +371,8 @@ impl VertexAuth {
                 let source_token = self.grant_token(source).await?;
                 let url = format!("{IAM_CREDENTIALS}/projects/-/serviceAccounts/{target}:generateAccessToken");
                 let headers = vec![
-                    ("content-type".to_owned(), "application/json".to_owned()),
-                    ("authorization".to_owned(), format!("Bearer {}", source_token.access_token)),
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
+                    ("Authorization".to_owned(), format!("Bearer {}", source_token.access_token)),
                 ];
                 let body = json!({ "delegates": delegates, "scope": [SCOPE], "lifetime": "3600s" }).to_string();
                 let reply = self.post(&url, headers, body.into_bytes(), "Vertex AI impersonation").await?;
@@ -405,14 +415,15 @@ impl RequestAuth for VertexAuth {
             }
         };
         Ok(Authorization {
-            headers: vec![("authorization".into(), format!("Bearer {token}"))],
+            // As `_authorizedFetch` spells it (vertex-ai-auth.mjs), which the wire keeps.
+            headers: vec![("Authorization".into(), format!("Bearer {token}"))],
             identity: self.credential.identity.clone(),
         })
     }
 
     /// Drops only the token the server rejected; a fresher one stays.
     async fn rejected(&self, rejected: &Authorization) -> bool {
-        let bearer = rejected.headers.iter().find(|(k, _)| k == "authorization").map(|(_, v)| v.as_str());
+        let bearer = rejected.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("authorization")).map(|(_, v)| v.as_str());
         let mut cached = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cached.as_ref().is_some_and(|m| bearer == Some(format!("Bearer {}", m.token).as_str())) {
             *cached = None;

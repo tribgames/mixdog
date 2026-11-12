@@ -1,0 +1,51 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-trace-rows-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "redaction: the whole trace.jsonl and failures.jsonl texts after the three calls and a flush",
+  "excluded": {
+    "a cached snapshot after a failed read shows the stale read time and the error name only": "the core reads the progress snapshot in-process; a read cannot fail, so no cached snapshot or read error reaches the row",
+    "a failed-checks stop reports the last successful sweep as its compared clock": "the core reads a worker's progress snapshot in-process (run_host/watchdog.rs `snapshot(now)`); a read cannot fail, so no checks_failed stop exists and the row always carries the direct read",
+    "a mid-write sync drain does not duplicate the in-flight payload": "the core has no asynchronous write in flight to drain: a spool's flush takes its lines and writes them in one call (spool.rs `flush`)",
+    "data dropped after repeated flush failures is recorded": "DIFFERENCE: Node requeues a failed flush three times (four appends) and then counts the dropped bytes; the core drops the chunk at the first failed write and returns a warning, with no retry and no dropped-bytes count"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7833,
+      "path": "golden.json",
+      "sha256": "58b1cb4755e34507793239aaea5d88e19e9d47bd67fc47b5a3e6d10fbb7b0b5b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "masked": "watchdog rows: registration ids as <registration>; the redaction clock is fixed at 2026-03-01T10:00:00.000Z",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-trace-rows-cases.mjs",
+  "recorderSha256": "8ff49a11d82608be952cb978de263c83104c0d4f3d9982a50547e28becba9ca7",
+  "set": "trace-rows-cases",
+  "totalBytes": 7833
+}

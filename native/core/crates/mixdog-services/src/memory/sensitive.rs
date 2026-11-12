@@ -311,6 +311,16 @@ fn is_attachment_reference(part: &Map<String, Value>) -> bool {
     spelled.len() == 64 && spelled.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// JS truthiness of a JSON value (absent is falsy).
+fn is_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null | Value::Bool(false)) => false,
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Some(_) => true,
+    }
+}
+
 fn map_part_text(store: &SensitiveStore, session: &str, part: &Value) -> Value {
     match part {
         Value::String(text) => Value::String(redact_text_or_json(store, session, text)),
@@ -561,11 +571,46 @@ impl SensitiveStore {
         if self.version(session) == 0 {
             return content.clone();
         }
+        let named = |parts: &[Value]| -> Vec<Value> { parts.iter().map(|p| self.redact_part_names(session, map_part_text(self, session, p))).collect() };
         match content {
             Value::String(text) => Value::String(redact_text_or_json(self, session, text)),
-            Value::Array(parts) => Value::Array(parts.iter().map(|p| map_part_text(self, session, p)).collect()),
-            Value::Object(map) if map.get("content").is_some_and(Value::is_array) => map_part_text(self, session, content),
+            Value::Array(parts) => Value::Array(named(parts)),
+            Value::Object(map) if map.get("content").is_some_and(Value::is_array) => {
+                let mut out = map.clone();
+                out.insert("content".into(), Value::Array(named(map["content"].as_array().expect("an array"))));
+                Value::Object(out)
+            }
             other => other.clone(),
+        }
+    }
+
+    /// An attachment's or media part's file name (`name`, `filename`, `title`, and a `path` that ends in it) redacted
+    /// as text: the name a person gave the file can spell the value. The attached-files note's record of each file
+    /// (`attachmentReference.files[]`, `name` and `path`, rendered into the note's already redacted text) is stored
+    /// with the row and published to its clients, so it is redacted the same way
+    /// (`benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-attachment-names.patch` makes Node's the same).
+    fn redact_part_names(&self, session: &str, part: Value) -> Value {
+        let Value::Object(mut map) = part else { return part };
+        let kind = map.get("type").and_then(Value::as_str).unwrap_or("");
+        if kind == "attachment" || MEDIA_TYPES.contains(&kind) || is_truthy(map.get("attachmentRef")) {
+            self.redact_name_keys(session, &mut map);
+        }
+        if let Some(Value::Array(files)) = map.get_mut("attachmentReference").and_then(|r| r.get_mut("files")) {
+            for file in files.iter_mut() {
+                if let Value::Object(file) = file {
+                    self.redact_name_keys(session, file);
+                }
+            }
+        }
+        Value::Object(map)
+    }
+
+    fn redact_name_keys(&self, session: &str, map: &mut Map<String, Value>) {
+        for key in ["name", "filename", "title", "path"] {
+            if let Some(Value::String(name)) = map.get(key) {
+                let next = self.redact_text(session, name);
+                map.insert(key.to_owned(), Value::String(next));
+            }
         }
     }
 

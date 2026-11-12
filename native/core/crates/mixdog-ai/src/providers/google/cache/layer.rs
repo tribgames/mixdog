@@ -261,7 +261,21 @@ fn create_retry_policy(tuning: &Tuning) -> RetryPolicy {
 
 /// The line `_createGeminiCache` writes to stderr when the create fails (`gemini.mjs:596`).
 fn log_create_failure(message: &str) {
+    // The refusal's text repeats what the endpoint answered: any credential the process holds is redacted from it.
+    let message = crate::oauth::carried::remembered().redact_str(message);
     mixdog_rt::node_stderr!("[gemini] cachedContents.create error: {message}");
+}
+
+#[cfg(test)]
+mod log_tests {
+    #[test]
+    fn the_create_failure_line_redacts_a_credential_the_refusal_echoes() {
+        crate::oauth::carried::keep("config the-cache-create-test", &["cache-create-key-6e1d94b0"]);
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        super::log_create_failure("400: key cache-create-key-6e1d94b0 is not allowed");
+        let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        assert_eq!(lines, ["[gemini] cachedContents.create error: 400: key [REDACTED] is not allowed"]);
+    }
 }
 
 struct CreateJob {
@@ -375,11 +389,10 @@ impl CreateJob {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {
             let rejected = response.read_all().await?;
-            let mut error = classify(&rejected, ErrorDialect { capacity_by_status: false });
-            // `geminiRestError`'s message, which the create's catch writes to stderr.
-            let text = String::from_utf8_lossy(&rejected.body);
-            error.message = format!("Gemini cachedContents.create {}: {}", rejected.status.unwrap_or(0), mixdog_js::slice_utf16(&text, 300));
-            return Err(error);
+            // `geminiRestError(res, text, 'Gemini cachedContents.create')`, whose message the create's catch writes to
+            // stderr.
+            let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(self.runtime.now_ms());
+            return Err(classify(&rejected, &ErrorDialect::gemini("Gemini cachedContents.create"), now));
         }
         let body = response.read_all().await?.body;
         let unreadable = || ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);

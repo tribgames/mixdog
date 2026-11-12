@@ -1,0 +1,223 @@
+{
+  "note": "Node's search tools at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-fs-search-cases.mjs",
+  "platform": "win32",
+  "mtime": "2026-01-02T03:04:05.000Z",
+  "cases": [
+    {
+      "name": "find-complete-miss",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/find-search-budget.test.mjs",
+      "case": "a complete fuzzy miss returns without an unsolicited noise-tree probe",
+      "tool": "find",
+      "files": {},
+      "calls": [
+        {
+          "args": {
+            "query": "not-in-requested-scope"
+          },
+          "result": "(no fuzzy match for \"not-in-requested-scope\")"
+        }
+      ]
+    },
+    {
+      "name": "find-served-partial",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/find-search-budget.test.mjs",
+      "case": "a served partial still reports its ranked matches",
+      "tool": "find",
+      "files": {
+        "src/alpha.ts": ""
+      },
+      "stall": true,
+      "calls": [
+        {
+          "args": {
+            "query": "alpha",
+            "path": ".",
+            "limit": 5
+          },
+          "result": "src/alpha.ts\n... [search timed out; partial results shown]"
+        }
+      ]
+    },
+    {
+      "name": "glob-ignore-contract",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/glob-ignore-contract.test.mjs",
+      "case": "glob opt-in includes ignored files without leaking across cached scopes",
+      "tool": "glob",
+      "files": {
+        "visible.txt": "fixture\n",
+        "bundle-one/item.txt": "fixture\n",
+        "bundle-two/item.txt": "fixture\n",
+        "node_modules/pkg/item.txt": "fixture\n"
+      },
+      "gitignore": "bundle-*/\n",
+      "dirs": [
+        ".git"
+      ],
+      "calls": [
+        {
+          "args": {
+            "pattern": "**/*.txt",
+            "path": "<ROOT>",
+            "sort": "natural",
+            "limit": 100
+          },
+          "result": "visible.txt"
+        },
+        {
+          "args": {
+            "pattern": "**/*.txt",
+            "path": "<ROOT>",
+            "sort": "natural",
+            "limit": 100,
+            "include_noise": false
+          },
+          "result": "visible.txt"
+        },
+        {
+          "args": {
+            "pattern": [
+              "bundle-*/item.txt",
+              "!bundle-two/**"
+            ],
+            "path": "<ROOT>",
+            "sort": "natural",
+            "limit": 100,
+            "include_noise": true
+          },
+          "result": "bundle-one/item.txt"
+        },
+        {
+          "args": {
+            "pattern": "**/*.txt",
+            "path": "<ROOT>",
+            "sort": "mtime",
+            "limit": 0
+          },
+          "result": "visible.txt"
+        },
+        {
+          "args": {
+            "pattern": "**/*.txt",
+            "path": "<ROOT>",
+            "sort": "mtime",
+            "limit": 0,
+            "include_noise": true
+          },
+          "result": "bundle-one/item.txt\nbundle-two/item.txt\nnode_modules/pkg/item.txt\nvisible.txt"
+        },
+        {
+          "args": {
+            "pattern": "**/*.txt",
+            "path": "<ROOT>",
+            "sort": "mtime",
+            "limit": 0,
+            "include_noise": false
+          },
+          "result": "visible.txt"
+        },
+        {
+          "args": {
+            "pattern": [
+              "bundle-*/item.txt",
+              "!bundle-two/**"
+            ],
+            "path": "<ROOT>",
+            "sort": "mtime",
+            "limit": 0,
+            "include_noise": true
+          },
+          "result": "bundle-one/item.txt"
+        }
+      ]
+    },
+    {
+      "name": "grep-rescue-miss",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/grep-no-match-body.test.mjs",
+      "case": "the single-file rescue answers a miss with the short no-match body",
+      "tool": "grep",
+      "files": {
+        "status": "Name:\tnode\nUid:\t0\n"
+      },
+      "rescueNotice": "\n[notice] native search could not serve this file scope; the file was scanned directly.",
+      "calls": [
+        {
+          "args": {
+            "pattern": "NoSuchFieldHere",
+            "path": "<ROOT>/status",
+            "context": 0
+          },
+          "result": "(no matches)\n[notice] native search could not serve this file scope; the file was scanned directly."
+        },
+        {
+          "args": {
+            "pattern": "NoSuchFieldHere",
+            "path": "<ROOT>/status",
+            "context": 2
+          },
+          "result": "(no matches)\n[notice] native search could not serve this file scope; the file was scanned directly."
+        }
+      ]
+    },
+    {
+      "name": "grep-rescue-matches",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/grep-single-file-rescue.test.mjs",
+      "case": "a missed file scope is scanned directly and reports the same matches",
+      "tool": "grep",
+      "files": {
+        "status": "Name:\tnode\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nCapEff:\t000001ffffffffff\n"
+      },
+      "rescueNotice": "\n[notice] native search could not serve this file scope; the file was scanned directly.",
+      "calls": [
+        {
+          "args": {
+            "pattern": "^(Uid|Gid|Cap(Inh|Prm|Eff|Bnd|Amb))",
+            "path": "<ROOT>/status",
+            "context": 0
+          },
+          "result": "2:Uid:\t0\t0\t0\t0\n3:Gid:\t0\t0\t0\t0\n4:CapEff:\t000001ffffffffff\n[notice] native search could not serve this file scope; the file was scanned directly."
+        }
+      ]
+    },
+    {
+      "name": "grep-rescue-count-and-miss",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/grep-single-file-rescue.test.mjs",
+      "case": "counts and no-match answers keep the ordinary grep shapes",
+      "tool": "grep",
+      "files": {
+        "status": "Name:\tnode\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nCapEff:\t000001ffffffffff\n"
+      },
+      "rescueNotice": "\n[notice] native search could not serve this file scope; the file was scanned directly.",
+      "calls": [
+        {
+          "args": {
+            "pattern": "NoSuchFieldHere",
+            "path": "<ROOT>/status",
+            "context": 0
+          },
+          "result": "(no matches)\n[notice] native search could not serve this file scope; the file was scanned directly."
+        }
+      ]
+    },
+    {
+      "name": "grep-all-miss",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/grep-pattern-fanout.test.mjs",
+      "case": "all-miss combined and prefiltered fallback searches return one whole-scope notice (multilineMode false)",
+      "tool": "grep",
+      "files": {},
+      "calls": [
+        {
+          "args": {
+            "pattern": [
+              "alpha",
+              "beta"
+            ],
+            "path": ".",
+            "limit": 10,
+            "context": 0
+          },
+          "result": "(no matches)"
+        }
+      ]
+    }
+  ]
+}

@@ -18,7 +18,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -30,7 +30,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
+      "sha256": "567e31cf4d690d0623a96e871e1190bf780ea698f93c57e6ab7534dfd3a6dc31"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -81,7 +81,7 @@
       "exact": false,
       "filesDifferingFromCommit": 10
     },
-    "srcSha256": "9b3573a2c5ea84ceab724890e9fd439fb149b4e135a1da73c15449707ab5acc7",
+    "srcSha256": "f3e563ff218101a46a85c00908df08efb9990810a264aa79aadb5428a2385eeb",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

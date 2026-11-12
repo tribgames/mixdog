@@ -144,7 +144,6 @@ mod tests {
             system_role: Some("system"),
             function_ids: true,
             family_gated: false,
-            replay_same_model: true,
             default_tool_mode: None,
             omit_ignored_sampling: false,
         };

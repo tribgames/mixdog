@@ -121,7 +121,7 @@ impl Resident for Held {
 }
 
 /// Polls once, so the future takes its place in the judge's queue: `None` while it waits.
-fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
+pub(crate) fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match std::pin::Pin::new(future).poll(&mut cx) {
         Poll::Ready(out) => Some(out),
@@ -690,7 +690,7 @@ async fn loaded_rig(config: ModelConfig) -> Rig {
 }
 
 /// The model is unloaded after `KEEP_WARM` (the embedder's six minutes) without a judgment, to the
-/// millisecond on the judge's clock, and a prewarm alone starts the period.
+/// millisecond on the judge's clock.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {
     let dir = installed();
@@ -698,9 +698,7 @@ async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {
     if !config.runtime_supported() {
         return;
     }
-    let mut rig = rig(config, Loads::Free);
-    assert!(mixdog_rt::time::timeout(HANG, rig.judge.prewarm()).await.expect("prewarm"));
-    rig.until("the prewarm loaded the model", EffortJudgeModel::is_ready).await;
+    let mut rig = loaded_rig(config).await;
     rig.clock.advance(KEEP_WARM - MS);
     assert!(rig.judge.is_ready(), "still warm a millisecond before the period ends");
     rig.clock.advance(MS);

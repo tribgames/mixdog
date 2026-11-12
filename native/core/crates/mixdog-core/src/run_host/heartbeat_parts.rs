@@ -125,6 +125,15 @@ impl LiveSurface for DirectoryLiveSurface {
     async fn notice(&self, session_id: &str, notice: Value) -> Result<bool, String> {
         let thread = ThreadId::from(session_id);
         let Some(handle) = self.directory.get(&thread) else { return Ok(false) };
+        // A row the delivery has just posted is already shown: the room-row append of a loaded
+        // thread shows it live (`home_threads.rs`), where Node's store append is not and its notice
+        // is the window's one row of it.
+        if let Some(message_id) = notice.get("messageId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            let held = self.directory.model_context(&thread).read().await.map_err(|error| error.to_string())?;
+            if held.iter().any(|(_, message)| message.pointer("/meta/transcript/messageId").and_then(Value::as_str) == Some(message_id)) {
+                return Ok(true);
+            }
+        }
         let text = notice.get("text").and_then(Value::as_str).unwrap_or_default();
         let tone = notice.get("tone").and_then(Value::as_str).unwrap_or("info");
         let op = OpId::from(format!("live-notice:{}", uuid::Uuid::new_v4()));

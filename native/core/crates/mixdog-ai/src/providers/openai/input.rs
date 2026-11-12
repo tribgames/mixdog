@@ -24,6 +24,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::effort::EffortProjection;
+use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
 
 /// Synthetic output for a call whose result never committed (cancel/abort).
 const CANCELLED_OUTPUT: &str = "Cancelled";
@@ -117,8 +118,17 @@ fn pdf_file_part(filename: Option<&str>, data: &str) -> Value {
     })
 }
 
-fn is_pdf(mime: &str) -> bool {
-    mime.trim().eq_ignore_ascii_case("application/pdf")
+fn unavailable_label(filename: Option<&str>, mime: &str) -> String {
+    let name = filename.and_then(|f| f.rsplit(['/', '\\']).next()).unwrap_or("");
+    [name, mime, "file"].into_iter().find(|v| !v.is_empty()).unwrap_or("file").to_owned()
+}
+
+/// `normalizeContentForOpenAIResponses` for a file: a PDF is an `input_file`, any other file its text or description.
+fn file_part(assistant: bool, filename: Option<&str>, mime_type: &str, data: &str) -> Value {
+    match file_kind(mime_type, data, filename) {
+        FileKind::Pdf => pdf_file_part(filename, data),
+        _ => text_part(assistant, file_fallback_text(filename, mime_type, data)),
+    }
 }
 
 fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
@@ -139,31 +149,16 @@ fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
             filename,
             ..
         } => Some(match source {
-            BinarySource::Base64(data) if is_pdf(mime_type) => {
-                pdf_file_part(filename.as_deref(), data)
-            }
-            BinarySource::Base64(_) => text_part(
+            BinarySource::Base64(data) => file_part(assistant, filename.as_deref(), mime_type, data),
+            // The product path reads a stored file before the body is built; one still a
+            // reference here could not be (`unavailableAttachmentText`).
+            BinarySource::AttachmentRef(_) => text_part(
                 assistant,
-                format!(
-                    "[file: {} ({mime_type})]",
-                    filename.as_deref().unwrap_or("unnamed")
-                ),
+                format!("[attachment unavailable: {}]", unavailable_label(filename.as_deref(), mime_type)),
             ),
-            BinarySource::AttachmentRef(reference) => {
-                text_part(assistant, format!("[attachment: {reference}]"))
-            }
         }),
         ContentPart::Document { source, title } => Some(match source {
-            DocumentSource::Base64 { media_type, data } if is_pdf(media_type) => {
-                pdf_file_part(title.as_deref(), data)
-            }
-            DocumentSource::Base64 { media_type, .. } => text_part(
-                assistant,
-                format!(
-                    "[document: {} ({media_type})]",
-                    title.as_deref().unwrap_or("untitled")
-                ),
-            ),
+            DocumentSource::Base64 { media_type, data } => file_part(assistant, title.as_deref(), media_type, data),
             DocumentSource::Text { data, .. } => text_part(assistant, data.as_str()),
             DocumentSource::Content(value) => text_part(assistant, value.to_string()),
         }),

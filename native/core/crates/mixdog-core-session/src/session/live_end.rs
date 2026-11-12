@@ -62,6 +62,14 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
                     *shown = raw.to_owned();
                 }
             }
+            // `beginTurn`'s `transcriptMeta` rides every live row of the turn: a bot's message names its sender and chain.
+            if let Some(turn) = turn.and_then(Value::as_object) {
+                for key in ["sender", "fromAgent", "hop", "botChain"] {
+                    if let Some(value) = turn.get(key) {
+                        meta.ext.entry(key.to_owned()).or_insert_with(|| value.clone());
+                    }
+                }
+            }
             if let Some(verb) = verb {
                 meta.ext.insert("completionVerb".into(), json!(verb));
             }

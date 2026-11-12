@@ -23,11 +23,14 @@ pub mod client_versions;
 pub mod effort;
 pub mod netproxy;
 pub mod oauth;
+pub mod pid;
 pub mod providers;
+pub mod random;
 pub mod registry;
 pub mod retry;
 pub mod service;
 pub mod transport;
+pub mod wall;
 pub mod warmer;
 #[cfg(feature = "count-work")]
 pub mod work;
@@ -42,10 +45,17 @@ pub fn reset_process_state() {
     admission::settings::reset_process_lane_settings();
     claude_floors::reset_process();
     oauth::single_flight::reset();
+    oauth::carried::reset_registry();
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
     providers::first_byte::FirstByteSettings::reset_process();
     providers::grok::reset_process_state();
+    // The calling scope's scripts (the seams are per replay scope, `random::run_scoped`).
+    random::script(Vec::new());
+    random::script_jitter(Vec::new());
+    wall::set(None);
+    wall::follow(None);
+    pid::set(None);
     providers::openai::adapter::reset_zstd_latch();
     providers::google::adapter::reset_announced();
     providers::google::cache::registry::Registry::reset_shared();

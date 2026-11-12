@@ -132,7 +132,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled
     ? { isCallError: false, isExitError: false }
-    : node.toolCallOutcome({ isError: failed || ext.isError === true, toolName: name }, result);
+    : node.toolCallOutcome({ isError: failed || ext.isError === true || asObj(item.run).isError === true, toolName: name }, result);
   row.isError = isCallError;
   row.errorCount = isCallError ? 1 : 0;
   row.callErrorCount = isCallError ? 1 : 0;
@@ -488,13 +488,16 @@ function userMessageRow(item: Obj, m: Obj): Obj | null {
   const id = item.id as Json;
   const body = userRow(item, m);
   const ext = asObj(m.ext);
+  // The row's facts the item states in `details` (UserRowDetails): its source and held request.
+  const details = asObj(item.details);
+  const held = isObj(ext.heldRequest) ? ext.heldRequest : details.heldRequest;
   const stamp: Obj = { ...present('messageId', ext.messageId), ...(finite(m.at) && m.at ? { at: m.at } : {}) };
-  switch (m.source) {
+  switch (m.source ?? details.source) {
     case 'schedule-result':
       return { kind: 'notice', id, ...routineNotice(ext), ...stamp, ...postedField(ext) };
     case 'held-request':
       // A held request without its id cannot be answered, so it has no row.
-      return isObj(ext.heldRequest) && ext.heldRequest.id ? { kind: 'notice', id, ...heldNotice(ext.heldRequest), ...stamp } : null;
+      return isObj(held) && held.id ? { kind: 'notice', id, ...heldNotice(held), ...stamp } : null;
     case 'steering':
       return { ...body, steered: true };
     case 'task-notification': {
@@ -553,6 +556,9 @@ function userRow(item: Obj, m: Obj): Obj {
     ...routeFields(m),
     ...present('device', item.device),
     ...present('checkpointId', item.checkpointId),
+    // `persistedUserTranscriptMetadata`: who sent a bot's message.
+    ...present('sender', asObj(item.details).sender),
+    ...present('fromAgent', asObj(item.details).fromAgent),
     ...attachmentsField(attachments),
     ...(Array.isArray(item.appliedSkills) && item.appliedSkills.length ? { appliedSkills: item.appliedSkills.filter((s) => typeof s === 'string' && s) } : {}),
   };

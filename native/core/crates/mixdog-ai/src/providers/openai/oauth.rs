@@ -118,7 +118,10 @@ impl OpenAiOAuth {
 impl Inner {
     async fn stored(&self) -> Result<Stored, ProviderError> {
         match self.file.load::<Stored>().await {
-            Probe::Present(stored) => Ok(stored),
+            Probe::Present(stored) => {
+                self.file.keep(&[&stored.access_token, stored.refresh_token.as_deref().unwrap_or_default()]);
+                Ok(stored)
+            }
             Probe::Absent => Err(login_required("not signed in to ChatGPT")),
             Probe::Unreadable => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -139,6 +142,8 @@ impl Inner {
         let Some(refresh_token) = stored.refresh_token.clone().filter(|t| !t.is_empty()) else {
             return Err(login_required("the stored ChatGPT login has no refresh token"));
         };
+        // `refreshUnderLock` (openai-oauth-tokens.mjs:337): the reason is the rejection's status, or the token's expiry.
+        mixdog_rt::node_stderr!("[openai-oauth] Token {}, refreshing...", if rejected.is_some() { "401" } else { "preemptive" });
         // The serializer is not `Send`: it is finished before the await.
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("grant_type", "refresh_token")
@@ -188,10 +193,15 @@ impl Inner {
             return self.failed(&stored, rejected.is_some(), status, &body, unanswered.as_ref(), unusable);
         };
         let (json, access_token) = tokens;
+        let granted = |key: &str| json.get(key).and_then(Value::as_str).unwrap_or_default();
+        self.file.keep(&[&access_token, granted("refresh_token"), &refresh_token, granted("id_token")]);
         let expires_at = json
             .get("expires_in")
             .and_then(Value::as_u64)
             .map_or(0, |secs| now_ms() + secs * 1000);
+        // `Math.round(((expires_at || Date.now()) - Date.now()) / 1000)` (openai-oauth-tokens.mjs:343).
+        let left_ms = if expires_at == 0 { 0 } else { expires_at.saturating_sub(now_ms()) };
+        mixdog_rt::node_stderr!("[openai-oauth] Token refreshed, expires in {}s", (left_ms + 500) / 1000);
         let mut update = Map::new();
         update.insert("access_token".into(), json!(access_token));
         update.insert(

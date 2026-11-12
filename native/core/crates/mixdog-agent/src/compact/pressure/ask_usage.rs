@@ -103,6 +103,16 @@ pub fn usage_change(
     // before the call's usage is reported.
     let mut sent = HeaderPatch::default();
     sent.put("lastProviderSendAt", mixdog_js::json_number(sent_at));
+    // `traceActualCacheMiss` (`loop/send-phase.mjs:340-384`): an Anthropic session keeps the call's cache read plus
+    // write as the next call's miss baseline, on the record so it survives a reload.
+    if matches!(header.get("provider").and_then(Value::as_str), Some("anthropic" | "anthropic-oauth")) {
+        // `Number(x) || 0`.
+        let tokens = |key: &str| {
+            let n = mixdog_js::to_number_of(delta.get(key));
+            if n.is_nan() { 0.0 } else { n }
+        };
+        sent.put("lastProviderCachedPrefixTokens", mixdog_js::json_number(tokens("deltaCachedRead") + tokens("deltaCacheWrite")));
+    }
     draft.apply(sent);
     draft.apply(iteration_metrics(header, delta, input_excludes_cache, now));
     if let Some(books) = books

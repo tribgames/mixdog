@@ -50,9 +50,16 @@ mod tests {
             let calls: Vec<Value> = session["calls"].as_array().expect("calls").clone();
             assert_eq!(store.remember(id, &calls), session["marked"].as_bool().expect("marked"), "{id}");
             let got = SensitiveRedactor::new(store.clone(), id).redact(rows.clone());
-            let want = session["stored"].as_array().expect("stored");
+            let mut want = session["stored"].as_array().expect("stored").clone();
+            // Node b6f10295a keeps an attachment's file name as given; with
+            // `benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-attachment-names.patch` it redacts it, as the core does.
+            if id == "sess-marks" {
+                let name = want[4].pointer_mut("/content/0/filename").expect("the attachment's file name");
+                assert_eq!(*name, "682419.pdf");
+                *name = json!("[redacted].pdf");
+            }
             assert_eq!(got.len(), want.len(), "{id}");
-            for (index, (got, want)) in got.iter().zip(want).enumerate() {
+            for (index, (got, want)) in got.iter().zip(&want).enumerate() {
                 assert_eq!(got, want, "{id} row {index}: {}", rows[index]);
             }
             assert_eq!(got == rows, session["same"].as_bool().expect("same"), "{id}: untouched rows stay as they are");
