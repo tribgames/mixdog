@@ -134,6 +134,9 @@ async fn the_tail_ingest_matches_the_recorded_node_run() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
 async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
     let writer: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/writer.json")).expect("writer recording");
     let restart: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/restart.json")).expect("restart recording");
     let now = 1_772_600_767_890_i64;
@@ -159,7 +162,7 @@ async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it(
     // persisted: the core's own ingest in a child process over this database. What it leaves is Node's recording: every
     // line stored, and the blob a kill there leaves (none: Node's `persisted` of the first start is empty).
     assert_eq!(starts[0]["count"].as_u64().unwrap(), starts[0]["inserts"].as_array().unwrap().len() as u64, "{}", starts[0]["label"]);
-    kill_ingest_at(&pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
+    kill_ingest_at("a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it", &pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
     assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
     let (_, left) = on_disk(&db).await;
     assert_eq!(if left.is_null() { json!({}) } else { left }, starts[0]["persisted"], "the blob the kill left");
@@ -197,6 +200,9 @@ async fn on_disk(db: &Db) -> (Value, Value) {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
 async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
     let path = |rel: &str| format!("{}/../../fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
     let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
     let writer = read("session-transcript/writer.json");
@@ -256,7 +262,7 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
         let db = fresh().await;
         // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
         // over this database.
-        kill_ingest_at(&pg, k, &file, &work).await;
+        kill_ingest_at("a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does", &pg, k, &file, &work).await;
         let (rows, positions) = on_disk(&db).await;
         assert_eq!(
             named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
@@ -277,11 +283,11 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
 /// The core's ingest of `file` (working folder `work`) in a child process over `pg`'s database, killed at the kill point after
 /// its `k`-th insert returned (`restart_kill_child`). The child is hidden, ended when this future is dropped, and waited for
 /// under one deadline.
-async fn kill_ingest_at(pg: &TestPg, k: u64, file: &Path, work: &Path) {
+async fn kill_ingest_at(parent: &str, pg: &TestPg, k: u64, file: &Path, work: &Path) {
     const DEADLINE: Duration = Duration::from_secs(180);
     let mut command = tokio::process::Command::new(std::env::current_exe().expect("the test binary"));
     command
-        .args(["--exact", "memory::tests::jobs::restart_kill_child", "--nocapture", "--test-threads=1"])
+        .args(["--exact", &format!("memory::tests::jobs::{parent}"), "--include-ignored", "--nocapture", "--test-threads=1"])
         .env("MIXDOG_KILL_CHILD", "1")
         .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
         .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
@@ -303,15 +309,11 @@ async fn kill_ingest_at(pg: &TestPg, k: u64, file: &Path, work: &Path) {
 /// The instant the restart recording ran at (`writer.json`'s `now`).
 const RESTART_NOW: i64 = 1_772_600_767_890;
 
-/// The killed child of [`a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does`]: the core's
+/// The killed child of the tests that call [`kill_ingest_at`]: the test itself, re-run by its exact name with
+/// `MIXDOG_KILL_CHILD` set, takes this role instead of its own (so no test passes without doing its work). The core's
 /// ingest of the recorded file over the parent's database, which dies at the kill point the environment names
-/// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`). Run only by that test.
-#[tokio::test(flavor = "multi_thread")]
+/// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`).
 async fn restart_kill_child() {
-    // A no-op in every run that is not the matrix's child: only the parent sets this.
-    if std::env::var_os("MIXDOG_KILL_CHILD").is_none() {
-        return;
-    }
     let var = |name: &str| std::env::var_os(name).unwrap_or_else(|| panic!("{name} is set by the parent"));
     let runtime = PathBuf::from(var("MIXDOG_PG_RUNTIME"));
     let port: u16 = var("MIXDOG_KILL_PG_PORT").to_string_lossy().parse().expect("a port");
