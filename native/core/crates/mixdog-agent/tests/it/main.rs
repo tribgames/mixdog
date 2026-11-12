@@ -34,4 +34,5 @@ mod spawn_flow_node_cases;
 mod tail_rules;
 mod text_only;
 mod turns;
+mod usage_terminal_totals;
 mod warm_request;

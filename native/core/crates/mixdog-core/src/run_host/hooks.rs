@@ -42,19 +42,30 @@ pub trait PostToolDispatch: Send + Sync {
 pub struct SessionToolHooks {
     session_id: String,
     cwd: String,
+    /// The session's folder as it stands now (`call.cwd = prepared.cwd`).
+    live_cwd: Option<mixdog_agent::tools::LiveCwd>,
     dispatch: Arc<dyn PostToolDispatch>,
 }
 
 impl SessionToolHooks {
     pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>) -> Self {
-        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch }
+        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), live_cwd: None, dispatch }
+    }
+
+    pub fn with_live_cwd(mut self, live: Option<mixdog_agent::tools::LiveCwd>) -> Self {
+        self.live_cwd = live;
+        self
+    }
+
+    fn cwd_now(&self) -> String {
+        self.live_cwd.as_ref().and_then(|live| live()).map_or_else(|| self.cwd.clone(), |live| live.as_path().to_string_lossy().into_owned())
     }
 
     fn event(&self, call: &GateCall, result: &str) -> PostToolEvent {
         PostToolEvent {
             name: call.name.clone(),
             args: call.args.clone(),
-            cwd: effective_tool_cwd(&call.name, &call.args, &self.cwd),
+            cwd: effective_tool_cwd(&call.name, &call.args, &self.cwd_now()),
             session_id: self.session_id.clone(),
             result: result.to_owned(),
         }

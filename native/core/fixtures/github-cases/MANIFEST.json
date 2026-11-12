@@ -11,13 +11,13 @@
     {
       "bytes": 245355,
       "path": "golden.json",
-      "sha256": "217fb5769d88ff4c8c4f2ae4c87a95869f051ca7282a142aef0ec893d76352e4"
+      "sha256": "b747189ccd05ea90919dcbbb6539809e70c28b80844b9557f087b280471d9d63"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -82,17 +82,16 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "6e941057e28a692e815cdb5bf5dd70f8fd19cde3ea9abebad1d650fe71f7d5c0",
+  "recorderSha256": "f6f449578a8cf3df9e347b29f0901a5d70cfc6667481c41eab9dd9313c7cc167",
   "replay": {
-    "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
-    "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates; github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`).",
-    "existsButNotPublicOnO1": [
-      "mixdog-scm/src/service.rs:452 `github_request` (the handler behind github/request) is private; the method table is its public door"
-    ],
+    "compare": "mixdog-tools src/github/k1_replay.rs: the same request and tool calls with the recorded scripted answers at the client's runner (GhRunner, where Node's tests scripted run), each case compared whole: the commands built, the results or errors, the tool text and the raw file read back",
+    "entry": "Requests: GhClient::execute (mixdog-scm/src/gh/client.rs:294), the whole body of github/request (service.rs:452 github_request) and of the agent's tool. Tool cases 9-14: the registered agent tool GithubTool (mixdog-tools/src/github/mod.rs, Tool::call; registered at mixdog-app-server-daemon/src/compose_flip.rs real_core over the desktop's GhClient), which on o1 ran gh itself without tool.mjs's projection, cap and raw file. Case 9's isBuiltinTool is a fact of the product's registry: it is compared by the daemon's composed-core test compose::tests::the_github_tool_a_session_gets_is_nodes_builtin_one (mixdog-app-server-daemon/src/compose.rs, pg profile), which reads it from this recording and checks the github tool a session resolves from the composed pool (session_tools::resolve, held as session_doc) against Node's built-in definition whole; the replay in mixdog-tools compares the rest of case 9 in recorded order. Pure cases 2 and 15 drive contract::validate and commands::build, as Node's test drove buildGithubCommand.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {
       "cwd": "the process cwd is not recorded",
-      "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest"
+      "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest",
+      "textBytes": "textBytes and boundedBytes are recorder-derived, not reported by Node's product: executeGithubTool returns only the text (tool.mjs measures Buffer.byteLength only to decide whether a text fits its cap, src/runtime/github/tool.mjs:247, and reports no number). The recorder computes them (record-github-cases.mjs storedBytes) as the UTF-8 byte length of the recorded `text` field as stored, i.e. after the temp-folder normalisation above, so they do not depend on the recording host's temp folder. They measure the length of the text the model reads with every temp path written as its placeholder; a replay counts its own text after the same normalisation and compares the number as recorded"
     },
     "protocolMethods": [
       "github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`)"
@@ -109,18 +108,18 @@
         "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
       },
       {
-        "line": 281,
-        "name": "run_args",
-        "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
-      },
-      {
         "line": 294,
         "name": "execute",
         "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
       },
       {
-        "line": 45,
+        "line": 34,
         "name": "github_call_mutates",
+        "path": "native/core/crates/mixdog-tools/src/github/mod.rs"
+      },
+      {
+        "line": 46,
+        "name": "GithubTool::new",
         "path": "native/core/crates/mixdog-tools/src/github/mod.rs"
       }
     ],

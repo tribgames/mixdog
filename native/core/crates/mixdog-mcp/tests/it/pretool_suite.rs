@@ -67,7 +67,7 @@ fn golden() -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_pre_tool_decision_matches_node_for_every_recorded_hook_output() {
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     for case in golden()["cases"].as_array().unwrap() {
         let label = case["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();

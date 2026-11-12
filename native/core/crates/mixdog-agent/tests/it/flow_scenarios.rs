@@ -70,7 +70,7 @@ pub(crate) fn backend() {
 
 pub(crate) async fn settle() {
     for _ in 0..8 {
-        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 }
 

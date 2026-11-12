@@ -27,6 +27,8 @@ pub mod connection_close;
 pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod compose_flip;
+#[cfg(feature = "replay-controls")]
+mod replay_stores_settled;
 pub mod feature_probes;
 pub mod held_home_draft;
 pub mod host_runtime_draft;
@@ -34,6 +36,8 @@ pub mod late_lifecycle;
 pub mod memory_agent_watch;
 pub mod prewarm_world;
 pub mod setup_host;
+#[cfg(test)]
+mod warmup_schedulers_replay;
 pub mod compose_domains;
 pub mod late_live_route;
 pub mod late_route_positions;
@@ -52,6 +56,8 @@ pub mod event_pipeline;
 pub mod held_requests;
 #[cfg(test)]
 mod held_runs_tests;
+#[cfg(test)]
+mod session_host_replay_tests;
 pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;

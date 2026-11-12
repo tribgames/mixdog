@@ -481,7 +481,7 @@ pub struct ThreadSettingsParts {
     pub projects: Arc<dyn ProjectFolders>,
     /// The stored agent-only sessions: an archive takes a session's sub-agent sessions along.
     pub agent_only: Arc<dyn AgentOnlyIndex>,
-    pub worktrees: Arc<WorktreeMaintenance>,
+    pub worktrees: Arc<dyn ArchivedWorktrees>,
     pub retention: Arc<dyn ArchiveRetention>,
     /// The app feed: `thread/archived`, `thread/unarchived`.
     pub app: Arc<SectionFeedState>,
@@ -490,6 +490,22 @@ pub struct ThreadSettingsParts {
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
     /// The core's one archive stamp counter, shared with the rooms' archive (`DirectorySessions`).
     pub archive_stamps: Arc<ArchiveStamps>,
+}
+
+/// Where an archive or a restore hands its sessions (Node's `setArchivedSessionWorktrees` hand-off of
+/// `session-host-lifecycle.ts`): the session first, then its sub-agent sessions in the order found. A failure is the
+/// hand-off's own; the archive stands.
+#[async_trait]
+pub trait ArchivedWorktrees: Send + Sync {
+    async fn set_archived(&self, session_ids: &[String], archived: bool) -> Result<(), String>;
+}
+
+#[async_trait]
+impl ArchivedWorktrees for WorktreeMaintenance {
+    async fn set_archived(&self, session_ids: &[String], archived: bool) -> Result<(), String> {
+        let ids: HashSet<String> = session_ids.iter().cloned().collect();
+        self.set_archived_session_worktrees(&ids, archived, &CancellationToken::new()).await.map(drop).map_err(|error| format!("{error:?}"))
+    }
 }
 
 /// `DesktopSessionMetadata.lastArchiveStamp` (`desktop-session-metadata.ts:49,142-143`): the last archive stamp handed out, so two
@@ -698,11 +714,11 @@ impl ThreadSettings {
         // Their managed worktrees follow (autoCleanup decides): off the reply path, never failing
         // the archive itself.
         let worktrees = self.parts.worktrees.clone();
-        let ids: HashSet<String> = std::iter::once(thread.as_str().to_owned()).chain(descendants).collect();
+        let ids: Vec<String> = std::iter::once(thread.as_str().to_owned()).chain(descendants).collect();
         let shown = thread.clone();
         tokio::spawn(async move {
-            if let Err(error) = worktrees.set_archived_session_worktrees(&ids, archived, &CancellationToken::new()).await {
-                tracing::warn!("[mixdog-session] Could not update the worktrees of {shown}: {error:?}");
+            if let Err(error) = worktrees.set_archived(&ids, archived).await {
+                tracing::warn!("[mixdog-session] Could not update the worktrees of {shown}: {error}");
             }
         });
         let method = if archived { "thread/archived" } else { "thread/unarchived" };

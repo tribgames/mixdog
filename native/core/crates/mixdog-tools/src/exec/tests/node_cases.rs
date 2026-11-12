@@ -91,6 +91,11 @@ struct Stepped {
     kill_ends: std::sync::atomic::AtomicBool,
     /// Whether a spawn's run limit ends it (the process manager's own limit) when it expires.
     limits: std::sync::atomic::AtomicBool,
+    /// The PowerShell processes still waiting for their script (`index` into `spawned`, run limit): the script arrives on
+    /// stdin, framed, to the bootstrap the spawn names, so what ran is only known once it is written.
+    awaiting: Mutex<HashMap<ProcessHandle, (usize, Option<std::time::Duration>)>>,
+    /// Every process that took its script on stdin: its input may be closed.
+    fed: Mutex<std::collections::HashSet<ProcessHandle>>,
 }
 
 impl Stepped {
@@ -104,7 +109,34 @@ impl Stepped {
             answer: Box::new(answer),
             kill_ends: std::sync::atomic::AtomicBool::new(true),
             limits: std::sync::atomic::AtomicBool::new(false),
+            awaiting: Mutex::default(),
+            fed: Mutex::default(),
         })
+    }
+
+    /// The process `handle` starts running `command`: what `answer` makes of it is sent, and a run limit ends it when it expires.
+    fn begin(&self, handle: &ProcessHandle, command: &CommandSpec, limit: Option<std::time::Duration>) {
+        let events = (self.answer)(command);
+        let mut runs = self.runs.lock().unwrap();
+        let run = runs.get_mut(handle).unwrap();
+        for (stream, bytes, code) in events {
+            let seq = run.seq;
+            run.events
+                .send(match stream {
+                    Some(stream) => ProcessEvent::Output { seq, stream, bytes },
+                    None => ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed: None } },
+                })
+                .unwrap();
+            run.seq += 1;
+        }
+        if let (true, Some(limit)) = (self.limits.load(SeqCst), limit) {
+            let (events, seq) = (run.events.clone(), run.seq);
+            tokio::spawn(async move {
+                tokio::time::sleep(limit).await;
+                let exit = ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::TimeLimit) };
+                let _ = events.send(ProcessEvent::Exited { seq, exit });
+            });
+        }
     }
 
     fn quiet() -> Arc<Self> {
@@ -145,30 +177,20 @@ impl ProcessManager for Stepped {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         let (tx, rx) = mpsc::unbounded_channel();
         let (pulled_tx, pulled) = tokio::sync::watch::channel(0);
-        let events = (self.answer)(&request.command);
-        self.spawned.lock().unwrap().push((request.command.clone(), request.env.clone(), request.time_limit));
-        let mut run = Run { events: tx, seq: 0, pulled };
-        for (stream, bytes, code) in events {
-            let seq = run.seq;
-            run.events
-                .send(match stream {
-                    Some(stream) => ProcessEvent::Output { seq, stream, bytes },
-                    None => ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed: None } },
-                })
-                .unwrap();
-            run.seq += 1;
-        }
+        let index = {
+            let mut spawned = self.spawned.lock().unwrap();
+            spawned.push((request.command.clone(), request.env.clone(), request.time_limit));
+            spawned.len() - 1
+        };
         self.spawned_at.lock().unwrap().push(tokio::time::Instant::now());
-        if let (true, Some(limit)) = (self.limits.load(SeqCst), request.time_limit) {
-            let (events, seq) = (run.events.clone(), run.seq);
-            tokio::spawn(async move {
-                tokio::time::sleep(limit).await;
-                let exit = ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::TimeLimit) };
-                let _ = events.send(ProcessEvent::Exited { seq, exit });
-            });
-        }
-        self.runs.lock().unwrap().insert(request.handle.clone(), run);
+        self.runs.lock().unwrap().insert(request.handle.clone(), Run { events: tx, seq: 0, pulled });
         self.sources.lock().unwrap().insert(request.handle.clone(), PullSource { events: rx, pulled: pulled_tx });
+        match &request.command {
+            CommandSpec::Shell { script, .. } if script == crate::exec::POWERSHELL_BOOTSTRAP => {
+                self.awaiting.lock().unwrap().insert(request.handle.clone(), (index, request.time_limit));
+            }
+            command => self.begin(&request.handle, command, request.time_limit),
+        }
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
 
@@ -177,11 +199,24 @@ impl ProcessManager for Stepped {
         Ok(Box::new(source))
     }
 
-    async fn write_stdin(&self, _: &ProcessHandle, _: Vec<u8>) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+    /// The script of a PowerShell process arrives framed (its length, a line break, the script); what ran is the script, which
+    /// replaces the bootstrap in the spawn's record, and the process starts as the answer says.
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        let Some((index, limit)) = self.awaiting.lock().unwrap().remove(handle) else { return Err(ProcessError::StdinClosed) };
+        let framed = String::from_utf8(bytes).unwrap();
+        let script = framed.split_once('\n').expect("a framed script").1.to_owned();
+        let command = {
+            let mut spawned = self.spawned.lock().unwrap();
+            let CommandSpec::Shell { shell, .. } = spawned[index].0.clone() else { unreachable!("a bootstrap spawn is a shell command") };
+            spawned[index].0 = CommandSpec::Shell { script, shell };
+            spawned[index].0.clone()
+        };
+        self.fed.lock().unwrap().insert(handle.clone());
+        self.begin(handle, &command, limit);
+        Ok(())
     }
-    fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        if self.fed.lock().unwrap().contains(handle) { Ok(()) } else { Err(ProcessError::StdinClosed) }
     }
     fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
         Err(ProcessError::NotPty)

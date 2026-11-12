@@ -42,7 +42,6 @@ mod imp {
     use windows_sys::Win32::System::IO::CreateIoCompletionPort;
     use windows_sys::Win32::System::IO::GetQueuedCompletionStatus;
     use windows_sys::Win32::System::IO::OVERLAPPED;
-    use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
     use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
     use windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     use windows_sys::Win32::System::JobObjects::JOBOBJECT_ASSOCIATE_COMPLETION_PORT;
@@ -73,11 +72,6 @@ mod imp {
 
     /// The exit code a terminated job's processes report.
     pub(crate) const KILL_EXIT_CODE: u32 = 137;
-
-    #[link(name = "ntdll")]
-    unsafe extern "system" {
-        fn NtResumeProcess(process: HANDLE) -> i32;
-    }
 
     /// The one completion port every watched job reports to, and the job each message is for.
     /// A job's "last member gone" arrives as a message, so nothing polls the job.
@@ -181,6 +175,15 @@ mod imp {
             (ok != 0).then_some(info.ActiveProcesses)
         }
 
+        /// After a root that ended: the console hosts it leaves are given time to signal their own exit
+        /// ([`crate::console_hosts::settle`]) before anything left in the job is taken for a survivor.
+        pub(crate) fn settle_exit(&self) {
+            crate::console_hosts::settle(self.job, crate::console_hosts::SETTLE_DEADLINE, || {
+                #[cfg(feature = "core-test")]
+                crate::testing::settle_window();
+            });
+        }
+
         /// Whether any process of the job might still be running: a job that could not be asked is not empty.
         pub(crate) fn occupied(&self) -> bool {
             self.active().is_none_or(|active| active > 0)
@@ -271,23 +274,10 @@ mod imp {
             }
         }
 
-        /// Puts a process created suspended into the job, then lets it run: it cannot start
-        /// anything before it is a member.
-        pub(crate) fn adopt_and_resume(&self, process: HANDLE) -> io::Result<()> {
-            #[cfg(feature = "core-test")]
-            if crate::testing::take_adoption_failure() {
-                return Err(io::Error::other("injected job assignment failure"));
-            }
-            if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let status = unsafe { NtResumeProcess(process) };
-            if status < 0 {
-                return Err(io::Error::other(format!(
-                    "the suspended process could not be resumed (NTSTATUS 0x{status:08x})"
-                )));
-            }
-            Ok(())
+        /// The job a child is created in (`crate::winspawn::spawn`): it is a member from its first
+        /// instruction, so it can neither start anything outside the job nor outlive it suspended.
+        pub(crate) fn job(&self) -> HANDLE {
+            self.job
         }
 
         pub(crate) fn kill(&self) {
@@ -368,6 +358,9 @@ mod imp {
                 tree.signal_group(Signal::Kill);
             }
         }
+
+        /// A process group has no console host to wait for.
+        pub(crate) fn settle_exit(&self) {}
 
         /// SIGTERM to the group: the gentle first stop of an escalating one (`kill` is the second).
         pub(crate) fn terminate(&self) {

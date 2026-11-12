@@ -13,7 +13,7 @@ use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::{Instant, timeout, timeout_at};
+use mixdog_rt::time::{Instant, timeout, timeout_at};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 

@@ -42,6 +42,13 @@ impl WorkerStore for Store {
             (None, None) => {}
         }
     }
+    /// This store never stops listing a session's map: nothing is kept apart.
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        self.write(session, worker);
+    }
+    fn kept(&self, _: &str) -> bool {
+        false
+    }
 }
 
 /// What each session is doing in this process (`isSessionTurnInFlight`, `hasPendingMessages`, the runtime's stage).

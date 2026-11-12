@@ -91,6 +91,9 @@ pub struct RunConfig {
     /// provider-excluded tools there (`beginProviderToolExclusions`, `send-phase.mjs`). Whatever
     /// provider the attempt goes to (a route hop included) is covered, because the loop calls it.
     pub request_begin: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// The session's folder as it stands now: each tool call starts in it, so a Project switch inside the turn moves the
+    /// calls after it (`resolveLiveToolCwd`). Without one the calls use the folder the turn began in.
+    pub live_cwd: Option<crate::tools::LiveCwd>,
 }
 
 impl RunConfig {
@@ -117,6 +120,7 @@ impl RunConfig {
             signal: None,
             retry_529: true,
             request_begin: None,
+            live_cwd: None,
         }
     }
 }
@@ -317,6 +321,9 @@ pub struct RunOutput {
     pub provider_state: Option<ProviderState>,
     /// `routeUsageSegments`: the turn's usage per model when the route switched mid-turn.
     pub usage_segments: Vec<crate::env::UsageSegment>,
+    /// The tail reminder the terminal request carried: the host commits the terminal answer with it as its
+    /// `turnReminder` (Node's `turnReminderField`).
+    pub last_reminder: Option<String>,
 }
 
 pub struct Run {
@@ -343,6 +350,9 @@ pub struct Run {
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
     pub(crate) pending_skill_prompts: Vec<Content>,
+    /// The latest message pushed since the last send: the next request waits until it is durable, so a
+    /// request never leaves before the rows it carries (a restart resends what the store holds).
+    pub(crate) unsaved: Option<Ticket>,
     pub(crate) baseline: Option<Baseline>,
     /// The request the latest send settled on, and when its send began (`requestStartedAt`).
     pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
@@ -482,6 +492,7 @@ impl Run {
             tool_batch_just_completed: false,
             last_batch_later: false,
             pending_skill_prompts: Vec::new(),
+            unsaved: None,
             context,
             baseline: None,
             last_request: None,
@@ -539,6 +550,7 @@ impl Run {
     pub(crate) async fn push(&mut self, message: AgentMessage) -> Result<Ticket, AgentError> {
         let ticket = self.env.sink.commit(&message).await.map_err(AgentError::Commit)?;
         self.messages.push(message);
+        self.unsaved = Some(ticket);
         Ok(ticket)
     }
 
@@ -609,6 +621,9 @@ impl Run {
     async fn drive(&mut self) -> Result<(), AgentError> {
         loop {
             self.begin_iteration().await?;
+            if let Some(ticket) = self.unsaved.take() {
+                self.until_durable(ticket).await?;
+            }
             let response = match self.send_provider_request().await? {
                 crate::send::SendResult::RetryRound => continue,
                 crate::send::SendResult::Proceed(response) => *response,
@@ -763,6 +778,7 @@ impl Run {
             carry: self.carry,
             provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
             usage_segments,
+            last_reminder: self.last_reminder,
             response,
         }
     }

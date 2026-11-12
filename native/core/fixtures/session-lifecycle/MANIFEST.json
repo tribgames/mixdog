@@ -1,9 +1,11 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
   "entry": "Ran the real session store (store.mjs loadSession, saveSessionAsync, drainSessionStore; store/lifecycle-barriers.mjs bumpSessionGenerationAttempt and markSessionClosedAttempt) and manager/session-lifecycle.mjs createSession on a temp MIXDOG_DATA_DIR. The fence barriers run in a second Node process (this recorder with --child, node --import lib/determinism-preload-other-process.mjs, 120 s deadline). Did not run a turn (the provider throws if asked).",
   "exclusions": [
     "no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process",
     "this machine's roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext (the stored system prompt) and every \"cwd\" field of a stored session. The sessions are created with cwd = the work dir <TMP>\\rec-session-lifecycle (an explicit input: createSession options.cwd), so the prompt's cwd entries and git state do not depend on the checkout. The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine's and stays as written",
+    "fence storedAfter is the saving process's loadSession, its live snapshot: Node admits a copy to it (store.mjs _admit: setLiveSession) before _write drops it against the generation (_dropsAgainst), so after a dropped save it holds the dropped copy while the store keeps the recorded record (durableAfter, read by another process). The core has no in-process snapshot apart from the store: storedAfter is compared only where the save landed; durableAfter is compared in every case",
+    "the place of the messages field: a session Node made in this process keeps it where createSession put it, while Node's loader assembles a stored session as its header fields followed by its messages (the transcript is the log beside the header), so a record read back after a barrier or from another process has it last. The replay's thread holds the recorded messages as one header field; each comparison places that field where the recorded record has it, every field, value and the order of all other fields compared whole",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
@@ -18,15 +20,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4436999,
+      "bytes": 5465888,
       "path": "twin.json",
-      "sha256": "b2ce8686d46e8b120d68b3e8a96470ebe0c0cb88a7489ed6565859eafb49d42e"
+      "sha256": "474b2ada9d829ec8fb77114f792ab0287b686920f168d04a3e76766eb580eb3b"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/determinism-preload-other-process.mjs",
@@ -56,25 +58,61 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
-    "refComparison": {
-      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
-      "commitFilesMissingFromTree": 199,
-      "exact": false,
-      "filesDifferingFromCommit": 238
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9141,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+        "src/runtime/agent/orchestrator/session/store.mjs",
+        "src/runtime/agent/orchestrator/session/store/listing.mjs",
+        "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+        "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+        "src/session-runtime/lifecycle/inheritance.mjs"
+      ],
+      "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "patches": [
+      {
+        "file": "node-fix-prune-after-save.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+          "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+          "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+          "src/runtime/agent/orchestrator/session/store.mjs",
+          "src/runtime/agent/orchestrator/session/store/listing.mjs",
+          "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+          "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+          "src/session-runtime/lifecycle/inheritance.mjs"
+        ],
+        "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 10
+    },
+    "srcSha256": "9b3573a2c5ea84ceab724890e9fd439fb149b4e135a1da73c15449707ab5acc7",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-lifecycle.mjs",
-  "recorderSha256": "6b5727e2495a03fde49ee4ccc5d4b55b6146ec16ba7e4c25243c6cbd7578c29c",
-  "replay": "A replay drives the Rust core through the public app-server protocol (native/core/crates/mixdog-app-protocol methods.rs) and compares WHOLE stored records (thread/read of the thread, before and after each step; every recorded before/after/recorded/late/storedAfter is a whole Node session record): detach (cli-exit, no live session clients) <- thread/unsubscribe of the last subscriber; close with tombstone (manual, desktop-session-delete) <- thread/delete; agent-task-cancel <- thread/agentControl; a late save carrying an expected generation <- turn/start and thread/name/set issued with a stale generation, whose refusal/acceptance is the recorded outcome. The daemon-internal reasons (idle-sweep, SIGTERM, cli-agent-close, owner close) have no protocol method: Rust-side work, to be driven through the thread directory's own close/detach calls. Node-only fields (updatedAt, ownerClosedAt, cancelledAt) are the virtual clock 1000 * (step + 1). The existing close.rs unit tests read the old nine-key before/after/recorded projections of this file: they must read the whole records now.",
+  "recorderSha256": "8c4b5dc8c0f3333aab7fa9bf8ef57a93b39745f2c6a494270d7f81239f2ae6d7",
+  "replay": "mixdog-core-session session/lifecycle_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: each recorded record is a thread created under its id with the record as its header (create_with_id). Barriers: the directory's own detach and close (close.rs SessionClose::detach(id, reason, ownerClose) for detach / owner-close, SessionClose::close(id, reason) for close, re-close and agent-task-cancel), the calls thread/delete, thread/switchContext, the exit and the idle sweep make, at the recorded clock; the whole stored record (thread header) is compared before and after each step, with the generation it resolved. Fence: the late save is the thread's request thread/header/patch with expectedGeneration, which the thread drops against the header it lands on (the request SessionThreads::patch_header_fenced sends for the delegation rebind, agent_send_world.rs ThreadHeaders); its change is the late record's fields that differ from the stored one; the outcome (saved / dropped), the whole durableAfter record and, for a save that landed, the whole storedAfter record are compared.",
   "set": "session-lifecycle",
   "testFile": "src/runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs (no test file: a golden twin of the barriers)",
-  "totalBytes": 4436999,
+  "totalBytes": 5465888,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

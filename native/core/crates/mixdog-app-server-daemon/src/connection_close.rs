@@ -191,7 +191,7 @@ mod tests {
         assert!(!screen.shows("s1") && !screen.shows("s2"), "a closed UI shows no session");
         assert_eq!(*recorder.0.lock().unwrap(), vec![ConnectionId(6), ConnectionId(5)], "every owner is told, once per close");
         terminal.tabs().dispose_all();
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
 
     #[test]

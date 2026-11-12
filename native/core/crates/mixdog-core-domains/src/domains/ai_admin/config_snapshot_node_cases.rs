@@ -173,7 +173,7 @@ fn stored(base: &serde_json::Map<String, Value>, loaded: &serde_json::Map<String
 
 /// The one deadline of a wait on an event: what it waits for, named in the failure.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
-    match tokio::time::timeout(Duration::from_secs(5), wait).await {
+    match mixdog_rt::time::timeout(Duration::from_secs(5), wait).await {
         Ok(done) => done,
         Err(_) => panic!("waited 5 s for {what}"),
     }
@@ -408,7 +408,7 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                         continue;
                     }
                     let mut got = Value::Null;
-                    let reached = tokio::time::timeout(Duration::from_secs(5), async {
+                    let reached = mixdog_rt::time::timeout(Duration::from_secs(5), async {
                         loop {
                             sync.applied.borrow_and_update();
                             got = stored(base, &rig.loaded.get());

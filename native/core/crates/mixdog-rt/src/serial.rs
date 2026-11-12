@@ -270,7 +270,7 @@ mod tests {
         // The turn reaches the second waiter, which is dropped before it ever polls again.
         drop(first);
         drop(second);
-        tokio::time::timeout(Duration::from_secs(5), third).await.unwrap().unwrap();
+        crate::time::timeout(Duration::from_secs(5), third).await.unwrap().unwrap();
         assert!(!chain.is_busy());
     }
 
@@ -313,7 +313,7 @@ mod tests {
         let chain = SerialChain::new();
         let running = tokio::spawn({
             let chain = chain.clone();
-            async move { chain.run(tokio::time::sleep(Duration::from_millis(200))).await }
+            async move { chain.run(crate::time::sleep(Duration::from_millis(200))).await }
         });
         tokio::task::yield_now().await;
         // `is_busy` takes the state mutex; it would deadlock here if a task held it across its await.

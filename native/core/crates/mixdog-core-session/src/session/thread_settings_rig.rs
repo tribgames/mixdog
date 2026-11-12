@@ -34,6 +34,8 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::sub_agent_retention::AgentOnlyIndex;
 use super::thread_settings::ArchiveRetention;
+use super::thread_settings::ArchiveStamps;
+use super::thread_settings::ArchivedWorktrees;
 use super::thread_settings::EffortTuning;
 use super::thread_settings::ProjectFolders;
 use super::thread_settings::ThreadSettings;
@@ -153,11 +155,25 @@ pub struct Built {
     pub agent_only: Arc<AgentOnly>,
     pub app: MockConnection,
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
+    /// The core's one archive stamp counter, which the settings and the retention cycle share.
+    pub stamps: Arc<ArchiveStamps>,
     pub ops: tempfile::TempDir,
 }
 
 /// The service over `directory` and `workspaces`, with `registered` as the Projects and `task` as the task workspace.
 pub async fn build(directory: Arc<SessionDirectory>, workspaces: SessionWorkspaces, worktrees: Arc<Worktrees>, registered: Vec<String>, task: String) -> Built {
+    build_with(directory, workspaces, worktrees, None, registered, task).await
+}
+
+/// [`build`] with the archive hand-off going to `hand_off` instead of the real worktree maintenance over `worktrees`.
+pub async fn build_with(
+    directory: Arc<SessionDirectory>,
+    workspaces: SessionWorkspaces,
+    worktrees: Arc<Worktrees>,
+    hand_off: Option<Arc<dyn ArchivedWorktrees>>,
+    registered: Vec<String>,
+    task: String,
+) -> Built {
     let projects = Arc::new(Projects { registered, task, touched: Mutex::default() });
     let (notes, effort, agent_only) = (Arc::new(Notes::default()), Arc::new(Effort::default()), Arc::new(AgentOnly::default()));
     let live: super::worktree::LiveSessions = Arc::new(HashSet::new);
@@ -170,20 +186,21 @@ pub async fn build(directory: Arc<SessionDirectory>, workspaces: SessionWorkspac
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let ops = tempfile::tempdir().unwrap();
     let surface = mixdog_core_base::surface::SurfaceGeneration::default();
+    let stamps: Arc<ArchiveStamps> = Arc::default();
     let settings = ThreadSettings::new(ThreadSettingsParts {
         directory,
         workspaces,
         effort: effort.clone(),
         projects: projects.clone(),
         agent_only: agent_only.clone(),
-        worktrees: Arc::new(worktrees),
+        worktrees: hand_off.unwrap_or_else(|| Arc::new(worktrees)),
         retention: notes.clone(),
         app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
-        archive_stamps: Arc::default(),
+        archive_stamps: stamps.clone(),
     });
-    Built { settings, projects, notes, effort, agent_only, app, surface, ops }
+    Built { settings, projects, notes, effort, agent_only, app, surface, stamps, ops }
 }
 
 /// The live runtime around the sessions, as far as a Project switch reads it: whether a turn runs is the directory's, the

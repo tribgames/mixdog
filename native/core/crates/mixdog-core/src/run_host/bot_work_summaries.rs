@@ -15,15 +15,11 @@
 
 use std::sync::{Arc, OnceLock};
 
-use mixdog_app_protocol::v2::thread::ThreadSummaryUpdatedParams;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::state::SectionFeedState;
 use mixdog_core_session::session::thread_list::ThreadListService;
 
 use super::late::Bound;
-
-/// The method of a republished row (`thread_list.rs` `SUMMARY_UPDATED`).
-const SUMMARY_UPDATED: &str = "thread/summary/updated";
 
 pub struct BotWorkSummaries {
     target: OnceLock<(Arc<ThreadListService>, Arc<SectionFeedState>)>,
@@ -46,7 +42,7 @@ impl BotWorkSummaries {
         let id = ThreadId::from(session);
         drop(mixdog_rt::spawn("bot-work-summary", mixdog_rt::TaskClass::Work, async move {
             match list.summary(&id).await {
-                Ok(Some(thread)) => app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+                Ok(Some(thread)) => list.announce(&app, thread, false),
                 // A session with no listed row has nothing to show.
                 Ok(None) => {}
                 Err(error) => tracing::warn!(?error, thread = id.as_str(), "bot work: the row could not be read"),

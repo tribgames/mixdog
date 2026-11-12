@@ -1,0 +1,77 @@
+{
+  "note": "Node's askSession turn at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-switch-project-turn-cases.mjs",
+  "cases": [
+    {
+      "case": "the switch, the list and the file are three model steps",
+      "script": [
+        {
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "session",
+              "arguments": {
+                "action": "set-project",
+                "path": "<root>/b"
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "c2",
+              "name": "list",
+              "arguments": {
+                "path": "."
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "c3",
+              "name": "edit",
+              "arguments": {
+                "file_path": "out.txt",
+                "old_string": "",
+                "new_string": "written after the switch\n"
+              }
+            }
+          ]
+        },
+        {
+          "reply": "done"
+        }
+      ],
+      "recorded": {
+        "reply": "done",
+        "toolResults": [
+          {
+            "toolCallId": "c1",
+            "content": "{\n  \"cwd\": \"<root>/b\",\n  \"sessionId\": \"<session>\"\n}"
+          },
+          {
+            "toolCallId": "c2",
+            "content": "new.txt\tfile"
+          },
+          {
+            "toolCallId": "c3",
+            "content": "Created out.txt (25 bytes)"
+          }
+        ],
+        "sessionCwd": "<root>/b",
+        "files": {
+          "a": [
+            "old.txt"
+          ],
+          "b": [
+            "new.txt",
+            "out.txt"
+          ]
+        },
+        "created": "written after the switch\n"
+      }
+    }
+  ]
+}

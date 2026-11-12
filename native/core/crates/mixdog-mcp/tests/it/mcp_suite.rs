@@ -22,7 +22,7 @@ const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
-    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }
+    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
 }
 
 fn config(name: &str, extra: Value) -> McpServerConfig {
@@ -123,7 +123,7 @@ async fn caller_cancel_ends_the_call() {
     let cancel = CancellationToken::new();
     let trigger = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         trigger.cancel();
     });
     let result = server.call_tool("t", "hang", json!({}), &cancel, None).await;
@@ -194,7 +194,7 @@ async fn a_hung_or_missing_server_never_blocks_another() {
         tokio::spawn(async move { busy.call_tool("t", "hang", json!({}), &cancel, None).await })
     };
     let good = hub.server("good").unwrap();
-    let echoed = tokio::time::timeout(Duration::from_secs(5), call(&good, "echo", json!({"text": "fast"}))).await;
+    let echoed = mixdog_rt::time::timeout(Duration::from_secs(5), call(&good, "echo", json!({"text": "fast"}))).await;
     assert_eq!(echoed.expect("not blocked by the hung server").unwrap(), "fast");
     cancel.cancel();
     assert!(matches!(hanging.await.unwrap(), Err(CallError::Rpc(RpcError::Cancelled))));
@@ -215,6 +215,33 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     assert_eq!(echo.outbound_kind(&json!({})), Some(mixdog_core_api::domain::approval::ActionKind::Message));
     assert_eq!(hub.tool("mcp__busy__echo").expect("resolves").outbound_kind(&json!({})), None);
     assert!(hub.tool("mcp__good__nothing").is_none() && hub.tool("read").is_none());
+    hub.close_all().await;
+}
+
+/// A server whose start failed is connected again when its unchanged configuration is applied
+/// (Node's reconcile retries a recorded failure, `server-connection.mjs` `reconcileServers`); a
+/// connected one keeps its connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn applying_the_unchanged_configuration_of_a_failed_server_connects_it_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let down = dir.path().join("down");
+    std::fs::write(&down, "").unwrap();
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    let files = config("files", json!({"env": {"MOCK_DOWN_WHILE": down}}));
+    hub.apply(vec![files.clone()]);
+    let first = hub.server("files").unwrap();
+    until(&first, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*first.state(), ServerState::Failed { .. }));
+
+    std::fs::remove_file(&down).unwrap();
+    hub.apply(vec![files.clone()]);
+    let again = hub.server("files").unwrap();
+    assert!(!matches!(&*again.state(), ServerState::Failed { .. }), "the failed server is connecting again");
+    // The connect ends by itself, bounded by the server's startup timeout.
+    until(&again, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*again.state(), ServerState::Ready(_)), "the server reconnected");
+    hub.apply(vec![files]);
+    assert!(Arc::ptr_eq(&again, &hub.server("files").unwrap()), "a connected server is kept");
     hub.close_all().await;
 }
 

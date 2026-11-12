@@ -1,5 +1,5 @@
 {
-  "cases": 5,
+  "cases": 6,
   "command": "node benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the pool listing itself: the rows and the entry lookup are the test's",
@@ -9,15 +9,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5439,
+      "bytes": 21821,
       "path": "golden.json",
-      "sha256": "b6117f3493e10b6aa7a320af9b844ec2d0ffd2d1439b6079c52853883253e768"
+      "sha256": "6b27820377665a30a010002eaea1563868df468f6263289e4771a380dc9dfae8"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -41,7 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "a22b6fb782dfb9f9c6290935b82654961925333fd2a1feb33734ce43cdfd2a4a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "3e1301689dcce08b5ceaf1a0a7c0d0e6b29e6cf26b0c2eba10b58cfcd38ccb52"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,16 +71,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs",
-  "recorderSha256": "c3ae8d730219db98ed8e93d7377abbd04ef8c58c81fdedf994a4f16bfd98a549",
+  "recorderSha256": "981c833ad234fc2429b9406d56d359630935c7bde2e1536740f55e6c807b2ca8",
   "replay": {
-    "compare": "The pool-row decoration (withTurnProgress: progress time, display stage, running tool, stall warn) has a Rust counterpart, AgentPool::list; the quiet cue (quietProgress / quietProgressParts / quietWaitKind, labels such as \"quiet for 3m · running shell\", the cue window, the freeze until the watchdog warn point) has none: a search of native/**/*.rs for those names finds none, and agent_tool/progress.rs progress_fields (:380) is a different contract (task progress). The cue is new Rust work; this recording is its contract: feed each recorded input and compare the result whole.",
+    "compare": "Cases 0-4 in mixdog-core-agents agents/pool_list_quiet_replay.rs: each recorded input fed to the core, the core's values written to src/tui/quiet-progress-core.json (with the golden's sha256; the Rust test fails when the file differs from what the core gives); src/tui/quiet-progress-replay.test.mjs refuses a file of another golden, feeds the core's quiet states to buildSpinnerMeta and compares each case whole with this recording (one chain: recorded input -> core -> client -> recorded value). Case 5 in mixdog-core run_host/quiet_watch.rs (tests): the core's QuietWatch runs on a virtual clock moved only by timers.advances, reads the recorded livenessScript, and its reads, publications and stop are compared whole.",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (list (pool_list.rs:624) returns the pool rows decorated with progressAt, progressStage (model_thinking while a sent request awaits its headers), progressTool and stallWarnMs from the private with_progress (:785); re-exported by agents/mod.rs:50); mixdog-agent/src/agent_tool/watchdog.rs:123 stall_warn_ms.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the quiet cue and its labels (quietProgress / quietProgressParts / quietWaitKind, \"quiet for 3m · running shell\", the cue window and the freeze until the warn point): no Rust code; agent_tool/progress.rs:300 builds a different text (\"tool possibly hung\", task progress)"
-    ],
-    "nearestOnO1": "only the model-thinking stage exists: mixdog-core-run run_host/progress.rs MODEL_THINKING_STAGE (:68) and awaiting_model_response (:396), and mixdog-core-agents agents/pool_list.rs:820 (progressStage \"model_thinking\"): they cover the stage-name part of the third case, not the cue, the labels or the pool-row decoration",
-    "note": "also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs",
+    "missingOnO1": [],
+    "notCompared": {
+      "case 5 timers.armed, timers.firedCount": "Node's one setInterval and its firings: the format of its timer. The core arms one wait per poll; what the polls did (reads, publications, nothing left armed) is compared whole"
+    },
     "protocolMethods": [],
     "rustTargets": [
       {
@@ -91,9 +94,10 @@
         "path": "native/core/crates/mixdog-agent/src/agent_tool/watchdog.rs"
       }
     ],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "timers": "case 5: timers.advances are the only movements of the clock"
   },
   "set": "quiet-progress-cases",
-  "totalBytes": 5439,
+  "totalBytes": 21821,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

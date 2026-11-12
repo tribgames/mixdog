@@ -106,7 +106,7 @@ async fn settle(notices: &Notices, want: usize) {
             arrived.await;
         }
     };
-    tokio::time::timeout(std::time::Duration::from_secs(10), arrive).await.expect("a notification never arrived");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), arrive).await.expect("a notification never arrived");
     for _ in 0..8 {
         tokio::task::yield_now().await;
     }
