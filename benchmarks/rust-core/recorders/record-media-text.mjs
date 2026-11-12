@@ -12,11 +12,25 @@
 // metadata dates, the inputs are generated from constants, and keys are written sorted. The recorder
 // builds every input twice and refuses to write if the two builds differ.
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { createRequire, registerHooks } from 'node:module';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, refreshSetManifest, resolveTree, writeJson } from './lib/common.mjs';
+import { readFileSync } from 'node:fs';
+import { FIXTURES_ROOT, importFrom, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
-const tree = resolveTree(parseArgs());
+// Node's two extraction functions are module-private in the exact tree (`officeTextForFile`, `extractPdfText`); the
+// extension host's worker calls them through exports. The load hook appends those exports to the module's source in
+// memory, so the tree on disk is the exact recording tree and no line of the functions changes.
+registerHooks({
+  load(url, context, next) {
+    const loaded = next(url, context);
+    if (!url.endsWith('/providers/media-normalization.mjs')) return loaded;
+    return { ...loaded, source: `${loaded.source}\nexport { officeTextForFile, extractPdfText };\n` };
+  },
+});
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const args = parseArgs();
+const tree = resolveTree(args);
 const need = createRequire(join(tree, 'package.json'));
 const JSZip = need('jszip');
 const { PDFDocument, StandardFonts } = need('pdf-lib');
@@ -264,5 +278,17 @@ if (!pdfPaged.includes('Body of page 100') || pdfPaged.includes('page 101')) thr
 writeJson(join(outDir, 'office.json'), office);
 writeJson(join(outDir, 'pdf.json'), pdf);
 writeJson(join(outDir, 'pdf-counts.json'), counts);
-refreshSetManifest(join(FIXTURES_ROOT, 'tools'), tree);
+// The tools set's manifest is shared with the other tools recorders: its recorder, command and extra stay, its files
+// and identity are this run's (the tree is the exact b6f10295a export; the hook above changes no byte on disk).
+const toolsDir = join(FIXTURES_ROOT, 'tools');
+const { set, recorder, command, product: _product, fileCount: _count, totalBytes: _total, files: _files, ...extra } = JSON.parse(
+  readFileSync(join(toolsDir, 'MANIFEST.json'), 'utf8')
+);
+writeSetManifest(toolsDir, {
+  set,
+  recorder,
+  command,
+  extra: { ...extra, ...recorderProvenance(import.meta.url) },
+  identity: nodeTreeIdentity(args, tree, NODE_COMMIT),
+});
 console.log(`recorded ${office.length} office, ${pdf.length} pdf and ${counts.length} pdf-count cases`);
