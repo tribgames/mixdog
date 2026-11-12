@@ -33,6 +33,13 @@ export interface SessionFold {
   readonly live: Live | null;
   /** How many times the rows changed structure (`structureRevision`: an item entered, was replaced, or the log was cut back). */
   readonly structureRevision: number;
+  /** A live row has shown an unfinished line (`streamingPartial`) since the fold began: from then on the field is held, `null`
+   *  between lines, as Node's store holds it (turn-stream.mjs:197 sets it, :214 clears it to null; the first draft has none). */
+  readonly partialShown?: boolean;
+  /** The core's `thread/frame` announcements since the fold began: Node's publications of the state (frame-batched-store.mjs). */
+  readonly frames?: number;
+  /** `structureRevision` as Node's frames commit it: one up per frame that changed the rows' structure (frame-batched-store.mjs:37). */
+  readonly framedRevision?: number;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -69,6 +76,9 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`.
   'thread/roomView/updated': { stateKey: 'roomView', field: 'roomView' },
 };
+
+/** The shell-job status with no job (shell-jobs-poller.ts's empty status). */
+const emptyShellJobs = (): Json => ({ count: 0, elapsedLabel: '', jobs: [], finished: [] });
 
 /** Up-arrow recall holds at most this many prompts (`PROMPT_HISTORY_LIMIT`). */
 const PROMPT_HISTORY_LIMIT = 50;
@@ -126,10 +136,28 @@ function upsert(items: readonly Obj[], row: Obj): Obj[] {
 
 // ───────────────────────────── the reducer ─────────────────────────────
 
-/** The queue as clients hold it: a queued entry is named by the submission it answers (Node's `makeQueueEntry` id), which the core
- * carries as `clientSubmissionId` beside its own queue id. */
+/** The queue as clients hold it, Node's projection of a queue entry (`session-state-projection.mjs:33-49`): `id`, `submittedAt`,
+ * `text` and `displayText` (the same shown text), `mode`, `priority`, the sender's source fields and the images. A queued entry is
+ * named by the submission it answers (Node's `makeQueueEntry` id), which the core carries as `clientSubmissionId` beside its own
+ * queue id; its `submittedAt` is the core's `enqueuedAt`. */
 function queueOf(queued: Json | undefined): Json[] {
-  return Array.isArray(queued) ? queued.map((row) => (isObj(row) && typeof row.clientSubmissionId === 'string' && row.clientSubmissionId ? { ...row, id: row.clientSubmissionId } : row)) : [];
+  if (!Array.isArray(queued)) return [];
+  return queued.map((row) => {
+    // Only the core's queue rows (they carry `enqueuedAt`) are projected; a row already in the projected shape stays as it is.
+    if (!isObj(row) || !('enqueuedAt' in row)) return row;
+    const { clientSubmissionId, enqueuedAt, id, text, mode, priority, images, ...source } = row;
+    const shown = typeof text === 'string' ? text : '';
+    return {
+      id: typeof clientSubmissionId === 'string' && clientSubmissionId ? clientSubmissionId : id,
+      submittedAt: enqueuedAt,
+      text: shown,
+      displayText: shown,
+      mode: mode || 'prompt',
+      priority: priority || 'next',
+      ...source,
+      ...(Array.isArray(images) && images.length ? { images } : {}),
+    };
+  });
 }
 
 function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
@@ -142,7 +170,11 @@ function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
   return fields;
 }
 
-const withLive = (s: SessionFold, live: Live | null): SessionFold => ({ ...s, live });
+const withLive = (s: SessionFold, live: Live | null): SessionFold => ({
+  ...s,
+  live,
+  ...(!s.partialShown && live && liveFields(live).streamingPartial !== undefined ? { partialShown: true } : {}),
+});
 const withField = (s: SessionFold, key: string, value: Json | undefined): SessionFold => {
   const fields: Obj = { ...s.fields };
   if (value === undefined) delete fields[key];
@@ -163,7 +195,9 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
-  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: 0 };
+  // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
+  // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
+  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0, frames: 0, framedRevision: items.length ? 1 : 0 };
 }
 
 export const sessionReducer: ThreadReducer<SessionFold> = {
@@ -189,6 +223,8 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         return withField(s, 'desktopSessionTitle', typeof p.title === 'string' ? p.title : undefined);
       case 'thread/goal/cleared':
         return withField(s, 'goal', undefined);
+      case 'thread/frame':
+        return { ...s, frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) +(p.structureChanged === true ? 1 : 0) };
       case 'turn/started':
       case 'turn/completed':
         return withLive(s, null);
@@ -243,8 +279,14 @@ function liveFields(live: Live): Obj {
 
 /** The card of a server request, shaped like today's `toolApproval`: the request's own content plus its id. */
 function approvalCard(r: ServerRequest): Obj {
+  // The core's copy of Node's card (`normalizeToolApprovalRequest` of the hook request), with the row-shaped id the card shows
+  // (room_approval.rs `card_id`; `approvalRequestOf` finds the request back from it).
+  const card = asObj(r.params).card;
+  if (card && typeof card === 'object' && !Array.isArray(card)) return { ...(card as Obj) };
   const { threadId: _t, turnId: _u, itemId: _i, surfaceThreadId: _s, chain: _c, requestedAt: _r, expiresAt: _e, order: _o, request, kind: _k, ...rest } = asObj(r.params);
-  return { ...rest, ...asObj(request), id: String(r.id) };
+  // An `ask_user` question carries no kind on the wire (its method says it); Node's card said `kind: 'question'` (the push notifier
+  // and the card's Allow rules tell a question from an approval by it).
+  return { ...rest, ...asObj(request), ...(r.method === 'item/tool/requestUserInput' ? { kind: 'question' } : {}), id: String(r.id) };
 }
 
 const surfaceOf = (r: ServerRequest): string => {
@@ -284,6 +326,7 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     items: transcriptOf(fold.items),
     structureRevision: fold.structureRevision,
     streamingTail: null,
+    ...(fold.partialShown ? { streamingPartial: null } : {}),
     promptHistoryList: [],
     transcriptViewItems: null,
     transcriptViewRevision: 0,
@@ -292,6 +335,13 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     transcriptArchive: null,
     lastTurn: null,
     themeEpoch: 0,
+    // The host's fields Node's session state always carries, empty while it has none; a section the core removed (`withSection`: JSON
+    // null removes) reads as that value, not as an absent key: the remote fields (session-host-publication.ts:281-288) and shell-job
+    // status (session-host.ts:485-495, the poller's empty status).
+    remoteEnabled: false,
+    remoteSessionId: null,
+    shellJobs: emptyShellJobs(),
+    hostShellJobs: emptyShellJobs(),
     ...fold.fields,
     toolApproval: null,
     toolApprovalsWaiting: 0,
@@ -333,4 +383,27 @@ export function sessionStateOf(client: ProtocolClient<SessionFold>, threadId: st
   const fold = client.store.thread(threadId);
   if (!fold) return undefined;
   return desktopSessionState(fold.state, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value);
+}
+
+/** The thread's states as Node's frame publisher published them (frame-batched-store.mjs): `listener` hears the first fold of the
+ *  thread and then one state per `thread/frame`, its `structureRevision` the frames' (one up per frame that changed the rows'
+ *  structure). The phone shows these; a reader of every change uses `sessionStateOf`. */
+export function subscribeFramedSessionStates(
+  client: ProtocolClient<SessionFold>,
+  threadId: () => string | undefined,
+  listener: (threadId: string, state: DesktopSessionState) => void
+): () => void {
+  const heard = new Map<string, number>();
+  return client.store.subscribe((change) => {
+    if (change.type !== 'thread') return;
+    const id = threadId() ?? change.threadId;
+    if (change.threadId !== id) return;
+    const fold = client.store.thread(id)?.state;
+    if (!fold) return;
+    const frames = fold.frames ?? 0;
+    if (heard.get(id) === frames) return;
+    heard.set(id, frames);
+    const state = desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value);
+    listener(id, { ...state, structureRevision: fold.framedRevision ?? fold.structureRevision });
+  });
 }

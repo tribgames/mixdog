@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'vite';
+import { adaptersOf } from './remote-shim-adapters.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 globalThis.window ??= { setTimeout: () => 0, clearTimeout() {}, addEventListener() {}, location: { href: 'http://localhost/' } };
@@ -34,63 +35,33 @@ async function bundledTable() {
   }
 }
 
-test('every file the adapter glob matches yields an adapter', async () => {
+test('every file the adapter glob matches yields an adapter, in file-name order', async () => {
   const adapters = await bundledTable();
   const groups = adapters.map((adapter) => adapter?.group);
   assert.ok(adapters.every((adapter) => adapter && typeof adapter.group === 'string'), `adapters: ${JSON.stringify(groups)}`);
-  const matched = readdirSync(here).filter(
-    (name) => /^remote-protocol-.*\.ts$/.test(name) && name !== 'remote-protocol-queue.ts' && readFileSync(join(here, name), 'utf8').includes('export const adapter'),
-  );
+  const matched = readdirSync(here)
+    .filter((name) => /^remote-protocol-.*\.ts$/.test(name) && name !== 'remote-protocol-queue.ts' && readFileSync(join(here, name), 'utf8').includes('export const adapter'))
+    .sort();
   assert.equal(adapters.length, matched.length, 'one adapter per adapter file, none from a helper file');
+  assert.ok(groups.includes('chat'), `the chat adapter is in the table: ${JSON.stringify(groups)}`);
+  for (const adapter of adapters) {
+    const answered = [adapter.calls, adapter.fires, adapter.capabilities].reduce((count, table) => count + Object.keys(table ?? {}).length, 0);
+    assert.ok(answered > 0, `${adapter.group}: answers calls or capabilities`);
+  }
 });
 
-// Names the shim calls that no adapter claims yet: the chat/session group (remote-protocol-chat*.ts hold only factories, not an adapter), push,
-// project start, quota resume, visualize and browser-remote. A call to one rejects with UnclaimedNodeMethodError. Claiming one removes it here.
+// Names the shim calls that no adapter claims yet: push, visualize, browser-remote, and `invokeCapability` for a capability outside
+// the worktree and review groups. A call to one rejects with UnclaimedNodeMethodError. Claiming one removes it here.
 const UNCLAIMED_ON_THIS_LINE = [
   'browserRemoteTabOpen',
   'pushPublicKey',
   'registerPushSubscription',
   'removePushSubscription',
-  'startProject',
-  'startProjectTask',
-  'startTask',
   'browserRemoteStream',
   'browserRemoteStreamAck',
   'browserRemoteControl',
-  'markSessionRead',
-  'searchSessionContent',
-  'renameSession',
-  'continueSessionInModel',
-  'scheduleQuotaResume',
-  'cancelQuotaResume',
-  'stopShellJob',
-  'releaseShellJob',
-  'getQuotaAutoResume',
-  'viewerDevice',
-  'getTaskWorkspace',
-  'readTranscriptItem',
-  'setQuotaAutoResume',
-  'setSessionArchived',
-  'openAgentHome',
-  'resetAgentHome',
-  'agentRoomAction',
-  'setSessionFavorite',
-  'setSessionProject',
-  'deleteSession',
-  'prefetchSession',
-  'readTranscriptHistory',
-  'getSnapshot',
   'browserReleasePage',
-  'submitNewTask',
-  'submitToSession',
-  'abortSession',
-  'resolveToolApprovalForSession',
-  'inheritSession',
-  'listProviderModels',
-  'setModelRoute',
-  'setFast',
   'invokeCapability',
-  'readCapabilities',
   'visualizeState',
   'visualizePaneInline',
   'visualizeCommand',
@@ -123,4 +94,8 @@ test('the router builds over the bundled table, which holds every request name t
   assert.deepEqual([...new Set(named)].filter((name) => !held.has(name)), UNCLAIMED_ON_THIS_LINE);
 });
 
-
+test('a module the glob finds without an adapter fails by its path, not at the router\'s first call', () => {
+  const files = { group: 'files', calls: { listFiles() {} } };
+  assert.throws(() => adaptersOf({ './remote-protocol-files.ts': { adapter: files }, './remote-protocol-helper.ts': {} }), /\.\/remote-protocol-helper\.ts exports no phone adapter/);
+  assert.deepEqual(adaptersOf({ './remote-protocol-files.ts': { adapter: files } }), [files]);
+});

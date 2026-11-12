@@ -22,11 +22,23 @@ pub(crate) struct Reclaim {
     pub ids: Vec<String>,
     /// Another device cancelled: the device that sent the prompt, which gets it through `thread/promptRestore`.
     pub handoff: Option<String>,
+    /// The runtime's own prompt the stop found uncommitted, as the queue entry that goes back to the front of the queue and
+    /// runs again (`requeueEntriesFront`, `abort.mjs:90`).
+    pub requeue: Option<Value>,
 }
 
 /// The prompt that started a run.
 #[derive(Debug)]
-pub(crate) struct PromptState(Mutex<Facts>);
+pub(crate) struct PromptState {
+    facts: Mutex<Facts>,
+    /// A test's stop stands here, between its reads and its decision, until the test lets it go.
+    #[cfg(test)]
+    pub(crate) pause: Mutex<Option<(std::sync::Arc<tokio::sync::Notify>, std::sync::Arc<tokio::sync::Notify>)>>,
+    /// Whether the facts could be taken (so an output commit could land) between a stop's decision and its record: `Some(false)` when the
+    /// stop holds them across both, as Node's `abort` has no await between (`abort.mjs:131-205`).
+    #[cfg(test)]
+    pub(crate) between: Mutex<Option<bool>>,
+}
 
 /// What [`decide`] reads of the prompt.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -43,6 +55,10 @@ pub(crate) struct Facts {
     pub committed: bool,
     /// The prompt in the shape of a queue entry (`{message, options}`): what the attachments are read from.
     pub entry: Value,
+    /// A runtime's own prompt (a kickoff), as its queue entry: Node's drain gives the turn the batch's entries that are not the
+    /// user's to edit as `requeueOnAbort` (`drain.mjs:140`), and a stop before the turn committed puts them back
+    /// (`abort.mjs:160-165`).
+    pub requeue: Option<Value>,
     pub reclaim: Option<Reclaim>,
 }
 
@@ -58,11 +74,27 @@ impl Facts {
 
 impl PromptState {
     pub fn new(facts: Facts) -> Self {
-        Self(Mutex::new(facts))
+        Self {
+            facts: Mutex::new(facts),
+            #[cfg(test)]
+            pause: Mutex::new(None),
+            #[cfg(test)]
+            between: Mutex::new(None),
+        }
+    }
+
+    /// `(reached, go)`: the stop signals `reached` when it stands between its reads and its decision, and waits for `go`.
+    #[cfg(test)]
+    pub(crate) async fn paused(&self) {
+        let held = self.pause.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some((reached, go)) = held {
+            reached.notify_one();
+            go.notified().await;
+        }
     }
 
     fn facts(&self) -> std::sync::MutexGuard<'_, Facts> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.facts.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn snapshot(&self) -> Facts {
@@ -81,6 +113,24 @@ impl PromptState {
         let mut facts = self.facts();
         facts.restorable = false;
         facts.reclaim = reclaim;
+    }
+
+    /// [`decide`] over the prompt's facts as they are at this instant and the hand-back recorded in the same hold of the lock: an
+    /// output commit lands wholly before it (nothing is handed back) or wholly after it (the stop already took the prompt), as Node's
+    /// `abort` reads, decides and records with no await between (`abort.mjs:131-205`).
+    pub fn decide_and_record(&self, restore_prompt: Option<bool>, canceller: &str, steering: bool, unreadable: bool) -> Decision {
+        let mut facts = self.facts();
+        let decision = decide(&facts, restore_prompt, canceller, steering, unreadable);
+        #[cfg(test)]
+        self.between.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace(self.facts.try_lock().is_ok());
+        // Node hands back at once and empties what it handed (`restorable = false`, `requeueEntries = []`, `abort.mjs:200-201`), so a
+        // second Stop before the turn ended finds nothing; the core hands back at the turn's end, so the first's record stays.
+        facts.restorable = false;
+        facts.requeue = None;
+        if decision.reclaim.is_some() {
+            facts.reclaim = decision.reclaim.clone();
+        }
+        decision
     }
 
     pub fn take_reclaim(&self) -> Option<Reclaim> {
@@ -140,10 +190,13 @@ pub(crate) fn decide(facts: &Facts, restore_prompt: Option<bool>, canceller: &st
         Reason::UserCancel
     };
     let handed_over = cross && !restore_text.is_empty();
-    let reclaim = (!restore_text.is_empty()).then(|| Reclaim {
+    let requeue = facts.requeue.clone().filter(|_| !facts.committed);
+    // `reclaimInFlightPrompt` runs for a prompt handed back and for entries put back in the queue (`abort.mjs:192-199`).
+    let reclaim = (!restore_text.is_empty() || requeue.is_some()).then(|| Reclaim {
         text: restore_text.clone(),
         ids: facts.ids.clone(),
         handoff: handed_over.then(|| facts.device.clone()),
+        requeue,
     });
     Decision {
         reason,
@@ -187,6 +240,7 @@ mod tests {
                 restorable: submit["kickoff"] != true && !committed,
                 committed,
                 entry: json!({ "options": { "pastedImages": submit["pastedImages"], "pastedTexts": submit["pastedTexts"] } }),
+                requeue: None,
                 reclaim: None,
             };
             let restore_prompt = options.get("restorePrompt").and_then(Value::as_bool);
@@ -209,5 +263,61 @@ mod tests {
             replayed += 1;
         }
         assert!(replayed >= 14, "replayed only {replayed} busy cases");
+    }
+
+    /// An output commit racing a stop lands on one side of it, never between its read and its record. Both orders over every case Node
+    /// recorded: the output first (the recorded case with output: nothing is handed back) or the stop first (the case's stop is the one
+    /// Node recorded without the output, and the output that lands after it changes nothing of what was decided).
+    #[test]
+    fn a_commit_racing_the_stop_lands_on_one_side_of_it() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-chat-core/phone-chat-core.json");
+        let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut both = 0;
+        for case in recorded["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "abort" && case["options"].get("reason").is_none()) {
+            let name = case["name"].as_str().unwrap();
+            let submit = &case["submit"];
+            let output = case["output"]["text"].as_str().is_some_and(|output| !output.trim().is_empty());
+            let state = PromptState::new(Facts {
+                text: case["prompt"].as_str().unwrap().trim().to_owned(),
+                ids: vec![submit["id"].as_str().unwrap().to_owned()],
+                device: submit["transcriptMeta"]["device"].as_str().unwrap_or_default().to_owned(),
+                restorable: submit["kickoff"] != true,
+                committed: false,
+                entry: json!({ "options": { "pastedImages": submit["pastedImages"], "pastedTexts": submit["pastedTexts"] } }),
+                requeue: None,
+                reclaim: None,
+            });
+            let options = &case["options"];
+            let stop = |state: &PromptState| state.decide_and_record(options.get("restorePrompt").and_then(Value::as_bool), options["device"].as_str().unwrap_or_default(), !case["steering"].is_null(), false);
+            if output {
+                state.commit();
+                let decision = stop(&state);
+                assert_eq!(json!(decision.restore_text), case["result"]["restoreText"], "{name}: output first");
+                assert_eq!(state.snapshot().reclaim, None, "{name}: nothing was handed back after the output");
+            } else {
+                let decision = stop(&state);
+                assert_eq!(json!(decision.restore_text), case["result"]["restoreText"], "{name}: stop first");
+                let handed = state.snapshot().reclaim;
+                state.commit();
+                assert_eq!(state.snapshot().reclaim, handed, "{name}: an output after the stop does not take the hand-back back");
+                both += 1;
+            }
+        }
+        assert!(both >= 8, "stop-first replayed only {both} cases");
+    }
+
+    /// Two Stops before the turn ended (`abort.mjs:113` twice while busy): the first hands the prompt back, or puts a runtime's
+    /// prompt back in the queue, and the second finds nothing left to hand back and takes nothing from the first.
+    #[test]
+    fn a_second_stop_before_the_turn_ended_keeps_the_first_stops_hand_back() {
+        let user = PromptState::new(Facts { text: "p".into(), ids: vec!["s".into()], device: "A".into(), restorable: true, entry: json!({ "options": {} }), ..Facts::default() });
+        let runtime = PromptState::new(Facts { text: "k".into(), ids: vec!["r".into()], requeue: Some(json!({ "message": "k" })), entry: json!({ "options": {} }), ..Facts::default() });
+        for state in [&user, &runtime] {
+            let first = state.decide_and_record(None, "A", false, false);
+            assert!(first.reclaim.is_some());
+            let second = state.decide_and_record(None, "A", false, false);
+            assert_eq!((second.restore_text.as_str(), second.reclaim.as_ref()), ("", None));
+            assert_eq!(state.snapshot().reclaim, first.reclaim);
+        }
     }
 }

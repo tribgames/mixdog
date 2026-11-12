@@ -141,21 +141,27 @@ impl SessionOps for DirectorySessions {
         if let Some(agent) = params.pointer("/sessionProfile/homeAgent").and_then(Value::as_str).map(str::trim).filter(|a| !a.is_empty()) {
             header.insert("agent".into(), json!(agent));
         }
-        // The route is the thread's first route, seated as a new task's is: `createSession` resolves the model's window with it
-        // (`resolveSessionContextMeta`, `session-lifecycle.mjs:281`), without which no compaction has a budget.
-        let Some(routes) = &self.routes else {
-            return self.directory.create_seeded_with_id(ThreadId::from(session_id), header, params.clone()).await.map_err(port);
-        };
-        let route: Map<String, Value> = ["provider", "model", "effort"]
-            .iter()
-            .filter_map(|key| header.shift_remove(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v)))
-            .collect();
         let thread = ThreadId::from(session_id);
-        self.directory.create_seeded_with_id(thread.clone(), header, params.clone()).await.map_err(port)?;
-        if route.is_empty() {
-            return Ok(());
+        match &self.routes {
+            None => self.directory.create_seeded_with_id(thread, header, params.clone()).await.map_err(port)?,
+            // The route is the thread's first route, seated as a new task's is: `createSession` resolves the model's window with
+            // it (`resolveSessionContextMeta`, `session-lifecycle.mjs:281`), without which no compaction has a budget.
+            Some(routes) => {
+                let route: Map<String, Value> = ["provider", "model", "effort"]
+                    .iter()
+                    .filter_map(|key| header.shift_remove(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v)))
+                    .collect();
+                self.directory.create_seeded_with_id(thread.clone(), header, params.clone()).await.map_err(port)?;
+                if !route.is_empty() {
+                    routes.update_route(&thread, route, false).await.map_err(port)?;
+                }
+            }
         }
-        routes.update_route(&thread, route, false).await.map(|_| ()).map_err(port)
+        // Node stamps a new session twice: the record at `createdAt`, then the setup save (tools, title) that sets `updatedAt` from its
+        // own clock read (`session-record.mjs:192-193`, then the `patch` of `updatedAt` with the setup fields: a room log recorded
+        // createdAt 1794261561810, updatedAt 1794261561825).
+        let saved = chrono::Utc::now().timestamp_millis().max(now + 1);
+        self.patch(session_id, Map::from_iter([("updatedAt".to_owned(), json!(saved))])).await
     }
 
     async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {
@@ -250,6 +256,9 @@ mod tests {
         sessions.delete("nope").await.unwrap();
 
         sessions.create("home_bench", &json!({ "provider": "openai", "model": "gpt-x" })).await.unwrap();
+        // A new log is stamped twice, as Node stamps it: the record, then the setup save.
+        let stamps = sessions.header("home_bench").await.unwrap().unwrap();
+        assert!(stamps["updatedAt"].as_i64() > stamps["createdAt"].as_i64(), "{stamps:?}");
         assert_eq!(
             sessions.route("home_bench").await.unwrap(),
             Some(json!({ "provider": "openai", "model": "gpt-x", "effort": null }))

@@ -136,9 +136,9 @@ fn whole(name: &str, frames: &[Value], generated: &[&str], expected: Vec<Value>)
 const EPOCH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 /// The feed publications a thread started through `thread/start` has made before a wire client attaches to it (the first one, at
-/// seq 0, as the frames the replays received show), so the sequence numbers below count from there. The numbers are the core's own
-/// feed numbering, not Node's.
-const BEFORE_ATTACH: u64 = 1;
+/// seq 0, and its frame, which [`World::started_on`] waits for), so the sequence numbers below count from there. The numbers are
+/// the core's own feed numbering, not Node's. A thread opened from the store made one fewer (it has no start of its own).
+const BEFORE_ATTACH: u64 = 2;
 
 fn uuid(n: u32) -> String {
     format!("00000000-0000-7000-8000-{n:012}")
@@ -155,11 +155,19 @@ fn runtime(busy: bool) -> Value {
     })
 }
 
+/// The runtime of a running turn: busy, its spinner requesting (`turn.mjs` `runTurn`; a first turn's verb, `pickVerb(0)`).
+fn running() -> Value {
+    let mut value = runtime(true);
+    value["spinner"] = json!({ "active": true, "verb": "Architecting", "startedAt": 0, "responseLength": 0, "inputTokens": 0, "outputTokens": 0, "mode": "requesting" });
+    value
+}
+
 /// A thread's state: `busy` while a turn runs, `history` its prompt history, newest first.
 fn state(busy: bool, history: &[&str]) -> Value {
     json!({
-        "runtime": runtime(busy),
-        "route": { "fast": false, "fastCapable": false, "autoEffort": true, "modelParameters": {}, "effort": null, "turnEffort": null, "effortOptions": [], "cwd": "/ws", "sessionForkedFrom": null },
+        "runtime": if busy { running() } else { runtime(false) },
+        // `sessionProvider` / `sessionModel` are always sent, null before the conversation has a provider (`routeState`).
+        "route": { "sessionProvider": null, "sessionModel": null, "fast": false, "fastCapable": false, "autoEffort": true, "modelParameters": {}, "effort": null, "turnEffort": null, "effortOptions": [], "cwd": "/ws", "sessionForkedFrom": null },
         "context": {
             "contextPercent": null, "contextWindow": null, "displayContextWindow": 0, "autoCompactTokenLimit": 0,
             "stats": {
@@ -212,34 +220,47 @@ fn event(thread: &ThreadId, seq: u64, method: &str, params: Value) -> Value {
 }
 
 /// One turn's frames on a subscribed client, the feed from `seq`: [`turn_start`], `ack` (the submitter's `turn/start`
-/// answer, which the submitting client receives after the start), then [`turn_end`] from `seq + 3`.
+/// answer, which the submitting client receives after the start), then [`turn_end`] from `seq + 5`.
 fn turn_frames(thread: &ThreadId, seq: u64, turn: &str, prompt: (&str, &str), reply: (&str, &str), ack: Option<i64>) -> Vec<Value> {
     let mut frames = turn_start(thread, seq, turn, prompt);
     frames.extend(ack.map(|id| started(id, turn)));
-    frames.extend(turn_end(thread, seq + 3, turn, reply));
+    frames.extend(turn_end(thread, seq + 5, turn, reply));
     frames
 }
 
-/// A turn's start, the feed from `seq`: the prompt item, its history entry and the turn's start.
+/// `thread/frame`: one of Node's publications of the session's state to a phone, after the changes of one step
+/// (`mixdog-core-session` session/phone_frame.rs); `structure`: whether the rows changed.
+fn frame(thread: &ThreadId, seq: u64, structure: bool) -> Value {
+    event(thread, seq, "thread/frame", json!({ "threadId": thread, "structureChanged": structure }))
+}
+
+/// A turn's start, the feed from `seq`: the prompt item, its history entry, the turn's start, the running runtime and
+/// the step's frame.
 fn turn_start(thread: &ThreadId, seq: u64, turn: &str, prompt: (&str, &str)) -> Vec<Value> {
     vec![
         event(thread, seq, "item/completed", json!({ "threadId": thread, "turnId": turn, "item": user_item(prompt.0, turn, prompt.1) })),
         event(thread, seq + 1, "thread/promptHistory/updated", json!({ "threadId": thread, "value": { "kind": "added", "prompt": prompt.1 } })),
         event(thread, seq + 2, "turn/started", json!({ "threadId": thread, "turn": { "id": turn, "status": "inProgress", "startedAt": 0 } })),
+        event(thread, seq + 3, "thread/runtime/updated", json!({ "threadId": thread, "value": running() })),
+        frame(thread, seq + 4, true),
     ]
 }
 
-/// A turn's end, the feed from `seq`: `reply`, the answer item, the turn's end and the idle runtime.
+/// A turn's end, the feed from `seq`: `reply`, the answer item, the turn's end, the idle runtime, the frame the turn's end
+/// flushed (`flushEmit`) and the one its timer flushed for the idle runtime after it.
 fn turn_end(thread: &ThreadId, seq: u64, turn: &str, reply: (&str, &str)) -> Vec<Value> {
     vec![
         event(thread, seq, "item/completed", json!({ "threadId": thread, "turnId": turn, "item": agent_item(reply.0, turn, reply.1) })),
         event(thread, seq + 1, "turn/completed", json!({ "threadId": thread, "turn": { "id": turn, "status": "completed", "completedAt": 0 } })),
         event(thread, seq + 2, "thread/runtime/updated", json!({ "threadId": thread, "value": runtime(false) })),
+        frame(thread, seq + 3, true),
+        frame(thread, seq + 4, false),
     ]
 }
 
-fn queue_changed(thread: &ThreadId, seq: u64, queued: Value) -> Value {
-    event(thread, seq, "thread/queue/changed", json!({ "threadId": thread, "queued": queued }))
+/// The queue's change, the feed from `seq`, and its step's frame (no row changed).
+fn queue_changed(thread: &ThreadId, seq: u64, queued: Value) -> [Value; 2] {
+    [event(thread, seq, "thread/queue/changed", json!({ "threadId": thread, "queued": queued })), frame(thread, seq + 1, false)]
 }
 
 /// The `turn/interrupt` answer of an idle thread handing back `restored` (`(text, submission ids)`), or nothing.
@@ -282,6 +303,21 @@ impl World {
             .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        // The start's own publication arms the thread's frame timer; its frame goes out before any client attaches, so what a
+        // client receives does not depend on how soon it attaches.
+        let published = session.feeds.published.clone();
+        let framed = || session.feeds.frames(id.as_str()).iter().any(|(_, method, _)| method == "thread/frame");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(20), async {
+            while !framed() {
+                let woken = published.notified();
+                if framed() {
+                    break;
+                }
+                woken.await;
+            }
+        })
+        .await
+        .expect("the start's frame within 20 s");
         Self::serving(rig, session, directory, id).await
     }
 
@@ -350,6 +386,13 @@ fn runs_ended(frames: &[Value]) -> usize {
     frames.iter().filter(|frame| frame["method"] == "thread/runtime/updated" && frame["params"]["value"]["busy"] == false).count()
 }
 
+/// `runs` runs have ended and the thread is quiet: its last publication is the frame its timer flushed after the last change
+/// (the idle runtime, published after the turn's own frame, `settleTurn`'s `flushEmit`), so nothing more is on its way.
+fn ran(frames: &[Value], runs: usize) -> bool {
+    let last = frames.iter().rev().find(|frame| frame.get("method").is_some());
+    runs_ended(frames) == runs && last.is_some_and(|frame| frame["method"] == "thread/frame" && frame["params"]["structureChanged"] == false)
+}
+
 fn submitted_prompt(node: &Value) -> String {
     node["result"]["serviceCalls"].as_array().unwrap().iter().find(|call| call["name"] == "session.submit").unwrap()["args"]["prompt"].as_str().unwrap().to_owned()
 }
@@ -370,7 +413,7 @@ async fn a_retried_start_with_the_same_op_runs_once() {
     let mut client = world.client(1).await;
     world.call(&mut client, 1, "thread/resume", resume()).await;
     world.submit(&mut client, 2, "stable-call-id", &prompt).await;
-    client.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    client.until("the run's end", |frames| ran(frames, 1)).await;
     world.submit(&mut client, 3, "stable-call-id", &prompt).await;
     world.call(&mut client, 4, "thread/read", json!({})).await;
     let (t, reply) = (uuid(1), format!("re: {prompt}"));
@@ -390,7 +433,7 @@ async fn a_reused_op_with_another_payload_fails_closed() {
     let mut client = world.client(1).await;
     world.call(&mut client, 1, "thread/resume", resume()).await;
     world.submit(&mut client, 2, "conflicting-call-id", "first").await;
-    client.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    client.until("the run's end", |frames| ran(frames, 1)).await;
     world.submit(&mut client, 3, "conflicting-call-id", "second").await;
     world.call(&mut client, 4, "thread/read", json!({})).await;
     let t = uuid(1);
@@ -433,7 +476,7 @@ async fn unsubscribing_never_interrupts_the_running_turn() {
     world.call(&mut desktop, 1, "thread/resume", resume()).await;
     world.call(&mut desktop, 2, "thread/unsubscribe", json!({})).await;
     release.notify_one();
-    terminal.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    terminal.until("the run's end", |frames| ran(frames, 1)).await;
     world.call(&mut terminal, 3, "thread/read", json!({})).await;
     let t = uuid(1);
     let mut expected = resumed(1, 1, &world.id, 0, state(false, &[]), vec![]).to_vec();
@@ -443,7 +486,7 @@ async fn unsubscribing_never_interrupts_the_running_turn() {
     whole("call-contract-243-terminal", &terminal.frames, &[world.id.as_str()], expected);
     // The viewer attached while the turn ran: its snapshot shows the turn's prompt and the runtime busy (busy from the run's start,
     // as Node's askSession), then its unsubscribe is answered and nothing more reaches it.
-    let mut expected = resumed(2, 1, &world.id, 3, state(true, &[&prompt]), vec![user_item(&uuid(2), &t, &prompt)]).to_vec();
+    let mut expected = resumed(2, 1, &world.id, 5, state(true, &[&prompt]), vec![user_item(&uuid(2), &t, &prompt)]).to_vec();
     expected.push(answer(2, json!({})));
     whole("call-contract-243-desktop", &desktop.frames, &[world.id.as_str()], expected);
 }
@@ -504,8 +547,8 @@ async fn every_attached_client_folds_the_same_items() {
     world.submit(&mut terminal, 2, "op-0", from_terminal).await;
     world.submit(&mut desktop, 2, "op-1", from_desktop).await;
     release.notify_one();
-    terminal.until("both runs' ends", |frames| runs_ended(frames) == 2).await;
-    desktop.until("both runs' ends", |frames| runs_ended(frames) == 2).await;
+    terminal.until("both runs' ends", |frames| ran(frames, 2)).await;
+    desktop.until("both runs' ends", |frames| ran(frames, 2)).await;
     let (t1, t2, queued) = (uuid(1), uuid(11), uuid(3));
     for (name, connection, client) in [("terminal", 1, &terminal), ("desktop", 2, &desktop)] {
         let mut expected = resumed(connection, 1, &world.id, 0, state(false, &[]), vec![]).to_vec();
@@ -513,13 +556,16 @@ async fn every_attached_client_folds_the_same_items() {
         if connection == 1 {
             expected.push(started(2, &t1));
         }
-        expected.push(queue_changed(&world.id, 4, json!([{ "id": queued, "text": from_desktop }])));
+        expected.extend(queue_changed(&world.id, 6, json!([{ "id": queued, "text": from_desktop }])));
         if connection == 2 {
             expected.push(answer(2, json!({ "kind": "queued", "queuedId": queued })));
         }
-        expected.extend(turn_end(&world.id, 5, &t1, (&format!("a-{t1}"), &format!("re: {from_terminal}"))));
-        expected.push(queue_changed(&world.id, 8, json!([])));
-        expected.extend(turn_frames(&world.id, 9, &t2, (&uuid(12), from_desktop), (&format!("a-{t2}"), &format!("re: {from_desktop}")), None));
+        let mut first_end = turn_end(&world.id, 8, &t1, (&format!("a-{t1}"), &format!("re: {from_terminal}")));
+        // The queue's change is published before the idle runtime's timer flushes: the queue's frame carries that change.
+        first_end.pop();
+        expected.extend(first_end);
+        expected.extend(queue_changed(&world.id, 12, json!([])));
+        expected.extend(turn_frames(&world.id, 14, &t2, (&uuid(12), from_desktop), (&format!("a-{t2}"), &format!("re: {from_desktop}")), None));
         whole(&format!("state-lanes-365-{name}"), &client.frames, &[world.id.as_str()], expected);
     }
 }
@@ -537,12 +583,12 @@ async fn an_unsubscribed_client_receives_nothing_more() {
     let mut other = world.client(2).await;
     world.call(&mut pane, 1, "thread/resume", resume()).await;
     world.submit(&mut pane, 2, "op-brief", &brief).await;
-    pane.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    pane.until("the run's end", |frames| ran(frames, 1)).await;
     world.call(&mut pane, 3, "thread/read", json!({})).await;
     world.call(&mut pane, 4, "thread/unsubscribe", json!({})).await;
     world.call(&mut other, 1, "thread/resume", resume()).await;
     world.submit(&mut other, 2, "op-after", "after").await;
-    other.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    other.until("the run's end", |frames| ran(frames, 1)).await;
     // The pane's last request is answered after everything published to it so far: a read on the pane after the other
     // client's run ended shows whether anything else reached it.
     world.call(&mut pane, 5, "thread/read", json!({})).await;
@@ -676,7 +722,7 @@ async fn the_same_op_from_another_connection_is_answered_once() {
     let op = "same-process-local-id";
     world.call(&mut first, 1, "thread/resume", resume()).await;
     world.submit(&mut first, 2, op, &prompt).await;
-    first.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    first.until("the run's end", |frames| ran(frames, 1)).await;
     world.submit(&mut second, 1, op, &prompt).await;
     world.call(&mut first, 3, "thread/read", json!({})).await;
     let (t, reply) = (uuid(1), format!("re: {prompt}"));
@@ -736,13 +782,13 @@ async fn a_client_attaching_after_a_large_state_receives_it_once() {
     let mut watcher = world.client(1).await;
     world.call(&mut watcher, 1, "thread/resume", resume()).await;
     world.submit(&mut watcher, 2, "op-large", &large).await;
-    watcher.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    watcher.until("the run's end", |frames| ran(frames, 1)).await;
     let mut late = world.client(2).await;
     world.call(&mut late, 1, "thread/resume", resume()).await;
     late.until("the snapshot", |frames| frames.iter().any(|frame| frame["method"] == "thread/snapshot")).await;
     let (t, reply) = (uuid(1), format!("re: {large}"));
     let items = vec![user_item(&uuid(2), &t, &large), agent_item(&format!("a-{t}"), &t, &reply)];
-    let expected = resumed(2, 1, &world.id, 6, state(false, &[&large]), items).to_vec();
+    let expected = resumed(2, 1, &world.id, 10, state(false, &[&large]), items).to_vec();
     whole("state-lanes-275", &late.frames, &[world.id.as_str()], expected);
 }
 
@@ -786,13 +832,14 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
     mixdog_rt::time::timeout(std::time::Duration::from_secs(20), ready.notified()).await.expect("the run to commit the tool call within 20 s");
     world.call(&mut client, 2, "thread/resume", resume()).await;
     release.notify_one();
-    client.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    client.until("the run's end", |frames| ran(frames, 1)).await;
     let t = uuid(1);
     // The window the attach shows: the last ten rows, which are eight of the stored rows, the prompt and the call.
     let mut snapshot_items: Vec<Value> = (earlier - 8..earlier).map(|n| json!({ "type": "agentMessage", "id": format!("row-{n}"), "text": format!("row-{n}"), "meta": {} })).collect();
-    let call = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "live": true }, "meta": {} });
+    // A live card opens with none of its calls done and its result completes it (`openToolCalls`, aggregate-result.mjs:35-45).
+    let call = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "completedCount": 0, "live": true }, "meta": {} });
     snapshot_items.extend([user_item(&uuid(2), &t, "go"), call]);
-    let tool_done = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "result": result_text, "live": true }, "meta": {} });
+    let tool_done = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "result": result_text, "completedAt": 0, "completedCount": 1, "live": true }, "meta": {} });
     let mut context = state(false, &[])["context"].clone();
     context["stats"]["turns"] = json!(1);
     let turn_end_item = json!({
@@ -800,14 +847,18 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         "meta": { "turnId": t, "at": 1000, "ext": { "outputTokens": 0, "thinkingElapsedMs": 0, "toolCount": 1, "completionVerb": "Mapped", "attemptId": uuid(4) } },
     });
     let mut expected = vec![started(1, &t)];
-    expected.extend(resumed(1, 2, &world.id, 4, state(true, &["go"]), snapshot_items));
+    // Before the attach: the turn's start (five publications, [`turn_start`]) and the call's row with its step's frame. The thread
+    // was opened from the store, so it made one publication fewer before them than [`BEFORE_ATTACH`] counts.
+    expected.extend(resumed(1, 2, &world.id, 6, state(true, &["go"]), snapshot_items));
     expected[2]["params"]["hasOlder"] = json!(true); // 1991 stored rows lie before the window
     expected.extend([
-        event(&world.id, 5, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),
-        event(&world.id, 6, "thread/context/updated", json!({ "threadId": world.id, "value": context })),
-        event(&world.id, 7, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": turn_end_item })),
-        event(&world.id, 8, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
-        event(&world.id, 9, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
+        event(&world.id, 7, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),
+        event(&world.id, 8, "thread/context/updated", json!({ "threadId": world.id, "value": context })),
+        event(&world.id, 9, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": turn_end_item })),
+        event(&world.id, 10, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
+        event(&world.id, 11, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
+        frame(&world.id, 12, true),
+        frame(&world.id, 13, false),
     ]);
     whole("state-lanes-48", &client.frames, &[world.id.as_str()], expected);
 }

@@ -10835,6 +10835,11 @@
     },
     {
       "delivery": "thread",
+      "method": "thread/frame",
+      "params": "ThreadFrameParams"
+    },
+    {
+      "delivery": "thread",
       "method": "thread/runtime/updated",
       "params": "ThreadSectionParams<ThreadRuntime>"
     },

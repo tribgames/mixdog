@@ -504,10 +504,23 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     assert_eq!(entry["mode"], json!("prompt"));
     assert_eq!(shard["mode"], entry["mode"], "the mirror holds the entry's mode");
     let mut options = json!({ "clientSubmissionId": entry["id"] });
-    for key in ["pastedImages", "pastedTexts"] {
-        if !entry[key].is_null() {
-            options[key] = entry[key].clone();
-        }
+    if !entry["pastedImages"].is_null() {
+        options["pastedImages"] = entry["pastedImages"].clone();
+    }
+    // The case was recorded at Node's runtime, below the intake; the phone's `turn/start` is `submitAdmitted`, whose
+    // `materializePromptSubmission` (`attachments/store.mjs:466-499`) stores each inline text and queues its reference instead.
+    if let Some(texts) = entry["pastedTexts"].as_object() {
+        let materialized = texts.iter().map(|(key, raw)| {
+            let mut out = raw.clone();
+            if let Some(text) = out.as_object_mut().and_then(|meta| meta.shift_remove("text")).and_then(|text| text.as_str().map(str::to_owned)) {
+                use sha2::Digest;
+                out["attachmentRef"] = json!(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
+                out["sizeBytes"] = json!(text.len());
+                out["chars"] = super::restore_hydrate::chars_of(raw.get("chars"), &text);
+            }
+            (key.clone(), out)
+        });
+        options["pastedTexts"] = Value::Object(materialized.collect());
     }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",
@@ -550,6 +563,7 @@ fn queue_row(projected: &Value, at: i64, clock: u64) -> Value {
 fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Value)> {
     let mut out = Vec::new();
     let (mut rows, mut history, mut queued, mut busy) = (0usize, Vec::<Value>::new(), Vec::<Value>::new(), false);
+    let mut structure = 0i64;
     for publication in publications {
         let state = &publication["state"];
         let items = state["items"].as_array().unwrap();
@@ -575,8 +589,16 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
         if state["busy"] == true && !busy {
             assert_eq!(state["spinner"]["startedAt"], json!(at), "the turn starts at the submit");
             out.push(("turn/started".to_owned(), json!({ "turn": { "id": "<turn>", "status": "inProgress", "startedAt": clock } })));
+            // The same publication shows the turn busy with its spinner (`runTurn`); the spinner starts at the submit.
+            let mut spinner = state["spinner"].clone();
+            spinner["startedAt"] = json!(clock);
+            out.push(("thread/runtime/updated".to_owned(), json!({ "value": { "busy": true, "commandBusy": state["commandBusy"], "spinner": spinner } })));
         }
         busy = state["busy"] == true;
+        // Each recorded publication is one of Node's frames; its structure changed when `structureRevision` went up.
+        let revision = state["structureRevision"].as_i64().unwrap();
+        out.push(("thread/frame".to_owned(), json!({ "structureChanged": revision > structure })));
+        structure = revision;
     }
     out
 }
@@ -602,8 +624,14 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let loaded = frames().len();
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == loaded + 3).then_some(())).await;
+            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published after
+            // the load's and the phone's frame that carries them has closed.
+            let done = || {
+                let all = frames();
+                let after = &all[loaded.min(all.len())..];
+                (after.iter().filter(|(_, method, _)| method != "thread/frame").count() == 4 && after.last().is_some_and(|(_, method, _)| method == "thread/frame")).then_some(())
+            };
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], done).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;
@@ -656,6 +684,10 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
             .into_iter()
             .map(|(_, method, mut params)| {
                 assert_eq!(params.as_object_mut().unwrap().remove("threadId"), Some(json!(handle.id)), "{name}: {method}");
+                // Node's recorder holds the runtime's busy, commandBusy and spinner; the note's other fields have no recorded value.
+                if method == "thread/runtime/updated" {
+                    params["value"].as_object_mut().unwrap().retain(|key, _| ["busy", "commandBusy", "spinner"].contains(&key.as_str()));
+                }
                 (method, anon(&params, ids, &mut rust_labels))
             })
             .collect();

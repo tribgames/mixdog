@@ -17,6 +17,9 @@ const FINISHED = new Set(['completed', 'failed', 'declined', 'interrupted']);
 
 /** The tool rows a live turn built (`ToolRun.live`): `mergeToolRows` reads this, and no row carries it. */
 const liveRows = new WeakSet<Obj>();
+/** The live tool rows whose card the turn's Stop ended (`meta.status` `interrupted`): their aggregate is finalized as cancelled
+ * (`finalizeOpenCards(…, { cancelled })`, tool-card-results.mjs:88-97). No row carries it. */
+const stoppedRows = new WeakSet<Obj>();
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -111,6 +114,11 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   if (node.isTranscriptHiddenControlToolName(name) || node.isTaskWaitToolCall(name, args)) return null;
   const ext = asObj(m.ext);
   const finished = typeof m.status === 'string' && FINISHED.has(m.status);
+  // A live turn's card starts when its call shows and completes when its result lands (turn-tool-cards.mjs `startedAt: Date.now()`,
+  // aggregate-result.mjs `completedAt: Date.now()`), the times its run carries; a restored one reads its message's time for both.
+  const run = asObj(item.run);
+  const live = run.live === true;
+  const completedAt = live && finite(run.completedAt) ? run.completedAt : m.at;
   const row: Obj = {
     kind: 'tool',
     id: item.id as Json,
@@ -119,10 +127,13 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     expanded: false,
     count: 1,
     completedCount: finished ? 1 : 0,
-    ...(finite(m.at) ? { at: m.at, startedAt: m.at, ...(finished ? { completedAt: m.at } : {}) } : {}),
+    ...(finite(m.at) ? { at: m.at, startedAt: live && finite(run.startedAt) ? run.startedAt : m.at, ...(finished ? { completedAt } : {}) } : {}),
     ...present('callId', asObj(item.run).callId ?? ext.callId),
   };
-  if (asObj(item.run).live === true) liveRows.add(row);
+  // The core ends a live card as `interrupted` only with the abort's error result: a failed call whose card the Stop ended.
+  const stopped = live && m.status === 'interrupted';
+  if (live) liveRows.add(row);
+  if (stopped) stoppedRows.add(row);
   if (!finished) return row;
   const result = output ?? '';
   row.result = result;
@@ -132,7 +143,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled
     ? { isCallError: false, isExitError: false }
-    : node.toolCallOutcome({ isError: failed || ext.isError === true || asObj(item.run).isError === true, toolName: name }, result);
+    : node.toolCallOutcome({ isError: failed || stopped || ext.isError === true || asObj(item.run).isError === true, toolName: name }, result);
   row.isError = isCallError;
   row.errorCount = isCallError ? 1 : 0;
   row.callErrorCount = isCallError ? 1 : 0;
@@ -169,10 +180,15 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     if (!run) return;
     const { members, live } = run;
     run = null;
+    if (live) liveCards.push({ at: merged.length, stopped: members.some((member) => stoppedRows.has(member.item)) });
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
     if (members.length >= 2 || live) merged.push(yield* aggregateRowSteps(members, live));
     else for (const member of members) merged.push(member.item);
   }
+  // A live card's header is sealed (`finalizeToolHeaders`, header-sync.mjs:13-31) once the block it is in ends: the turn's next
+  // non-tool row (`clearAggregateContinuation` at assistant text, a steer or a compact, turn.mjs:256,322; the turn's end,
+  // `finalizeToolCards`, turn-tool-cards.mjs:291, which a Stop runs too). Until then it shows the active header form, finished or not.
+  const liveCards: { at: number; stopped: boolean }[] = [];
   let seen = 0;
   for (const item of rows) {
     if (++seen % ROWS_PER_STEP === 0) yield;
@@ -200,6 +216,9 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     run = { bucket, live, members: [{ item, category }] };
   }
   yield* flush();
+  let lastOther = merged.length - 1;
+  while (lastOther >= 0 && merged[lastOther]!.kind === 'tool') lastOther--;
+  for (const { at, stopped } of liveCards) merged[at] = { ...merged[at], headerFinalized: stopped || at < lastOther };
   return merged;
 }
 
@@ -321,6 +340,11 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[],
   }
   const doneCategories = yield* node.aggregateDoneCategoriesSteps(calls);
   const rawResult = yield* node.aggregateRawResultSteps(calls);
+  // `finalizeAggregateCard(…, { cancelled })` (aggregate-result.mjs:80-91): a card the Stop ended keeps the cancelled marker.
+  if (live && members.some((member) => stoppedRows.has(member.item))) {
+    const detail = node.withCancelledResultMarker((outcomePatch as Obj).result, outcomePatch as Obj);
+    Object.assign(outcomePatch as Obj, { result: detail, text: detail });
+  }
   return {
     kind: 'tool',
     id: first.id as Json,
@@ -398,6 +422,13 @@ const SOURCE_PAYLOAD_KEYS = ['routine', 'heldRequest', 'execution', 'attachments
 /** `meta.ext` as row attributes: for a notice or card source the stored payloads it was built from are not row attributes. */
 function extOf(item: Obj, m: Obj): Obj {
   const ext = asObj(m.ext);
+  if (item.type === 'turnEnd' && text(ext.clientSubmissionId)) {
+    // Node's turn end names the prompt by the row id it shows, the submission id (`checkpointId`, turn.mjs `turnDoneItem`);
+    // the core's own `checkpointId` is the user item's id, the submission riding in `ext`. A client names a prompt by what it
+    // shows (rewind resolves the submission id), so the row shows Node's value.
+    const { clientSubmissionId, ...rest } = ext;
+    return { ...rest, checkpointId: text(clientSubmissionId) };
+  }
   if (item.type !== 'userMessage' || !NOTICE_SOURCES.has(text(m.source))) return ext;
   const rest = { ...ext };
   for (const k of SOURCE_PAYLOAD_KEYS) delete rest[k];

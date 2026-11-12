@@ -3162,6 +3162,22 @@
       },
       "type": "object"
     },
+    "ThreadFrameParams": {
+      "description": "One publication of the session's state as Node's frame publisher made it (`frame-batched-store.mjs`): the changes since the previous `thread/frame` are one state, and `structureRevision` goes up by one when they changed the rows' structure. Only a reader that shows Node's frames (the phone) reads it; the other notifications are unchanged.",
+      "properties": {
+        "structureChanged": {
+          "type": "boolean"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "structureChanged",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadHistoryResetParams": {
       "properties": {
         "fromItemId": {
@@ -3863,12 +3879,15 @@
           ]
         },
         "sessionModel": {
+          "default": null,
           "type": [
             "string",
             "null"
           ]
         },
         "sessionProvider": {
+          "default": null,
+          "description": "Always sent, `null` before the conversation has a provider (context-state.mjs `routeState`: `runtime.sessionProvider ?? null`).",
           "type": [
             "string",
             "null"
@@ -6096,6 +6115,24 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadHistoryResetParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/frame"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadFrameParams"
         }
       },
       "required": [

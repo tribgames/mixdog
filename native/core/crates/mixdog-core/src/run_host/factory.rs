@@ -437,6 +437,23 @@ impl TurnStamp {
     }
 }
 
+/// A task that carries a turn's events to its session (the run's shown events, its commits): a replay's settled signal counts
+/// it with the turn (mixdog-ai `replay_bytes::in_run`), so the turn is not settled while an event it sent is still on the way.
+fn turn_task<F: std::future::Future>(task: F) -> impl std::future::Future<Output = F::Output> {
+    #[cfg(feature = "replay-bytes")]
+    return mixdog_ai::transport::replay_bytes::in_run(task);
+    #[cfg(not(feature = "replay-bytes"))]
+    task
+}
+
+/// A [`turn_task`]'s wait for the turn's next event: a wait on the turn, parked for a replay's settled signal.
+fn turn_input<F: std::future::Future>(wait: F) -> impl std::future::Future<Output = F::Output> {
+    #[cfg(feature = "replay-bytes")]
+    return mixdog_ai::transport::replay_bytes::parked(wait);
+    #[cfg(not(feature = "replay-bytes"))]
+    wait
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -502,8 +519,8 @@ impl PortSink {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
-        drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
-            while let Some(job) = queue.recv().await {
+        drop(mixdog_rt::spawn("run-commit", TaskClass::Work, turn_task(async move {
+            while let Some(job) = turn_input(queue.recv()).await {
                 // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                 let n = match job {
                     Job::Commit(n, item) => {
@@ -528,7 +545,7 @@ impl PortSink {
                 };
                 done_tx.send_replace(n);
             }
-        }));
+        })));
         let jobs = Jobs {
             observed,
             seq: AtomicU64::new(0),
@@ -788,6 +805,8 @@ enum Shown {
     SearchUsage(Value),
     /// A stage the client shows as its status, with its detail.
     Stage(String, Option<Value>),
+    /// A step of the model call the spinner follows.
+    Call(mixdog_core_session::session::run::CallMark),
     ModelRequest(u32, mixdog_app_protocol::v2::thread::ModelRequestPhase, Option<Vec<Value>>),
     ToolBatch(u32, mixdog_app_protocol::v2::thread::ToolBatchPhase, Option<(u32, u32, u64)>),
 }
@@ -961,6 +980,7 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::Streaming) => {
                 self.progress.stage("streaming");
                 let _ = self.out.send(Shown::Stage("streaming".to_owned(), None));
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::Streaming));
             }
             RunEvent::Stage(Stage::Requesting) => {
                 self.progress.stage("requesting");
@@ -978,6 +998,7 @@ impl RunObserver for PortObserver {
             }
             RunEvent::ToolPhase(phase) => {
                 let index = self.requests.load(std::sync::atomic::Ordering::Relaxed).max(1);
+                let completed = matches!(phase, mixdog_agent::env::ToolPhase::Completed { .. });
                 let _ = self.out.send(match phase {
                     mixdog_agent::env::ToolPhase::Started => Shown::ToolBatch(index, mixdog_app_protocol::v2::thread::ToolBatchPhase::Started, None),
                     mixdog_agent::env::ToolPhase::Completed { iteration, calls, elapsed_ms } => Shown::ToolBatch(
@@ -986,9 +1007,21 @@ impl RunObserver for PortObserver {
                         Some((iteration, u32::try_from(calls).unwrap_or(u32::MAX), elapsed_ms)),
                     ),
                 });
+                // `onToolPhaseCompleted`: the spinner goes back to `requesting`.
+                if completed {
+                    let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolPhaseCompleted));
+                }
             }
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
-            RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
+            RunEvent::Stage(Stage::ApprovalWait { waiting }) => {
+                if waiting {
+                    let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolApproval));
+                }
+                self.progress.approval_wait(waiting);
+            }
+            RunEvent::Stage(Stage::Authorized) => {
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::Authorized));
+            }
             RunEvent::TextDelta(text) => {
                 self.end_reasoning();
                 if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1091,6 +1124,7 @@ impl RunObserver for PortObserver {
                 }
                 self.sink.draft(true);
                 self.end_reasoning();
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolCall));
                 self.progress.stage("tool_running");
                 for call in &calls {
                     self.progress.tool_call(Some(&call.name));
@@ -1522,8 +1556,8 @@ async fn drive(
     });
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
-    drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
-        while let Some(shown) = shown_rx.recv().await {
+    let forward = async move {
+        while let Some(shown) = turn_input(shown_rx.recv()).await {
             let _ = match shown {
                 Shown::Section(section) => shown_port.section(section).await,
                 Shown::Started(item) => shown_port.item_started(item).await,
@@ -1538,6 +1572,7 @@ async fn drive(
                 Shown::Stage(stage, detail) => shown_port.stage(stage, detail).await,
                 Shown::ModelRequest(index, phase, calls) => shown_port.model_request(index, phase, calls).await,
                 Shown::ToolBatch(index, phase, completed) => shown_port.tool_batch(index, phase, completed).await,
+                Shown::Call(mark) => shown_port.call_mark(mark).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::ToolStream => shown_port.tool_stream().await,
                 Shown::CompactUsage(report) => shown_port.compact_usage(report).await,
@@ -1547,7 +1582,8 @@ async fn drive(
                 }
             };
         }
-    }));
+    };
+    drop(mixdog_rt::spawn("run-shown", TaskClass::Work, turn_task(forward)));
     // `registerNativeWebSearchUsageSink(session.id, options.onNativeWebSearchUsage)` (`turn-run.mjs`): from the first send to the
     // ask's end the newest entry of this thread's session hears every search the turn runs, in the order the other reports reach the port.
     let search_tx = shown_tx.clone();

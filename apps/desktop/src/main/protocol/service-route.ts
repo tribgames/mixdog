@@ -7,7 +7,7 @@ import { roomIdOfSession } from '../../../../../src/runtime/agent/orchestrator/s
 import { blankSnapshot, remoteSessionIdOf, START_CALLS, startFolder } from '../../shared/blank-snapshot';
 import type { StartCall } from '../../shared/blank-snapshot';
 import type { SessionSnapshot } from '../../shared/contract';
-import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from '../desktop-support';
+import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from '../../shared/desktop-transcript-limits';
 import { requiredVisibleSessionVersion } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';

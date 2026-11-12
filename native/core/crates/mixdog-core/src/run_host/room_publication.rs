@@ -13,6 +13,7 @@ use mixdog_core_rooms::rooms::sessions::SessionOps;
 use mixdog_core_rooms::rooms::sessions::SessionRoomHost;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::TaskWorkspace;
+use mixdog_core_session::session::thread_edges::LiveRows;
 use mixdog_core_session::session::thread_edges::ThreadEdgePublisher;
 use mixdog_core_session::session::thread_edges::ThreadEdges;
 use mixdog_core_session::session::thread_list::RoomSummaries;
@@ -21,10 +22,8 @@ use mixdog_core_session::session::thread_list::ThreadListService;
 pub struct RoomPublication {
     pub summaries: Arc<RoomSummaries>,
     pub host: Arc<SessionRoomHost>,
-    /// The index writes' publisher (a test waits for it to have published every write so far).
-    #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
-    edges: Arc<ThreadEdges>,
+    /// The index writes' publisher: a call that answers after its row is on the app feed waits for it ([`ThreadEdges::settled`]).
+    pub edges: Arc<ThreadEdges>,
 }
 
 /// The index writer's row writes reach the app feed (`thread/started`, `thread/summary/updated`, `thread/deleted`), and the room
@@ -43,6 +42,8 @@ where
 {
     let edges = ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), deletions, agents.clone()));
     index.observe_rows(edges.clone())?;
+    // A turn's start and end and an approval's wait reach the roster although no stored field moved (`LiveRows`).
+    directory.set_live_rows(LiveRows::new(thread_list.clone(), sections.clone(), edges.clone()))?;
     let summaries = RoomSummaries::new(thread_list, sections, directory);
     summaries.follow(edges.clone());
     let republish: Republish = {
@@ -54,14 +55,7 @@ where
     };
     let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
-    #[cfg(not(any(test, feature = "test-support")))]
-    drop(edges);
-    Ok(RoomPublication {
-        summaries,
-        host,
-        #[cfg(any(test, feature = "test-support"))]
-        edges,
-    })
+    Ok(RoomPublication { summaries, host, edges })
 }
 
 /// The room sessions as Node's host serves them to the rooms: a room log's rename is the host's `renameSession`
@@ -720,6 +714,30 @@ mod tests {
             .map(|frame| frame["method"].as_str().expect("method").to_owned())
             .collect();
         assert_eq!(frames.first().map(String::as_str), Some("thread/started"), "the room log's frames: {frames:?}");
+    }
+
+    /// Node's room rename (`fixtures/frame-order` on `writer-order`, scenario `room-rename`) reaches the phone as one roster frame
+    /// carrying the room's row: its relay skips a publication that changes nothing (`remote-relay-catalog.ts:79-91`). The core's
+    /// rename writes the log's title (an index edge), lists the whole catalog and republishes the rooms: the app feed carries the
+    /// room's row once, with the new title and room name, and no other row, the background edge included.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_rename_announces_the_room_row_once() {
+        let world = composed().await;
+        world.load_catalog().await;
+        let created = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create answered").expect("task").expect("room/create");
+        let room = log_of(&created);
+        world.settled("the create").await;
+        drop(frames(&world.app));
+        world.call("room/update", json!({ "roomId": created["roomId"], "name": "Renamed" }), 2).await.expect("room/update");
+        world.settled("the rename").await;
+        let rows: Vec<Value> = frames(&world.app)
+            .into_iter()
+            .filter(|frame| frame["method"] == "thread/summary/updated" || frame["method"] == "thread/started")
+            .map(|frame| frame["params"]["thread"].clone())
+            .collect();
+        assert_eq!(rows.len(), 1, "one announcement of one row: {rows:?}");
+        assert_eq!(rows[0]["id"], room.as_str());
+        assert_eq!((rows[0]["title"].as_str(), rows[0]["agentRoom"]["name"].as_str()), (Some("Renamed"), Some("Renamed")));
     }
 
     /// Node's room update before any listing answers before its background listing publishes: `deps.republishCatalog()` starts

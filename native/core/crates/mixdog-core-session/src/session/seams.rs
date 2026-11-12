@@ -556,9 +556,16 @@ pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
             ThreadItem::ToolCall {
                 output: new_output,
                 run: new_run,
+                meta: new_meta,
                 ..
             },
         ) => {
+            // The result decides how the call ended (`Failed` for an error result), as a restore attaching it does
+            // (`attachRestoredToolResult`); the rest of the call's meta stays.
+            let mut meta = meta.clone();
+            if new_meta.status.is_some() {
+                meta.status = new_meta.status.clone();
+            }
             let mut run = run.clone();
             overlay(&mut run.call_id, &new_run.call_id);
             overlay(&mut run.result, &new_run.result);
@@ -578,7 +585,7 @@ pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
                 input: input.clone(),
                 output: new_output.clone().or_else(|| output.clone()),
                 run,
-                meta: meta.clone(),
+                meta,
             }
         }
         _ => update.clone(),

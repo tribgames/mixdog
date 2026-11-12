@@ -677,6 +677,7 @@ impl Shared {
             return Inbound::Close(CloseCode::VersionRefused);
         }
         let capabilities = params.capabilities.unwrap_or_default();
+        let feed_ranges = capabilities.feed_ranges == Some(true);
         let client = params.client_info;
         let device = client.title.clone().unwrap_or_else(|| client.name.clone());
         let kind = client.kind;
@@ -695,6 +696,9 @@ impl Shared {
         if conn.initialize(session).is_err() {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
             return Inbound::Continue;
+        }
+        if feed_ranges {
+            conn.sink.coalesce_appends();
         }
         // Before the response: the client sends nothing the registry must know about until it has read it.
         self.core.connection_opened(conn.id, origin, &device, kind);

@@ -369,9 +369,12 @@ impl Transcript for RecordTranscript {
             let Some(reference) = text.attachment_ref.as_deref() else {
                 continue;
             };
+            // `attachmentsForIntake` (`attachments/store.mjs:707-715`): a text names itself by its source.
+            let file = text.source.as_deref() == Some("file");
+            let name = text.filename.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| (if file { "attachment.txt" } else { "pasted-text.txt" }).to_owned());
             stored.push(json!({
-                "id": bare(reference), "kind": "text", "name": text.filename,
-                "mimeType": text.mime_type, "size": text.size_bytes.unwrap_or(0),
+                "id": bare(reference), "kind": "text", "name": name,
+                "mimeType": text.mime_type.as_deref().filter(|mime| !mime.is_empty()).unwrap_or("text/plain"), "size": text.size_bytes.unwrap_or(0),
             }));
         }
         let stored = transcript_rows::normalize_attachments(Some(&Value::Array(stored)));

@@ -1719,7 +1719,7 @@ fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
     }
 }
 
-/// The adapter's sequence for `startProject` / `startProjectTask` (remote-protocol-chat-host.ts): the folder the blank snapshot names, and the
+/// The adapter's sequence for `startProject` / `startProjectTask` (remote-chat-host.ts): the folder the blank snapshot names, and the
 /// folders `project/create` registered (Node's `addProject` calls) on the way.
 async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String, CoreError>, Vec<String>) {
     let mut added = Vec::new();
@@ -1781,7 +1781,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
         match (&outcome, node.get("error")) {
             (Ok(folder), None) => {
                 // What the core decides is the folder; Node's snapshot names it three times (the rest of the snapshot is the chat adapter's, replayed
-                // over this same fixture by remote-protocol-chat-host.test.mjs).
+                // over this same fixture by remote-chat-host.test.mjs).
                 let result = &node["result"];
                 for field in [&result["cwd"], &result["currentProject"], &result["desktopSession"]["projectPath"]] {
                     assert_eq!(*folder, at(field.as_str().unwrap()), "{name}: the folder of the blank snapshot");

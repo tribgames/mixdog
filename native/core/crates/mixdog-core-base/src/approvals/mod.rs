@@ -280,7 +280,12 @@ impl ApprovalBook {
         };
         let decision: ToolApprovalDecision =
             serde_json::from_value(result.clone()).map_err(|_| rejected("result"))?;
-        let decision = normalize_decision(&open.request.ask, decision);
+        let mut decision = normalize_decision(&open.request.ask, decision);
+        // Node's session api resolved every person's answer with `decision.reason || (approved ? 'approved by user' : 'denied by user')`
+        // (session-api/lifecycle.mjs:74): a refusal without words reads as the person's, never as the reason the card asked for.
+        if decision.reason.as_deref().is_none_or(str::is_empty) {
+            decision.reason = Some(if decision.approved { "approved by user" } else { "denied by user" }.to_owned());
+        }
         open.resolving = true;
         Ok(Some(Accepted {
             aid,
@@ -574,6 +579,24 @@ mod tests {
         );
     }
 
+    /// A person's answer without words reads as the person's (Node's session api: `'denied by user'` / `'approved by user'`); words they
+    /// gave are kept.
+    #[test]
+    fn an_answer_without_a_reason_is_the_persons() {
+        let thread = ThreadId::from("t");
+        let reason_of = |answer: Value| {
+            let mut book = ApprovalBook::default();
+            let aid = ApprovalId(1);
+            book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), ask(vec![]), 1000), TurnId::from("r"), None);
+            let accepted = book.validate(&aid.request_id(), &answer, device(), 1).unwrap().expect("accepted");
+            let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
+            decision.reason
+        };
+        assert_eq!(reason_of(json!({"approved": false})).as_deref(), Some("denied by user"));
+        assert_eq!(reason_of(json!({"approved": true, "reason": ""})).as_deref(), Some("approved by user"));
+        assert_eq!(reason_of(json!({"approved": false, "reason": "not now"})).as_deref(), Some("not now"));
+    }
+
     /// `normalizeHumanResponse`: a scope the card did not offer is answered `once`, never refused.
     #[test]
     fn a_scope_the_card_did_not_offer_is_answered_once() {
@@ -588,7 +611,7 @@ mod tests {
             .unwrap()
             .expect("the decision is taken");
         let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
-        assert_eq!(serde_json::to_value(decision).unwrap(), json!({"approved": true, "response": "approve", "remember": "once"}));
+        assert_eq!(serde_json::to_value(decision).unwrap(), json!({"approved": true, "reason": "approved by user", "response": "approve", "remember": "once"}));
     }
 
     #[test]
