@@ -365,6 +365,20 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
 
+    /// [`history_rows`](Self::history_rows) of the newest `rows` rows only (oldest first), with whether they are all of
+    /// the history: a page of the transcript reads the rows it shows, not the whole conversation.
+    fn history_tail(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+        let (rev, mut all) = self.history_rows(lane, id)?;
+        let complete = all.len() <= rows;
+        all.drain(..all.len().saturating_sub(rows));
+        Ok((rev, all, complete))
+    }
+
     /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index
     /// holds every barrier acked so far), `None` when the thread never recorded it.
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
