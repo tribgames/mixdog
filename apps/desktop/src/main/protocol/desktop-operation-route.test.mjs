@@ -631,11 +631,11 @@ test('settings writers answer the saved DesktopSettings, read back after the wri
 test('the two agent settings are written where Node stored them, not under desktop', () => {
   assert.deepEqual(routeDesktopOperation('updateSetting', ['autoClear', false]), {
     method: 'config/value/write',
-    params: { path: 'agent.autoClear.enabled', value: false },
+    params: { announce: 'desktop', path: 'agent.autoClear.enabled', value: false },
   });
   assert.deepEqual(routeDesktopOperation('updateSetting', ['autoCompact', true]), {
     method: 'config/value/write',
-    params: { path: 'agent.compaction.auto', value: true },
+    params: { announce: 'desktop', path: 'agent.compaction.auto', value: true },
   });
 });
 
