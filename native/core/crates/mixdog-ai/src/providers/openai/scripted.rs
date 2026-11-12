@@ -42,20 +42,29 @@ use crate::transport::ws::WsEnding;
 pub enum Dialed {
     /// The upgrade completes. The server sends `frames` (text), then ends the link with `close`.
     Socket { frames: Vec<String>, close: (u16, String) },
-    /// The upgrade is refused with this status.
-    Rejected(u16),
+    /// The upgrade is refused with this status and body.
+    Rejected { status: u16, body: String },
     /// The upgrade is never answered.
     Stuck,
     /// The connection is reset before the upgrade is answered.
     Reset,
 }
 
-/// The dial: each call takes the next scripted answer; the request frames every socket received are kept in order.
+/// What reached the server, in the order it arrived.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Wire {
+    /// An upgrade request: its method, target and the headers the product put on it (the WebSocket client library adds
+    /// its own handshake headers below the dial).
+    Upgrade { method: String, target: String, headers: Vec<(String, String)> },
+    /// A text frame a socket received.
+    Frame(String),
+}
+
+/// The dial: each call takes the next scripted answer; every upgrade request and request frame is kept in arrival order.
 #[derive(Default)]
 pub struct ScriptedDial {
     script: Mutex<VecDeque<Dialed>>,
-    sent: Arc<Mutex<Vec<String>>>,
-    dials: Mutex<u32>,
+    wire: Arc<Mutex<Vec<Wire>>>,
 }
 
 impl ScriptedDial {
@@ -63,14 +72,9 @@ impl ScriptedDial {
         Arc::new(Self { script: Mutex::new(script.into()), ..Self::default() })
     }
 
-    /// The dials made so far (an upgrade request reached the server each time).
-    pub fn dials(&self) -> u32 {
-        *self.dials.lock().unwrap()
-    }
-
-    /// The request frames the sockets received, in order.
-    pub fn frames(&self) -> Vec<String> {
-        self.sent.lock().unwrap().clone()
+    /// The upgrade requests and request frames the server saw, in order.
+    pub fn wire(&self) -> Vec<Wire> {
+        self.wire.lock().unwrap().clone()
     }
 }
 
@@ -92,7 +96,7 @@ impl TransportKeepalive for Alive {
 }
 
 struct Socket {
-    sent: Arc<Mutex<Vec<String>>>,
+    sent: Arc<Mutex<Vec<Wire>>>,
     frames: VecDeque<String>,
     close: (u16, String),
     ended: bool,
@@ -102,7 +106,7 @@ struct Socket {
 impl WsSocket for Socket {
     async fn send(&self, message: Message) -> Result<(), TransportFault> {
         if let Message::Text(text) = message {
-            self.sent.lock().unwrap().push(text.as_str().to_owned());
+            self.sent.lock().unwrap().push(Wire::Frame(text.as_str().to_owned()));
         }
         Ok(())
     }
@@ -127,19 +131,23 @@ impl WsSocket for Socket {
 impl WsDial for ScriptedDial {
     async fn dial(
         &self,
-        _: tokio_tungstenite::tungstenite::handshake::client::Request,
+        request: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
-        *self.dials.lock().unwrap() += 1;
+        self.wire.lock().unwrap().push(Wire::Upgrade {
+            method: request.method().as_str().to_owned(),
+            target: request.uri().path_and_query().map_or_else(String::new, |p| p.as_str().to_owned()),
+            headers: request.headers().iter().map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned())).collect(),
+        });
         let next = self.script.lock().unwrap().pop_front().expect("a scripted dial");
         match next {
             Dialed::Stuck => std::future::pending().await,
             Dialed::Reset => Err(ConnectError::Transport(TransportFault::Reset)),
             Dialed::Socket { frames, close } => Ok((
-                Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), close, ended: false }),
+                Box::new(Socket { sent: self.wire.clone(), frames: frames.into(), close, ended: false }),
                 Response::builder().status(101).body(None).unwrap(),
             )),
-            Dialed::Rejected(status) => {
-                Err(ConnectError::Rejected(Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap()))
+            Dialed::Rejected { status, body } => {
+                Err(ConnectError::Rejected(Response::builder().status(status).body(Some(body.into_bytes())).unwrap()))
             }
         }
     }
@@ -168,23 +176,26 @@ struct Creds;
 #[async_trait]
 impl CredentialSource for Creds {
     async fn current(&self) -> Result<Credential, ProviderError> {
-        Ok(Credential { bearer: "tok".into(), account_id: None })
+        Ok(Credential { bearer: "fixture-key".into(), account_id: None })
     }
-    async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
-        Ok(None)
+    /// Stands in for a key source that reads the same key again, as Node's `reloadApiKey` does for a configured key: a
+    /// rejected request is sent once more.
+    async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError> {
+        Ok(Some(rejected.clone()))
     }
 }
 
-/// The API-key adapter pinned to the WebSocket (`ws-delta`: no move to HTTP/SSE), over `dial`.
-pub fn adapter(dial: Arc<ScriptedDial>, compress_lane: CpuBulk) -> Arc<dyn ProviderAdapter> {
+/// The API-key adapter (key `fixture-key`, the recorders') on the WebSocket in `mode` (a pinned mode never moves to
+/// HTTP/SSE), over `dial`.
+pub fn adapter(dial: Arc<ScriptedDial>, compress_lane: CpuBulk, mode: TransportMode) -> Arc<dyn ProviderAdapter> {
     let context = Arc::new(SessionContext::new());
-    let config = OpenAiConfig::api_key(false, Arc::new(NoFacts), context.clone());
+    let config = OpenAiConfig::api_key(true, Arc::new(NoFacts), context.clone());
     Arc::new(
         OpenAiAdapter::new(
             ProviderId::from("openai"),
             OpenAiCodec::new(config, TransportKind::WebSocket),
             AdapterLinks { http: Arc::new(NoHttp), dial, compress_lane, credentials: Arc::new(Creds), context, listing: ListingLookup::new() },
         )
-        .with_mode(TransportMode::WsDelta),
+        .with_mode(mode),
     )
 }

@@ -347,6 +347,10 @@ const scenarios = [
   { id: 'config-effort-openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS }), send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high' } })] },
   { id: 'config-effort-openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')), sends: [send('openai/gpt-5', { tools: TOOLS }), send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'high' } })] },
   { id: 'config-effort-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'medium' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS }), send('openrouter/auto', { tools: TOOLS, opts: { effort: 'low' } })] },
+  // A configured effort the engine does not carry: xAI knows low/medium/high/xhigh, OpenRouter's list has `max` and not `bogus`, DeepSeek maps what it knows and leaves thinking on for the rest.
+  { id: 'config-effort-unsupported-xai-chat', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'max' }, reply: () => ok(chatText('The result is 42.')), sends: [send('grok-4.3', { opts: { sessionId: 'sess-xai' } })] },
+  { id: 'config-effort-unsupported-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'bogus' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS })] },
+  { id: 'config-effort-unsupported-deepseek-chat', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'bogus' }, reply: () => ok(chatText('The result is 42.')), sends: [send('deepseek-v4-pro')] },
   // Command Code: Claude answers on Messages even with no roster; the rest on Chat.
   // Command Code: the roster's declared endpoints pick the wire (read once, before the sends).
   ...[

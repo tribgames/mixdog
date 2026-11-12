@@ -797,6 +797,15 @@ impl OpenAiAdapter {
             if wire_kind == Wire::Ws {
                 err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
             }
+            if handshake {
+                // `httpResponseError({ label: `${errLabel} handshake`, ... })`: the message leads with what refused and how.
+                let status = rejected.status.unwrap_or(0);
+                err.message = if err.message.is_empty() {
+                    format!("{} handshake {status}", codec.ws_label())
+                } else {
+                    format!("{} handshake {status}: {}", codec.ws_label(), err.message)
+                };
+            }
             return Err(Failed { error: err, handshake });
         }
     }

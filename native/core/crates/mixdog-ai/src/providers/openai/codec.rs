@@ -125,9 +125,8 @@ impl WireCodec for OpenAiCodec {
         };
         // `_wsErrLabel(traceProvider)` / `httpLabel(auth)`: the route decides the label, the transport the kind.
         let label = match (self.route(), framing) {
-            (Route::ApiKey, Framing::WebSocket) => "OpenAI WS",
+            (_, Framing::WebSocket) => self.ws_label(),
             (Route::ApiKey, Framing::Sse) => "OpenAI HTTP fallback",
-            (_, Framing::WebSocket) => "OpenAI OAuth WS",
             (_, Framing::Sse) => "OpenAI OAuth HTTP fallback",
         };
         Box::new(
@@ -145,6 +144,14 @@ impl WireCodec for OpenAiCodec {
 impl OpenAiCodec {
     pub fn route(&self) -> Route {
         self.config.route()
+    }
+
+    /// `_wsErrLabel`: how a WebSocket failure of this route names itself.
+    pub fn ws_label(&self) -> &'static str {
+        match self.route() {
+            Route::ApiKey => "OpenAI WS",
+            _ => "OpenAI OAuth WS",
+        }
     }
 
     /// The client identity of the Codex route.

@@ -22,7 +22,7 @@ const rec = await startRecording({
   set: 'provider-openai-ws-send-attempts',
   net: true,
   exclusions: [
-    'ORDER RULE (one of the orders Node allows): before each retry step the recorder waits until every connection opened so far is closed at the server, so a connection the client released after a failed attempt has its `closed` event (serverInitiated false, reason release_no_keep) recorded before the retry\'s `stage: requesting` and its dial. Node does not guarantee that order: releaseWebSocket only requests the close and returns (src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs:937), so the close may complete before or after the retry starts. Pairs covered (11): ws-rate-limited-response-failed-waits-advised-time (1), ws-long-advised-wait-announced-before-it-starts (1), ws-server-error-text-never-reaches-retry-stage (3), ws-retry-stage-carries-known-codes-never-failure-text sends 0, 4, 5, 6, 7, 8 (1 each): each is a `closed` (serverInitiated false) entry immediately followed by a `stage` requesting entry. Comparison rule for a replay: within each such pair either order is equal; everything else is compared in recorded order. Because the close completes before the clock moves, the ws client\'s 30 s close timer (node_modules/ws/lib/websocket.js:1324-1326 setCloseTimer, cleared at :1368 once the close completes) is cancelled before the advance and does not appear among the fired timers of the clock steps','auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): the recorded answer is what the product path gives, reasonClass "other" (stage reason "Connection interrupted"). The cited test asserts "auth" one level lower: it hands retryReasonClass (provider-error-kind.mjs:767, `timeoutPhase === auth`) the inner timeout error that exchangeRefreshToken throws (openai-oauth-tokens.mjs:278-280, timeoutPhase auth). On the product path refreshStoredTokens -> refreshUnderLock catches it and throws a new Error("OpenAI OAuth token refresh failed (...). Re-authenticate via provider login.") (openai-oauth-tokens.mjs:354) that copies reauth fields only for a permanent refusal and carries neither timeoutPhase nor a cause, so the class the test asserts is not what a caller of the refresh receives', 'NOT HELD (no send reaches it): exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches', 'NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)', 'reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts', 'result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
+    'ORDER RULE (one of the orders Node allows): before each retry step the recorder waits until every connection opened so far is closed at the server, so a connection the client released after a failed attempt has its `closed` event (serverInitiated false, reason release_no_keep) recorded before the retry\'s `stage: requesting` and its dial. Node does not guarantee that order: releaseWebSocket only requests the close and returns (src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs:937), so the close may complete before or after the retry starts. Pairs covered (11): ws-rate-limited-response-failed-waits-advised-time (1), ws-long-advised-wait-announced-before-it-starts (1), ws-server-error-text-never-reaches-retry-stage (3), ws-retry-stage-carries-known-codes-never-failure-text sends 0, 4, 5, 6, 7, 8 (1 each): each is a `closed` (serverInitiated false) entry immediately followed by a `stage` requesting entry. Comparison rule for a replay: within each such pair either order is equal; everything else is compared in recorded order. Because the close completes before the clock moves, the ws client\'s 30 s close timer (node_modules/ws/lib/websocket.js:1324-1326 setCloseTimer, cleared at :1368 once the close completes) is cancelled before the advance and does not appear among the fired timers of the clock steps','auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): the recorded answer is what the product path gives, reasonClass "other" (stage reason "Connection interrupted"). The cited test asserts "auth" one level lower: it hands retryReasonClass (provider-error-kind.mjs:767, `timeoutPhase === auth`) the inner timeout error that exchangeRefreshToken throws (openai-oauth-tokens.mjs:278-280, timeoutPhase auth). On the product path refreshStoredTokens -> refreshUnderLock catches it and throws a new Error("OpenAI OAuth token refresh failed (...). Re-authenticate via provider login.") (openai-oauth-tokens.mjs:354) that copies reauth fields only for a permanent refusal and carries neither timeoutPhase nor a cause, so the class the test asserts is not what a caller of the refresh receives', 'NOT HELD (no send reaches it): exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches', 'NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)', 'reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts', 'result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)', 'the Sec-WebSocket-Key and x-client-request-id values of every `upgrade-request` event of the ws-* cases: random per connection, written as the markers <handshake-nonce> and <random:hex32> (lib/headers.mjs), the headers stay', 'the outage cases (the eleven with input.attempts) are sent by the public OpenAI provider (`OpenAIDirectProvider.send`, MIXDOG_OAI_TRANSPORT=ws-delta, api key `fixture-key`), not by `sendViaWebSocket` with a hand-made xAI auth: their requests are what a user turn sends. A replay compares, per case and in recorded order, every `upgrade-request` event (method, target, every header) and every `frame` event with dir client->server (its text); not compared: the server-side events (`upgrade-response`, `upgrade-refused`, `upgrade-reset`, `upgrade-left-unanswered`, `open`, `frame` server->client, `close-sent`, `closed`, `terminate`), which are the scripted answer the replay feeds, and `dial`, `stage`, `progress`, `text`, `agent-trace`, which are socket plumbing and Node-internal telemetry the Rust loop has no counterpart for'],
   maskRow: (row) => {
     const walk = (value) => {
       if (!value || typeof value !== 'object') return;
@@ -30,6 +30,14 @@ const rec = await startRecording({
       for (const child of Object.values(value)) walk(child);
     };
     if (row.id?.startsWith('ws-')) walk(row.result);
+    // The two random values of every upgrade request: the per-connection handshake nonce and the client request id (headers.mjs's placeholders).
+    for (const event of row.result?.events ?? []) {
+      if (event.event !== 'upgrade-request') continue;
+      for (const header of event.headers) {
+        if (header[0] === 'Sec-WebSocket-Key') header[1] = '<handshake-nonce>';
+        else if (header[0] === 'x-client-request-id') header[1] = '<random:hex32>';
+      }
+    }
   },
   entry: 'src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. The state-machine cases feed a scripted Error (own properties are the inputs) and read `attempts.state` and the error objects after each call; the `ws-*` cases run sendViaWebSocket over a real loopback WebSocket.',
   compare: 'mixdog-agent send.rs:541-664 (retry loop, advised wait, reasons), mixdog-ai retry decider.rs:55-57,172-185 and retry advice.rs, openai adapter.rs: feed each case\'s scripted errors / midState and compare `results`, `progress`, `sleeps`, `details`, `traces`, `stages` and the error fields. K1 gap G10 (exhaustion surfaces the first error, not the last) and G1 (xAI WS carry-forward) are OPEN in the core, so those cases are expected to differ.',
@@ -84,10 +92,10 @@ const serve = (plans, refusals = []) => {
     },
   });
 };
-async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, follow, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
+async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, follow, sender = send, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
   serve(plans, refusals);
   // The send's own backoff sleeps run on the virtual clock: every armed retry sleep is advanced to (a recorded step) until the send ends.
-  const outcome = await send(poolKey, body, sendExtras, follow);
+  const outcome = await sender(poolKey, body, sendExtras, follow);
   await closeAll();
   return { ...outcome, events: world.trace.map((e) => ({ ...e })) };
 }
@@ -143,14 +151,34 @@ const HEDGE_LEGS = 5;
 const OUTAGE_SITES = /at (async )?\S*[sS]leep\S* |at scheduleHedge |openai-ws-connect\.mjs:22\d:/;
 const drop = (n, code = n % 2 ? 1012 : 1011) => ({ frames: [{ type: 'response.created', response: { id: `resp_drop_${n}`, model: 'gpt-fixture' } }], close: [code, `drop-${n}`] });
 const stuck = (times) => Array.from({ length: times }, () => ({ upgrade: 'stuck' }));
-const refused = (status) => ({ upgrade: { status } });
-const outage = (id, source, attempts) => rec.run(id, source, { attempts }, async () => {
+const refused = (status) => ({ upgrade: { status, body: '{"error":{"message":"refused"}}' } });
+// An outage is sent the way the user's turn sends it: the public OpenAI provider's own `send` (its request builder, its pool key from the session, its
+// `openai-direct` handshake policy), pinned to the WebSocket (`MIXDOG_OAI_TRANSPORT=ws-delta`: no move to HTTP/SSE). The request is the case's input.
+const { OpenAIDirectProvider } = await rec.P(`${P}openai-ws.mjs`);
+const OUTAGE_REQUEST = { model: 'gpt-fixture', messages: [{ role: 'user', content: 'go' }] };
+const directSend = (sessionId, _body, _extras, follow) => {
+  const saved = process.env.MIXDOG_OAI_TRANSPORT;
+  process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+  const provider = new OpenAIDirectProvider({ apiKey: 'fixture-key' });
+  const settled = provider.send(OUTAGE_REQUEST.messages, OUTAGE_REQUEST.model, [], {
+    sessionId,
+    onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),
+    onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
+    onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
+    _webSocketTestSeams: { _agentTraceFn: (row) => world.note({ event: 'agent-trace', row }) },
+  }).then((result) => ({ result }), (error) => ({ error }));
+  return rec.clock.followRetries(settled, { ready: releasedClosed, ...follow }).finally(() => {
+    if (saved === undefined) delete process.env.MIXDOG_OAI_TRANSPORT;
+    else process.env.MIXDOG_OAI_TRANSPORT = saved;
+  });
+};
+const outage = (id, source, attempts) => rec.run(id, source, { attempts, request: OUTAGE_REQUEST, sessionId: `sa-${id}` }, async () => {
   const refusals = [];
   const plans = [];
   for (const attempt of attempts) {
     if (attempt.upgrade === 'stuck') for (let leg = 0; leg < HEDGE_LEGS; leg++) refusals.push(null);
     else if (attempt.upgrade === 'reset') refusals.push({ reset: true });
-    else if (attempt.upgrade) refusals.push({ status: attempt.upgrade.status, headers: [['content-type', 'application/json']], body: '{"error":{"message":"refused"}}' });
+    else if (attempt.upgrade) refusals.push({ status: attempt.upgrade.status, headers: [['content-type', 'application/json']], body: attempt.upgrade.body });
     else {
       refusals.push(undefined);
       plans.push({ frames: attempt.frames, close: attempt.close });
@@ -159,6 +187,13 @@ const outage = (id, source, attempts) => rec.run(id, source, { attempts }, async
   // The acquire's timers (hedge, deadline) come due on the virtual clock, but a leg dials in real I/O time: the clock waits until every leg the acquire has started reached the
   // server before a step, and after a hedge step until the new leg's dial is seen.
   const legsBefore = attempts.map((_, k) => attempts.slice(0, k).reduce((sum, a) => sum + (a.upgrade === 'stuck' ? HEDGE_LEGS : 1), 0));
+  // How many of the attempts before the k-th opened a socket (`upgrade` unset): the streams the send has started by then.
+  const socketAttemptsBefore = [];
+  let sockets = 0;
+  for (const a of attempts) {
+    socketAttemptsBefore.push(sockets);
+    if (!a.upgrade) sockets += 1;
+  }
   const count = (kind) => world.count((e) => e.event === kind);
   const stages = (stage) => world.count((e) => e.event === 'stage' && e.stage === stage);
   const ready = () => {
@@ -166,7 +201,7 @@ const outage = (id, source, attempts) => rec.run(id, source, { attempts }, async
     if (!releasedClosed() || begun === 0 || count('upgrade-request') <= legsBefore[Math.min(begun, attempts.length) - 1]) return false;
     // A refused or reset upgrade ends the acquire when the client has seen it (the lone leg fails at once): the hedge timer still armed meanwhile must not be stepped to first.
     const kind = attempts[Math.min(begun, attempts.length) - 1];
-    if (!kind.upgrade) return stages('streaming') >= attempts.slice(0, begun).filter((a) => !a.upgrade).length;
+    if (!kind.upgrade) return stages('streaming') >= socketAttemptsBefore[Math.min(begun, attempts.length) - 1] + 1;
     return kind.upgrade === 'stuck' || stages('reconnecting') >= begun;
   };
   const causes = (site) => {
@@ -183,7 +218,7 @@ const outage = (id, source, attempts) => rec.run(id, source, { attempts }, async
     offered?.();
     for (const wake of [...rec.clock.armListeners]) wake();
   };
-  const outcome = await overSocket(plans, { refusals, poolKey: `sa-${id}`, follow: { sites: gate, causes } }).finally(() => {
+  const outcome = await overSocket(plans, { refusals, poolKey: `sa-${id}`, sender: directSend, follow: { sites: gate, causes } }).finally(() => {
     world.onNote = offered;
   });
   // The same error with its cause dropped, as the user would read it without the chain.
@@ -197,7 +232,8 @@ await outage('ws-stream-drops-surface-the-last-remembered-drop-with-the-last-as-
 await outage('ws-stream-drops-then-a-reset-surface-the-last-remembered-drop-with-the-reset-as-cause', `${SRC}:417`, [...Array.from({ length: LIMIT }, (_, n) => drop(n)), { frames: [{ type: 'response.created', response: { id: 'resp_rst', model: 'gpt-fixture' } }], close: ['rst'] }]);
 await outage('ws-drop-then-unclassified-refusal-surfaces-the-drop', `${SRC}:111`, [drop(0), refused(400)]);
 await outage('ws-reset-then-unclassified-refusal-surfaces-the-reset', `${SRC}:111`, [{ upgrade: 'reset' }, refused(400)]);
-await outage('ws-reset-then-401-surfaces-the-401', `${SRC}:86`, [{ upgrade: 'reset' }, refused(401)]);
+// The public provider answers a 401 by re-reading its key and sending once more (openai-ws.mjs:259-275, even when the key read is the same one): the second 401 surfaces.
+await outage('ws-reset-then-401-surfaces-the-401', `${SRC}:86`, [{ upgrade: 'reset' }, refused(401), refused(401)]);
 await outage('ws-drop-then-403-surfaces-the-403', `${SRC}:86`, [drop(0), refused(403)]);
 await outage('ws-drop-then-426-surfaces-the-426', `${SRC}:86`, [drop(0), refused(426)]);
 await outage('ws-reset-then-503-refusals-surface-the-first-reset', `${SRC}:111`, [{ upgrade: 'reset' }, ...Array.from({ length: LIMIT }, () => refused(503))]);
