@@ -3941,7 +3941,7 @@ impl mixdog_ai::providers::openai::config::WireContext for LeakCtx {
 }
 
 /// The events Rust's decoder of `route` yields for the wire Node's decoder was fed, one unit per wire event.
-fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
+fn leaked_events(route: &str, scenario: &JsonValue) -> (Vec<StreamEvent>, Option<ProviderError>) {
     use mixdog_ai::providers::openai::decoder::{Framing, ResponsesDecoder};
     let known: std::collections::HashSet<String> =
         scenario["known"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
@@ -3966,7 +3966,8 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
             use mixdog_ai::providers::compat::chat::ChatDecoder;
             use mixdog_ai::providers::compat::profile::{CompatProfile, CredentialKind};
             let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
-            let mut decoder = ChatDecoder::new(profile, ProviderId::from("groq")).with_known_tools(known);
+            // The recorder's `providerName`.
+            let mut decoder = ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known);
             drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\n\n").into_bytes()).collect())
         }
         "gemini" => {
@@ -4042,13 +4043,24 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
     }
 }
 
-fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> Vec<StreamEvent> {
+/// The events the decoder yields, and the failure that ended the stream (a decoder that owes events to its failure hands
+/// them out first, as `DecodedStream` reads it).
+fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> (Vec<StreamEvent>, Option<ProviderError>) {
     let mut events = Vec::new();
     for unit in units {
-        events.extend(decoder.feed(&unit).expect("feed"));
+        match decoder.feed(&unit) {
+            Ok(more) => events.extend(more),
+            Err(error) => return (events, Some(error)),
+        }
     }
-    events.extend(decoder.finish().expect("finish"));
-    events
+    match decoder.finish() {
+        Ok(more) => {
+            let owes_failure = !more.is_empty() && !decoder.terminal_seen();
+            events.extend(more);
+            if owes_failure { (events, decoder.finish().err()) } else { (events, None) }
+        }
+        Err(error) => (events, Some(error)),
+    }
 }
 
 /// A minted id is recorded as `<prefix>_leaked_*`.
@@ -4076,17 +4088,19 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let route = scenario["route"].as_str().unwrap();
         let Some(stored) = scenario.get("stored") else { continue };
         let label = format!("{route} / {}", scenario["name"]);
-        let events = leaked_events(route, scenario);
+        let (events, failure) = leaked_events(route, scenario);
         let reader = Arc::new(Reader {
             spec: ToolSpec { name: "read".into(), ..Echo::tool().spec().clone() },
             ran: Mutex::new(Vec::new()),
             finished: tokio::sync::Semaphore::new(0),
             fail: scenario["failing"] == true,
         });
-        let mut h = Harness::new(vec![
-            turn(events.into_iter().map(Step::Event).collect()),
-            turn(vec![text("final"), done(StopReason::EndTurn)]),
-        ]);
+        let mut steps: Vec<Step> = events.into_iter().map(Step::Event).collect();
+        // A turn Node's send rejected (`normalizeCompatChatResponse`) reaches the loop as the error the decoder fails with.
+        if let Some(error) = &failure {
+            steps.push(Step::Fail(error.clone()));
+        }
+        let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
         // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
         let denying = scenario["denying"] == true;
         // A tool the executor does not have is answered with text too, and never runs.
@@ -4096,6 +4110,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
             h.gate = Arc::new(DenyAll(recorded));
         }
         let tool: Arc<dyn Tool> = reader.clone();
+        if let Some(want_error) = stored.get("turnError") {
+            let failed = h.run(config(), vec![tool], vec![AgentMessage::user("go")]).run().await.expect_err(&label);
+            let AgentError::Provider(error) = &failed.error else { panic!("{label}: not a provider error: {:?}", failed.error) };
+            assert_eq!(error.message, want_error.as_str().unwrap(), "{label}: the error the turn ends with");
+            assert_eq!(h.provider.requests().len() as u64, stored["sends"].as_u64().unwrap(), "{label}: the send is not retried");
+            assert!(reader.ran.lock().unwrap().is_empty(), "{label}: no call ran");
+            let stored_assistants = failed.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).count();
+            assert_eq!(stored_assistants, stored["messages"].as_array().unwrap().len(), "{label}: nothing stored for the cut turn");
+            compared += 1;
+            continue;
+        }
         let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
         // A call no listed call consumed is left to finish, as in Node: wait for every run Node saw.
         let expected = if denying || unknown { 0 } else { stored["early"].as_array().unwrap().len() };

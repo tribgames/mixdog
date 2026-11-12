@@ -253,14 +253,14 @@
       "sha256": "6ec1f55693dc2179b2faa0382abeafdd0b96a18ffcea52c590b2e5573e7e10a1"
     },
     {
-      "bytes": 1216479,
+      "bytes": 1217602,
       "path": "leaked-toolcall/golden/leaked_toolcall.json",
-      "sha256": "15f9c9edbdcbd9a2a3121824333678d0a184fe31de5c05a3a6f6b3cad7f26774"
+      "sha256": "9b757c0eb3fdcaaf8754a8c174362c95c31bcd19ff068d7cc2c4d113b88ce25d"
     },
     {
-      "bytes": 30672,
+      "bytes": 31871,
       "path": "leaked-toolcall/record.mjs",
-      "sha256": "0875dd5fcaac4416122ee0ecb346a2f1844ad1540c1b20a6a6a2d6f11e4223a1"
+      "sha256": "ac3a285df074bcd5025b3f284bdafe47baac8f56e1997e2488d8e79177efab3c"
     },
     {
       "bytes": 18290,

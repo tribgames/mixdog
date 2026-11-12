@@ -10,7 +10,7 @@ const rec = await startRecording({
   net: false,
   exclusions: [
     "`normalized` (a turn cut by length with calls, or by content_filter): the replay compares the ProviderError the core's ChatDecoder fails with (`partial_tool_calls` whole against `props.partialToolCalls` and `result.toolCalls`, the message, the code, the partial content); not compared, unobservable to the caller: the error's name, providerIncomplete, finishReason, responseId, rawUsage (the core keeps the usage as `partial_usage`) and model (the request's own model, `partial_model: None`)",
-    "the first case's raw tool-call objects (`parseToolCalls` returning `choice.message.tool_calls`): Node's dispatcher skips them for want of a top-level `name`, so `dispatched` is [] there; the replay compares the core's dispatched and returned calls with those objects read in the product's `{id, name, arguments}` shape, and arguments the core cannot parse are compared as the text it keeps verbatim (`__rawArguments`)",
+    "the first case's `parseToolCalls` callback: the test hands the collector one that returns the raw `choice.message.tool_calls` objects (no top-level `name`, so Node's dispatcher skips them: a state no turn reaches, the product's parser always gives `{id, name, arguments}`); the recording uses the product's own `parseToolCalls` (openai-compat-wire.mjs) over the same chunks, so `dispatched` and `toolCalls` are what a turn gets (the joined arguments, bad JSON, ride as the invalid-arguments marker)",
   ],
   pure: { '*': 'mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)' },
   entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test\'s own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.',
@@ -20,6 +20,7 @@ const rec = await startRecording({
 const P = 'agent/orchestrator/providers/';
 const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
 const { normalizeCompatChatResponse } = await rec.P(`${P}openai-compat-response-normalization.mjs`);
+const { parseToolCalls: productParseToolCalls } = await rec.P(`${P}openai-compat-wire.mjs`);
 const SRC = 'src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs';
 
 const parseToolCalls = (choice) => choice.message.tool_calls.map((tc) => ({ id: tc.id, name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') }));
@@ -37,7 +38,7 @@ const consume = async (events, extra = {}) => {
 
 const repeat = [toolDelta('{"a":"', { id: 'c1', function: { name: 'f' } }), toolDelta('{"a":"'), toolDelta('"}'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
 await rec.run('prefix-repeating-fragment-verbatim', `${SRC}:34`, { chunks: repeat }, async () => {
-  const out = await consume(repeat, { parseToolCalls: (choice) => choice.message.tool_calls });
+  const out = await consume(repeat, { parseToolCalls: productParseToolCalls });
   return { ...out, arguments: out.result.response.choices[0].message.tool_calls[0].function.arguments };
 });
 const fragmented = [toolDelta('', { id: 'c1', function: { name: 'f' } }), toolDelta('{"x"'), toolDelta(':1}'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];

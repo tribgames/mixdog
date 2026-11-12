@@ -515,7 +515,8 @@ impl ChatDecoder {
         }
         let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
         err.code = Some("PROVIDER_INCOMPLETE".into());
-        err.message = format!("response incomplete: finish_reason={finish}");
+        // Node's text leads with the provider's name (`${providerName} response incomplete`), which the turn's error shows.
+        err.message = format!("{} response incomplete: finish_reason={finish}", self.owner);
         err.exposure = Exposure { text_emitted: self.text_emitted, ..Exposure::default() };
         err.partial_tool_calls = calls;
         if let Some(raw) = &self.usage {
@@ -653,7 +654,9 @@ impl WireDecoder for ChatDecoder {
             Ok(()) => Ok(out),
             Err(err) => {
                 self.failure = Some(err.clone());
-                Err(err)
+                // The guard's held-back tail was relayed before the failure (Node flushes before it throws): the events
+                // go out first, as `feed` does, and the stored failure ends the stream on the next call.
+                if out.is_empty() { Err(err) } else { Ok(out) }
             }
         }
     }

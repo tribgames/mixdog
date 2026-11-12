@@ -11,16 +11,13 @@
 //!   `ProviderIncompleteError` that holds the calls as `partialToolCalls`; the turn fails with it, nothing is dispatched,
 //!   and Node's retry classification reads it as unknown (not retried). The core's decoder owns that step
 //!   (`ChatDecoder::incomplete_failure`): its `ProviderError` (`PROVIDER_INCOMPLETE`, kind `Unknown`, no transport
-//!   fault) holds the calls in `partial_tool_calls`, compared whole with the recorded `partialToolCalls`, with the
+//!   fault, Node's message whole, the provider's name first) holds the calls in `partial_tool_calls`, compared whole with the recorded `partialToolCalls`, with the
 //!   collector's list and with the partial content. Not compared, unobservable to the caller: Node's error `name`,
 //!   `providerIncomplete`, `finishReason`, `responseId` and `rawUsage` (the core keeps the usage as `partial_usage`), and
 //!   `model` (`useModel`, the request's own model, which the core's `partial_model: None` means).
-//! - The first case's own `parseToolCalls` hands Node's dispatcher raw tool-call objects (`{id, function: {name,
-//!   arguments}}`, the argument text unparsed) whose missing top-level `name` makes `emitCompatToolCallOnce` skip them;
-//!   the product's parser always gives `{id, name, arguments}`. That case compares id, name and arguments of each
-//!   returned call, and of each dispatched call, with those objects read in the product's shape; the core parses the
-//!   arguments, and text that is not JSON rides verbatim as `__rawArguments` (the product's invalid-arguments marker,
-//!   whose `__parseError` is the core's own V8-worded text, not in the recording), so that text is what is compared.
+//! - The first case's own `parseToolCalls` hands Node's dispatcher raw tool-call objects without a top-level `name`,
+//!   which `emitCompatToolCallOnce` skips: a state no turn reaches. It is recorded with the product's `parseToolCalls`
+//!   instead (see the manifest), and its dispatched and returned lists are compared whole like every other case's.
 //! - A recovered call's id is minted from a random source on both sides (Node's recording holds the one its seeded source
 //!   gave), so those ids are compared by their shape (`call_leaked_` and 16 hex digits), the rest of the call whole.
 //! - A truncated stream's error is the transport fault `TruncatedStream` and its exposure flags; Node's message carries
@@ -57,27 +54,6 @@ fn minted_ids_by_shape(mut calls: Value) -> Value {
     calls
 }
 
-/// A raw tool-call object of the test's own `parseToolCalls` (`{id, type, function: {name, arguments}}`) as the product's
-/// parser hands a call on (`{id, name, arguments}`); the arguments stay the text Node holds.
-fn product_shape(call: &Value) -> Value {
-    match call.get("function") {
-        Some(function) => json!({"id": call["id"], "name": function["name"], "arguments": function["arguments"]}),
-        None => call.clone(),
-    }
-}
-
-/// The core parses a call's arguments where the raw object holds their text: arguments the core could not parse ride
-/// verbatim as `__rawArguments` (the product's invalid-arguments marker), so the text is compared. Every other
-/// arguments value is compared whole.
-fn arguments_of_raw(mut calls: Value) -> Value {
-    for call in calls.as_array_mut().unwrap() {
-        if call["arguments"]["__invalidToolArgs"] == json!(true) {
-            call["arguments"] = call["arguments"]["__rawArguments"].clone();
-        }
-    }
-    calls
-}
-
 fn typed_stop(finish: &str) -> StopReason {
     match finish {
         "tool_calls" => StopReason::ToolUse,
@@ -108,8 +84,15 @@ fn every_recorded_chunk_list_is_decoded_and_dispatched_as_node_does() {
             }
         }
         if failure.is_none() {
+            // The stream's end (`DecodedStream`): a failure that still owes events hands them out, then fails.
             match decoder.finish() {
-                Ok(more) => events.extend(more),
+                Ok(more) => {
+                    let owes_failure = !more.is_empty() && !decoder.terminal_seen();
+                    events.extend(more);
+                    if owes_failure {
+                        failure = Some(decoder.finish().expect_err("the stored failure"));
+                    }
+                }
                 Err(error) => failure = Some(error),
             }
         }
@@ -129,7 +112,7 @@ fn every_recorded_chunk_list_is_decoded_and_dispatched_as_node_does() {
             // `normalizeCompatChatResponse` over the cut turn: the turn fails with the error, which holds the calls.
             let error = failure.unwrap_or_else(|| panic!("{id}: Node's normalizer threw, the decoder succeeded"));
             assert_eq!((error.kind, error.code.as_deref(), &error.transport), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE"), &None), "{id}: {error:?}");
-            assert_eq!(format!("gateway {}", error.message), normalized["message"], "{id}: message");
+            assert_eq!(error.message, normalized["message"], "{id}: message");
             assert_eq!(normalized["code"], "PROVIDER_INCOMPLETE", "{id}: Node's code");
             let held: Vec<Value> = error.partial_tool_calls.iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
             assert_eq!(minted_ids_by_shape(Value::Array(held.clone())), minted_ids_by_shape(normalized["props"]["partialToolCalls"].clone()), "{id}: the calls the error holds");
@@ -146,11 +129,7 @@ fn every_recorded_chunk_list_is_decoded_and_dispatched_as_node_does() {
         let content: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
         assert_eq!(content, result["content"], "{id}: the text");
         let returned: Vec<Value> = returned_of(&events).iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
-        let wanted: Vec<Value> = result["toolCalls"].as_array().unwrap().iter().map(product_shape).collect();
-        // Node's own dispatcher skips a call with no top-level `name`, which is all the raw objects of the first case
-        // have: what it would have dispatched are the calls the turn returns.
-        let wanted_dispatch = if result["toolCalls"].as_array().unwrap().iter().any(|raw| raw.get("function").is_some()) { Value::Array(wanted.clone()) } else { node["dispatched"].clone() };
-        assert_eq!(arguments_of_raw(minted_ids_by_shape(Value::Array(dispatched))), arguments_of_raw(minted_ids_by_shape(wanted_dispatch)), "{id}: the calls dispatched");
-        assert_eq!(arguments_of_raw(minted_ids_by_shape(Value::Array(returned))), arguments_of_raw(minted_ids_by_shape(Value::Array(wanted))), "{id}: the returned list");
+        assert_eq!(minted_ids_by_shape(Value::Array(dispatched)), minted_ids_by_shape(node["dispatched"].clone()), "{id}: the calls dispatched");
+        assert_eq!(minted_ids_by_shape(Value::Array(returned)), minted_ids_by_shape(result["toolCalls"].clone()), "{id}: the returned list");
     }
 }

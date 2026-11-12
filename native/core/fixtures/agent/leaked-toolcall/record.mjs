@@ -43,6 +43,7 @@ const { consumeGeminiRestStreamResponse } = await load(`${providerDir}/gemini-st
 const { geminiTextLeakGuardFor } = await load(`${providerDir}/gemini-sdk-request.mjs`);
 const { parseGeminiCandidate } = await load(`${providerDir}/gemini-response.mjs`);
 const { emitGeminiToolCalls } = await load(`${providerDir}/gemini-schema.mjs`);
+const { normalizeCompatChatResponse } = await load(`${providerDir}/openai-compat-response-normalization.mjs`);
 const { agentLoop } = await load('src/runtime/agent/orchestrator/session/agent-loop.mjs');
 
 // ---- text fixtures: the tags are assembled here so the source never holds a literal tag ----
@@ -477,7 +478,9 @@ async function runCursor(entry) {
 const loopCwd = mkdtempSync(join(scratch, 'loop-cwd-'));
 writeFileSync(join(loopCwd, 'a.txt'), 'hello probe\n');
 let loopRuns = 0;
-async function recordStored(run, { failing = false, denying = false } = {}) {
+// `normalize`: the step a chat send runs on the collector's result (`normalizeCompatChatResponse`), which rejects a turn cut
+// by `length` (with calls) or `content_filter`; the loop then gets the error the product's send throws, never the raw result.
+async function recordStored(run, { failing = false, denying = false, normalize = false } = {}) {
   loopRuns += 1;
   const session = { id: `leak-loop-${loopRuns}`, owner: 'agent', agent: 'worker', contextWindow: 200000, rawContextWindow: 200000, compaction: { auto: false } };
   // A PreToolUse hook that denies: the executor returns the denial as text, so the call settles normally.
@@ -497,10 +500,11 @@ async function recordStored(run, { failing = false, denying = false } = {}) {
       } finally {
         live = null;
       }
-      return lastRaw;
+      return normalize ? normalizeCompatChatResponse({ providerName: 'custom', useModel: 'm', opts: {}, assembled: lastRaw }) : lastRaw;
     },
   };
   const tools = [{ name: 'read', description: 'read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+  let turnError = null;
   const final = await agentLoop(provider, [{ role: 'user', content: 'go' }], 'fake-model', tools, null, loopCwd, {
     session,
     sessionId: session.id,
@@ -514,9 +518,14 @@ async function recordStored(run, { failing = false, denying = false } = {}) {
           },
         }
       : {}),
+  }).catch((error) => {
+    // The turn failed: the error the caller (and the session's error mark) gets, and what the loop had stored.
+    turnError = String(error?.message ?? error);
+    return { content: null };
   });
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
   return {
+    ...(turnError === null ? {} : { turnError }),
     content: final.content,
     sends,
     messages: committed.map((m) => ({
@@ -539,7 +548,7 @@ async function recordStored(run, { failing = false, denying = false } = {}) {
 const scenarios = [];
 const record = async (route, entry, run, extra = {}) => {
   const out = await run();
-  const stored = extra.loop === false || out.result.error ? {} : { stored: await recordStored(run, { failing: extra.failing === true, denying: extra.denying === true }) };
+  const stored = extra.loop === false || out.result.error ? {} : { stored: await recordStored(run, { failing: extra.failing === true, denying: extra.denying === true, normalize: extra.normalize === true }) };
   scenarios.push({ route, name: extra.name ?? entry.name, known: entry.known ?? ['read'], native: Boolean(entry.native), failing: extra.failing === true, denying: extra.denying === true, ...extra.fields, ...out, ...stored });
 };
 for (const entry of TEXTS) {
@@ -597,7 +606,10 @@ for (const name of ['an invoke tag in the answer', 'a leaked call and the same n
 // A turn cut at the token limit never runs a call it leaked.
 for (const finish of ['length', 'content_filter', 'error']) {
   const entry = TEXTS[0];
-  await record('chat', entry, () => runChat(entry, finish), { name: `${entry.name}, finish_reason ${finish}` });
+  await record('chat', entry, () => runChat(entry, finish), { name: `${entry.name}, finish_reason ${finish}`, normalize: finish !== 'error' });
 }
+// A cut turn still relays what the guard held back (the flush runs before `normalizeCompatChatResponse` throws).
+const held = { name: 'a partial opener held at the cut', chunks: ['text ', `${lt}fun`] };
+await record('chat', held, () => runChat(held, 'content_filter'), { name: `${held.name}, finish_reason content_filter`, normalize: true });
 
 writeFileSync(join(here, 'golden', 'leaked_toolcall.json'), `${JSON.stringify({ guard: guardCases, scenarios }, null, 2)}\n`);
