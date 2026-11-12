@@ -1500,6 +1500,7 @@ impl DirInner {
             recovered: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             drafts_settled: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             gate_holds: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),

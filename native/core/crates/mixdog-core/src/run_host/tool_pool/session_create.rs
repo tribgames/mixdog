@@ -577,6 +577,7 @@ impl CreateHost for DirectoryCreate {
         let cancel = mixdog_rt::CancellationToken::new();
         let job = mixdog_rt::LaneToken::submit(self.io, &cancel, move |lane| {
             let metadata = mixdog_statefile::metadata(lane, &path).ok()?;
+            #[allow(clippy::disallowed_methods, reason = "runs as an interactive-lane job")]
             let real = metadata.is_dir().then(|| std::fs::canonicalize(&path).ok()).flatten()?;
             let real = real.to_string_lossy().into_owned();
             // `realpathSync` names a local drive without the verbatim prefix.
