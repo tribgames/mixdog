@@ -9,6 +9,7 @@ pub mod listing;
 #[cfg(test)]
 mod listing_tests;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -21,6 +22,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -156,6 +158,8 @@ pub struct RegisteredAdapter {
     runtime: Arc<dyn LocalRuntime>,
     listing: LocalListing,
     current: Mutex<Option<(Endpoint, Arc<HttpAdapter>)>>,
+    /// The sends in flight by send group: each holds its queue slot across its retries.
+    groups: Groups,
 }
 
 impl RegisteredAdapter {
@@ -169,6 +173,7 @@ impl RegisteredAdapter {
             listing: LocalListing::new(runtime.clone()),
             runtime,
             current: Mutex::new(None),
+            groups: Groups::default(),
         }
     }
 
@@ -204,22 +209,43 @@ impl ProviderAdapter for RegisteredAdapter {
     }
 
     /// `MixdogLocalProvider.send`: the request takes its turn in the runtime's queue (`runLocalProviderRequest`), starts its
-    /// measurement, brings the server up and sends; the slot is held until the answer's stream has ended.
+    /// measurement, brings the server up and sends; the slot is held until the answer's stream has ended. Node holds the
+    /// slot around the whole inner send, retries included: the attempts of one send group share one slot and one
+    /// measurement, which end with the answer or with `settle_send`.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let inference = self.runtime.begin(&request.model).await?;
+        let group = request.options.send_group.clone();
+        let kept = group.as_ref().and_then(|id| self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned());
+        let state = match kept {
+            Some(state) => state,
+            None => {
+                let state = Arc::new(SendState::new(self.runtime.begin(&request.model).await?, group.is_some()));
+                if let Some(id) = &group {
+                    self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.clone(), state.clone());
+                }
+                state
+            }
+        };
         let endpoint = match self.runtime.ensure_server(&request.model).await {
             Ok(endpoint) => endpoint,
             Err(error) => {
-                inference.finish(None, None, Some(&error.message));
+                state.failed(&error.message);
                 return Err(error);
             }
         };
         match self.inner_for(endpoint).attempt(request).await {
-            Ok(stream) => Ok(Box::new(Measured { inner: stream, inference: Some(inference), usage: None })),
+            Ok(stream) => Ok(Box::new(Measured { inner: stream, state, group: group.map(|id| (id, self.groups.clone())), usage: None, ended: false })),
             Err(error) => {
-                inference.finish(None, None, Some(&error.message));
+                state.failed(&error.message);
                 Err(error)
             }
+        }
+    }
+
+    /// The send group ended without an answer: its measurement ends with the last failure and the slot is let go.
+    async fn settle_send(&self, group: &str, _end: SendEnd) {
+        let state = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
+        if let Some(state) = state {
+            state.abandon();
         }
     }
 
@@ -238,18 +264,68 @@ impl ProviderAdapter for RegisteredAdapter {
     }
 }
 
+type Groups = Arc<Mutex<HashMap<String, Arc<SendState>>>>;
+
+/// One send's slot in the request queue and its measurement, shared by the attempts of the send. The slot is let go when the
+/// state is dropped, which is when the send ends.
+struct SendState {
+    inference: Box<dyn Inference>,
+    /// The attempts of a send group share it: a failure waits for the retry or `settle_send`.
+    grouped: bool,
+    last_error: Mutex<Option<String>>,
+    done: Mutex<bool>,
+}
+
+impl SendState {
+    fn new(inference: Box<dyn Inference>, grouped: bool) -> Self {
+        Self { inference, grouped, last_error: Mutex::new(None), done: Mutex::new(false) }
+    }
+
+    fn end(&self, usage: Option<(u64, u64)>, error: Option<&str>) {
+        let mut done = self.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !std::mem::replace(&mut *done, true) {
+            self.inference.finish(usage.map(|(input, _)| input), usage.map(|(_, output)| output), error);
+        }
+    }
+
+    /// An attempt failed: alone it ends the measurement; in a group the retry may still answer.
+    fn failed(&self, message: &str) {
+        *self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(message.to_owned());
+        if !self.grouped {
+            self.end(None, Some(message));
+        }
+    }
+
+    /// The send ended without an answer: with the last failure, or as aborted.
+    fn abandon(&self) {
+        let error = self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        self.end(None, Some(error.as_deref().unwrap_or("aborted")));
+    }
+}
+
+impl Drop for SendState {
+    fn drop(&mut self) {
+        self.abandon();
+    }
+}
+
 /// The answer's stream while it holds the request slot: visible progress, the usage and the end are the measurement's
-/// (`onStreamDelta` and `measurement.finish`), and the slot is let go when the stream ends or is dropped.
+/// (`onStreamDelta` and `measurement.finish`), and the slot is let go when the send ends.
 struct Measured {
     inner: Box<dyn ModelStream>,
-    inference: Option<Box<dyn Inference>>,
+    state: Arc<SendState>,
+    group: Option<(String, Groups)>,
     usage: Option<(u64, u64)>,
+    /// The attempt ended on its own, answered or failed.
+    ended: bool,
 }
 
 impl Measured {
-    fn finish(&mut self, error: Option<&str>) {
-        if let Some(inference) = self.inference.take() {
-            inference.finish(self.usage.map(|(input, _)| input), self.usage.map(|(_, output)| output), error);
+    fn answered(&mut self) {
+        self.ended = true;
+        self.state.end(self.usage, None);
+        if let Some((id, groups)) = self.group.take() {
+            groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
         }
     }
 }
@@ -260,19 +336,20 @@ impl ModelStream for Measured {
         let item = self.inner.next().await;
         match &item {
             Some(Ok(event)) => {
-                if event.progress_kind().is_some()
-                    && let Some(inference) = &self.inference
-                {
-                    inference.progress("progress");
+                if event.progress_kind().is_some() {
+                    self.state.inference.progress("progress");
                 }
                 match event {
                     StreamEvent::Usage(usage) => self.usage = Some((usage.input_tokens, usage.output_tokens)),
-                    StreamEvent::Completed { .. } => self.finish(None),
+                    StreamEvent::Completed { .. } => self.answered(),
                     _ => {}
                 }
             }
-            Some(Err(error)) => self.finish(Some(&error.message)),
-            None => self.finish(None),
+            Some(Err(error)) => {
+                self.ended = true;
+                self.state.failed(&error.message);
+            }
+            None => self.answered(),
         }
         item
     }
@@ -288,7 +365,10 @@ impl ModelStream for Measured {
 
 impl Drop for Measured {
     fn drop(&mut self) {
-        self.finish(Some("aborted"));
+        // A stream dropped before its end (a cancel) is an aborted attempt.
+        if !self.ended {
+            self.state.failed("aborted");
+        }
     }
 }
 
