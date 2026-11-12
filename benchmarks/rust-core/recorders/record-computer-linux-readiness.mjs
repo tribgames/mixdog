@@ -247,12 +247,16 @@ const realFetch = globalThis.fetch;
 let posted = [];
 let answers = [];
 let hostFrom = null;
+// When set, the bridge's answer to a posted command: the reply a host would send that the real host does not produce.
+let hostAnswer = null;
 globalThis.fetch = async (url, options) => {
   if (options?.body) {
     if (!posted.length) hostFrom = machine.events.length;
     posted.push(JSON.parse(options.body));
   }
-  const response = await realFetch(url, options);
+  const response = options?.body && hostAnswer
+    ? new Response(JSON.stringify({ ok: true, value: hostAnswer }), { status: 200, headers: { 'content-type': 'application/json' } })
+    : await realFetch(url, options);
   if (options?.body) answers.push(await response.clone().json());
   return response;
 };
@@ -263,6 +267,11 @@ globalThis.fetch = async (url, options) => {
  */
 function settleTimes(answer) {
   if (typeof answer?.value?.text !== 'string') return answer;
+  try {
+    JSON.parse(answer.value.text);
+  } catch {
+    return answer;
+  }
   const settle = (value, timed) => {
     if (Array.isArray(value)) return value.map((item) => settle(item, timed));
     if (value === null || typeof value !== 'object') return timed && typeof value === 'number' ? 0 : value;
@@ -323,6 +332,23 @@ for (const [name, env, options] of SESSIONS) {
     return { world, hostDisplays, calls };
   });
 }
+
+// The host's own error flag counts on its own (client.mjs computerToolResult: `value.isError === true || canonicalComputerResultIsError`): a reply
+// flagged as an error whose text is not a failed capture, and one with the flag false, for the same capture.
+await set.run('a host reply flagged as an error is an error result whatever its text says', async () => {
+  const world = worldOf(GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS });
+  const args = tool('capture', { mode: 'vision', screen: 0 });
+  const calls = [];
+  try {
+    for (const reply of [{ text: 'failure', isError: true }, { text: 'failure', isError: false }, { text: JSON.stringify({ ok: true, action: 'capture', width: 2, height: 2 }), isError: true }]) {
+      hostAnswer = reply;
+      calls.push({ args, ...(await withHost(world, 'linux', () => call(args, ''))) });
+    }
+  } finally {
+    hostAnswer = null;
+  }
+  return { world, hostDisplays: await withHost(world, 'linux', async () => readDisplays()), calls };
+});
 
 // No desktop attached: no bridge is published, and Node's client refuses before it validates, probes or dispatches anything.
 await set.run('no desktop attached', async () => {
@@ -387,6 +413,7 @@ await set.finish({
     hostStandIn: "the host that took each capture is Node's real desktop host with Electron replaced by the recorder's stand-in (lib/computer-host-world.mjs): its `toJPEG(quality)` keeps the PNG it was given behind a `STANDIN-JPEG q<quality>` line, so the recorded JPEG bytes are Node's fit-and-encode path run over that stand-in, not Chromium's. The core passes the host's reply on unchanged, so the bytes are compared as recorded; they say nothing about Chromium's encoder.",
     noDesktop: "with no desktop attached Node refuses every call before it validates (client.mjs dispatchComputerCommand); only the calls the core sends to the desktop (a capture of a screen, a diagnose) are recorded in that state. The core runs every other action on its own helper with no desktop, and that is not recorded.",
     gnomeCaptureLimit: "the 12 s GNOME_SHELL_CAPTURE_TIMEOUT_MS runs inside the desktop host (capture-source-plan.ts), where the pixels are taken; the core no longer takes them, so a timeout of the shell is the host's reply and is not recorded (a hanging gdbus would need 12 real seconds of Node). The core's own bound is the client's REQUEST_TIMEOUT_MS of 150 s, the capability's deadline, covered by a unit test.",
+    hostAnswerStandIn: "in 'a host reply flagged as an error is an error result whatever its text says' the bridge's answer is scripted at the client's fetch (the real host never flags a capture's reply that way for such a text); Node's real executeComputerTool turns it into the tool result, which is what is recorded. The replay's desktop answers host/computer/capture with the same recorded reply.",
     randomUUID: `crypto.randomUUID returns ${SHOT_ID} for every call (the screenshot file name); the replay's id source gives the same`,
     platform: 'process.platform is set to linux for each case: the recorder runs on Windows. Another platform is not recorded: the preflight does not run there, and its host answers through Electron (the stand-in has no systemPreferences), which the core does not have',
     probeCache: 'the concurrent calls of one instant are not recorded: their helper requests interleave in an order the replay cannot reproduce; the calls of the 3 s window are sequential',

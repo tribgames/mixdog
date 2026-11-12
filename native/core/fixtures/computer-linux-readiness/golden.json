@@ -27796,6 +27796,306 @@
       }
     },
     {
+      "case": "a host reply flagged as an error is an error result whatever its text says",
+      "observed": {
+        "world": {
+          "env": {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "wayland",
+            "XDG_CURRENT_DESKTOP": "ubuntu:GNOME",
+            "PATH": "/usr/bin",
+            "HOME": "/home/u",
+            "XDG_RUNTIME_DIR": "/run/user/1000"
+          },
+          "executables": [
+            "/usr/bin/gdbus",
+            "/usr/bin/wl-copy",
+            "/usr/bin/wl-paste",
+            "/usr/bin/tesseract"
+          ],
+          "writable": [
+            "/dev/uinput"
+          ],
+          "existing": [
+            "/run/user/1000/bus"
+          ],
+          "windowVersion": 3,
+          "a11y": true,
+          "gsettings": {
+            "enabled": "@as []\n",
+            "disabled": "false\n"
+          },
+          "displays": [
+            {
+              "width": 2,
+              "height": 2
+            }
+          ],
+          "shotId": "00000000-0000-4000-8000-000000000001",
+          "helperReplies": {
+            "window_snapshot": {
+              "windows": [
+                {
+                  "id": "hwnd:0x1",
+                  "title": "Editor",
+                  "class_name": "gedit",
+                  "app": "gedit",
+                  "pid": 100,
+                  "focused": true,
+                  "x": 0,
+                  "y": 0,
+                  "width": 2,
+                  "height": 2
+                }
+              ]
+            },
+            "list_windows": {
+              "windows": [
+                {
+                  "id": "hwnd:0x1",
+                  "title": "Editor",
+                  "class_name": "gedit",
+                  "app": "gedit",
+                  "pid": 100,
+                  "focused": true,
+                  "x": 0,
+                  "y": 0,
+                  "width": 2,
+                  "height": 2
+                }
+              ]
+            },
+            "ocr_status": {
+              "available": false,
+              "requested_language": null,
+              "active_language": null,
+              "installed_languages": []
+            },
+            "accessibility_probe": {
+              "interactive": true
+            },
+            "input_idle_state": {
+              "observer_ready": true,
+              "desktop_ready": true,
+              "ready": true,
+              "held": false,
+              "idleMs": 120,
+              "monitor": "monitor-1",
+              "sequence": 7
+            }
+          },
+          "screenshot": {
+            "how": "ok",
+            "png": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DAAMIM/////w8AH+4F+7C4l8kAAAAASUVORK5CYII=",
+            "emptyPng": "iVBORw0KGgoAAAANSUhEUgAAAAAAAAAACAIAAAC06etFAAAACElEQVR4nAMAAAAAAUgGidIAAAAASUVORK5CYII="
+          }
+        },
+        "hostDisplays": [
+          {
+            "index": 0,
+            "id": "1",
+            "primary": true,
+            "scale_factor": 1,
+            "width": 2,
+            "height": 2
+          }
+        ],
+        "calls": [
+          {
+            "args": {
+              "action": "capture",
+              "input": {
+                "mode": "vision",
+                "screen": 0
+              }
+            },
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "failure"
+                }
+              ],
+              "isError": true
+            },
+            "events": [
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.gnome.Shell",
+                  "--object-path",
+                  "/io/mixdog/Windows",
+                  "--method",
+                  "org.freedesktop.DBus.Properties.Get",
+                  "io.mixdog.Windows",
+                  "Version"
+                ]
+              },
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.a11y.Bus",
+                  "--object-path",
+                  "/org/a11y/bus",
+                  "--method",
+                  "org.a11y.Bus.GetAddress"
+                ]
+              }
+            ],
+            "hostEvents": [],
+            "screen": true,
+            "host": {
+              "command": {
+                "mode": "vision",
+                "screen": 0,
+                "action": "capture"
+              },
+              "answer": {
+                "ok": true,
+                "value": {
+                  "text": "failure",
+                  "isError": true
+                }
+              }
+            }
+          },
+          {
+            "args": {
+              "action": "capture",
+              "input": {
+                "mode": "vision",
+                "screen": 0
+              }
+            },
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "failure"
+                }
+              ]
+            },
+            "events": [
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.gnome.Shell",
+                  "--object-path",
+                  "/io/mixdog/Windows",
+                  "--method",
+                  "org.freedesktop.DBus.Properties.Get",
+                  "io.mixdog.Windows",
+                  "Version"
+                ]
+              },
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.a11y.Bus",
+                  "--object-path",
+                  "/org/a11y/bus",
+                  "--method",
+                  "org.a11y.Bus.GetAddress"
+                ]
+              }
+            ],
+            "hostEvents": [],
+            "screen": true,
+            "host": {
+              "command": {
+                "mode": "vision",
+                "screen": 0,
+                "action": "capture"
+              },
+              "answer": {
+                "ok": true,
+                "value": {
+                  "text": "failure",
+                  "isError": false
+                }
+              }
+            }
+          },
+          {
+            "args": {
+              "action": "capture",
+              "input": {
+                "mode": "vision",
+                "screen": 0
+              }
+            },
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"ok\":true,\"action\":\"capture\",\"width\":2,\"height\":2,\"mode\":\"vision\"}"
+                }
+              ],
+              "isError": true
+            },
+            "events": [
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.gnome.Shell",
+                  "--object-path",
+                  "/io/mixdog/Windows",
+                  "--method",
+                  "org.freedesktop.DBus.Properties.Get",
+                  "io.mixdog.Windows",
+                  "Version"
+                ]
+              },
+              {
+                "tool": [
+                  "gdbus",
+                  "call",
+                  "--session",
+                  "--dest",
+                  "org.a11y.Bus",
+                  "--object-path",
+                  "/org/a11y/bus",
+                  "--method",
+                  "org.a11y.Bus.GetAddress"
+                ]
+              }
+            ],
+            "hostEvents": [],
+            "screen": true,
+            "host": {
+              "command": {
+                "mode": "vision",
+                "screen": 0,
+                "action": "capture"
+              },
+              "answer": {
+                "ok": true,
+                "value": {
+                  "text": "{\"ok\":true,\"action\":\"capture\",\"width\":2,\"height\":2}",
+                  "isError": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "case": "no desktop attached",
       "observed": {
         "world": {

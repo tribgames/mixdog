@@ -1203,6 +1203,21 @@ mod tests {
         assert!(seen.diagnosed >= 2 && seen.frames >= 3, "{} diagnosed, {} frames", seen.diagnosed, seen.frames);
     }
 
+    /// The host's own `isError` flag makes the result an error on its own, whatever the text says (`computerToolResult`).
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_host_reply_flagged_as_an_error_is_an_error_result_whatever_its_text_says() {
+        let _serial = serial();
+        let recorded = case("a host reply flagged as an error is an error result whatever its text says")["observed"].clone();
+        let mut seen = Seen::default();
+        let calls = recorded["calls"].as_array().expect("calls");
+        for node in calls {
+            reset_probe();
+            replay(World::of(&recorded["world"]), &recorded["hostDisplays"], true, "default", &node["args"], node, &format!("flagged / {}", node["host"]["answer"]), &mut seen).await;
+        }
+        assert_eq!((calls.len(), seen.errors, seen.hosted), (3, 2, 3));
+    }
+
     /// With no desktop attached Node refuses a call before it probes or dispatches anything; so does the core, for the calls it sends to the desktop.
     #[tokio::test(start_paused = true)]
     #[allow(clippy::await_holding_lock)]
