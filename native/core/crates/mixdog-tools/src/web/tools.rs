@@ -263,6 +263,8 @@ impl WebService {
                 ToolPart::Image {
                     mime,
                     data: ImageData::Bytes(bytes),
+                    width: None,
+                    height: None,
                 },
             ])
         })

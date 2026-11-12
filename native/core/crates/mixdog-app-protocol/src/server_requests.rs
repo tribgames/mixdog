@@ -57,6 +57,18 @@ crate::server_request_definitions! {
         result: JsonValue,
         requires: Some("host.browser"),
     },
+    /// A Computer Use screen capture, taken and encoded by the desktop's computer host.
+    HostComputerCapture => "host/computer/capture" {
+        params: HostComputerCaptureParams,
+        result: HostComputerCaptureResult,
+        requires: Some("host.computer"),
+    },
+    /// The displays of this PC as the computer host reports them.
+    HostComputerDisplays => "host/computer/displays" {
+        params: HostComputerDisplaysParams,
+        result: Vec<HostComputerDisplay>,
+        requires: Some("host.computer"),
+    },
     HostVisualizeCommand => "host/visualize/command" {
         params: HostVisualizeCommandParams,
         result: Option<JsonValue>,

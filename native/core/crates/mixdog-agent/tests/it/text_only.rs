@@ -62,6 +62,8 @@ fn part_from_json(part: &JsonValue) -> ContentPart {
         "image" => ContentPart::Image(ImageSource::Base64 {
             data: str_of("data").unwrap(),
             mime_type: str_of("mimeType").unwrap(),
+            width: None,
+            height: None,
         }),
         "file" => ContentPart::File {
             source: match str_of("data") {

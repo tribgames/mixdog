@@ -77,7 +77,7 @@ fn part_out(part: &p::ContentPart) -> w::ProxyPart {
         p::ContentPart::Text(text, _) => w::ProxyPart::Text { text: text.clone() },
         p::ContentPart::Image(source) => w::ProxyPart::Image {
             source: match source {
-                p::ImageSource::Base64 { data, mime_type } => w::ProxyImage::Base64 { data: data.clone(), mime_type: mime_type.clone() },
+                p::ImageSource::Base64 { data, mime_type, .. } => w::ProxyImage::Base64 { data: data.clone(), mime_type: mime_type.clone() },
                 p::ImageSource::Url(url) => w::ProxyImage::Url { url: url.clone() },
                 p::ImageSource::FileId(id) => w::ProxyImage::FileId { id: id.clone() },
             },
@@ -215,7 +215,7 @@ fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
     Ok(match part {
         w::ProxyPart::Text { text } => p::ContentPart::Text(text, None),
         w::ProxyPart::Image { source } => p::ContentPart::Image(match source {
-            w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type },
+            w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type, width: None, height: None },
             w::ProxyImage::Url { url } => p::ImageSource::Url(url),
             w::ProxyImage::FileId { id } => p::ImageSource::FileId(id),
         }),

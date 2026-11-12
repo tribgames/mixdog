@@ -502,6 +502,44 @@ async fn a_cancelled_caller_releases_a_host_request_the_claimant_never_answers()
     assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
 }
 
+const CAPTURE: Method = Method("host/computer/capture");
+
+/// The claimant runs a capture until told its asker is gone: a cancelled call and one past the 150 s deadline each end it with
+/// `serverRequest/resolved` for the request's id; an answered one sends nothing.
+#[tokio::test(start_paused = true)]
+async fn a_computer_capture_given_up_is_ended_on_the_claimant_and_an_answered_one_is_not() {
+    use std::time::Duration;
+    let rig = Rig::new();
+    let host = claimed_as(&rig, 1, "pc", json!({ "computer": true })).await;
+    let cancel = mixdog_rt::CancellationToken::new();
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn({
+        let cancel = cancel.clone();
+        async move { outgoing.request_scoped(HostCapability::Computer, CAPTURE, json!({}), &cancel).await }
+    });
+    let request = host.frames(1).await.remove(0).body;
+    cancel.cancel();
+    assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
+    let ended = host.frames(1).await.remove(0).body;
+    assert_eq!(ended["method"], json!("serverRequest/resolved"));
+    assert_eq!(ended["params"]["requestId"], request["id"]);
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    tokio::time::advance(Duration::from_secs(151)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
+    let ended = host.frames(1).await.remove(0).body;
+    assert_eq!((&ended["method"], &ended["params"]["requestId"]), (&json!("serverRequest/resolved"), &request["id"]));
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Computer, CAPTURE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    host.send(json!({ "id": request["id"], "result": 1 }));
+    assert_eq!(call.await.unwrap(), Ok(json!(1)));
+    assert!(host.drain().is_empty());
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadline() {
     let rig = Rig::new();

@@ -299,7 +299,7 @@ pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -
     let mut out = Vec::with_capacity(parts.len());
     let mut changed = false;
     for part in parts {
-        let ContentPart::Image(ImageSource::Base64 { data, mime_type }) = part else {
+        let ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) = part else {
             out.push(part.clone());
             continue;
         };
@@ -314,7 +314,7 @@ pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -
                 if let Some(note) = note {
                     out.push(ContentPart::Text(note, None));
                 }
-                out.push(ContentPart::Image(ImageSource::Base64 { data, mime_type: mime }));
+                out.push(ContentPart::Image(ImageSource::Base64 { data, mime_type: mime, width: None, height: None }));
             }
         }
     }

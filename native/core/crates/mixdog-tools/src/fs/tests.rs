@@ -519,7 +519,7 @@ fn recorded_form(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, 
         .iter()
         .map(|part| match part {
             ToolPart::Text(t) => format!(r#"{{"type":"text","text":{}}}"#, serde_json::to_string(t).unwrap()),
-            ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => format!(
+            ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } => format!(
                 r#"{{"type":"image","data":"{}","mimeType":{}}}"#,
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
                 serde_json::to_string(mime).unwrap()
@@ -1780,7 +1780,7 @@ async fn reading_an_image_matches_the_recorded_node_cases() {
                     assert_eq!(text, want["text"].as_str().unwrap(), "{name}");
                     assert_eq!(text.starts_with("Error:"), case["isError"].as_bool().unwrap(), "{name}");
                 }
-                ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
+                ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } => {
                     assert_eq!(want["type"], "image", "{name}");
                     assert_eq!(mime, want["mimeType"].as_str().unwrap(), "{name}");
                     assert_eq!(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes).len() as u64, want["base64Length"].as_u64().unwrap(), "{name}");
@@ -1828,7 +1828,7 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
         )
     );
     let out = bare.call(&ctx, serde_json::json!({ "file_path": "small.PNG" })).await.unwrap();
-    assert_eq!(out.parts, vec![ToolPart::Image { mime: "image/png".to_owned(), data: ImageData::Bytes(small) }]);
+    assert_eq!(out.parts, vec![ToolPart::Image { mime: "image/png".to_owned(), data: ImageData::Bytes(small), width: None, height: None }]);
     // An image by content under another extension is not an image to `read`: it is a binary file.
     let (_, text) = text_of(bare.call(&ctx, serde_json::json!({ "file_path": "held.txt" })).await);
     assert!(!text.contains("inline-view"), "{text}");
@@ -2074,7 +2074,7 @@ fn summary(outcome: &ToolOutcome, cwd: &str) -> Vec<(String, String)> {
             .iter()
             .map(|p| match p {
                 ToolPart::Text(t) => ("text".to_owned(), fix(t)),
-                ToolPart::Image { mime, data: ImageData::Bytes(b) } => {
+                ToolPart::Image { mime, data: ImageData::Bytes(b), .. } => {
                     ("image".to_owned(), format!("{mime}:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b).len()))
                 }
                 other => ("other".to_owned(), format!("{other:?}")),

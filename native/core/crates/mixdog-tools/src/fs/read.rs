@@ -1710,7 +1710,7 @@ impl ReadTool {
             Ok(Ok(Some(image))) => match base64::engine::general_purpose::STANDARD.decode(&image.data_base64) {
                 Ok(data) => vec![
                     ToolPart::Text(image_metadata(&image, source)),
-                    ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data) },
+                    ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data), width: None, height: None },
                 ],
                 Err(_) => Vec::new(),
             },
@@ -1752,7 +1752,7 @@ impl ReadTool {
                 Ok(Body {
                     parts: vec![
                         ToolPart::Text(image_metadata(&image, display)),
-                        ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data) },
+                        ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data), width: None, height: None },
                     ],
                     ..Body::default()
                 })
@@ -1770,7 +1770,7 @@ impl ReadTool {
                         "Error: image \"{display}\" base64 size {base64_len} exceeds the {IMAGE_MAX_BASE64}-byte API limit (image resizing unavailable). Resize before reading."
                     )));
                 }
-                Ok(Body { parts: vec![ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes) }], ..Body::default() })
+                Ok(Body { parts: vec![ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None }], ..Body::default() })
             }
         }
     }
