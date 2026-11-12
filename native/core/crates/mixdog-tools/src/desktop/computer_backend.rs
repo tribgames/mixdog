@@ -68,7 +68,7 @@ use super::computer_recovery::lead_code as error_code;
 use super::computer_screen::Screen;
 use crate::state::secrets::ComputerSecretHost;
 
-const RESPONSE_MARKER: &str = "@@MIXCU@@";
+pub(crate) const RESPONSE_MARKER: &str = "@@MIXCU@@";
 /// What the model reads when the helper cannot be started, in Node's words. The error rides the
 /// bridge reply as is, so the text is Node's: `child_process.spawn` reports ENOENT, EACCES,
 /// EAGAIN, EMFILE and ENFILE asynchronously, which `watchHostWorker` words as
@@ -322,8 +322,8 @@ pub struct ProcessComputerBackend {
     turn: mixdog_rt::Gate,
     next_id: AtomicI64,
     screen: Screen,
-    /// The Linux readiness probe, shared by the commands of the next few seconds.
-    readiness: computer_linux::ReadinessCache,
+    /// The Linux session the preflight reads; `None` where the platform is not Linux and nothing is probed.
+    linux: Option<LinuxSession>,
     /// A typed secret's field may still hold focus: reads are refused until the next action.
     secret_focus: AtomicBool,
     /// A visible execution is open: some action ran since the last `execution_end`, abort or
@@ -333,6 +333,25 @@ pub struct ProcessComputerBackend {
     /// (`hostBoundComputerSessions`, `client.mjs:367`).
     bound: AtomicBool,
     observer: Option<Arc<dyn ExecutionObserver>>,
+}
+
+/// The environment the Linux preflight reads, taken afresh for each action.
+struct LinuxSession {
+    env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
+}
+
+impl LinuxSession {
+    /// The machine this process runs on; no session on any other platform.
+    #[cfg(not(test))]
+    fn of_host() -> Option<Self> {
+        cfg!(target_os = "linux").then(|| Self { env: Box::new(|| std::env::vars().collect()) })
+    }
+
+    /// A test names its platform through `with_linux_session`: the host's own would silently decide whether it runs.
+    #[cfg(test)]
+    fn of_host() -> Option<Self> {
+        None
+    }
 }
 
 /// Told when this session's visible execution opens and closes: the edges of `executing`, which the
@@ -348,6 +367,13 @@ impl ProcessComputerBackend {
     /// Reports the execution's edges to `observer`.
     pub fn with_observer(mut self, observer: Arc<dyn ExecutionObserver>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    /// Runs the Linux preflight against `env` whatever the platform this test runs on is.
+    #[cfg(test)]
+    pub(crate) fn with_linux_session(mut self, env: computer_linux::Env) -> Self {
+        self.linux = Some(LinuxSession { env: Box::new(move || env.clone()) });
         self
     }
 
@@ -372,7 +398,7 @@ impl ProcessComputerBackend {
             turn: mixdog_rt::Gate::new(),
             next_id: AtomicI64::new(1),
             screen: Screen::default(),
-            readiness: computer_linux::ReadinessCache::default(),
+            linux: LinuxSession::of_host(),
             secret_focus: AtomicBool::new(false),
             executing: AtomicBool::new(false),
             bound: AtomicBool::new(false),
@@ -1065,23 +1091,20 @@ impl ComputerBackend for ProcessComputerBackend {
         let mut command = host_command(request.action, input);
         // On Linux a default capture without window control becomes a full-screen capture, and an action whose own capability
         // (input device, window control, AT-SPI, ...) is missing is refused before anything is dispatched (`client.mjs:300,320`).
-        let linux = cfg!(target_os = "linux");
-        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64);
-        let check = || {
-            let manager = self.manager.clone();
-            async move {
-                let env: computer_linux::Env = std::env::vars().collect();
-                computer_linux::check_readiness(&env, &computer_linux::SystemProbes::new(manager, env.clone())).await
-            }
-            .boxed()
-        };
         let mut note = None;
-        if let Some(fallback) = computer_linux::capture_fallback(&self.readiness, &command, linux, now_ms, check).await {
-            command = fallback.command;
-            note = Some(fallback.note);
-        }
-        if let Some(refusal) = computer_linux::preflight(&self.readiness, &command, linux, now_ms, check).await {
-            return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
+        if let Some(session) = &self.linux {
+            let env = (session.env)();
+            let check = || {
+                let (manager, env) = (self.manager.clone(), env.clone());
+                async move { computer_linux::check_readiness(&env, &computer_linux::SystemProbes::new(manager, env.clone())).await }.boxed()
+            };
+            if let Some(fallback) = computer_linux::capture_fallback(&command, check).await {
+                command = fallback.command;
+                note = Some(fallback.note);
+            }
+            if let Some(refusal) = computer_linux::preflight(&command, check).await {
+                return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
+            }
         }
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
         self.bound.store(true, Ordering::SeqCst);
