@@ -274,6 +274,8 @@ pub fn with_tail_reminder(request: &ModelRequest, text: Option<&str>) -> ModelRe
 impl Run {
     fn build_request(&mut self) -> ModelRequest {
         let mut options = self.config.options.clone();
+        // One identity per send, shared by its attempts: the run's options would hand every send of the run the same one.
+        options.send_identity = self.send_identity.clone();
         options.provider_state = self.provider_state.clone();
         let provider = Arc::clone(&self.provider);
         options.send_group = Some(self.send_group.get_or_insert_with(|| SendGroup::new(provider)).id.clone());
@@ -318,6 +320,7 @@ impl Run {
 
     async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
+        self.send_identity = Default::default();
         self.emit(RunEvent::ProviderSendStarted);
         loop {
             self.throw_if_aborted()?;
@@ -638,9 +641,6 @@ impl Run {
         let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0
             && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
         if first_attempt {
-            // Node's admission scheduler announces the send once it is admitted (`admission-scheduler.mjs:592`), ahead of
-            // the provider's own stages. Admission is behind this exchange already.
-            self.emit(RunEvent::Stage(Stage::Requesting));
             for _ in 0..stages.preparing {
                 self.emit(RunEvent::Stage(Stage::Requesting));
             }
