@@ -1,0 +1,89 @@
+{
+  "note": "Node's source captures at b6f10295a2f698afc85332467192de28500bd146, per scenario of benchmarks/rust-core/recorders/record-source-capture-cases.mjs",
+  "test": "apps/desktop/src/renderer/remote-webrtc-sender/source-capture.test.mjs",
+  "cases": [
+    {
+      "name": "a source closed while its capture opens",
+      "steps": "capture, close, then the capture resolves",
+      "recorded": {
+        "stopped": {
+          "late": true
+        },
+        "source": null,
+        "senders": [
+          null
+        ],
+        "reports": []
+      }
+    },
+    {
+      "name": "a source closed while its capture swaps tracks",
+      "steps": "capture resolves, a sender swap is held, close, release",
+      "recorded": {
+        "stopped": {
+          "late": true
+        },
+        "source": null,
+        "senders": [
+          "late",
+          null
+        ],
+        "reports": []
+      }
+    },
+    {
+      "name": "overlapping captures",
+      "steps": "two captures, the newer resolves first, then the older",
+      "recorded": {
+        "stopped": {
+          "newest": false,
+          "late": true
+        },
+        "source": "newest",
+        "senders": [
+          "newest"
+        ],
+        "reports": [
+          true
+        ]
+      }
+    },
+    {
+      "name": "a draw abandons a capture still opening",
+      "steps": "capture, draw, the capture resolves",
+      "recorded": {
+        "stopped": {
+          "late": true
+        },
+        "source": "drawn",
+        "senders": [
+          "drawn"
+        ],
+        "reports": [],
+        "drawnIsSource": true
+      }
+    },
+    {
+      "name": "a newer capture that starts while the older one swaps tracks",
+      "steps": "older swap held, newer starts, release, newer resolves",
+      "recorded": {
+        "stopped": {
+          "first": true,
+          "second": false
+        },
+        "source": "second",
+        "senders": [
+          "second",
+          "second"
+        ],
+        "reports": [
+          true
+        ],
+        "sendersWhenTheOlderEnded": [
+          "first",
+          null
+        ]
+      }
+    }
+  ]
+}

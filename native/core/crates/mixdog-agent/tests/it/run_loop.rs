@@ -69,6 +69,15 @@ use mixdog_protocol::TurnId;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+#[path = "loop_node_cases.rs"]
+mod loop_node_cases;
+
+#[path = "eager_node_cases.rs"]
+mod eager_node_cases;
+
+#[path = "ids_node_cases.rs"]
+mod ids_node_cases;
+
 // ---------------------------------------------------------------------------
 // Scripted provider
 // ---------------------------------------------------------------------------
@@ -4347,4 +4356,85 @@ async fn a_call_with_unparseable_arguments_is_answered_with_the_retry_notice_and
         dump(&output.transcript)[2],
         "tool#c1(Error):The arguments provided to `echo` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
     );
+}
+
+/// The switch tool of a batch: it lands the Project switch only once told to, then says it has.
+struct SwitchTool {
+    spec: ToolSpec,
+    live: Arc<Mutex<mixdog_core_api::domain::common::AbsPath>>,
+    go: Arc<tokio::sync::Notify>,
+    landed: tokio::sync::watch::Sender<bool>,
+}
+#[async_trait]
+impl Tool for SwitchTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        self.go.notified().await;
+        *self.live.lock().unwrap() = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("b")).unwrap();
+        self.landed.send_replace(true);
+        Ok(ToolOutput { parts: vec![ToolPart::Text("switched".into())], ..ToolOutput::default() })
+    }
+}
+
+/// Names the folder it ran in.
+struct WhereTool(ToolSpec, Arc<Mutex<Vec<std::path::PathBuf>>>);
+#[async_trait]
+impl Tool for WhereTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        self.1.lock().unwrap().push(ctx.cwd.as_path().to_path_buf());
+        Ok(ToolOutput { parts: vec![ToolPart::Text("here".into())], ..ToolOutput::default() })
+    }
+}
+
+/// The reuse lookup of the second call's admission lets the first call's switch land, and does not answer before it has.
+struct LandsTheSwitch {
+    go: Arc<tokio::sync::Notify>,
+    landed: tokio::sync::watch::Receiver<bool>,
+}
+#[async_trait]
+impl ResultReuse for LandsTheSwitch {
+    async fn lookup(&self, _call: &ToolCall, touch: bool) -> Option<Reused> {
+        if !touch {
+            self.go.notify_one();
+            let _ = self.landed.clone().wait_for(|landed| *landed).await;
+        }
+        None
+    }
+    async fn store(&self, _call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {}
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+}
+
+/// Node starts the calls of a batch in order (`startEagerRun`) and prepares each from the folder the session holds as it starts,
+/// before the `session` call's own steps have let its switch land (recorded: `switch-project-turn-cases`, "the switch and the
+/// file are one batch"). A call that follows the switch in its batch therefore runs in the folder the batch began in, even when
+/// the switch lands while that call's admission is still awaiting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_in() {
+    let a = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("a")).unwrap();
+    let live = Arc::new(Mutex::new(a.clone()));
+    let (go, (landed_tx, landed_rx)) = (Arc::new(tokio::sync::Notify::new()), tokio::sync::watch::channel(false));
+    let mut switch_spec = Echo::tool().spec().clone();
+    switch_spec.name = "switch".into();
+    switch_spec.annotations = ToolAnnotations::default();
+    let mut probe_spec = Echo::tool().spec().clone();
+    probe_spec.name = "probe".into();
+    let ran = Arc::new(Mutex::new(Vec::new()));
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "switch", json!({})), call("c2", "probe", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.reuse = Some(Arc::new(LandsTheSwitch { go: go.clone(), landed: landed_rx }));
+    let mut cfg = config();
+    cfg.live_cwd = Some(Arc::new({
+        let live = live.clone();
+        move || Some(live.lock().unwrap().clone())
+    }));
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(SwitchTool { spec: switch_spec, live: live.clone(), go, landed: landed_tx }), Arc::new(WhereTool(probe_spec, ran.clone()))];
+    finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
+    assert_eq!(*ran.lock().unwrap(), [a.as_path().to_path_buf()]);
 }

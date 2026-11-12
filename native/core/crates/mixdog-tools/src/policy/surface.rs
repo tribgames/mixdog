@@ -320,9 +320,10 @@ impl SessionSurface {
             return None;
         }
         if !self.mode_resolved {
-            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; no call was sent."));
+            let remedy = if self.bridge { "no call was sent.".to_owned() } else { format!("load it with load_tool names:[\"{name}\"].") };
+            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; {remedy}"));
         }
-        (self.readonly || self.deferred_readonly).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
+        (self.readonly || (self.bridge && self.deferred_readonly)).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
     }
 
     /// A read-only session runs only what its surfaces offer: active tools,

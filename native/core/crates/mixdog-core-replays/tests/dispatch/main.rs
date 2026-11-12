@@ -1,5 +1,6 @@
 //! The dispatch replays of mixdog-core against Node's recordings.
 
+mod adopt_node_cases;
 mod inheritance_fit;
 mod route_state;
 mod run_seams;

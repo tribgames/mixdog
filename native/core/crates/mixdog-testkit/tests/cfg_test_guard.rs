@@ -65,6 +65,16 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "a module of tests only (the `session-sequence` recording), over `address_replay`'s rig; no other module uses it",
     ),
     (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod native_request_bytes_node_cases;",
+        "a module of tests only (the native request bytes recording replayed over the run host's wire, built from test doubles): no other module uses it, so a replay build loses nothing by not compiling it",
+    ),
+    (
+        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "mod stale_node_cases;",
+        "a module of tests only (the `stale-rows-cases` recording over the registry's own `WorkerStore` and `LiveSessions` traits through `super::*`): no other module uses it",
+    ),
+    (
         "mixdog-core/src/run_host/prompt_session.rs",
         "mod home_replay;",
         "a replay that stays in the library because it calls the private `role_fields` and the private `PromptPaths`, `PromptSources` and `SessionPromptInput` of `prompt_session`",

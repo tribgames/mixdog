@@ -395,4 +395,3 @@ pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> 
         from_env("MIXDOG_TOKEN_CALIBRATION_DEFAULT", 1.0)
     }
 }
-

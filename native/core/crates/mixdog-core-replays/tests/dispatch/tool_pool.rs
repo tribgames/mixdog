@@ -67,6 +67,9 @@ use mixdog_core::run_host::tool_pool::session_port::ThreadRequests;
 use mixdog_core::run_host::unattended::UnattendedRunRegistry;
 use mixdog_tools::policy::RunKind;
 
+#[path = "session_project_node_cases.rs"]
+mod session_project_node_cases;
+
 fn golden(text: &str) -> Value {
     serde_json::from_str(text).expect("fixture")
 }
@@ -381,6 +384,9 @@ impl ThreadRequests for Requests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         self.calls.lock().expect("calls").push((thread.as_str().to_owned(), method.to_owned(), params));
         Ok(self.reply.lock().expect("reply").clone())
+    }
+    async fn set_caller_cwd(&self, _: &ThreadId, path: &str) -> Result<String, CoreError> {
+        Ok(path.to_owned())
     }
     fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
         Ok(self.interrupted)
@@ -1367,6 +1373,15 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         }
         let first = world.directory.loaded_ids();
         let threads: Arc<dyn ThreadState> = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone()));
+        let hosted = mixdog_core_session::session::thread_settings_rig::hosted(&world.directory, Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone())));
+        let built = mixdog_core_session::session::thread_settings_rig::build(
+            world.directory.clone(),
+            hosted.workspaces.clone(),
+            hosted.worktrees.clone(),
+            Vec::new(),
+            hosted.dir.path().join("task").to_string_lossy().into_owned(),
+        )
+        .await;
         let marks = HeartbeatSessions::new();
         if options["heartbeat"] == json!(true) {
             marks.mark(&caller_id);
@@ -1388,7 +1403,7 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         let port = Arc::new(DirectorySessionPort::new(SessionPortParts {
             callers: callers.clone(),
             threads: threads.clone(),
-            requests: world.directory.clone(),
+            requests: Arc::new(mixdog_core::run_host::tool_pool::session_port::SettingsRequests::new(world.directory.clone(), Arc::new(built.settings))),
             titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(threads.clone(), Arc::new(Messages), Arc::new(Now))),
             ai_titles: Arc::new(Titles(true)),
             projects: Arc::new(ListedProjects(options["projects"].as_array().map(|rows| rows.iter().map(|row| mixdog_tools::orch::session::ProjectRow { name: row["name"].as_str().expect("name").to_owned(), path: row["path"].as_str().expect("path").to_owned() }).collect()).unwrap_or_default())),

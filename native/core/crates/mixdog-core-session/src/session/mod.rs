@@ -179,6 +179,8 @@ mod agent_control_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 #[cfg(any(test, feature = "test-support"))]
+pub mod thread_settings_rig;
+#[cfg(any(test, feature = "test-support"))]
 pub mod tests;
 #[cfg(test)]
 mod recovery_kill_tests;

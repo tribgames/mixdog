@@ -12,6 +12,7 @@ use mixdog_agent::agent_tool::scope::resolve_path;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
@@ -21,6 +22,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::support::{FsFailure, FsStep, io_failure};
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_config::config::Config;
@@ -32,6 +34,7 @@ use mixdog_protocol::ThreadItem;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::session_title::AiTitle;
 use mixdog_core_session::session::session_title::StoredTitles;
+use mixdog_core_session::session::thread_settings::ThreadSettings;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_services::bots::beat::Change;
@@ -123,6 +126,9 @@ use super::session_control::SessionListing;
 #[async_trait]
 pub trait ThreadRequests: Send + Sync {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError>;
+    /// The Lead's own `session set-project` call (`setCallerCwd`) on `thread`, at the resolved folder `path`: the folder the
+    /// session runs in afterwards.
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError>;
     /// The user's interrupt of the turn running in `thread` (`abortSession`): whether one was.
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError>;
     /// `rt.pendingCompactSessionIds.add(id)`: `thread` compacts once, when its running turn settles.
@@ -139,16 +145,80 @@ pub trait ThreadRequests: Send + Sync {
     fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>);
 }
 
+/// The product's route of the tools' thread requests: the thread settings service answers its own methods (`thread/setCwd`,
+/// `thread/metadata/update`, `thread/archive`, `thread/unarchive`, which are not the thread actor's), the directory every other.
+pub struct SettingsRequests {
+    directory: Arc<SessionDirectory>,
+    settings: Arc<ThreadSettings>,
+}
+
+impl SettingsRequests {
+    pub fn new(directory: Arc<SessionDirectory>, settings: Arc<ThreadSettings>) -> Self {
+        Self { directory, settings }
+    }
+}
+
 #[async_trait]
-impl ThreadRequests for SessionDirectory {
+impl ThreadRequests for SettingsRequests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         let ctx = CallContext::internal("session-tool");
-        let handle = self.open_handle(thread, &ctx).await?;
-        let op = OpId::from(uuid::Uuid::now_v7().to_string());
-        match handle.request(CoreRequest { method: Method(method), params, op: Some(op), ctx }).await? {
+        let op = OpId::from(params.get("opId").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
+        let request = CoreRequest { method: Method(method), params, op: Some(op), ctx: ctx.clone() };
+        let reply = if mixdog_core_session::session::thread_settings::METHODS.contains(&method) {
+            self.settings.call(request).await?
+        } else {
+            return directory_request(&self.directory, thread, request).await;
+        };
+        match reply {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => Ok(Value::Null),
         }
+    }
+
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError> {
+        self.settings.set_caller_cwd(thread, path).await
+    }
+
+    fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
+        self.directory.interrupt_running_turn(thread)
+    }
+
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
+        self.directory.schedule_compact_after_turn(thread)
+    }
+
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError> {
+        self.directory.transcript_items(thread).await
+    }
+
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError> {
+        Ok(self.directory.submit_session_message(thread, content, id, hop, bot_chain, from_agent).await)
+    }
+
+    async fn start(&self, params: Value) -> Result<Value, CoreError> {
+        let op = OpId::from(uuid::Uuid::now_v7().to_string());
+        let request = CoreRequest { method: Method("thread/start"), params, op: Some(op), ctx: CallContext::internal("session-tool") };
+        match mixdog_core_api::ThreadDirectory::request(&*self.directory, request).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(started) => Ok(started.result),
+        }
+    }
+
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
+        (self.directory.turn_hop(thread), self.directory.turn_bot_chain(thread))
+    }
+}
+
+/// The directory alone, without the thread settings service: every method goes to the thread's actor, and a `session set-project`
+/// call, which the settings service answers, is refused.
+#[async_trait]
+impl ThreadRequests for SessionDirectory {
+    async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        directory_call(self, thread, method, params).await
+    }
+
+    async fn set_caller_cwd(&self, _thread: &ThreadId, _path: &str) -> Result<String, CoreError> {
+        Err(mixdog_core_base::support::failed("session", "the thread settings service is not bound to these requests"))
     }
 
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
@@ -179,6 +249,21 @@ impl ThreadRequests for SessionDirectory {
     fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
         (self.turn_hop(thread), self.turn_bot_chain(thread))
     }
+}
+
+/// A request to a thread through the directory: the thread's actor answers it, the thread opened for it when it is not loaded.
+pub(super) async fn directory_request(directory: &SessionDirectory, thread: &ThreadId, request: CoreRequest) -> Result<Value, CoreError> {
+    let handle = directory.open_handle(thread, &request.ctx).await?;
+    match handle.request(request).await? {
+        Reply::Value(value) => Ok(value),
+        Reply::Subscribe(_) => Ok(Value::Null),
+    }
+}
+
+/// [`directory_request`] for a `method` with its `params`, as an internal call of the session tool.
+pub(super) async fn directory_call(directory: &SessionDirectory, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+    let op = OpId::from(params.get("opId").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
+    directory_request(directory, thread, CoreRequest { method: Method(method), params, op: Some(op), ctx: CallContext::internal("session-tool") }).await
 }
 
 /// The Settings switch of AI session titles (`rt.config?.aiSessionTitles !== false`).
@@ -531,14 +616,19 @@ impl SessionPort for DirectorySessionPort {
         let metadata = job
             .await
             .map_err(|_| PortError::Cancelled)?
-            .map_err(|e| failed(format!("{}: {}", e.kind(), next)))?;
+            .map_err(|error| {
+                // Node's `statSync` throws its `fs` text: `ENOENT: no such file or directory, stat '<path>'`.
+                let failure = FsFailure { error, step: FsStep::Stat(std::path::PathBuf::from(&next)) };
+                match io_failure("session", &failure) {
+                    CoreError::DomainError { message: Some(message), .. } => failed(message.to_string()),
+                    other => failed(other.to_string()),
+                }
+            })?;
         if !metadata.is_dir() {
             return Err(PortError::Invalid { field: "path".to_owned(), reason: format!("session: not a directory: {next}") });
         }
-        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "path": next });
-        self.parts.requests.request(thread, "thread/setCwd", params).await.map_err(core)?;
-        let header = self.header(thread).await?;
-        Ok(field(&header, "cwd").map(|c| mixdog_js::js_trim(&c).to_owned()).filter(|c| !c.is_empty()).unwrap_or(next))
+        let cwd = self.parts.requests.set_caller_cwd(thread, &next).await.map_err(core)?;
+        Ok(Some(mixdog_js::js_trim(&cwd)).filter(|c| !c.is_empty()).map_or(next, str::to_owned))
     }
 
     async fn rename(&self, thread: &ThreadId, title: &str) -> Result<String, RenameError> {

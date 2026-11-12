@@ -162,6 +162,10 @@ impl ThreadRequests for Transcripts {
         unreachable!("the session tool reads a turn's chain through the send world")
     }
 
+    async fn set_caller_cwd(&self, _: &ThreadId, _: &str) -> Result<String, CoreError> {
+        unreachable!("these scenarios make no `session set-project` call")
+    }
+
     fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
         unreachable!("list and read never interrupt")
     }
@@ -1133,6 +1137,10 @@ impl ThreadRequests for LongSession {
 
     fn turn_state(&self, _: &ThreadId) -> (u32, Vec<String>) {
         unreachable!("the session tool reads a turn's chain through the send world")
+    }
+
+    async fn set_caller_cwd(&self, _: &ThreadId, _: &str) -> Result<String, CoreError> {
+        unreachable!("these scenarios make no `session set-project` call")
     }
 
     fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {

@@ -97,6 +97,9 @@ pub struct RunConfig {
     /// `opts.cacheBreakIntent` at the turn's start: the session's one-shot `pendingCacheBreakIntent` (a compaction that ran
     /// between turns), which tags the first send's expected cache break.
     pub cache_break_intent: Option<String>,
+    /// The session's folder as it stands now: each tool call starts in it, so a Project switch inside the turn moves the
+    /// calls after it (`resolveLiveToolCwd`). Without one the calls use the folder the turn began in.
+    pub live_cwd: Option<crate::tools::LiveCwd>,
 }
 
 impl RunConfig {
@@ -125,6 +128,7 @@ impl RunConfig {
             retry_529: true,
             request_begin: None,
             cache_break_intent: None,
+            live_cwd: None,
         }
     }
 }

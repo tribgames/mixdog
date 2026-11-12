@@ -433,6 +433,25 @@ async fn compaction_of(
     still_worthwhile(&out, &err, &plan, &hint).then_some(Compaction { plan, recovery })
 }
 
+/// The kill of a cancelled foreground command. One that exits within `KILL_VERIFY` is forgotten; one whose exit is not
+/// confirmed by then is held as termination-unconfirmed until it does exit (or the user releases it), so its owner's
+/// workspace stays busy meanwhile, as Node keeps the run's workspace admission until termination is confirmed
+/// (`shell-run-settle.mjs:155-158`, `releaseAdmissionOnConfirmedTermination` :46-104). The result is reported either way.
+async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &Arc<Job>) {
+    // A kill of a process that just exited is not an error.
+    let _ = ctx.processes.kill(&job.handle);
+    if mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await.is_ok() {
+        runtime.release(&job.id);
+        return;
+    }
+    runtime.hold_unconfirmed(job);
+    let (runtime, job) = (runtime.clone(), job.clone());
+    mixdog_rt::spawn("shell-unconfirmed-exit", mixdog_rt::TaskClass::Work, async move {
+        job.settled().await;
+        runtime.release(&job.id);
+    });
+}
+
 /// Result of a finished foreground command (`renderCompletedResult`).
 async fn completed(
     runtime: &Arc<ExecRuntime>,
@@ -940,10 +959,7 @@ impl ShellTool {
                     };
                 }
                 () = ctx.cancel.cancelled() => {
-                    // A kill of a process that just exited is not an error.
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
+                    cancel_foreground(runtime, ctx, &job).await;
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
                 error = &mut write_failed => {
@@ -957,20 +973,16 @@ impl ShellTool {
             }
         } else {
             tokio::select! {
-                () = job.settled() => {}
-                () = ctx.cancel.cancelled() => {
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                }
+                () = job.settled() => runtime.release(&job.id),
+                () = ctx.cancel.cancelled() => cancel_foreground(runtime, ctx, &job).await,
                 error = &mut write_failed => {
                     let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
                     if !ended_by_run_limit(&job) {
-                        runtime.release(&job.id);
                         return Err(input_failure(error));
                     }
                 }
             }
-            runtime.release(&job.id);
             return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
         }
         if job.detach(runtime.now_ms(), runtime.cycle_of(&job.owner)) {

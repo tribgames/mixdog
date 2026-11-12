@@ -230,7 +230,24 @@ pub struct AccountStore {
     clock: Arc<dyn Pace>,
     /// A remote-mode server holds no model credentials: every credential file reads as absent.
     remote_client: bool,
+    /// The environment whose `*_OAUTH_CREDENTIALS_PATH` names a provider's own file in place of the data dir's.
+    env: Option<Arc<dyn crate::registry::keys::Environment>>,
 }
+
+/// `(provider, file in the data folder, variable that names another file)` of each OAuth provider's own credential
+/// (`*_CREDENTIALS_PATH` of the provider modules' `loadTokens()`).
+const OWN_FILES: [(&str, &str, &str); 10] = [
+    ("openai-oauth", "openai-oauth.json", "OPENAI_OAUTH_CREDENTIALS_PATH"),
+    ("anthropic-oauth", "anthropic-oauth-credentials.json", "ANTHROPIC_OAUTH_CREDENTIALS_PATH"),
+    ("grok-oauth", "grok-oauth.json", "GROK_OAUTH_CREDENTIALS_PATH"),
+    ("muse-code-oauth", "muse-code-oauth.json", "MUSE_CODE_OAUTH_CREDENTIALS_PATH"),
+    ("command-code-oauth", "command-code-oauth.json", "COMMAND_CODE_OAUTH_CREDENTIALS_PATH"),
+    ("opencode-go-oauth", "opencode-go-oauth.json", "OPENCODE_GO_OAUTH_CREDENTIALS_PATH"),
+    ("mimo-oauth", "mimo-oauth.json", "MIMO_OAUTH_CREDENTIALS_PATH"),
+    ("cursor-oauth", "cursor-oauth.json", "CURSOR_OAUTH_CREDENTIALS_PATH"),
+    ("devin-oauth", "devin-oauth.json", "DEVIN_OAUTH_CREDENTIALS_PATH"),
+    ("antigravity-oauth", "antigravity-oauth.json", "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH"),
+];
 
 impl AccountStore {
     pub fn new(dir: PathBuf, io: CredentialIo) -> Self {
@@ -240,6 +257,41 @@ impl AccountStore {
             on_selection_change: None,
             clock: Arc::new(SystemPace),
             remote_client: false,
+            env: None,
+        }
+    }
+
+    /// Reads each provider's own credential where its `*_OAUTH_CREDENTIALS_PATH` in `env` names it (resolved against
+    /// the process's working directory), as Node's provider modules do.
+    pub fn with_env(mut self, env: Arc<dyn crate::registry::keys::Environment>) -> Self {
+        self.env = Some(env);
+        self
+    }
+
+    /// The provider's own credential file: the one its variable names, else its file in the data dir.
+    fn own_file(&self, provider: &str) -> PathBuf {
+        let Some((_, file, variable)) = OWN_FILES.iter().find(|(id, _, _)| *id == provider) else {
+            return self.dir.join(format!("{provider}.json"));
+        };
+        match self.env.as_ref().and_then(|env| env.var(variable)).filter(|path| !path.is_empty()) {
+            Some(explicit) => std::path::absolute(&explicit).unwrap_or_else(|_| PathBuf::from(explicit)),
+            None => self.dir.join(file),
+        }
+    }
+
+    /// The files the loaded config's OAuth probes read (`[providerAccountsPath(), ...oauthCredentialFiles()]`): the
+    /// roster and every provider's own credential file, whether or not it exists yet.
+    pub fn credential_inputs(&self) -> Vec<PathBuf> {
+        std::iter::once(self.roster_path()).chain(OWN_FILES.iter().map(|(provider, _, _)| self.own_file(provider))).collect()
+    }
+
+    /// Until when the default slot's credential of `provider` is a sign-in (epoch ms), when that is a finite moment
+    /// still ahead: the deadline at which the loaded config's `enabled` turns (`observeOAuthCredentialExpiry`).
+    pub async fn credential_expiry(&self, provider: &str) -> Option<f64> {
+        let now = self.now_ms() as f64;
+        match self.credential_file(provider, "default").ok()?.load_document().await {
+            Probe::Present(document) => Some(validity::credential_until(provider, &document)).filter(|until| until.is_finite() && *until > now),
+            Probe::Absent | Probe::Unreadable => None,
         }
     }
 
@@ -289,8 +341,7 @@ impl AccountStore {
     pub fn credential_file(&self, provider: &str, id: &str) -> Result<CredentialFile, AccountError> {
         let path = match self.account_path(provider, id)? {
             Some(path) => path,
-            None if provider == "anthropic-oauth" => self.dir.join("anthropic-oauth-credentials.json"),
-            None => self.dir.join(format!("{provider}.json")),
+            None => self.own_file(provider),
         };
         Ok(CredentialFile::new(path, self.io).remote_client(self.remote_client))
     }

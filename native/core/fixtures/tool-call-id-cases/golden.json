@@ -1,0 +1,305 @@
+{
+  "note": "Node's tool-call id resolution at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-tool-call-id-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/session/tool-call-ids.test.mjs",
+  "cases": [
+    {
+      "case": "resolver: only ids the history already carries are renamed, consistently within a round",
+      "kind": "rounds",
+      "history": [
+        [
+          "a"
+        ],
+        [
+          "a-2"
+        ]
+      ],
+      "rounds": [
+        [
+          "a",
+          "b"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-3",
+          "b"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: batch {a-2, a} in either order stays distinct (history {a})",
+      "kind": "rounds",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        [
+          "a-2",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-2",
+          "a-3"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: batch {a-2, a} in either order stays distinct (no history)",
+      "kind": "rounds",
+      "history": [],
+      "rounds": [
+        [
+          "a-2",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-2",
+          "a"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: batch {a, a} gets two distinct ids, with and without history (no history)",
+      "kind": "rounds",
+      "history": [],
+      "rounds": [
+        [
+          "a",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a",
+          "a-2"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: batch {a, a} gets two distinct ids, with and without history (history {a})",
+      "kind": "rounds",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        [
+          "a",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-2",
+          "a-3"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: streamed calls (clones) and the final batch agree and stay distinct",
+      "kind": "rounds",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        [
+          "a",
+          "a-2",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-2",
+          "a-2-2",
+          "a-3"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: a streamed object that is also in the final batch keeps its renamed id",
+      "kind": "rounds",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        [
+          "a",
+          "a"
+        ]
+      ],
+      "recorded": [
+        [
+          "a-2",
+          "a-3"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: repeated rounds that all answer the same id never collide (batch)",
+      "kind": "rounds",
+      "history": [],
+      "rounds": [
+        [
+          "call_1",
+          "call_1"
+        ],
+        [
+          "call_1",
+          "call_1"
+        ],
+        [
+          "call_1",
+          "call_1"
+        ],
+        [
+          "call_1",
+          "call_1"
+        ],
+        [
+          "call_1",
+          "call_1"
+        ]
+      ],
+      "recorded": [
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1-3",
+          "call_1-4"
+        ],
+        [
+          "call_1-5",
+          "call_1-6"
+        ],
+        [
+          "call_1-7",
+          "call_1-8"
+        ],
+        [
+          "call_1-9",
+          "call_1-10"
+        ]
+      ]
+    },
+    {
+      "case": "resolver: repeated rounds that all answer the same id never collide (streamed)",
+      "kind": "rounds",
+      "history": [],
+      "rounds": [
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1",
+          "call_1-2"
+        ]
+      ],
+      "recorded": [
+        [
+          "call_1",
+          "call_1-2"
+        ],
+        [
+          "call_1-3",
+          "call_1-2-2"
+        ],
+        [
+          "call_1-4",
+          "call_1-2-3"
+        ],
+        [
+          "call_1-5",
+          "call_1-2-4"
+        ],
+        [
+          "call_1-6",
+          "call_1-2-5"
+        ]
+      ]
+    },
+    {
+      "case": "a provider that reuses a tool call id across turns still gets every result back",
+      "kind": "loop",
+      "script": [
+        [
+          "call_1"
+        ],
+        [
+          "call_1"
+        ]
+      ],
+      "tool": "definitely_missing_dup_id_tool",
+      "recorded": {
+        "content": "done",
+        "sends": 3,
+        "lastRequest": [
+          {
+            "role": "user",
+            "callIds": [],
+            "toolCallId": null,
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "callIds": [
+              "call_1"
+            ],
+            "toolCallId": null,
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "callIds": [],
+            "toolCallId": "call_1",
+            "content": "Error: unknown tool \"definitely_missing_dup_id_tool\""
+          },
+          {
+            "role": "assistant",
+            "callIds": [
+              "call_1-2"
+            ],
+            "toolCallId": null,
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "callIds": [],
+            "toolCallId": "call_1-2",
+            "content": "Error: unknown tool \"definitely_missing_dup_id_tool\""
+          }
+        ],
+        "results": [
+          "call_1",
+          "call_1-2"
+        ]
+      }
+    }
+  ]
+}
