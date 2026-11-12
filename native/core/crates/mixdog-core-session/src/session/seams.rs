@@ -401,6 +401,10 @@ pub trait ThreadStore: Send + Sync + 'static {
         read: Option<ContextRead>,
     ) -> Result<ContextRead, CoreError>;
 
+    /// How many rows [`context_io`](Self::context_io) and [`context_cpu`](Self::context_cpu) would read: the length of the
+    /// model context, answered without reading, decoding or returning a row.
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
+
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
