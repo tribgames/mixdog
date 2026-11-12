@@ -5,41 +5,99 @@
       "url": "https://example.com/guide",
       "body": "# Guide\n\n<div>Example, not an HTML page</div>\n\n\n    indented code\n",
       "contentType": "text/plain",
-      "content": "# Guide\n\n<div>Example, not an HTML page</div>\n\n\n    indented code\n",
-      "extractor": "raw",
-      "title": ""
+      "page": {
+        "url": "https://example.com/guide",
+        "title": "",
+        "content": "# Guide\n\n<div>Example, not an HTML page</div>\n\n\n    indented code\n",
+        "excerpt": "# Guide\n\n<div>Example, not an HTML page</div>\n\n\n    indented code\n",
+        "extractor": "raw",
+        "format": "text",
+        "contentType": "text/plain"
+      }
     },
     {
       "url": "https://example.com/guide",
       "body": "# Guide\n\n```html\n<main>hello</main>\n```\n",
       "contentType": "text/markdown",
-      "content": "# Guide\n\n```html\n<main>hello</main>\n```\n",
-      "extractor": "raw",
-      "title": ""
+      "page": {
+        "url": "https://example.com/guide",
+        "title": "",
+        "content": "# Guide\n\n```html\n<main>hello</main>\n```\n",
+        "excerpt": "# Guide\n\n```html\n<main>hello</main>\n```\n",
+        "extractor": "raw",
+        "format": "markdown",
+        "contentType": "text/markdown"
+      }
     },
     {
       "url": "https://example.com/guide",
       "body": "{\n  \"name\": \"<main>literal</main>\"\n}\n",
       "contentType": "application/ld+json",
-      "content": "{\n  \"name\": \"<main>literal</main>\"\n}\n",
-      "extractor": "raw",
-      "title": ""
+      "page": {
+        "url": "https://example.com/guide",
+        "title": "",
+        "content": "{\n  \"name\": \"<main>literal</main>\"\n}\n",
+        "excerpt": "{\n  \"name\": \"<main>literal</main>\"\n}\n",
+        "extractor": "raw",
+        "format": "json",
+        "contentType": "application/ld+json"
+      }
     },
     {
       "url": "https://example.com/guide",
       "body": "<feed><item>example</item></feed>",
       "contentType": "application/xml",
-      "content": "<feed><item>example</item></feed>",
-      "extractor": "raw",
-      "title": ""
+      "page": {
+        "url": "https://example.com/guide",
+        "title": "",
+        "content": "<feed><item>example</item></feed>",
+        "excerpt": "<feed><item>example</item></feed>",
+        "extractor": "raw",
+        "format": "text",
+        "contentType": "application/xml"
+      }
     },
     {
       "url": "https://example.com/docs/start",
       "body": "\n    <title>Setup</title><nav>Navigation noise</nav>\n    <main><h1>Setup guide</h1><p>Use <a href=\"../api\">the API</a>.</p>\n    <pre><code class=\"language-js\">const x = 1;\n\n\n  console.log(x);</code></pre>\n    <table><tr><th>Option</th><th>Value</th></tr><tr><td>port</td><td>8080</td></tr></table>\n    <ul><li>First</li><li>Second</li></ul><div hidden>Hidden noise</div>\n    <script>throw new Error('must not execute')</script></main><aside>Advertisement</aside>",
       "contentType": "text/html",
-      "content": "# Setup guide\n\nUse [the API](<https://example.com/api>).\n\n```js\nconst x = 1;\n\n\n  console.log(x);\n```\n\n| Option | Value |\n| --- | --- |\n| port | 8080 |\n\n- First\n- Second",
-      "extractor": "dom-markdown",
-      "title": "Setup"
+      "page": {
+        "url": "https://example.com/docs/start",
+        "title": "Setup",
+        "content": "# Setup guide\n\nUse [the API](<https://example.com/api>).\n\n```js\nconst x = 1;\n\n\n  console.log(x);\n```\n\n| Option | Value |\n| --- | --- |\n| port | 8080 |\n\n- First\n- Second",
+        "excerpt": "# Setup guide\n\nUse [the API](<https://example.com/api>).\n\n```js\nconst x = 1;\n\n\n  console.log(x);\n```\n\n| Option | Value |\n| --- | --- |\n| port | 8080 |\n\n- First\n- Second",
+        "extractor": "dom-markdown",
+        "format": "html",
+        "contentType": "text/html"
+      }
+    },
+    {
+      "url": "https://example.com/long",
+      "body": "<title>Long page</title><main><h1>Long</h1><p>A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. </p></main>",
+      "contentType": "text/html; charset=utf-8",
+      "page": {
+        "url": "https://example.com/long",
+        "title": "Long page",
+        "content": "# Long\n\nA sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length.",
+        "excerpt": "# Long\n\nA sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the excerpt length. A sentence that fills the page well past the exce",
+        "extractor": "dom-markdown",
+        "format": "html",
+        "contentType": "text/html"
+      }
+    },
+    {
+      "url": "https://example.com/long.md",
+      "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "contentType": "text/markdown",
+      "page": {
+        "url": "https://example.com/long.md",
+        "title": "",
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "excerpt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "extractor": "raw",
+        "format": "markdown",
+        "contentType": "text/markdown"
+      }
     },
     {
       "url": "https://example.com",
@@ -51,33 +109,57 @@
       "url": "https://example.com",
       "body": "<title>Small page</title><div><p>A small useful page.</p><p>More details here.</p></div>",
       "contentType": "text/html",
-      "content": "A small useful page.\n\nMore details here.",
-      "extractor": "readability",
-      "title": "Small page"
+      "page": {
+        "url": "https://example.com",
+        "title": "Small page",
+        "content": "A small useful page.\n\nMore details here.",
+        "excerpt": "A small useful page.\n\nMore details here.",
+        "extractor": "readability",
+        "format": "html",
+        "contentType": "text/html"
+      }
     },
     {
       "url": "https://example.com/docs",
       "body": "<title>Just a moment...</title>\n      <main><h1>Just a moment...</h1><p>When checking your browser, you may see “Please enable JavaScript”.</p>\n      <p>This guide explains how to verify you are human and sign in.</p></main>",
       "contentType": "text/html",
-      "content": "# Just a moment...\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
-      "extractor": "dom-markdown",
-      "title": "Just a moment..."
+      "page": {
+        "url": "https://example.com/docs",
+        "title": "Just a moment...",
+        "content": "# Just a moment...\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "excerpt": "# Just a moment...\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "extractor": "dom-markdown",
+        "format": "html",
+        "contentType": "text/html"
+      }
     },
     {
       "url": "https://example.com/docs",
       "body": "<title>Access denied</title>\n      <main><h1>Access denied</h1><p>When checking your browser, you may see “Please enable JavaScript”.</p>\n      <p>This guide explains how to verify you are human and sign in.</p></main>",
       "contentType": "text/html",
-      "content": "# Access denied\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
-      "extractor": "dom-markdown",
-      "title": "Access denied"
+      "page": {
+        "url": "https://example.com/docs",
+        "title": "Access denied",
+        "content": "# Access denied\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "excerpt": "# Access denied\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "extractor": "dom-markdown",
+        "format": "html",
+        "contentType": "text/html"
+      }
     },
     {
       "url": "https://example.com/docs",
       "body": "<title>Sign in - Example</title>\n      <main><h1>Sign in - Example</h1><p>When checking your browser, you may see “Please enable JavaScript”.</p>\n      <p>This guide explains how to verify you are human and sign in.</p></main>",
       "contentType": "text/html",
-      "content": "# Sign in - Example\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
-      "extractor": "dom-markdown",
-      "title": "Sign in - Example"
+      "page": {
+        "url": "https://example.com/docs",
+        "title": "Sign in - Example",
+        "content": "# Sign in - Example\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "excerpt": "# Sign in - Example\n\nWhen checking your browser, you may see “Please enable JavaScript”.\n\nThis guide explains how to verify you are human and sign in.",
+        "extractor": "dom-markdown",
+        "format": "html",
+        "contentType": "text/html"
+      }
     }
   ]
 }

@@ -4,7 +4,7 @@
 use super::benign::is_benign_search_exit_one;
 use super::env::{ShellEnv, shell_env};
 use super::hoist::{plan_long_inline_script_file_transport, plan_long_shell_script_file_transport};
-use super::shell::{Args, foreground_cap_ms, hold_ms, time_limit_ms};
+use super::shell::{Args, hold_ms, promotes_at_timeout, time_limit_ms};
 use serde_json::Value;
 use std::path::Path;
 
@@ -44,9 +44,8 @@ fn the_hold_and_the_run_limit_are_planned_as_node_plans_them() {
         let args: Args = serde_json::from_value(given).unwrap();
         let limit = time_limit_ms(&args, enabled, &env);
         let hold = hold_ms(&args, limit, enabled, &env);
-        let explicit = call["args"]["timeout_ms"].as_u64().is_some_and(|t| t > 0);
         let plan = &call["plan"];
-        let promote = enabled && (!explicit || limit > foreground_cap_ms(hold, &env));
+        let promote = promotes_at_timeout(enabled, limit, hold, &env);
         let got = [("autoBackgroundMs", hold, plan["autoBackgroundMs"].as_u64().unwrap()), ("backgroundDeadlineMs", limit, plan["backgroundDeadlineMs"].as_u64().unwrap())];
         for (what, here, node) in got {
             if here != node {
@@ -96,9 +95,16 @@ fn a_shell_child_gets_the_session_cwd_and_the_launcher_first_on_path_as_node_bui
     for case in doc["cases"].as_array().unwrap() {
         let vars: Vec<(String, String)> = case["base"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
         let env = shell_env(&vars, &ShellEnv { cwd: case["cwd"].as_str().unwrap(), windows, scratch_dir: None, skill_launcher_dir: Some(Path::new("<LAUNCHER>")) });
-        let get = |name: &str| env.set.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
-        if get("PATH") != case["PATH"].as_str() || get("MIXDOG_SESSION_CWD") != case["MIXDOG_SESSION_CWD"].as_str() {
-            failures.push(format!("{}: Node PATH {} cwd {}, here PATH {:?} cwd {:?}", case["base"], case["PATH"], case["MIXDOG_SESSION_CWD"], get("PATH"), get("MIXDOG_SESSION_CWD")));
+        // The child's whole environment: the inherited variables, then the ones set, less the ones removed.
+        let mut got: serde_json::Map<String, Value> = vars.iter().map(|(k, v)| (k.clone(), Value::from(v.as_str()))).collect();
+        for (name, value) in &env.set {
+            got.insert(name.clone(), Value::from(value.as_str()));
+        }
+        for name in &env.remove {
+            got.remove(name);
+        }
+        if Value::Object(got.clone()) != case["env"] {
+            failures.push(format!("{}:\n  Node {}\n  here {}", case["base"], case["env"], Value::Object(got)));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
