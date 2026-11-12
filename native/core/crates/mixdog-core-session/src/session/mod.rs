@@ -98,6 +98,9 @@ mod ops;
 pub mod thread_ops;
 mod outbox;
 mod pending;
+mod slash_commands;
+#[cfg(test)]
+mod slash_commands_tests;
 pub mod delivered;
 pub mod pending_read;
 pub mod runtime_facts;
