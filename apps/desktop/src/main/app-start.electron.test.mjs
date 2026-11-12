@@ -152,7 +152,7 @@ test(
       await waitUntil(() => exit !== null, { timeoutMs: QUIT_DEADLINE_MS, intervalMs: 200, message: `the app (pid ${app.pid}) to quit after the quit request${evidence()}` });
 
       // Stop the core the app started: a core with no work stops on request.
-      await promisify(execFile)(coreBin, ['ctl', 'stop', '--when-idle', '--reason', 'app-start check'], { env, windowsHide: true, timeout: CORE_STOP_DEADLINE_MS }).catch(() => {});
+      await promisify(execFile)(coreBin, ['ctl', 'stop', '--when-idle', '--reason', 'quit'], { env, windowsHide: true, timeout: CORE_STOP_DEADLINE_MS }).catch(() => {});
       await waitUntil(() => !alive(corePid), { timeoutMs: CORE_STOP_DEADLINE_MS, intervalMs: 200, message: `the core (pid ${corePid}) to stop after "ctl stop"` });
       corePid = null;
       finished = true;

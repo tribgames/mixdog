@@ -599,6 +599,9 @@ function Invoke-Build {
                 -ArgumentList @('electron-builder', '--dir', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$OverrideVersion") `
                 -WorkingDirectory $desktopDir -NoNewWindow -Wait -PassThru
             if ($builder.ExitCode -ne 0) { throw "electron-builder --dir exited with $($builder.ExitCode)" }
+            # The same integrity check the release package passes, for this machine's package only (no server bundles).
+            & node (Join-Path $PSScriptRoot 'verify-staged-package.mjs') "--resources=$(Join-Path $unpackedDir 'resources')" --platform=win32 --arch=x64 --host-only | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "verify-staged-package exited with $LASTEXITCODE" }
             Assert-DesktopCoreArtifact $unpackedDir
             Write-Step 'complete win-unpacked fallback ready'
             return

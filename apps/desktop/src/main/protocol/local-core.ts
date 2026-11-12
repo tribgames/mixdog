@@ -44,11 +44,17 @@ async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcP
   };
 }
 
+/** How long the desktop waits for its core to publish serving. The library default (15 s) is shorter than the core's first
+ *  start on a large profile (12-17 s measured on a copy of a 11 GB profile, on a loaded machine), and a start that gives up
+ *  leaves the app without a core. MIXDOG_DAEMON_READY_TIMEOUT_MS still overrides it. */
+export const DESKTOP_CORE_READY_TIMEOUT_MS = 120_000;
+
 export function resolveLocalCore({
   runtimeRoot,
   bin,
   env,
   environmentReady,
+  ensure = ensureCore,
 }: {
   runtimeRoot: string;
   bin: string;
@@ -56,10 +62,16 @@ export function resolveLocalCore({
   env?: () => NodeJS.ProcessEnv;
   /** Settles once this process's environment is final: the core inherits it at spawn. */
   environmentReady(): Promise<unknown>;
+  /** The attach-or-start routine; tests pass their own. */
+  ensure?: typeof ensureCore;
 }): () => Promise<WsEndpoint> {
   return async () => {
     await environmentReady();
-    await ensureCore({ readDiscovery: () => readCoreState(runtimeRoot), launch: () => launchCore({ bin, ...(env ? { env: env() } : {}) }) });
+    await ensure({
+      readDiscovery: () => readCoreState(runtimeRoot),
+      launch: () => launchCore({ bin, ...(env ? { env: env() } : {}) }),
+      readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
+    });
     return readLocalDiscovery(runtimeRoot);
   };
 }

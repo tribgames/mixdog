@@ -62,7 +62,7 @@ function packedPackageFiles({ resources, bundles }) {
 
 /** Throws unless the resources are complete for `platform`/`arch` and pack no file of `deleted` (a Set of
  *  package-root-relative paths, `parseDeletionList`). */
-export function verifyStagedResources({ resources, platform, arch, deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')) }) {
+export function verifyStagedResources({ resources, platform, arch, hostOnly = false, deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')) }) {
   const exe = join(resources, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
   if (!existsSync(exe) || !statSync(exe).isFile()) throw new Error(`the Rust core ${exe} is not in the package`);
   const mixdogRoot = desktopMixdogRoot(resources);
@@ -76,12 +76,13 @@ export function verifyStagedResources({ resources, platform, arch, deleted = par
   verifyCoreInstall({ manifestDir: join(resources, 'core'), kind: 'desktop', platform, arch });
 
   const serversDir = join(resources, 'server-cores');
-  const manifest = JSON.parse(readFileSync(join(serversDir, 'servers.json'), 'utf8'));
+  // A host-only package (stage-core --host-only) has no server bundles: nothing of them to check or to unpack.
+  const manifest = hostOnly ? { binaries: {} } : JSON.parse(readFileSync(join(serversDir, 'servers.json'), 'utf8'));
   const problems = [];
   const bundles = new Map();
   // Exactly the platforms the desktop ships `mixdogd` for: an empty or short manifest is not a package.
   const keys = Object.keys(manifest.binaries ?? {});
-  for (const key of Object.keys(SERVER_PLATFORM_TARGETS)) if (!keys.includes(key)) problems.push(`servers.json lists no ${key} bundle`);
+  if (!hostOnly) for (const key of Object.keys(SERVER_PLATFORM_TARGETS)) if (!keys.includes(key)) problems.push(`servers.json lists no ${key} bundle`);
   for (const key of keys) if (!(key in SERVER_PLATFORM_TARGETS)) problems.push(`servers.json lists ${key}, which is not a server platform`);
   for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
     if (!(key in SERVER_PLATFORM_TARGETS)) continue;
@@ -137,6 +138,7 @@ if (invokedPath === import.meta.url) {
       resources: resolve(resources),
       platform: argument('platform') ?? process.platform,
       arch: argument('arch') ?? process.arch,
+      hostOnly: process.argv.includes('--host-only'),
     });
     console.log(`[verify-staged-package] ok: core, unpacked resource root, ONNX Runtime, extension host closure; bundles ${keys.join(', ')}`);
   } catch (error) {

@@ -113,6 +113,31 @@ test('whenSynced settles with the connect handshake: after the app subscription,
   await assert.rejects(failedRead, /initialize refused/);
 });
 
+test('a call that arrives before the first connection is open waits for it, and fails with its error when it fails', async () => {
+  const client = fakeClient();
+  let finishOpen;
+  const connection = createProtocolConnection({ open: () => new Promise((resolve) => (finishOpen = () => resolve(client))) });
+  const starting = connection.start();
+  const early = connection.call('model/list', { quick: true });
+  const earlyWatch = connection.watchFiles({ push() {}, notification() {}, loginFeedLost() {} }, { watchId: 'w1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(client.calls, [], 'nothing is sent before the connection is open');
+  finishOpen();
+  await starting;
+  await early;
+  await earlyWatch;
+  assert.deepEqual(client.calls.map((c) => c.method), ['model/list', 'fs/watch']);
+
+  const failing = createProtocolConnection({
+    open: async () => {
+      throw new Error('initialize refused');
+    },
+  });
+  const failedStart = failing.start();
+  const failedCall = failing.call('model/list', {});
+  await assert.rejects(failedStart, /initialize refused/);
+  await assert.rejects(failedCall, /initialize refused/);
+});
 test('a burst of section changes leaves one flush with each pair at its current entry', () => {
   const store = fakeStore();
   const pushes = [];
