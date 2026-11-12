@@ -113,8 +113,11 @@ mod across_processes {
 
     impl Drop for Contender {
         fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            // Reaped only once the kernel was told to end it: a wait on a contender that could not be killed has no
+            // end, and this runs while a failed deadline unwinds.
+            if self.child.kill().is_ok() {
+                let _ = self.child.wait();
+            }
         }
     }
 
