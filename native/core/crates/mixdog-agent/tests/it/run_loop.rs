@@ -357,7 +357,7 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
-    /// Told when the first `requesting` stage arrives.
+    /// Told when the provider's `requesting` stage arrives (the one after the admission's).
     requesting: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Holds a permit once an early notice has arrived since the last wait.
     early_arrived: tokio::sync::Notify,
@@ -371,7 +371,7 @@ impl Observer {
             early_arrived: tokio::sync::Notify::new(),
         })
     }
-    /// Resolves when the observer is given its first `requesting` stage.
+    /// Resolves when the observer is given the provider's `requesting` stage.
     fn on_requesting(&self) -> tokio::sync::oneshot::Receiver<()> {
         let (told, seen) = tokio::sync::oneshot::channel();
         *self.requesting.lock().unwrap() = Some(told);
@@ -383,7 +383,9 @@ impl Observer {
 }
 impl RunObserver for Observer {
     fn event(&self, event: RunEvent) {
+        // The first `requesting` is the admission's, raised before the attempt; the provider's follows it.
         if matches!(event, RunEvent::Stage(Stage::Requesting))
+            && self.events.lock().unwrap().iter().any(|seen| matches!(seen, RunEvent::Stage(Stage::Requesting)))
             && let Some(told) = self.requesting.lock().unwrap().take()
         {
             let _ = told.send(());
@@ -1458,10 +1460,11 @@ async fn the_loop_raises_the_requesting_stage_where_the_provider_does() {
             .collect::<Vec<_>>()
     };
     let plain = SendStages::default();
-    assert_eq!(stage_order(plain, false).await, ["reconnecting"], "a provider that raises none");
-    assert_eq!(stage_order(SendStages { preparing: 1, ..plain }, false).await, ["requesting", "reconnecting"], "once before the first attempt");
-    assert_eq!(stage_order(SendStages { each_attempt: true, ..plain }, false).await, ["requesting", "reconnecting", "requesting"], "before every attempt");
-    assert_eq!(stage_order(plain, true).await, ["requesting", "reconnecting"], "raised from inside the attempt, once");
+    // Each order opens with the admission's own `requesting` (once per send, `admission-scheduler.mjs:592`).
+    assert_eq!(stage_order(plain, false).await, ["requesting", "reconnecting"], "a provider that raises none");
+    assert_eq!(stage_order(SendStages { preparing: 1, ..plain }, false).await, ["requesting", "requesting", "reconnecting"], "once before the first attempt");
+    assert_eq!(stage_order(SendStages { each_attempt: true, ..plain }, false).await, ["requesting", "requesting", "reconnecting", "requesting"], "before every attempt");
+    assert_eq!(stage_order(plain, true).await, ["requesting", "requesting", "reconnecting"], "raised from inside the attempt, once");
 }
 
 /// The stage is delivered when the request goes out: an attempt that raised `requesting` and is still holding its
@@ -1494,8 +1497,9 @@ async fn a_reissued_stream_raises_requesting_again() {
     };
     let reset = || ProviderError::transport(TransportFault::Reset, DeliveryState::Ambiguous);
     let ok = || turn(vec![text("ok"), done(StopReason::EndTurn)]);
-    assert_eq!(stages(vec![Attempt::Stream(vec![Step::Fail(reset())]), ok()]).await, ["requesting", "reconnecting", "requesting"]);
-    assert_eq!(stages(vec![Attempt::Reject(reset()), ok()]).await, ["requesting", "reconnecting"]);
+    // The first of each is the admission's, which a retry inside the send does not raise again.
+    assert_eq!(stages(vec![Attempt::Stream(vec![Step::Fail(reset())]), ok()]).await, ["requesting", "requesting", "reconnecting", "requesting"]);
+    assert_eq!(stages(vec![Attempt::Reject(reset()), ok()]).await, ["requesting", "requesting", "reconnecting"]);
 }
 
 /// The transport fault Node's provider error ended in: the last link of the recorded cause chain

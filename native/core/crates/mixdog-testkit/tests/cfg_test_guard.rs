@@ -15,11 +15,6 @@ const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 /// `(file under the crates dir, the item the predicate is on, why it may stay bare)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
-        "mixdog-core/src/run_host/result_reuse.rs",
-        "fn lock(&self)",
-        "the read of the session caches by the tests of `result_reuse` itself, which stay in the library because they build the crate-private `LiveReuses`",
-    ),
-    (
         "mixdog-core/src/run_host/mod.rs",
         "mod migrated_fixture;",
         "the migrated recording the Context inspector test of `context_world` opens; that test reads crate-private items (`LiveContextWorld`, `Mode`, `WindowFacts`) and stays in the library",

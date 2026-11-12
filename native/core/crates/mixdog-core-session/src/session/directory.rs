@@ -1794,8 +1794,10 @@ impl SessionDirectory {
         // The route the thread begins on is settled first: the tools and the prompt below are
         // composed for it, as Node composes the session from `rt.route`.
         let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
-        // A draft's route is saved after the session exists in Node (`configureDraft`), so the session is created against the config as it is before it.
-        if pick.is_some() && !control {
+        // A draft's route is saved after the session exists in Node (`configureDraft`), so the session is created against the config as
+        // it is before it. A thread of a narrowed profile is created on its route: Node boots a headless or heartbeat runtime with
+        // the route (`createHeadlessSessionRuntime`), and no `setRoute` follows.
+        if pick.is_some() && !control && super::session_options::header_tool_profile(&header).is_none() {
             self.inner.deps.new_tools.creating(&id);
         }
         // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.

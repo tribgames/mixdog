@@ -638,6 +638,9 @@ impl Run {
         let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0
             && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
         if first_attempt {
+            // Node's admission scheduler announces the send once it is admitted (`admission-scheduler.mjs:592`), ahead of
+            // the provider's own stages. Admission is behind this exchange already.
+            self.emit(RunEvent::Stage(Stage::Requesting));
             for _ in 0..stages.preparing {
                 self.emit(RunEvent::Stage(Stage::Requesting));
             }
