@@ -7,7 +7,6 @@
   },
   "exclusions": {
     "activityRailPinsEvent": "Node raised 'activity-rail-pins-changed' from its operation; on a core connection the pins reach a client as the config section it reads (`readActivityRailPins`), so the replay compares what the second client reads, not that event",
-    "bootRewrites": "groups odd2, empty, emptyAgent, emptyVolume, emptyRetention, emptyPermissions, emptyPins: their seeds are configs the core's own start-up passes rewrite before any write (the desktop section gets its separation marker, an agent section that is no object is normalised), where Node runs those passes in the app's start-up. The core replay skips them; the Config-level test mixdog-core-config config::service::tests::the_desktops_setting_writes_leave_what_node_left replays every group, these included, from the same recording",
     "errorName": "a refusal is compared by its message: the window's handler rethrows the error and Electron hands the page the text; Node's class (TypeError, RangeError for the 300-site limit) is not kept across a core connection",
     "markdownDefaultViewFile": "Node keeps the Markdown default view in <userData>/User/settings.json (a JSONC structural edit); the core keeps it as the config key desktop.editor.markdownDefaultView (editorcfg.rs user scope). For this call the replay compares the answer, the events and what a second client reads, and that the view the core stored is the one Node answered; the config bytes and snapshots are not compared",
     "notificationsSubtree": "the core keeps Node's notification-preferences.json as the `notifications` subtree of mixdog-config.json; the replay seeds it (last key) and takes it out of the bytes it compares",
@@ -16,9 +15,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1299876,
+      "bytes": 1301181,
       "path": "golden.json",
-      "sha256": "4c6c4fa7a397ecf52f31e8c6569e83dff2b60d49bb8299a6a7092d151c7c99ca"
+      "sha256": "a28aa1fd072dd5312652b90b065ffcc58ab6451211e664b5f23caf58d8b0907a"
     }
   ],
   "inputs": [
@@ -50,7 +49,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop-setting-writes.mjs",
-  "recorderSha256": "e85b0d7e17d08e7f1653deb10886e5608a486afbfd131de328f939ed1bdccf47",
+  "recorderSha256": "53bb37ba1d98b984dfc5ece383e655deabdb014906129a94174b9c89d9d9ef4b",
   "set": "desktop-setting-writes",
-  "totalBytes": 1299876
+  "totalBytes": 1301181
 }
