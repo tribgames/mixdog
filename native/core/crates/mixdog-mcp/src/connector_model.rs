@@ -44,7 +44,7 @@ pub fn accounts_url(id: &str) -> String {
 }
 
 /// `encodeURIComponent`.
-fn encode_uri_component(text: &str) -> String {
+pub(crate) fn encode_uri_component(text: &str) -> String {
     let mut out = String::new();
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
