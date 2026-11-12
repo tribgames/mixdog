@@ -86,7 +86,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/spawned-provenance.mjs",
-        "sha256": "59a5ef30c261b0d8003ddb6c1ad3e13869219610ab96c7d8bdf60e99a3efc587"
+        "sha256": "3ebd50e7748026f9dd8f3c17bb6caa21dee18448d7be6687105df0db85a74191"
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
