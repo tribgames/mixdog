@@ -42,6 +42,8 @@ const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_HEADERS_COUNT: usize = 2000;
 /// Node's default `headersTimeout`.
 pub(crate) const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
+/// Node's default `connectionsCheckingInterval`: how often the server looks for connections past their timeouts.
+pub(crate) const CONNECTIONS_CHECKING_INTERVAL: Duration = Duration::from_secs(30);
 /// Node's default `requestTimeout`: the body must arrive within five minutes.
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -142,9 +144,13 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
     tokio::pin!(connection);
     tokio::select! {
         ended = connection.as_mut() => {
-            // Node answers a head that did not complete in time with its bare 408, unless it has written to the socket already;
-            // a connection that never sent a byte is not timed out by Node at all, and is only closed here.
-            if ended.is_err_and(|e| e.is_timeout()) && state.received.load(Ordering::Acquire) && !state.replied.load(Ordering::Acquire) {
+            // Node answers a head that did not complete in time with its bare 408, unless it has written to the socket already.
+            // A connection that never sent a byte is expired the same way, but only by Node's connection check, which runs
+            // on `connectionsCheckingInterval`: it is answered at the end of that window after `headersTimeout`.
+            if ended.is_err_and(|e| e.is_timeout()) && !state.replied.load(Ordering::Acquire) {
+                if !state.received.load(Ordering::Acquire) {
+                    mixdog_rt::time::sleep(CONNECTIONS_CHECKING_INTERVAL).await;
+                }
                 *farewell.lock().expect("the farewell slot is never held across a panic") = Some(BARE_REQUEST_TIMEOUT.to_vec());
             }
             return;
@@ -310,6 +316,8 @@ struct Peer {
     alive: bool,
     /// The reply is chunked: HTTP/1.1. An HTTP/1.0 reply has no length and ends with the connection, as Node's.
     chunked: bool,
+    /// A `HEAD` request: the reply has Node's headers and no body, and no framing header either.
+    head: bool,
 }
 
 fn peer(parts: &hyper::http::request::Parts) -> Peer {
@@ -319,7 +327,7 @@ fn peer(parts: &hyper::http::request::Parts) -> Peer {
         .get_all(hyper::header::CONNECTION)
         .iter()
         .any(|v| v.to_str().is_ok_and(|s| s.split(',').any(|t| t.trim().eq_ignore_ascii_case("close"))));
-    Peer { alive: chunked && !closes, chunked }
+    Peer { alive: chunked && !closes, chunked, head: parts.method == hyper::Method::HEAD }
 }
 
 fn date() -> String {
@@ -327,10 +335,13 @@ fn date() -> String {
 }
 
 /// A reply hyper writes to an HTTP/1.1 peer, headers in Node's order (hyper writes them as given, in title case).
-fn reply(status: u16, content_type: &str, body: Vec<u8>, alive: bool) -> Reply {
+fn reply(status: u16, content_type: &str, body: Vec<u8>, peer: Peer) -> Reply {
     let mut builder = Response::builder().status(status).header("content-type", content_type).header("date", date());
-    builder = if alive { builder.header("connection", "keep-alive").header("keep-alive", "timeout=5") } else { builder.header("connection", "close") };
-    builder.header("transfer-encoding", "chunked").body(Chunked { bytes: Some(Bytes::from(body)), finished: None }).expect("a reply with a valid status and headers")
+    builder = if peer.alive { builder.header("connection", "keep-alive").header("keep-alive", "timeout=5") } else { builder.header("connection", "close") };
+    if !peer.head {
+        builder = builder.header("transfer-encoding", "chunked");
+    }
+    builder.body(Chunked { bytes: (!peer.head).then(|| Bytes::from(body)), finished: None }).expect("a reply with a valid status and headers")
 }
 
 /// A reply written whole by the connection itself, which ends after it. Its head says what Node's
@@ -338,9 +349,11 @@ fn reply(status: u16, content_type: &str, body: Vec<u8>, alive: bool) -> Reply {
 fn farewell(status: u16, content_type: &str, body: &[u8], peer: Peer) -> Farewell {
     let reason = hyper::StatusCode::from_u16(status).ok().and_then(|s| s.canonical_reason()).unwrap_or("");
     let connection = if peer.alive { KEEP_ALIVE_HEADERS } else { "Connection: close\r\n" };
-    let framing = if peer.chunked { "Transfer-Encoding: chunked\r\n" } else { "" };
+    let framing = if peer.chunked && !peer.head { "Transfer-Encoding: chunked\r\n" } else { "" };
     let mut bytes = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nDate: {}\r\n{connection}{framing}\r\n", date()).into_bytes();
-    if peer.chunked {
+    if peer.head {
+        // headers only
+    } else if peer.chunked {
         bytes.extend_from_slice(format!("{:x}\r\n", body.len()).as_bytes());
         bytes.extend_from_slice(body);
         bytes.extend_from_slice(b"\r\n0\r\n\r\n");
@@ -353,7 +366,7 @@ fn farewell(status: u16, content_type: &str, body: &[u8], peer: Peer) -> Farewel
 /// The reply to the request: through hyper to an HTTP/1.1 peer; to an HTTP/1.0 peer, which cannot be chunked, written
 /// whole by the connection, which ends after it.
 fn answer(status: u16, content_type: &str, body: Vec<u8>, peer: Peer) -> Result<Reply, Farewell> {
-    if peer.chunked { Ok(reply(status, content_type, body, peer.alive)) } else { Err(farewell(status, content_type, &body, peer)) }
+    if peer.chunked { Ok(reply(status, content_type, body, peer)) } else { Err(farewell(status, content_type, &body, peer)) }
 }
 
 fn json_body(reply_body: &HttpReply) -> Vec<u8> {

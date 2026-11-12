@@ -455,19 +455,23 @@ async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Ve
     let (mut read, mut write) = connect(port).await.into_split();
     let (mut pending, mut seen) = (Vec::new(), Vec::new());
     let first = if sequential { 1 } else { parts.len() };
+    // The reply to a HEAD request has no body: the n-th reply answers the n-th request.
+    let heads: Vec<bool> = parts.iter().map(|p| p.starts_with("HEAD ")).collect();
     for part in &parts[..first] {
         send(&mut write, part.as_bytes(), "a request").await;
     }
     if sequential {
-        seen.extend(read_response_typed(&mut read, &mut pending, "the reply to the first request").await);
+        seen.extend(read_response_to(&mut read, &mut pending, "the reply to the first request", heads[0]).await);
         send(&mut write, parts[1].as_bytes(), "the second request").await;
     }
     if fin {
         let _ = within("the half-close", write.shutdown()).await;
     }
-    while let Some(reply) = read_response_typed(&mut read, &mut pending, "the listener closing the connection after its reply").await {
+    while let Some(reply) = read_response_to(&mut read, &mut pending, "the listener closing the connection after its reply", heads.get(seen.len()).copied().unwrap_or(false)).await {
         seen.push(reply);
     }
+    // A reply to a HEAD request is parsed without its body, so a body the listener sent anyway is what is left over.
+    assert!(pending.is_empty(), "bytes left after the last reply: {:?}", String::from_utf8_lossy(&pending));
     seen
 }
 
@@ -486,6 +490,12 @@ async fn fill(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, w
 /// One response off the stream, framed by `Transfer-Encoding: chunked` or its `Content-Length`; None
 /// when the peer closed first. `waiting` names what the caller is waiting for.
 async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting: &str) -> Option<Parsed> {
+    read_response_to(stream, pending, waiting, false).await
+
+}
+
+/// `no_body`: the reply answers a `HEAD` request, so it carries no body whatever its headers say.
+async fn read_response_to(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting: &str, no_body: bool) -> Option<Parsed> {
     let head_end = loop {
         if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
             break at;
@@ -507,7 +517,9 @@ async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: 
     let head = lines.join("\r\n");
     let mut at = head_end + 4;
     let mut body = Vec::new();
-    if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
+    if no_body {
+        // no body
+    } else if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
         loop {
             let line_end = loop {
                 if let Some(p) = pending[at..].windows(2).position(|w| w == b"\r\n") {
@@ -551,24 +563,54 @@ async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: 
 /// Sends `parts` one after the other and returns the first reply, None when the server closed
 /// without one.
 async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
-    let (mut read, mut write) = connect(port).await.into_split();
+    let (read, write) = connect(port).await.into_split();
+    exchange_over(read, write, parts, half_close).await
+}
+
+/// [`try_exchange`] over any pair of stream halves.
+async fn exchange_over(mut read: impl AsyncReadExt + Unpin, mut write: impl AsyncWriteExt + Unpin, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
     let parts: Vec<Vec<u8>> = parts.iter().map(|p| p.to_vec()).collect();
     // The writer runs beside the reader: a reply may arrive while the sender is still sending,
     // and a server that closes on it must not take the reply down with a failed write.
-    let writer = tokio::spawn(async move {
+    // It is polled by this function, not by a task of its own, so a write that passes its deadline fails the test that
+    // issued the exchange, by name, even when a reply is still on its way. The write half is kept after the writes, so
+    // a sender that does not half-close does not end its side.
+    let writer = async move {
         for part in parts {
-            if within("a write of the request", write.write_all(&part)).await.is_err() {
-                return;
+            match mixdog_rt::time::timeout(DEADLINE, write.write_all(&part)).await {
+                Err(_) => return Err(format!("a write of the request did not complete within {DEADLINE:?}")),
+                // The listener has already answered and closed: the reply is what is compared.
+                Ok(Err(_)) => return Ok(write),
+                Ok(Ok(())) => {}
             }
         }
         if half_close {
             let _ = within("the half-close", write.shutdown()).await;
         }
-        std::future::pending::<()>().await;
-    });
-    let reply = read_response(&mut read, &mut Vec::new()).await;
-    writer.abort();
-    reply
+        Ok(write)
+    };
+    let mut writer = Box::pin(writer);
+    let mut pending = Vec::new();
+    let mut reader = Box::pin(read_response(&mut read, &mut pending));
+    let mut kept = None;
+    loop {
+        tokio::select! {
+            biased;
+            written = &mut writer, if kept.is_none() => kept = Some(written.unwrap_or_else(|failed| panic!("{failed}"))),
+            reply = &mut reader => return reply,
+        }
+    }
+}
+
+/// A write that passes its deadline fails the exchange that issued it, by name, instead of panicking in a task nobody
+/// joins while the exchange goes on to return a read reply. The peer (a pipe that holds one byte and is never read)
+/// takes no more than that, and the reply read hits the same deadline at the same instant.
+#[tokio::test(start_paused = true)]
+#[should_panic(expected = "a write of the request did not complete within")]
+async fn a_write_past_its_deadline_fails_the_exchange_that_issued_it() {
+    let (ours, _peer) = tokio::io::duplex(1);
+    let (read, write) = tokio::io::split(ours);
+    let _ = exchange_over(read, write, &[b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"], false).await;
 }
 
 /// Sends `parts` one after the other and returns (status, body text) of the first reply.
@@ -675,7 +717,22 @@ async fn a_request_that_does_not_arrive_in_time_gets_the_recorded_bare_408() {
         for part in case["parts"].as_array().unwrap() {
             send(&mut stream, part.as_str().unwrap().as_bytes(), name).await;
         }
-        advance(timing["defaults"][case["after"].as_str().unwrap()].as_u64().unwrap()).await;
+        let defaults = &timing["defaults"];
+        if case["after"] == "headersTimeoutPlusCheckMs" {
+            // A silent connection: open at headersTimeout (Node's connection check has not come yet), answered by the end of
+            // the check interval after it. The recorder only records the window (open before, closed inside it).
+            assert!(case["parts"].as_array().unwrap().is_empty() && case["openJustBeforeHeadersTimeout"].as_bool().unwrap(), "{name}: recorded");
+            assert!(case["closedNotBeforeHeadersTimeout"].as_bool().unwrap() && case["closedByHeadersTimeoutPlusCheck"].as_bool().unwrap(), "{name}: recorded");
+            let (headers, interval) = (defaults["headersTimeoutMs"].as_u64().unwrap(), defaults["connectionsCheckingIntervalMs"].as_u64().unwrap());
+            assert_eq!(interval, super::listener::CONNECTIONS_CHECKING_INTERVAL.as_millis() as u64);
+            advance(headers).await;
+            let mut byte = [0u8; 1];
+            let early = mixdog_rt::time::timeout(std::time::Duration::from_millis(1), stream.read(&mut byte)).await;
+            assert!(early.is_err(), "{name}: still open and unanswered at headersTimeout, got {early:?}");
+            advance(interval - 1).await;
+        } else {
+            advance(defaults[case["after"].as_str().unwrap()].as_u64().unwrap()).await;
+        }
         let mut reply = Vec::new();
         within(&format!("{name}: the 408 and the end of the connection"), stream.read_to_end(&mut reply)).await.unwrap();
         let recorded: Vec<&str> = case["responses"].as_array().unwrap().iter().map(|r| r["raw"].as_str().unwrap()).collect();

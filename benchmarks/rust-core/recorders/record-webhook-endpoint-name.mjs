@@ -230,11 +230,15 @@ const wireHandler = createWebhookRequestHandler({
 let settledCollections = 0;
 const wireServers = {
   gate: http.createServer((req, res) => {
+    // webhook.mjs routing: GET / is the liveness answer, POST /webhook/* the endpoint, everything else a text 404.
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('OK');
-    } else {
+    } else if (req.method === 'POST' && req.url?.startsWith('/webhook/')) {
       void wireHandler.handlePost(req, res);
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
     }
   }),
   collect: http.createServer((req, res) => {
@@ -251,7 +255,8 @@ const DATE_TOKEN = '<date>';
 // Every response is recorded as the bytes the server sent (`raw`: status line, header lines in order, name case and repeats
 // as sent, the body with its framing), with only the Date value replaced; `head` is the same without the body and `body` is
 // the decoded body. The lower-cased map below is only how this parser finds the framing; it is not recorded.
-function parseResponses(buffer) {
+// `methods` are the request methods in order: the reply to a HEAD carries no body whatever its framing headers say.
+function parseResponses(buffer, methods = []) {
   const responses = [];
   let rest = buffer;
   for (;;) {
@@ -266,7 +271,9 @@ function parseResponses(buffer) {
     const head = lines.map((line, i) => (i > 0 && /^date:/i.test(line) ? `${line.slice(0, line.indexOf(':') + 1)} ${DATE_TOKEN}` : line)).join('\r\n');
     let at = end + 4;
     let body = '';
-    if (headers['transfer-encoding'] === 'chunked') {
+    if (methods[responses.length] === 'HEAD') {
+      // no body
+    } else if (headers['transfer-encoding'] === 'chunked') {
       for (;;) {
         const line = rest.indexOf('\r\n', at);
         if (line < 0) return { responses, partial: true };
@@ -293,16 +300,17 @@ function runWire(server, c) {
     let data = Buffer.alloc(0);
     let closed = false;
     let next = 1;
+    const methods = [...c.parts.join('').matchAll(/^([A-Z]+) \S+ HTTP\/1\.[01]\r?$/gm)].map((m) => m[1]);
     const deadline = setTimeout(() => reject(new Error(`wire case "${c.name}": the connection stayed open`)), 10000);
     socket.on('error', () => {});
     socket.on('data', (d) => {
       data = Buffer.concat([data, d]);
-      if (c.sequential && next < c.parts.length && parseResponses(data).responses.length > 0) socket.write(c.parts[next++], 'latin1');
+      if (c.sequential && next < c.parts.length && parseResponses(data, methods).responses.length > 0) socket.write(c.parts[next++], 'latin1');
     });
     socket.on('close', () => {
       closed = true;
       clearTimeout(deadline);
-      resolve({ responses: parseResponses(data).responses, closed });
+      resolve({ responses: parseResponses(data, methods).responses, closed });
     });
     socket.write(c.parts[0], 'latin1');
     if (!c.sequential) for (const part of c.parts.slice(1)) socket.write(part, 'latin1');
@@ -325,6 +333,11 @@ const wireCases = [
   { name: 'GET on HTTP/1.0 with Connection: keep-alive', server: 'gate', parts: ['GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n'] },
   { name: 'a gate answer on HTTP/1.0', server: 'gate', parts: ['POST /webhook/%zz HTTP/1.0\r\nContent-Length: 0\r\n\r\n'] },
   { name: 'a gate answer on HTTP/1.0 with Connection: keep-alive', server: 'gate', parts: ['POST /webhook/%zz HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n'] },
+  // HEAD: the headers of the reply the request would get, and no body.
+  { name: 'HEAD on HTTP/1.1 asking to close', server: 'gate', parts: ['HEAD /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'] },
+  { name: 'HEAD on HTTP/1.1 kept alive, then GET / asking to close', server: 'gate', sequential: true, parts: ['HEAD /nope HTTP/1.1\r\nHost: x\r\n\r\n', secondRequest] },
+  { name: 'HEAD on HTTP/1.0', server: 'gate', parts: ['HEAD /nope HTTP/1.0\r\n\r\n'] },
+  { name: 'HEAD on HTTP/1.0 with Connection: keep-alive', server: 'gate', halfClose: true, parts: ['HEAD /nope HTTP/1.0\r\nConnection: keep-alive\r\n\r\n'] },
 ];
 const wireResults = [];
 for (const c of wireCases) {
@@ -340,7 +353,7 @@ for (const c of wireCases) {
 // one is closed just after it.
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const defaultServer = http.createServer();
-const defaults = { keepAliveTimeoutMs: defaultServer.keepAliveTimeout, keepAliveTimeoutBufferMs: defaultServer.keepAliveTimeoutBuffer, headersTimeoutMs: defaultServer.headersTimeout, requestTimeoutMs: defaultServer.requestTimeout };
+const defaults = { keepAliveTimeoutMs: defaultServer.keepAliveTimeout, keepAliveTimeoutBufferMs: defaultServer.keepAliveTimeoutBuffer, headersTimeoutMs: defaultServer.headersTimeout, requestTimeoutMs: defaultServer.requestTimeout, connectionsCheckingIntervalMs: defaultServer.connectionsCheckingInterval };
 defaultServer.close();
 const keepAliveRequest = 'GET / HTTP/1.1\r\nHost: x\r\n\r\n';
 const keepAlive = await (async () => {
@@ -388,6 +401,44 @@ const timeoutCases = [
 ];
 const timeoutResults = [];
 for (const c of timeoutCases) timeoutResults.push({ ...c, ...(await runWire(shortServer, c)) });
+// A connection that never sends a byte: Node's parser is initialised at accept, so the connection check expires it through
+// headersTimeout like any other head. It is still open just before headersTimeout, and closed with the bare 408 by
+// headersTimeout plus one check interval (the check runs on the interval, so the close falls inside that window).
+const silent = await new Promise((resolve, reject) => {
+  const server = shortServer;
+  const socket = net.connect(server.address().port, '127.0.0.1');
+  const started = Date.now();
+  let data = Buffer.alloc(0);
+  let closedAtMs = null;
+  const shortHeadersMs = server.headersTimeout;
+  const shortIntervalMs = server.connectionsCheckingInterval;
+  let openJustBefore = null;
+  const deadline = setTimeout(() => reject(new Error('silent connection: the connection stayed open')), 10000);
+  socket.on('error', () => {});
+  socket.on('data', (d) => {
+    data = Buffer.concat([data, d]);
+  });
+  socket.on('close', () => {
+    closedAtMs = Date.now() - started;
+    clearTimeout(deadline);
+    const { responses } = parseResponses(data);
+    resolve({
+      name: 'a connection that sends no byte',
+      parts: [],
+      after: 'headersTimeoutPlusCheckMs',
+      openJustBeforeHeadersTimeout: openJustBefore,
+      closedNotBeforeHeadersTimeout: closedAtMs >= shortHeadersMs,
+      closedByHeadersTimeoutPlusCheck: closedAtMs <= shortHeadersMs + shortIntervalMs + 250,
+      responses,
+      closed: true,
+    });
+  });
+  setTimeout(() => {
+    openJustBefore = closedAtMs === null && data.length === 0;
+  }, shortHeadersMs - 100);
+});
+if (!(silent.openJustBeforeHeadersTimeout && silent.closedNotBeforeHeadersTimeout && silent.closedByHeadersTimeoutPlusCheck)) throw new Error(`silent connection probe: ${JSON.stringify(silent)}`);
+timeoutResults.push(silent);
 shortServer.close();
 for (const server of Object.values(wireServers)) server.close();
 
@@ -410,6 +461,7 @@ if (out) {
       exclusions: [
         { what: 'the value of the Date header in wire[].responses[].{raw,head} and timing.timeouts[].responses[].{raw,head}', reason: 'a clock reading of the recording run: the recorder replaces it by the token <date> and the replay replaces the listener\'s Date value by the same token; the header name, its place and its case are compared' },
         { what: 'timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server', reason: 'Node\'s own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server\'s own settings, read from a default server) on its virtual clock' },
+        { what: 'timing.timeouts[] "a connection that sends no byte": the instant of the close (not recorded) and the 1000/500/100 ms timers', reason: 'Node closes it somewhere in [headersTimeout, headersTimeout + connectionsCheckingInterval] by where the check tick falls; the recorder records only that it was open just before headersTimeout and closed inside that window, and the replay closes at the end of the window (headersTimeoutMs + connectionsCheckingIntervalMs of timing.defaults, read from a default server)' },
       ],
     },
   });

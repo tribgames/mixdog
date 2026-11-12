@@ -907,6 +907,83 @@
       ],
       "closed": true,
       "settled": 0
+    },
+    {
+      "name": "HEAD on HTTP/1.1 asking to close",
+      "server": "gate",
+      "parts": [
+        "HEAD /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close",
+          "body": "",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "HEAD on HTTP/1.1 kept alive, then GET / asking to close",
+      "server": "gate",
+      "sequential": true,
+      "parts": [
+        "HEAD /nope HTTP/1.1\r\nHost: x\r\n\r\n",
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5",
+          "body": "",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+        },
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "HEAD on HTTP/1.0",
+      "server": "gate",
+      "parts": [
+        "HEAD /nope HTTP/1.0\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close",
+          "body": "",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "HEAD on HTTP/1.0 with Connection: keep-alive",
+      "server": "gate",
+      "halfClose": true,
+      "parts": [
+        "HEAD /nope HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close",
+          "body": "",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
     }
   ],
   "timing": {
@@ -914,7 +991,8 @@
       "keepAliveTimeoutMs": 5000,
       "keepAliveTimeoutBufferMs": 1000,
       "headersTimeoutMs": 60000,
-      "requestTimeoutMs": 300000
+      "requestTimeoutMs": 300000,
+      "connectionsCheckingIntervalMs": 30000
     },
     "keepAlive": {
       "closesAfterMs": 6000,
@@ -947,6 +1025,23 @@
         "parts": [
           "POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: "
         ],
+        "responses": [
+          {
+            "status": 408,
+            "head": "HTTP/1.1 408 Request Timeout\r\nConnection: close",
+            "body": "",
+            "raw": "HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n"
+          }
+        ],
+        "closed": true
+      },
+      {
+        "name": "a connection that sends no byte",
+        "parts": [],
+        "after": "headersTimeoutPlusCheckMs",
+        "openJustBeforeHeadersTimeout": true,
+        "closedNotBeforeHeadersTimeout": true,
+        "closedByHeadersTimeoutPlusCheck": true,
         "responses": [
           {
             "status": 408,
