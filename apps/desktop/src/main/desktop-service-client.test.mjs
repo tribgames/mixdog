@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { DesktopServiceClient } from './desktop-service-client.ts';
+import { DEFAULT_STARTUP_TIMEOUT_MS, DesktopServiceClient } from './desktop-service-client.ts';
 import { DESKTOP_SERVICE_METHODS } from './desktop-service-contract.ts';
 import { readSessionAttachment } from './session-attachments.ts';
+import { SessionTransport } from './session-transport.ts';
 import { RemoteBootstrapError } from './ssh/remote-bootstrap.ts';
 
 class TestTransport extends EventEmitter {
@@ -288,13 +289,258 @@ test('an upgrade wait suspends the startup timeout without a failure toast', asy
   }
 });
 
+test('a daemon that boots for 40 s is attached once, synchronized once, and fails no caller', async (t) => {
+  const calls = [];
+  let releaseControl;
+  const controlGate = new Promise((resolve) => {
+    releaseControl = resolve;
+  });
+  let connections = 0;
+  const diagnostics = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      connections += 1;
+      return new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+        ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+        attachSession: async () => ({
+          async call(name) {
+            calls.push(name);
+            if (name === 'desktop.init') return { desktopId: 'desktop_slow_boot' };
+            if (name === 'desktop.control') await controlGate;
+            return { ok: true };
+          },
+          async close() {},
+        }),
+      }));
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    onDiagnostic: (event) => diagnostics.push(event),
+    startupTimeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
+    failureNoticeDelayMs: 0,
+  });
+  const snapshots = [];
+  client.subscribe((snapshot) => snapshots.push(snapshot));
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const outcomes = [];
+    const callers = [client.start(), client.start()].map((caller) =>
+      caller.then(
+        () => outcomes.push('ready'),
+        (error) => outcomes.push(error.message)
+      )
+    );
+    await turn();
+    t.mock.timers.tick(15_000);
+    await turn();
+    t.mock.timers.tick(25_000);
+    await turn();
+    assert.deepEqual(outcomes, [], 'no caller settles while the daemon is still answering');
+
+    releaseControl();
+    await Promise.all(callers);
+    assert.deepEqual(outcomes, ['ready', 'ready']);
+    assert.equal(connections, 1);
+    assert.equal(calls.filter((name) => name === 'desktop.init').length, 1);
+    assert.equal(calls.filter((name) => name === 'desktop.control').length, 1);
+    assert.ok(!diagnostics.includes('desktop-transport-exit'));
+    for (const snapshot of snapshots) {
+      assert.ok(!JSON.stringify(snapshot).includes('service-connection-stopped'));
+    }
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('startup callers are bounded across reconnects, keep one live attachment, and recover on late readiness', async (t) => {
+  const transports = [];
+  const diagnostics = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      const transport = new TestTransport(() => {});
+      transports.push(transport);
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    onDiagnostic: (event) => diagnostics.push(event),
+    startupTimeoutMs: 15_000,
+    startupDeadlineMs: 55_000,
+    restartBaseDelayMs: 250,
+    failureNoticeDelayMs: 0,
+  });
+  const snapshots = [];
+  client.subscribe((snapshot) => snapshots.push(snapshot));
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const outcomes = [];
+    const waiters = [client.start(), client.start()].map((caller) =>
+      caller.then(
+        () => outcomes.push('ready'),
+        (error) => outcomes.push(error.message)
+      )
+    );
+    await turn();
+    t.mock.timers.tick(15_000);
+    assert.ok(diagnostics.includes('desktop-startup-slow'));
+    t.mock.timers.tick(5_000);
+    // The first attachment dies at 20 s; its replacement never becomes ready.
+    transports[0].emit('exit', 1);
+    t.mock.timers.tick(1_000);
+    assert.equal(transports.length, 2);
+    await turn();
+    assert.deepEqual(outcomes, []);
+
+    t.mock.timers.tick(33_999);
+    await turn();
+    assert.deepEqual(outcomes, [], 'the overall deadline counts from the original start()');
+    t.mock.timers.tick(1);
+    await Promise.all(waiters);
+    assert.deepEqual(outcomes, ['Mixdog service startup timed out.', 'Mixdog service startup timed out.']);
+    assert.ok(JSON.stringify(snapshots.at(-1)).includes('service-connection-stopped'), 'the failure is visible');
+
+    // The live attachment is kept: later callers fail fast and dial nothing.
+    await assert.rejects(client.start(), /startup timed out/);
+    assert.equal(transports.length, 2);
+
+    // Late readiness recovers the same attachment.
+    transports[1].emit('message', { kind: 'ready', viewSync: true });
+    transports[1].emit('message', { kind: 'view-sync-complete' });
+    await client.start();
+    assert.equal(transports.length, 2);
+    assert.ok(!JSON.stringify(snapshots.at(-1)).includes('service-connection-stopped'));
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('an attachment that exits during an upgrade wait hands its startup budget to the replacement', async (t) => {
+  const transports = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      const transport = new TestTransport(() => {});
+      transports.push(transport);
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    startupTimeoutMs: 15_000,
+    startupDeadlineMs: 55_000,
+    restartBaseDelayMs: 250,
+    failureNoticeDelayMs: 0,
+  });
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let outcome = 'pending';
+    const started = client.start().then(
+      () => (outcome = 'ready'),
+      (error) => (outcome = error.message)
+    );
+    await turn();
+    transports[0].emit('message', { kind: 'upgrade-wait', state: 'waiting' });
+    t.mock.timers.tick(100_000);
+    assert.equal(outcome, 'pending', 'an upgrade wait suspends the deadline');
+    transports[0].emit('exit', 1);
+    t.mock.timers.tick(250);
+    assert.equal(transports.length, 2);
+    t.mock.timers.tick(54_749);
+    await turn();
+    assert.equal(outcome, 'pending');
+    t.mock.timers.tick(1);
+    await started;
+    assert.equal(outcome, 'Mixdog service startup timed out.');
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('a latched startup failure replaces its attachment on its own, and retryNow replaces it at once', async (t) => {
+  const transports = [];
+  const closed = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      const index = transports.length;
+      closed.push(false);
+      const transport = new TestTransport(() => {});
+      transport.close = async () => {
+        closed[index] = true;
+      };
+      transports.push(transport);
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    startupTimeoutMs: 15_000,
+    startupDeadlineMs: 55_000,
+    startupRecoveryDelayMs: 5_000,
+    failureNoticeDelayMs: 0,
+  });
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const first = assert.rejects(client.start(), /startup timed out/);
+    await turn();
+    t.mock.timers.tick(55_000);
+    await first;
+
+    // Within the grace the failed attachment is kept: no second connection.
+    t.mock.timers.tick(4_999);
+    assert.equal(transports.length, 1);
+    assert.equal(closed[0], false);
+
+    // After the grace it is replaced on its own, with no user action.
+    t.mock.timers.tick(1);
+    t.mock.timers.tick(250);
+    assert.equal(transports.length, 2, 'the failed attachment is replaced automatically');
+    assert.equal(closed[0], true);
+    // The replacement never becomes ready either; its bounded wait latches,
+    // and retryNow replaces it at once.
+    const waiting = assert.rejects(client.start(), /startup timed out/);
+    t.mock.timers.tick(55_000);
+    await waiting;
+    assert.equal(transports.length, 2);
+    const retried = client.retryNow();
+    assert.equal(transports.length, 3, 'retryNow replaced the latched attachment at once');
+    assert.equal(closed[1], true);
+    transports[2].emit('message', { kind: 'ready' });
+    await retried;
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
 test('startup timing resumes after the upgrade wait is done', async () => {
   let transport;
+  const diagnostics = [];
   const client = new DesktopServiceClient({
     connect() {
       transport = new TestTransport(() => {});
       return transport;
     },
+    onDiagnostic: (event) => diagnostics.push(event),
     sessionOptions: () => ({
       userDataPath: 'C:/tmp/mixdog',
       packaged: true,
@@ -309,7 +555,10 @@ test('startup timing resumes after the upgrade wait is done', async () => {
     const started = client.start();
     transport.emit('message', { kind: 'upgrade-wait', state: 'waiting' });
     transport.emit('message', { kind: 'upgrade-wait', state: 'done' });
-    await assert.rejects(started, /startup timed out/);
+    // The live transport is kept; the re-armed deadline only reports the slow boot.
+    while (!diagnostics.includes('desktop-startup-slow')) await new Promise((resolve) => setTimeout(resolve, 5));
+    transport.emit('message', { kind: 'ready' });
+    await started;
   } finally {
     clearTimeout(keepAlive);
     await client.dispose();

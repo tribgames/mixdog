@@ -37,6 +37,16 @@ import { codedErrorParams } from '../shared/coded-error';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import type { SessionFinalAnswer } from './session-final-answer';
+import type { RowChange, RowList } from '../shared/row-notifications';
+import {
+  LIST_ROW_READ_METHOD,
+  readListPublishedMarker,
+  readListRowAnswer,
+  readListRowFrame,
+  readWholeList,
+  type ListRowFrame,
+} from './list-row-adapter';
+import { ListRowStore } from './list-row-store';
 
 export interface DesktopTransport {
   postMessage(message: DesktopServiceInbound): void;
@@ -50,6 +60,10 @@ interface DesktopServiceClientOptions {
   initialSnapshot?: SessionSnapshot;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
+  /** Overall bound on a startup wait, across reconnects. */
+  startupDeadlineMs?: number;
+  /** How long a latched startup failure keeps its attachment before replacing it. */
+  startupRecoveryDelayMs?: number;
   restartBaseDelayMs?: number;
   restartMaxDelayMs?: number;
   restartStableMs?: number;
@@ -75,6 +89,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 // ordinary request deadline, which is sized for interactive calls.
 const INHERIT_SESSION_TIMEOUT_MS = 600_000;
 export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
+export const DEFAULT_STARTUP_DEADLINE_MS = 55_000;
+const DEFAULT_STARTUP_RECOVERY_DELAY_MS = 5_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
@@ -163,6 +179,24 @@ export class DesktopServiceClient implements DesktopService {
   private liveSessions: DesktopSessionSummary[] | null = null;
   private sessionCacheFresh = false;
   private agentPoolCacheFresh = false;
+  // The global lists as row frames (a service with list-row feeds): the
+  // daemon sends no whole list on a change, and none is re-sent from here.
+  private readonly sessionRowListeners = new Set<(changes: RowChange<DesktopSessionSummary>[]) => void>();
+  private readonly agentPoolRowListeners = new Set<(changes: RowChange<DesktopAgentPoolRow>[]) => void>();
+  private readonly sessionRows = new ListRowStore<DesktopSessionSummary>({
+    read: async () => readListRowAnswer('sessions', await this.invokeRead(LIST_ROW_READ_METHOD, ['sessions'])),
+    onChange: (change) => {
+      for (const listener of this.sessionRowListeners) listener([change]);
+    },
+    onPublication: (sessions) => this.receiveSessions(sessions),
+  });
+  private readonly agentPoolRows = new ListRowStore<DesktopAgentPoolRow>({
+    read: async () => readListRowAnswer('agent-pool', await this.invokeRead(LIST_ROW_READ_METHOD, ['agent-pool'])),
+    onChange: (change) => {
+      for (const listener of this.agentPoolRowListeners) listener([change]);
+    },
+    onPublication: (agents) => this.receiveAgentPool(agents),
+  });
   private visibleSessionIds: string[] = [];
   private visibleSessionVersion = 0;
   private nextRequestId = 1;
@@ -174,6 +208,15 @@ export class DesktopServiceClient implements DesktopService {
   private readyResolve: (() => void) | null = null;
   private readyReject: ((error: Error) => void) | null = null;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  /** One-shot bound on the whole startup wait; unlike startupTimer it survives
+   *  reconnects and is only suspended by an upgrade wait. */
+  private startupDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The deadline expired while a live transport was still initializing. The
+   *  attachment is kept briefly (no immediate second connection); callers fail
+   *  fast until it becomes ready, exits, or is replaced by the recovery timer
+   *  or retryNow(). */
+  private startupFailure: Error | null = null;
+  private startupRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private failureNoticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -195,12 +238,8 @@ export class DesktopServiceClient implements DesktopService {
     }
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.readyPromise) return this.readyPromise;
-    this.readyPromise = new Promise<void>((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-    });
-    this.armStartupTimer();
-    const readyPromise = this.readyPromise;
+    if (this.startupFailure) return Promise.reject(this.startupFailure);
+    const readyPromise = this.beginStartupWait();
     const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
     if (restartDelayMs > 0) {
       this.restartTimer = setTimeout(() => {
@@ -211,6 +250,17 @@ export class DesktopServiceClient implements DesktopService {
     } else {
       this.connectService();
     }
+    return readyPromise;
+  }
+
+  private beginStartupWait(): Promise<void> {
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    this.readyPromise = readyPromise;
+    this.armStartupTimer();
+    this.armStartupDeadline();
     return readyPromise;
   }
 
@@ -237,7 +287,11 @@ export class DesktopServiceClient implements DesktopService {
       return this.readyPromise ?? Promise.resolve();
     }
     if (this.readyPromise) return this.readyPromise;
-    if (this.transport) return Promise.resolve();
+    if (this.transport) {
+      // A latched failure means the attachment never became ready: replace it.
+      if (this.startupFailure) return this.reattach();
+      return Promise.resolve();
+    }
     return this.start();
   }
 
@@ -255,13 +309,60 @@ export class DesktopServiceClient implements DesktopService {
   private armStartupTimer(): void {
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.startupTimer = setTimeout(() => {
+      this.startupTimer = null;
       if (!this.readyReject) return;
-      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
-      const transport = this.transport;
-      this.rejectStartup(error);
-      void transport?.close().catch(() => {});
+      if (this.transport) {
+        // An attached transport has not exited, so its init is still in flight
+        // (the daemon is booting or answering; the transport's own calls bound
+        // a wedged one). Rejecting here would close it and start a second
+        // connection with a full view re-sync, and surface a failure toast.
+        this.options.onDiagnostic?.('desktop-startup-slow', { generation: this.generation });
+        return;
+      }
+      this.rejectStartup(this.lastExitError ?? new Error('Mixdog service startup timed out.'));
     }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
     this.startupTimer.unref?.();
+  }
+
+  private armStartupDeadline(): void {
+    if (this.startupDeadlineTimer) clearTimeout(this.startupDeadlineTimer);
+    this.startupDeadlineTimer = setTimeout(() => {
+      this.startupDeadlineTimer = null;
+      if (!this.readyReject) return;
+      const error = new Error('Mixdog service startup timed out.');
+      const live = this.transport !== null;
+      this.rejectStartup(error);
+      if (!live) return;
+      // Transport presence is not daemon liveness, so waiters cannot wait on it
+      // forever. Callers fail fast and a late `ready` still recovers this
+      // attachment, but only for a grace period: a daemon that answers
+      // trickled responses never trips a request timeout, so after the grace
+      // the failed attachment is replaced and the user is never stuck.
+      this.startupFailure = error;
+      this.startupRecoveryTimer = setTimeout(() => {
+        this.startupRecoveryTimer = null;
+        if (!this.startupFailure || this.disposing || this.disposed) return;
+        this.options.onDiagnostic?.('desktop-startup-recovering', { generation: this.generation });
+        void this.reattach().catch(() => {});
+      }, this.options.startupRecoveryDelayMs ?? DEFAULT_STARTUP_RECOVERY_DELAY_MS);
+      this.startupRecoveryTimer.unref?.();
+      this.recovering = true;
+      this.options.onDiagnostic?.('desktop-startup-failed', { generation: this.generation });
+      // A pending notice (from an earlier exit) already fires on its own delay.
+      if (!this.failureNoticeTimer) this.publish(this.processFailureSnapshot(this.cachedSnapshot));
+    }, this.options.startupDeadlineMs ?? DEFAULT_STARTUP_DEADLINE_MS);
+    this.startupDeadlineTimer.unref?.();
+  }
+
+  private clearStartupFailure(): void {
+    this.startupFailure = null;
+    if (this.startupRecoveryTimer) clearTimeout(this.startupRecoveryTimer);
+    this.startupRecoveryTimer = null;
+  }
+
+  private clearStartupDeadline(): void {
+    if (this.startupDeadlineTimer) clearTimeout(this.startupDeadlineTimer);
+    this.startupDeadlineTimer = null;
   }
 
   /** An older daemon is finishing its work. The new version cannot start until
@@ -271,10 +372,14 @@ export class DesktopServiceClient implements DesktopService {
     if (message.state === 'waiting') {
       if (this.startupTimer) clearTimeout(this.startupTimer);
       this.startupTimer = null;
+      this.clearStartupDeadline();
       this.clearFailureNoticeTimer();
       return;
     }
-    if (this.readyReject) this.armStartupTimer();
+    if (this.readyReject) {
+      this.armStartupTimer();
+      this.armStartupDeadline();
+    }
   }
 
   private connectService(): void {
@@ -347,6 +452,24 @@ export class DesktopServiceClient implements DesktopService {
   subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void {
     this.agentPoolListeners.add(listener);
     return () => this.agentPoolListeners.delete(listener);
+  }
+
+  subscribeSessionRowChanges(listener: (changes: RowChange<DesktopSessionSummary>[]) => void): () => void {
+    this.sessionRowListeners.add(listener);
+    return () => this.sessionRowListeners.delete(listener);
+  }
+
+  readSessionRowList(): Promise<RowList<DesktopSessionSummary>> {
+    return this.sessionRows.currentList();
+  }
+
+  subscribeAgentPoolRowChanges(listener: (changes: RowChange<DesktopAgentPoolRow>[]) => void): () => void {
+    this.agentPoolRowListeners.add(listener);
+    return () => this.agentPoolRowListeners.delete(listener);
+  }
+
+  readAgentPoolRowList(): Promise<RowList<DesktopAgentPoolRow>> {
+    return this.agentPoolRows.currentList();
   }
 
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
@@ -437,19 +560,38 @@ export class DesktopServiceClient implements DesktopService {
       this.handleStateFrame(transport, message);
       return;
     }
+    // A row client is sent whole lists until the service has handled its read
+    // (after a reconnect), and always by a registry that cannot route: tagged
+    // with their feed position, they keep the row list in order with the
+    // frames (ListRowStore.receiveWhole), so none published meanwhile is lost.
     if (message.kind === 'sessions') {
-      const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
-      this.cachedSessions = sessions;
-      this.liveSessions = sessions;
-      this.sessionCacheFresh = true;
-      for (const listener of this.sessionListeners) listener(sessions.slice());
+      if (!this.sessionRows.isActive()) {
+        this.receiveSessions(Array.isArray(message.sessions) ? message.sessions.slice() : []);
+        return;
+      }
+      const whole = readWholeList('sessions', message);
+      if (whole) this.sessionRows.receiveWhole(whole);
       return;
     }
     if (message.kind === 'agent-pool') {
-      const agents = Array.isArray(message.agents) ? message.agents.slice() : [];
-      this.cachedAgentPool = agents;
-      this.agentPoolCacheFresh = true;
-      for (const listener of this.agentPoolListeners) listener(agents.slice());
+      if (!this.agentPoolRows.isActive()) {
+        this.receiveAgentPool(Array.isArray(message.agents) ? message.agents.slice() : []);
+        return;
+      }
+      const whole = readWholeList('agent-pool', message);
+      if (whole) this.agentPoolRows.receiveWhole(whole);
+      return;
+    }
+    if (message.kind === 'list-row') {
+      const frame = readListRowFrame(message);
+      if (frame?.list === 'sessions') this.sessionRows.receive(frame as ListRowFrame<DesktopSessionSummary>);
+      else if (frame?.list === 'agent-pool') this.agentPoolRows.receive(frame as ListRowFrame<DesktopAgentPoolRow>);
+      return;
+    }
+    if (message.kind === 'sessions-published' || message.kind === 'agent-pool-published') {
+      const marker = readListPublishedMarker(message);
+      if (marker?.list === 'sessions') this.sessionRows.published(marker);
+      else if (marker?.list === 'agent-pool') this.agentPoolRows.published(marker);
       return;
     }
     if (message.kind === 'desktop-event') {
@@ -472,10 +614,31 @@ export class DesktopServiceClient implements DesktopService {
     else pending.reject(responseError(message.error));
   }
 
+  /** One publication of the session list, for the whole-list consumers. */
+  private receiveSessions(sessions: DesktopSessionSummary[]): void {
+    this.cachedSessions = sessions;
+    this.liveSessions = sessions;
+    this.sessionCacheFresh = true;
+    for (const listener of this.sessionListeners) listener(sessions.slice());
+  }
+
+  private receiveAgentPool(agents: DesktopAgentPoolRow[]): void {
+    this.cachedAgentPool = agents;
+    this.agentPoolCacheFresh = true;
+    for (const listener of this.agentPoolListeners) listener(agents.slice());
+  }
+
   private handleReady(viewSync: boolean): void {
     this.viewSyncSupported = viewSync;
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.startupTimer = null;
+    this.clearStartupDeadline();
+    if (this.startupFailure) {
+      // Late readiness: the kept attachment is the live one, so later callers
+      // must use it instead of dialing again.
+      this.clearStartupFailure();
+      this.readyPromise = Promise.resolve();
+    }
     this.nextRestartAt = 0;
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = setTimeout(() => {
@@ -488,6 +651,8 @@ export class DesktopServiceClient implements DesktopService {
     this.readyReject = null;
     resolve?.();
     this.announceServiceReady();
+    this.sessionRows.reconnected();
+    this.agentPoolRows.reconnected();
   }
 
   private handleStateFrame(
@@ -557,8 +722,11 @@ export class DesktopServiceClient implements DesktopService {
   private handleExit(transport: DesktopTransport, code: number, cause?: Error): void {
     if (transport !== this.transport) return;
     const startupPending = this.readyReject !== null;
+    this.clearStartupFailure();
     this.transport = null;
     this.liveSessions = null;
+    this.sessionRows.disconnect();
+    this.agentPoolRows.disconnect();
     this.decoder.reset();
     this.sessionStateDecoders.clear();
     if (!startupPending) {
@@ -607,6 +775,9 @@ export class DesktopServiceClient implements DesktopService {
         this.connectService();
       }, restartDelayMs);
       this.restartTimer.unref?.();
+      // An upgrade wait on the dead attachment suspended the deadline and its
+      // `done` can no longer arrive: resume the bounded budget for the successor.
+      if (!this.startupDeadlineTimer) this.armStartupDeadline();
       return;
     }
     this.readyPromise = null;
@@ -621,6 +792,7 @@ export class DesktopServiceClient implements DesktopService {
   private rejectStartup(error: Error): void {
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.startupTimer = null;
+    this.clearStartupDeadline();
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = null;
     this.readyReject?.(error);
@@ -850,6 +1022,8 @@ export class DesktopServiceClient implements DesktopService {
   }
   async listSessions(): Promise<DesktopSessionSummary[]> {
     await this.start();
+    const held = this.sessionRows.currentRows();
+    if (held) return held;
     if (this.sessionCacheFresh && this.cachedSessions) {
       this.sessionCacheFresh = false;
       return this.cachedSessions.slice();
@@ -866,6 +1040,8 @@ export class DesktopServiceClient implements DesktopService {
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     await this.start();
+    const held = this.agentPoolRows.currentRows();
+    if (held) return held;
     if (this.agentPoolCacheFresh && this.cachedAgentPool) {
       this.agentPoolCacheFresh = false;
       return this.cachedAgentPool.slice();
@@ -1065,6 +1241,10 @@ export class DesktopServiceClient implements DesktopService {
   async dispose(): Promise<void> {
     if (this.disposed || this.disposing) return;
     this.disposing = true;
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+    this.clearStartupDeadline();
+    this.clearStartupFailure();
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = null;
     if (this.stableTimer) clearTimeout(this.stableTimer);
@@ -1082,6 +1262,8 @@ export class DesktopServiceClient implements DesktopService {
     this.listeners.clear();
     this.sessionListeners.clear();
     this.agentPoolListeners.clear();
+    this.sessionRowListeners.clear();
+    this.agentPoolRowListeners.clear();
     this.desktopEventListeners.clear();
     this.noticeListeners.clear();
     this.sessionStateListeners.clear();

@@ -61,6 +61,47 @@ test('failed desktop initialization closes its daemon attachment and preserves t
   assert.deepEqual(calls, ['desktop.init', 'desktop.unsubscribe']);
 });
 
+test('a transport closed while its init awaits the daemon leaves no attached client', async () => {
+  let closeCalls = 0;
+  const calls = [];
+  let releaseControl;
+  const controlGate = new Promise((resolve) => {
+    releaseControl = resolve;
+  });
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+    attachSession: async () => ({
+      async call(name) {
+        calls.push(name);
+        if (name === 'desktop.init') return { desktopId: 'desktop_closed_midway' };
+        if (name === 'desktop.control') await controlGate;
+        return { ok: true };
+      },
+      async close() {
+        closeCalls += 1;
+      },
+    }),
+  }));
+  const messages = [];
+  const exits = [];
+  transport.on('message', (message) => messages.push(message));
+  transport.on('exit', (...args) => exits.push(args));
+  transport.postMessage({ kind: 'init', options });
+  await waitFor(() => calls.includes('desktop.control'));
+
+  await transport.close();
+  releaseControl();
+  await waitFor(() => closeCalls === 1);
+
+  assert.equal(transport.client, null);
+  assert.ok(calls.includes('desktop.unsubscribe'), 'the daemon must drop this transport as a subscriber');
+  assert.deepEqual(
+    messages.filter((message) => message.kind === 'ready'),
+    []
+  );
+  assert.deepEqual(exits, []);
+});
+
 test('a pending daemon upgrade forces the old daemon once, keeps waiting, and emits upgrade-wait', async () => {
   let ensureCalls = 0;
   let forced = 0;

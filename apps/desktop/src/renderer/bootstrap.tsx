@@ -32,6 +32,7 @@ import { applyFontSettings } from './appearance/font-settings';
 import { applyStoredUserTheme } from './appearance/user-theme';
 import { installScrollbarMetrics } from './scrollbar-metrics';
 import { markBootStage } from './boot-metrics';
+import { installRendererPerfProbe } from './renderer-perf-probe';
 import { scheduleFontWarmup } from './font-warmup';
 import { defaultSessionLaneStore } from './session-lane-store';
 
@@ -39,6 +40,8 @@ markBootStage('renderer-entry');
 if (import.meta.env?.DEV) performance.mark('mixdog:startup:renderer-entry');
 const removeGlobalRendererDiagnostics = installGlobalRendererDiagnostics();
 window.addEventListener('beforeunload', removeGlobalRendererDiagnostics, { once: true });
+const removeRendererPerfProbe = installRendererPerfProbe();
+window.addEventListener('beforeunload', removeRendererPerfProbe, { once: true });
 const removeShellViewport = installShellViewport();
 window.addEventListener('beforeunload', removeShellViewport, { once: true });
 // Focus rings are keyboard chrome: the root records whether the last

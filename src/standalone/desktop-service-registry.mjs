@@ -32,6 +32,9 @@ function desktopEventKey(desktopId, message) {
   if (kind === 'session-state') {
     return `desktop-event:${desktopId}:${kind}:${String(message?.sessionId || '')}`;
   }
+  // Each row frame is its own change (wire.md): a backed-up stream drops the
+  // oldest, which its receiver sees as a seq gap, but never replaces one.
+  if (kind === 'list-row') return `desktop-event:${desktopId}:${kind}:${String(message?.list || '')}:${message?.seq}`;
   // Service events are NOT one lane. Under one shared `desktop-event` key a
   // terminal flood clobbered LSP/folder events — and every other terminal —
   // whenever the stream backed up, because the backlog is latest-wins per
@@ -46,6 +49,25 @@ function desktopEventKey(desktopId, message) {
     return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
   }
   return `desktop-event:${desktopId}:${kind}`;
+}
+
+const epochList = (value) => (Array.isArray(value) ? new Set(value.map(Number)) : null);
+
+// The subscriber tokens `delivery` addresses: every one without it; with `to`,
+// those whose epoch it names; with `except`, all but those. A subscriber with
+// no epoch is in no list.
+function deliveryTargets(service, delivery) {
+  const to = epochList(delivery?.to);
+  const except = epochList(delivery?.except);
+  if (!to && !except) return service.subscribers;
+  const targets = new Set();
+  for (const token of service.subscribers) {
+    const epoch = service.visibilityEpochs.get(token);
+    if (to && !to.has(epoch)) continue;
+    if (except && epoch !== undefined && except.has(epoch)) continue;
+    targets.add(token);
+  }
+  return targets;
 }
 
 export class DesktopServiceRegistry {
@@ -75,11 +97,13 @@ export class DesktopServiceRegistry {
     this.#onReady = onReady;
   }
 
-  /** Whether a desktop client is subscribed to receive `message`. */
-  #publish(desktopId, message) {
+  /** Whether a desktop client is subscribed to receive `message`.
+   *  `delivery` (wire.md): `{ to?, except? }`, client visibility epochs. */
+  #publish(desktopId, message, delivery = null) {
     const wire = sanitizeForWire(message);
     const service = this.#servicesById.get(desktopId);
     if (!wire || !service) return false;
+    const subscribers = deliveryTargets(service, delivery);
     this.#onFrame(
       {
         type: 'desktop-event',
@@ -87,9 +111,9 @@ export class DesktopServiceRegistry {
         desktopId,
         message: wire,
       },
-      service.subscribers
+      subscribers
     );
-    return service.subscribers.size > 0;
+    return subscribers.size > 0;
   }
 
   #require(desktopId) {
@@ -148,7 +172,7 @@ export class DesktopServiceRegistry {
         options: sanitizeForWire(options) || {},
         runtime: this.#runtime,
         // Answers whether a desktop client was subscribed to receive it.
-        emit: (message) => ownsRecord() && this.#publish(requestedId, message),
+        emit: (message, delivery) => ownsRecord() && this.#publish(requestedId, message, delivery),
         onClientCountChanged: () => {
           if (!ownsRecord()) return;
           try {
@@ -239,6 +263,16 @@ export class DesktopServiceRegistry {
         throw new Error('desktop service client is not initialized');
       }
       callArgs = [callArgs[0], callArgs[1], epoch];
+    }
+    // A client reading a list's rows (wire.md) stops getting that whole list:
+    // the service learns which client reads it.
+    if (name === 'readListRows') {
+      const epoch = token ? service.visibilityEpochs.get(token) : undefined;
+      if (epoch === undefined) {
+        if (token) service.subscribers.delete(token);
+        throw new Error('desktop service client is not initialized');
+      }
+      callArgs = [callArgs[0], epoch];
     }
     // The resolver stays attached while this client is: its epoch is released with it.
     if (name === 'invokeDesktopOperation' && callArgs[0] === 'systemProxyAttach') {

@@ -364,6 +364,11 @@ export class SessionTransport implements DesktopTransport {
           }),
         { attempt }
       );
+      if (this.closed) {
+        // closeClient ran while the awaits above were pending and found no
+        // client; the catch below unsubscribes and closes the attachment.
+        throw new Error('Mixdog daemon transport is closed.');
+      }
       this.client = attached;
       return attached;
     } catch (error) {

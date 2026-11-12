@@ -186,10 +186,17 @@ test('a window without a route or connection is refused, never served by this PC
 test('service events and snapshots reach only their connection windows', async (t) => {
   const f = twoConnectionFixture(t);
   const channels = (sent, channel) => sent.filter(([name]) => name === channel).map(([, value]) => value);
+  // Row changes flow once the window has read the list they apply to.
+  await f.invoke(f.server.webContents, DESKTOP_IPC.readSessionRows);
+  await f.invoke(f.local.webContents, DESKTOP_IPC.readSessionRows);
   f.server.service.publishSessions([{ id: 'remote' }]);
   f.local.service.publishSessions([{ id: 'here' }]);
-  assert.deepEqual(channels(f.server.sent, DESKTOP_IPC.sessionsChanged), [[{ id: 'remote' }]]);
-  assert.deepEqual(channels(f.local.sent, DESKTOP_IPC.sessionsChanged), [[{ id: 'here' }]]);
+  const upserted = (sent) =>
+    channels(sent, DESKTOP_IPC.sessionsChanged).map(({ changes }) =>
+      changes.filter((change) => !change.removed).map((change) => change.row)
+    );
+  assert.deepEqual(upserted(f.server.sent), [[{ id: 'remote' }]]);
+  assert.deepEqual(upserted(f.local.sent), [[{ id: 'here' }]]);
 
   f.server.service.publishState({ sessionId: 'remote', items: [] });
   assert.equal(channels(f.server.sent, DESKTOP_IPC.state).length, 1);

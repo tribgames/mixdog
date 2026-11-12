@@ -18,6 +18,7 @@ import {
 import type { RecordValue } from './desktop-types';
 import { record } from './record-utils';
 import { timeMs } from './transcript-primitives';
+import { followRowList } from './row-list-feed';
 
 export const AGENT_POOL_RECONCILE_MS = 2_000;
 
@@ -26,6 +27,8 @@ interface AgentPoolStore {
   rows: DesktopAgentPoolRow[] | null;
   revision: number;
   started: boolean;
+  /** Kept by per-row notifications instead of whole-list reads. */
+  rowFeed?: boolean;
   inFlight?: Promise<void>;
   /** Cancelled identities survive here, so a later pool snapshot cannot
    *  republish a stopped agent as working. */
@@ -129,6 +132,9 @@ function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
 }
 
 export function refreshAgentPool(store: AgentPoolStore): Promise<void> {
+  // A row-notified pool is current by construction; it reads the whole list
+  // only at start and after a missed change (row-list-feed.ts).
+  if (store.rowFeed) return Promise.resolve();
   if (store.inFlight) return store.inFlight;
   const listAgentPool = store.host?.listAgentPool;
   if (typeof listAgentPool !== 'function') {
@@ -153,6 +159,23 @@ export function refreshAgentPool(store: AgentPoolStore): Promise<void> {
 export function startAgentPool(store: AgentPoolStore): void {
   if (store.started) return;
   store.started = true;
+  const subscribeAgentPoolRows = store.host?.subscribeAgentPoolRows;
+  const readAgentPoolRows = store.host?.readAgentPoolRows;
+  if (typeof subscribeAgentPoolRows === 'function' && typeof readAgentPoolRows === 'function') {
+    store.rowFeed = true;
+    followRowList({
+      subscribe: subscribeAgentPoolRows,
+      read: readAgentPoolRows,
+      onList: (rows) => {
+        store.revision += 1;
+        publishAgentPool(store, rows);
+      },
+      onReadError: () => {
+        if (store.rows === null) publishAgentPool(store, []);
+      },
+    });
+    return;
+  }
   const subscribeAgentPool = store.host?.subscribeAgentPool;
   if (typeof subscribeAgentPool === 'function') {
     subscribeAgentPool((rows) => {

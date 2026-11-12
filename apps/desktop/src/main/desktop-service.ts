@@ -46,6 +46,7 @@ import {
 } from './desktop-service-contract';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import { createDesktopServiceStateSync } from './desktop-service-state-sync';
+import type { ListRowFeed, ServiceDelivery } from './list-row-adapter';
 import { createDesktopOperations } from './desktop-operations';
 import { projectRecoveryStorePath } from './project-recovery-store';
 import { sessionRecordsReferencing } from './server-file-operations';
@@ -125,8 +126,9 @@ interface DesktopServiceFactoryInput {
   options: SerializableDesktopServiceOptions;
   runtime: DesktopServiceRuntime;
   /** False when no desktop client was subscribed to receive it; an older
-   *  daemon answers nothing. */
-  emit(message: DesktopServiceOutbound): boolean | undefined;
+   *  daemon answers nothing. `delivery` names the clients a message is for;
+   *  a registry that cannot route delivers it to all (desktop-asks.md). */
+  emit(message: DesktopServiceOutbound, delivery?: ServiceDelivery): boolean | undefined;
   onClientCountChanged?(): void;
 }
 
@@ -154,6 +156,9 @@ interface DesktopServiceRuntime {
   /** The daemon's per-origin system proxy. Optional: an older daemon has none. */
   loadSystemProxy?(): Promise<SystemProxyModule>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
+  /** Per-row frames of a global list (wire.md "Global lists"). Optional: an
+   *  older daemon has none and the whole lists travel as before. */
+  listRowFeed?(list: 'sessions' | 'agent-pool'): ListRowFeed;
 }
 
 interface DesktopServiceAdapter {
@@ -1188,7 +1193,11 @@ export async function createDesktopService({
   });
   notificationCenter = notifications;
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
-  const stateSync = createDesktopServiceStateSync({ host, emit });
+  const stateSync = createDesktopServiceStateSync({
+    host,
+    emit,
+    ...(typeof runtime.listRowFeed === 'function' ? { listRowFeed: (list) => runtime.listRowFeed!(list) } : {}),
+  });
   const invokeServiceOperation = createServiceOperationRouter({
     remote,
     modelProxy,
@@ -1215,6 +1224,7 @@ export async function createDesktopService({
       if (method === 'setVisibleSessions') {
         return stateSync.setDeliveryFilter(args);
       }
+      if (method === 'readListRows') return stateSync.readListRows(args[0], args[1]);
       if (method === 'deleteSession') return deleteSessionWithUploads(args[0]);
       if (method === 'invokeCapability') {
         const result = await host.invokeCapability(

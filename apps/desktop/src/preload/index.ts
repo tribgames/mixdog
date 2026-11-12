@@ -18,6 +18,7 @@ import {
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { createBrowserTextureBridge } from './browser-texture';
 import { createHeldChannel } from './held-ipc';
+import { createRendererProbeBridge } from './renderer-probe';
 import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
@@ -252,10 +253,12 @@ const api: DesktopApi = {
   listSessions: () => invokeIpc(DESKTOP_IPC.listSessions),
   markSessionRead: (sessionId, messageCount, consumedUnread) =>
     invokeIpc(DESKTOP_IPC.markSessionRead, sessionId, messageCount, consumedUnread),
-  subscribeSessions: (listener) => subscribeIpc(DESKTOP_IPC.sessionsChanged, listener),
+  subscribeSessionRows: (listener) => subscribeIpc(DESKTOP_IPC.sessionsChanged, listener),
+  readSessionRows: () => invokeIpc(DESKTOP_IPC.readSessionRows),
   listAgentPool: () => invokeIpc(DESKTOP_IPC.listAgentPool),
   searchSessionContent: (query) => invokeIpc(DESKTOP_IPC.searchSessionContent, query),
-  subscribeAgentPool: (listener) => subscribeIpc(DESKTOP_IPC.agentPoolChanged, listener),
+  subscribeAgentPoolRows: (listener) => subscribeIpc(DESKTOP_IPC.agentPoolChanged, listener),
+  readAgentPoolRows: () => invokeIpc(DESKTOP_IPC.readAgentPoolRows),
   renameSession: (sessionId, title) => invokeIpc(DESKTOP_IPC.renameSession, sessionId, title),
   continueSessionInModel: (sessionId, route) => invokeIpc(DESKTOP_IPC.continueSessionInModel, sessionId, route),
   scheduleQuotaResume: (sessionId) => invokeIpc(DESKTOP_IPC.scheduleQuotaResume, sessionId),
@@ -470,6 +473,7 @@ const api: DesktopApi = {
         },
       }
     : {}),
+  rendererProbe: createRendererProbeBridge(),
   reportScreenSessions: (sessionIds) => {
     try {
       ipcRenderer.send(DESKTOP_IPC.reportScreenSessions, sessionIds);
