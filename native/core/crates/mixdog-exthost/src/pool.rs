@@ -54,11 +54,16 @@ pub const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How the grace is waited out, one future per cancelled call: the product's is a timer of [`CANCEL_GRACE`]
 /// ([`timer_grace`]); a test that must move the grace by an explicit step instead of by real time passes its own to
-/// [`ExtHostPool::with_grace`].
+/// `ExtHostPool::with_grace` (compiled only with the crate's `test-support` feature).
 pub type GraceWait = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 
 pub fn timer_grace() -> GraceWait {
-    Arc::new(|| Box::pin(tokio::time::sleep(CANCEL_GRACE)))
+    Arc::new(|| {
+        Box::pin(async {
+            // Nothing ends the wait but its deadline.
+            let _ = mixdog_rt::scoped::Scope::new().within(CANCEL_GRACE).run(std::future::pending::<()>()).await;
+        })
+    })
 }
 
 /// Calls accepted and not yet released by their consumer; beyond it a call is `Overloaded`.
@@ -106,11 +111,17 @@ impl ExtHostPool {
     /// one (the host is never on the boot path). Must run inside the Tokio runtime; fails when the
     /// child-exit signal cannot be registered.
     pub fn new(config: ExtHostConfig) -> Result<Self, ExtHostError> {
-        Self::with_grace(config, timer_grace())
+        Self::build(config, timer_grace())
     }
 
-    /// [`Self::new`] with the cancel grace waited out by `grace`.
+    /// [`Self::new`] with the cancel grace waited out by `grace`. A test seam: a product build (which refuses
+    /// `test-support`, see `build.rs`) cannot shorten the grace.
+    #[cfg(feature = "test-support")]
     pub fn with_grace(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
+        Self::build(config, grace)
+    }
+
+    fn build(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
         let exits = ChildExits::watch()?;
         let (events, inbox) = mpsc::unbounded_channel();
         let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
