@@ -888,7 +888,8 @@ fn screen_parts(reply: &Value, mode: &str) -> Result<Vec<ToolPart>, ComputerErro
     if let Some(ToolPart::Image { width, height, .. }) = parts.get_mut(1) {
         (*width, *height) = size.map_or((None, None), |(w, h)| (Some(w), Some(h)));
     }
-    if capture_failed(&text) {
+    // The host's own flag counts on its own, as in `computerToolResult`.
+    if reply.get("isError") == Some(&json!(true)) || capture_failed(&text) {
         return Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: text });
     }
     parts[0] = ToolPart::Text(text);
