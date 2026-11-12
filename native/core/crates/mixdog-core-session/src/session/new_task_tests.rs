@@ -885,13 +885,11 @@ async fn the_129th_request_in_flight_is_refused() {
 /// Node's recording `fixtures/project-recency-failure-cases` ("an accepted submission commits its receipt and stays subscribed after
 /// ${cause} breaks recency"): the recency write after the accepted prompt fails, the task is still accepted with its receipt
 /// committed, and a retry of the same submission answers the same task without a second prompt. The recency write is the real
-/// registry's (`Catalog::touch` over the core state store), made to fail the way each recorded cause breaks it: the writer's
-/// publication (the file stays as it was) and the registry file itself (garbage where the database was). Each recorded run is
-/// replayed whole: its draft is sent as recorded (`<root>` is the per-run folder, as the manifest declares), and the answer, receipt,
-/// retry and calls are compared with the recording's. The recording's snapshot carries host-side fields (`items`, `queued`, the
-/// remote fields) the core has no counterpart for (`new-task-dedupe` MANIFEST `recorded[].reply.snapshot`): those stay as recorded,
-/// while its `sessionId`, `cwd` and `currentProject` are the core's own. The receipt's signature is the 64 hex digits the manifest
-/// normalises.
+/// registry's (`Catalog::touch` over the core state store), made to fail the way each recorded cause breaks it: the commit that
+/// makes the write durable fails with an I/O error (the file stays as it was), and the store, still open, holds rows it cannot
+/// read. Each recorded run is replayed whole: its draft is sent as recorded (`<root>` is the per-run folder, as the manifest
+/// declares), and the answer, receipt, retry and calls are compared with the recording's, but for the snapshot fields this set's
+/// MANIFEST `exclusions` declare (`EXCLUDED_SNAPSHOT_FIELDS`). The receipt's signature is the 64 hex digits the manifest normalises.
 #[tokio::test(start_paused = true)]
 async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-recency-failure-cases/golden.json")).expect("golden");
@@ -918,13 +916,10 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
         ));
         let registered = state.projects().await.expect("rows");
         match cause {
-            "publication" => state.break_writer(),
-            // The store is a WAL database: garbage over its main file alone never reaches a reader while the log holds its pages,
-            // so the damaged registry is one the store has let go of (its connections closed) and whose file is garbage.
-            "corrupt registry" => {
-                state.close();
-                std::fs::write(&database, b"this is not a database; ".repeat(400)).expect("corrupted");
-            }
+            // The commit, the step that makes the recency change durable, fails with an I/O error (Node: the rename publishing the registry).
+            "publication" => state.fail_commits(),
+            // The store stays open; its stored rows are unreadable when the recency write reads them (Node: the registry found corrupt).
+            "corrupt registry" => state.corrupt_registry_rows(),
             other => panic!("a cause the replay does not break: {other}"),
         }
         // The break reaches the real writer: the same write, made directly, fails.
@@ -955,6 +950,10 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
         assert!(signature.len() == 64 && signature.bytes().all(|byte| byte.is_ascii_hexdigit()), "{id}: {signature}");
         let answer = |recorded: &Value, thread: &Value| {
             let mut snapshot = recorded["snapshot"].clone();
+            // The fields the manifest's `exclusions` declare (host-side, no counterpart in the thread summary) are left out of the comparison.
+            for field in EXCLUDED_SNAPSHOT_FIELDS {
+                snapshot.as_object_mut().expect("snapshot").remove(field);
+            }
             snapshot["sessionId"] = thread["id"].clone();
             // The thread's stored header: its working folder and the Project it is classified under.
             let header = directory.handle(&thread["id"].as_str().expect("thread id").to_owned().into()).expect("a loaded thread").cell.header.load_full();
@@ -976,7 +975,13 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
                 "unsubscribes": usize::from(!loaded.iter().any(|loaded| loaded.as_str() == receipt.session_id())),
             },
         });
-        assert_eq!(observed, rooted(recorded, &root), "{id}");
+        let mut expected = rooted(recorded, &root);
+        for answer in ["result", "retry"] {
+            for field in EXCLUDED_SNAPSHOT_FIELDS {
+                expected[answer]["snapshot"].as_object_mut().expect("snapshot").remove(field);
+            }
+        }
+        assert_eq!(observed, expected, "{id}");
         if cause == "publication" {
             // The recording's `registryFile` equals its `originalRegistry`: the failed write left the registry as it was.
             assert_eq!(state.projects().await.expect("rows"), registered, "{id}: the registry is as it was");
@@ -985,6 +990,9 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
         }
     }
 }
+
+/// The snapshot fields the set's MANIFEST `exclusions` declare: host-side, with no counterpart in the core's thread summary.
+const EXCLUDED_SNAPSHOT_FIELDS: [&str; 4] = ["items", "queued", "remoteEnabled", "remoteSessionId"];
 
 /// `<root>` of a recording written as the per-run folder, in every string of `value`.
 fn rooted(value: &Value, root: &str) -> Value {

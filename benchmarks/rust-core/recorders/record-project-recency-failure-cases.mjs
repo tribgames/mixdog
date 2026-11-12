@@ -136,6 +136,12 @@ await set.run('a corrupt registry is recovered: its bytes are kept aside and pro
 await set.finish({
   entry: { runs: 'apps/desktop SessionHost + DesktopProjectRegistry over shared/projects.mjs with a scripted daemon client; fs.renameSync / fs.readFileSync patched to fail on the registry file', notRun: 'no daemon, no Electron' },
   replay: { entry: 'mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside', normalised: { dataDir: '<root>, wherever it occurs; separators as Node produced them (backslashes on win32, doubled inside JSON text)' } },
+  exclusions: {
+    '$.cases[1].observed.runs[*].{result,retry}.snapshot.items': 'the desktop host\'s transcript items of the session; the core answers the thread summary, which carries no transcript (owner: the host-side snapshot, desktop SessionHost)',
+    '$.cases[1].observed.runs[*].{result,retry}.snapshot.queued': 'the desktop host\'s queued submissions of the session; the core answers no queue in the thread summary (owner: the host-side snapshot, desktop SessionHost)',
+    '$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteEnabled': 'the desktop host\'s remote-control flag; the core\'s thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)',
+    '$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteSessionId': 'the desktop host\'s remote session id; the core\'s thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)',
+  },
   replaceInText: roots.map((r) => [r, '<root>']),
   replaceRegex: [[/^[0-9a-f]{64}$/, '<sha256 of the per-run project path>']],
   normaliseReason: 'per-run temp root written <root>; the receipt signature is a sha256 over the per-run project path, written <sha256 of the per-run project path> (only the strings that are exactly 64 hex digits)',
