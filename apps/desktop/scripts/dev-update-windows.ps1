@@ -442,9 +442,28 @@ function Stop-LegacyDaemon {
     }
     $version = if ($targetVersion) { $targetVersion } else { '1.4.6' }
     $upgrade = @{ protocol = 1; revision = 7; version = $version }
-    Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
-    Write-Host "    asked 1.4.5 daemon pid=$($Record.pid) to drain and exit"
-    if ($AbortRunning) {
+    # Closing the app can take the 1.4.5 daemon down with it: its process is then still there for a moment with the
+    # session port already closed, and the request is refused. That is a daemon on its way out, not a failed deploy.
+    # A daemon that answers with an error status did refuse, and that still ends the deploy.
+    $asked = $false
+    try {
+        Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
+        $asked = $true
+    }
+    catch {
+        if ($null -ne $_.Exception.Response) { throw }
+        if ($process.WaitForExit(2000)) { Write-Host '    1.4.5 daemon exited with the app'; return }
+        # Still a process under that pid: daemon.json may be stale and the pid reused, which is nothing to wait for.
+        $info = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.pid)"
+        if (-not $info) { Write-Host '    1.4.5 daemon exited with the app'; return }
+        if ($info.ExecutablePath -ne $installedExe -or $info.CommandLine -notmatch 'daemon\.mjs') {
+            Write-Host "    daemon.json names pid $($Record.pid), which is not the 1.4.5 daemon and does not answer on its port; the record is stale"
+            return
+        }
+        Write-Host "    1.4.5 daemon pid=$($Record.pid) no longer answers ($($_.Exception.Message)); waiting for it to exit"
+    }
+    if ($asked) { Write-Host "    asked 1.4.5 daemon pid=$($Record.pid) to drain and exit" }
+    if ($asked -and $AbortRunning) {
         $typed = Read-Host '    type ABORT to force the 1.4.5 daemon down, aborting its running work'
         if ($typed -ne 'ABORT') { throw 'Abort was not confirmed; the daemon keeps draining and exits when idle.' }
         $upgrade.force = $true
