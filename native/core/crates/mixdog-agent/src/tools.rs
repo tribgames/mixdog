@@ -301,22 +301,6 @@ pub(crate) fn resolve_lexically(value: &str, cwd: &std::path::Path) -> String {
     clean.to_string_lossy().into_owned()
 }
 
-/// `path.normalize` of a path rooted without a drive: `.` and `..` fold, a leading `//` (a UNC root) stays.
-fn normalize_rooted(value: &str) -> String {
-    let text = value.replace('\\', "/");
-    let mut parts: Vec<&str> = Vec::new();
-    for part in text.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            other => parts.push(other),
-        }
-    }
-    format!("{}{}", if text.starts_with("//") { "//" } else { "/" }, parts.join("/"))
-}
-
 /// Lexical `normalize`/`resolve` of a path value against `cwd`, lowercased on
 /// Windows and with `/` separators, so two spellings of one path agree.
 fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
@@ -330,9 +314,12 @@ fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
     if value.is_empty() || has_scheme {
         return value.to_owned();
     }
-    // On Windows a path rooted without a drive (`/x`, `\x`) is absolute to Node's `isAbsolute`: it is normalized where it
-    // stands, not placed under `cwd`.
-    let mut out = if cfg!(windows) && value.starts_with(['/', '\\']) { normalize_rooted(value) } else { resolve_lexically(value, cwd) };
+    // An absolute value (on Windows also one rooted without a drive, `/x`) is normalized where it stands, not placed under `cwd`.
+    let mut out = if mixdog_js::nodepath::is_absolute_host(value) {
+        mixdog_js::nodepath::normalize_host(value)
+    } else {
+        mixdog_js::nodepath::resolve_host(&[&cwd.to_string_lossy(), value])
+    };
     if cfg!(windows) {
         out = out.to_lowercase();
     }

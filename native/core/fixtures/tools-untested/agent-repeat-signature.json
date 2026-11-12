@@ -79,6 +79,262 @@
     {
       "name": "read",
       "args": {
+        "path": "\\\\server\\share\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\a\\..\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "//server/share/../x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\.\\a\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/share/a/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\a\\..\\b"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//server/a/b\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/server\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:/a/../../x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/work\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:x\\..\\y"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/work/y\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "c:\\Work\\sub\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/work/sub/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\C:\\a\\..\\..\\b"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//?/b\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\.\\pipe\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//./x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\UNC\\server\\share\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//?/unc/server/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/?/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\C:"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//?/c:\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\.\\a\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//./a/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\x\\..\\..\\..\\y"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//?/y\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\\\\\C:\\a"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"//?/c:/a\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\."
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "/../../x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "/"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "..\\..\\x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "a/../../../x"
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/x\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "."
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/work\"}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": ".."
+      },
+      "cwd": "C:\\work",
+      "repeatFailureSig": "read:{\"path\":\"c:/\"}"
+    },
+    {
+      "name": "read",
+      "args": {
         "path": ""
       },
       "cwd": "C:\\work",
@@ -303,6 +559,262 @@
         "path": "/abs/rooted.txt"
       },
       "intraTurnSig": "read:{\"path\":\"/abs/rooted.txt\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\share\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\a\\..\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\share\\\\a\\\\..\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "//server/share/../x"
+      },
+      "intraTurnSig": "read:{\"path\":\"//server/share/../x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\share\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\share\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\share\\.\\a\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\share\\\\.\\\\a\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server\\a\\..\\b"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\\\\a\\\\..\\\\b\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\server"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\server\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"C:\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:/a/../../x"
+      },
+      "intraTurnSig": "read:{\"path\":\"C:/a/../../x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"C:\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:"
+      },
+      "intraTurnSig": "read:{\"path\":\"C:\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "C:x\\..\\y"
+      },
+      "intraTurnSig": "read:{\"path\":\"C:x\\\\..\\\\y\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "c:\\Work\\sub\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"c:\\\\Work\\\\sub\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\C:\\a\\..\\..\\b"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\C:\\\\a\\\\..\\\\..\\\\b\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\.\\pipe\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\.\\\\pipe\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\UNC\\server\\share\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\UNC\\\\server\\\\share\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\C:"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\C:\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\.\\a\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\.\\\\a\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\x\\..\\..\\..\\y"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\x\\\\..\\\\..\\\\..\\\\y\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\?\\\\\\C:\\a"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\?\\\\\\\\\\\\C:\\\\a\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\\\."
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\\\\.\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "/../../x"
+      },
+      "intraTurnSig": "read:{\"path\":\"/../../x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "/"
+      },
+      "intraTurnSig": "read:{\"path\":\"/\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "\\"
+      },
+      "intraTurnSig": "read:{\"path\":\"\\\\\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "..\\..\\x"
+      },
+      "intraTurnSig": "read:{\"path\":\"..\\\\..\\\\x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "a/../../../x"
+      },
+      "intraTurnSig": "read:{\"path\":\"a/../../../x\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": "."
+      },
+      "intraTurnSig": "read:{\"path\":\".\"}",
+      "argShapeSig": "read:{path:string}"
+    },
+    {
+      "name": "read",
+      "args": {
+        "path": ".."
+      },
+      "intraTurnSig": "read:{\"path\":\"..\"}",
       "argShapeSig": "read:{path:string}"
     },
     {
