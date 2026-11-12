@@ -3,24 +3,49 @@
 // bounded diagnostics, the daemon's lifetime bound to the supervisor, and a
 // supervisor that keeps working once the launcher that started it is gone.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
-import { forkDaemonCandidate, installedSupervisorBinary } from '../session-runtime/services/daemon-candidate.mjs';
+import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
 import { daemonCrashCaptureDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 
-// The binary the launcher itself would start, so a source build is what CI tests.
-const SUPERVISOR = installedSupervisorBinary(tmpdir());
-assert.ok(SUPERVISOR, 'build the supervisor first: npm run build:supervisor:test');
+// The suite builds the supervisor from this checkout (incremental: instant when
+// current) and tests exactly that binary; MIXDOG_SUPERVISOR_BIN is pointed at it
+// so the launcher code under test cannot pick an installed copy either.
+const MANIFEST = fileURLToPath(new URL('../../native/mixdog-supervisor/Cargo.toml', import.meta.url));
+const TARGET = fileURLToPath(new URL('../../native/mixdog-supervisor/target/', import.meta.url));
+const EXE = `mixdog-supervisor${process.platform === 'win32' ? '.exe' : ''}`;
+// The product build, and the suite's build of the same source with its
+// instruments and seam (cargo feature "suite") in a target dir of its own.
+for (const features of [[], ['--features', 'suite', '--target-dir', join(TARGET, 'suite')]]) {
+  const built = spawnSync('cargo', ['build', '--locked', '--release', '--manifest-path', MANIFEST, ...features], {
+    stdio: 'inherit',
+  });
+  assert.equal(built.status, 0, `cargo build of native/mixdog-supervisor ${features.join(' ')} failed`);
+}
+const SUPERVISOR = join(TARGET, 'release', EXE);
+const SUITE_SUPERVISOR = join(TARGET, 'suite', 'release', EXE);
+process.env.MIXDOG_SUPERVISOR_BIN = SUPERVISOR;
 const LINK = new URL('./daemon-supervisor-link.mjs', import.meta.url).href;
 const LIMIT_MS = 2000;
 // Ping interval (1 s) plus the diagnostics budget (2 s) plus scheduling slack.
 const KILL_BOUND_MS = LIMIT_MS + 1000 + 2000 + 2000;
+
+// Saturates the disk argv[1] is on: 48 concurrent 8 MiB writes at random
+// places in a 512 MiB file, each followed by fdatasync.
+const SATURATOR = `
+const fs = require('node:fs');
+const fd = fs.openSync(process.argv[1], 'w+');
+const block = Buffer.alloc(8 << 20, 5);
+const write = () =>
+  fs.write(fd, block, 0, block.length, Math.floor(Math.random() * 64) * block.length, () => fs.fdatasync(fd, write));
+for (let n = 0; n < 48; n += 1) write();
+`;
 
 // Another thread of the daemon writing protocol-shaped lines to fd 1: every
 // plausible ping counter and ready, over and over.
@@ -33,22 +58,84 @@ setInterval(() => {
 }, 20);
 `;
 
+// A child of the daemon that starts two of its own, a CPU burner and a writer
+// of one byte every 200 ms, lists all pids in argv[1] and the burner's in
+// argv[1].burner, then idles.
+const HANDOFF = `
+const { spawn } = require('node:child_process');
+const { appendFileSync, writeFileSync } = require('node:fs');
+const list = process.argv[1];
+const burner = spawn(process.execPath, ['-e', 'for (;;) {}'], { stdio: 'ignore', windowsHide: true });
+const writer = spawn(
+  process.execPath,
+  ['-e', 'setInterval(() => require("node:fs").appendFileSync(process.argv[1], "x"), 200)', list + '.trickle'],
+  { stdio: 'ignore', windowsHide: true }
+);
+appendFileSync(list, burner.pid + '\\n' + writer.pid + '\\n');
+writeFileSync(list + '.burner', String(burner.pid));
+setInterval(() => {}, 2 ** 30);
+`;
+const COLD_MIB = 1024;
+
 // Appends its pid to `boots`, reports ready, and freezes its main thread for
-// good once `trigger` appears ('stderr': after a 4 MiB write to fd 2 first;
+// good once `trigger` appears ('stderr': with a worker writing 4 MiB to fd 2;
 // 'forge': with a worker forging answers on fd 1 meanwhile; 'garbage': writes
 // stray bytes to fd 1 instead; 'crash': exits with 7).
 const STUB = `
-import { appendFileSync, existsSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { appendFileSync, constants, existsSync, fsyncSync, openSync, readFileSync, readSync, rmSync, writeSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { Worker } from 'node:worker_threads';
 import { startSupervisorLink } from ${JSON.stringify(LINK)};
 const [boots, trigger] = process.argv.slice(2);
 appendFileSync(boots, process.pid + '\\n');
 startSupervisorLink({ describe: () => 'stub=' + process.pid }).ready();
-setInterval(() => {
+const poller = setInterval(() => {
   if (!existsSync(trigger)) return;
   const mode = readFileSync(trigger, 'utf8');
   rmSync(trigger, { force: true });
   if (mode === 'crash') process.exit(7);
+  // 'deaf': the main thread idles in its event loop and no longer reads the
+  // link; nothing else is scheduled, so nothing moves.
+  if (mode === 'deaf') {
+    clearInterval(poller);
+    process.stdin.removeAllListeners('data');
+    process.stdin.pause();
+    setInterval(() => {}, 2 ** 30);
+    return;
+  }
+  // 'stuckio': the main thread blocks in a synchronous read that never
+  // completes (a named pipe nobody writes): the kernel wait a read or write
+  // on a stalled disk sits in, held for as long as the test needs.
+  if (mode === 'stuckio') {
+    const name = ${JSON.stringify('\\\\.\\pipe\\mixdog-stuck-')} + process.pid;
+    createServer().listen(name, () => readSync(openSync(name, 'r+'), Buffer.alloc(16)));
+    return;
+  }
+  // 'diskwrite': synchronous 64 MiB writes, each fsync'd, to the disk the test saturates.
+  if (mode === 'diskwrite') {
+    const fd = openSync(trigger + '.w', 'w');
+    const block = Buffer.alloc(64 << 20, 7);
+    for (let n = 0; ; n += 1) {
+      writeSync(fd, block, 0, block.length, (n % 8) * block.length);
+      fsyncSync(fd);
+    }
+  }
+  // 'pagein': random 4 KiB reads through a mapping of a file no cache holds
+  // (the test makes it): every one a hard page-in from the saturated disk.
+  if (mode === 'pagein') {
+    const fd = openSync(trigger + '.cold', constants.O_RDONLY | constants.UV_FS_O_FILEMAP);
+    const page = Buffer.alloc(4096);
+    for (;;) readSync(fd, page, 0, 4096, Math.floor(Math.random() * ${COLD_MIB * 256}) * 4096);
+  }
+  // 'handoff': nothing answers while a child of the daemon runs HANDOFF.
+  if (mode === 'handoff') {
+    const relay = spawn(process.execPath, ['-e', ${JSON.stringify(HANDOFF)}, trigger + '.child'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    appendFileSync(trigger + '.child', relay.pid + '\\n');
+  }
   if (mode === 'garbage') {
     // What else lands on fd 1: invalid UTF-8, an overlong line, a partial one.
     writeSync(1, Buffer.from([255, 10]));
@@ -57,7 +144,36 @@ setInterval(() => {
     writeSync(1, 'partial without newline');
     return;
   }
-  if (mode === 'stderr') writeSync(2, Buffer.alloc(4 << 20, 0x61));
+  // 'busy': the main thread stops answering for 3.5 s while a worker keeps
+  // burning CPU, then answers again. 'spin': the main thread loops for ever.
+  if (mode === 'busy') {
+    const worker = new Worker('for (;;) {}', { eval: true });
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3500);
+    worker.terminate();
+    return;
+  }
+  // 'trickle': nothing answers while a worker appends one byte every 500 ms
+  // (2 I/O operations a second). 'child': nothing answers while a child
+  // process of the daemon burns CPU (it ends by itself after 20 s).
+  if (mode === 'trickle') {
+    new Worker(
+      "const { workerData } = require('node:worker_threads'); const fs = require('node:fs');" +
+        'setInterval(() => fs.appendFileSync(workerData, "x"), 500);',
+      { eval: true, workerData: trigger + '.trickle' }
+    );
+  }
+  if (mode === 'child') {
+    const child = spawn(process.execPath, ['-e', 'const end = Date.now() + 20000; while (Date.now() < end) {}'], {
+      stdio: 'ignore',
+    });
+    appendFileSync(trigger + '.child', child.pid + '\\n');
+  }
+  if (mode === 'spin') for (;;) {}
+  // On a worker: a main thread blocked in a write to a full pipe waits in the
+  // kernel like one writing to a stalled disk, and lives to the cap.
+  if (mode === 'stderr') {
+    new Worker("require('node:fs').writeSync(2, Buffer.alloc(4 << 20, 0x61))", { eval: true });
+  }
   if (mode === 'forge') new Worker(${JSON.stringify(FORGER)}, { eval: true });
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 }, 50);
@@ -84,6 +200,8 @@ function fixture(t) {
   writeFileSync(paths.stub, STUB);
   const pids = new Set();
   t.after(async () => {
+    const orphans = `${paths.trigger}.child`;
+    if (existsSync(orphans)) for (const pid of readFileSync(orphans, 'utf8').split('\n').filter(Boolean)) pids.add(Number(pid));
     for (const pid of pids) {
       try {
         process.kill(pid, 'SIGKILL');
@@ -101,8 +219,11 @@ function fixture(t) {
     boots,
     track: (pid) => pids.add(pid),
     /** The supervisor as a launcher would start it; resolves at its first "ready". */
-    async start({ stderr = 'ignore' } = {}) {
-      const child = spawn(SUPERVISOR, [...supervisorArgs, ...daemonArgs], { stdio: ['ignore', 'pipe', stderr] });
+    async start({ stderr = 'ignore', bin = SUPERVISOR, env = {} } = {}) {
+      const child = spawn(bin, [...supervisorArgs, ...daemonArgs], {
+        stdio: ['ignore', 'pipe', stderr],
+        env: { ...process.env, ...env },
+      });
       pids.add(child.pid);
       child.stderr?.pause();
       const lines = [];
@@ -116,6 +237,14 @@ function fixture(t) {
       assert.ok(await waitFor(() => lines.includes('ready'), 20_000), `ready: ${lines.join(' | ')}`);
       for (const pid of boots()) pids.add(pid);
       return { child, lines };
+    },
+    /** Another process saturating the disk the fixture lives on until the test ends. */
+    saturate() {
+      const saturator = spawn(process.execPath, ['-e', SATURATOR, join(root, 'saturated')], {
+        stdio: 'ignore',
+        env: { ...process.env, UV_THREADPOOL_SIZE: '64' },
+      });
+      pids.add(saturator.pid);
     },
     script: () => [SUPERVISOR, [...supervisorArgs, ...daemonArgs]],
     freeze: (mode = 'idle') => writeFileSync(paths.trigger, mode),
@@ -149,6 +278,241 @@ test('a frozen daemon is killed after diagnostics and replaced exactly once', as
   await delay(LIMIT_MS + 2000);
   assert.ok(isPidAlive(second));
   assert.deepEqual(fx.boots(), [first, second]);
+});
+
+// A busy daemon is not a dead one: past the limit it is given more time while
+// its process still works (CPU or I/O counters advance), up to the hard cap
+// (2.5 x the limit by default); a daemon that does nothing is killed at the
+// limit (the first test above) and one that spins for ever at the cap.
+const CAP_MS = LIMIT_MS * 2.5;
+
+test('a daemon that stops answering but keeps working is not killed before the cap', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  const [first] = fx.boots();
+  fx.freeze('busy');
+  // Past the limit, inside the cap, and the daemon answers again.
+  await delay(LIMIT_MS + 1500);
+  assert.ok(isPidAlive(first), 'still alive past the limit');
+  assert.match(
+    fx.log(),
+    new RegExp(
+      `daemon pid=${first} left ping \\d+ unanswered for \\d+ms \\(limit ${LIMIT_MS}ms\\) but is still alive, its (own|descendants') counters advance: own\\[cpu \\+\\d+ms.*giving it until \\d+ms \\(cap ${CAP_MS}ms\\)`
+    ),
+    'the extension is logged with the numbers'
+  );
+  await delay(LIMIT_MS * 2);
+  assert.ok(isPidAlive(first), 'it answered again and was never killed');
+  assert.deepEqual(fx.boots(), [first], 'never replaced');
+  assert.doesNotMatch(fx.log(), /killing it/);
+});
+
+/** Freezes the daemon in `mode`, checks it is killed at the limit as stuck, and returns the log. */
+async function assertStuckAtLimit(fx, mode) {
+  const [first] = fx.boots();
+  const frozenAt = Date.now();
+  fx.freeze(mode);
+  assert.ok(await waitFor(() => !isPidAlive(first), KILL_BOUND_MS + 2000), `${mode}: killed`);
+  assert.ok(Date.now() - frozenAt <= KILL_BOUND_MS, `${mode}: at the limit (${Date.now() - frozenAt}ms)`);
+  assert.match(
+    fx.log(),
+    /killing it and starting a replacement \(no progress, and its main thread waits on nothing the machine owes it: own\[cpu \+0ms, io \+0 ops \/ \+0 bytes, faults \+0\].* main thread\[[^\]]+ -> [^\]]+\]/
+  );
+  assert.doesNotMatch(fx.log(), /still alive/);
+  assert.ok(await waitFor(() => fx.boots().length === 2, 10_000), `${mode}: a replacement started`);
+  fx.track(fx.boots()[1]);
+  return fx.log();
+}
+
+test('(b) main thread blocked on a user-mode lock for ever: stuck, killed at the limit', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  const log = await assertStuckAtLimit(fx, 'idle');
+  if (process.platform === 'win32') {
+    assert.match(log, /main thread\[Waiting\/WrAlertByThreadId -> Waiting\/WrAlertByThreadId\]/);
+  }
+});
+
+test('(d) an idle healthy daemon that just does not answer: stuck, killed at the limit', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  const log = await assertStuckAtLimit(fx, 'deaf');
+  if (process.platform === 'win32') assert.match(log, /main thread\[Waiting\/WrQueue -> Waiting\/WrQueue\]/);
+});
+
+/** Freezes the daemon in `mode` and checks it lives to the cap, then dies at it. */
+async function assertKeptUntilCap(fx, mode, reason) {
+  const [first] = fx.boots();
+  const frozenAt = Date.now();
+  fx.freeze(mode);
+  await delay(CAP_MS - 1000);
+  assert.ok(isPidAlive(first), `${mode}: not killed before the cap`);
+  assert.ok(await waitFor(() => !isPidAlive(first), 4000 + 2000 + 2000), `${mode}: killed at the cap`);
+  const killedAfterMs = Date.now() - frozenAt;
+  assert.ok(killedAfterMs >= CAP_MS - 200, `${mode}: not before the cap (${killedAfterMs}ms)`);
+  assert.ok(killedAfterMs <= CAP_MS + 1000 + 2000 + 2000, `${mode}: at the cap (${killedAfterMs}ms)`);
+  assert.match(fx.log(), new RegExp(`but is still alive, ${reason}`), 'the extension is logged with the numbers');
+  assert.match(fx.log(), new RegExp(`hard cap ${CAP_MS}ms reached \\(${reason}\\)`));
+  assert.ok(await waitFor(() => fx.boots().length === 2, 10_000), 'a replacement started');
+  fx.track(fx.boots()[1]);
+}
+
+test('answers nothing but trickles I/O slowly: not killed before the cap', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  await assertKeptUntilCap(fx, 'trickle', 'its own counters advance');
+});
+
+test('answers nothing while a child of it works: not killed before the cap', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  await assertKeptUntilCap(fx, 'child', "its descendants' counters advance");
+  assert.match(fx.log(), /tree\[[1-9]\d* procs, [1-9]\d* survived, [1-9]\d* advanced: cpu \+[1-9]\d*ms/, 'the child counted');
+});
+
+// Regression: the descendants' counters were summed, so one that exited took
+// its work out of the sum and a survivor's progress read as none.
+test('a descendant exits while another works: the survivor still counts', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  const [first] = fx.boots();
+  fx.freeze('handoff');
+  const extended = /still alive, its descendants' counters advance: own\[[^\]]*\] tree\[(\d+) procs, (\d+) survived/g;
+  const burnerFile = `${fx.paths.trigger}.child.burner`;
+  // Relay, burner and writer, all working, at a look.
+  assert.ok(await waitFor(() => existsSync(burnerFile) && fx.log().match(extended), CAP_MS), fx.log());
+  const burner = Number(readFileSync(burnerFile, 'utf8'));
+  const seen = fx.log().length;
+  const before = Number([...fx.log().matchAll(extended)].at(-1)[1]);
+  process.kill(burner, 'SIGKILL');
+  assert.ok(await waitFor(() => !isPidAlive(burner), 5000), 'the burner exited');
+  // A later look: the burner, by far the most CPU, is gone, and every
+  // process left was there before it; the writer moved.
+  const later = () =>
+    [...fx.log().slice(seen).matchAll(extended)].find(
+      (match) => Number(match[1]) < before && match[1] === match[2]
+    );
+  assert.ok(await waitFor(later, LIMIT_MS + 3000), `extended after the exit: ${fx.log().slice(seen)}`);
+  assert.ok(isPidAlive(first), 'not killed for the exit');
+});
+
+const OWN_ADVANCE = 'its own counters advance';
+const MAIN_ON_MACHINE = 'its main thread waits in the kernel on the machine';
+
+/** Starts the suite's saturator, then checks `mode` lives to the cap. */
+async function assertSaturatedKeptUntilCap(t, mode, prepare = () => {}) {
+  const fx = fixture(t);
+  await fx.start();
+  prepare(fx);
+  fx.saturate();
+  await delay(1000);
+  await assertKeptUntilCap(fx, mode, `(${OWN_ADVANCE}|${MAIN_ON_MACHINE})`);
+}
+
+test('(a) synchronous writes to a saturated disk: alive or held by the machine, kept to the cap', async (t) => {
+  await assertSaturatedKeptUntilCap(t, 'diskwrite');
+});
+
+test(
+  '(a) hard page-ins from a saturated disk: alive or held by the machine, kept to the cap',
+  { skip: process.platform !== 'win32' && 'the cold file is made with FILE_FLAG_NO_BUFFERING' },
+  async (t) => {
+    await assertSaturatedKeptUntilCap(t, 'pagein', (fx) => {
+      const made = spawnSync(SUITE_SUPERVISOR, ['--cold-file', `${fx.paths.trigger}.cold`, String(COLD_MIB)], {
+        encoding: 'utf8',
+      });
+      assert.equal(made.status, 0, made.stderr);
+    });
+  }
+);
+
+test(
+  '(a) main thread held in a kernel transfer wait that does not complete: extended, then killed at the cap',
+  { skip: process.platform !== 'win32' && 'no unprivileged way to hold a thread in state D here' },
+  async (t) => {
+    const fx = fixture(t);
+    await fx.start();
+    await assertKeptUntilCap(fx, 'stuckio', MAIN_ON_MACHINE);
+    assert.match(fx.log(), /own\[cpu \+0ms, io \+0 ops \/ \+0 bytes, faults \+0\]/);
+    assert.match(fx.log(), /main thread\[Waiting\/Executive -> Waiting\/Executive\]/);
+  }
+);
+
+test('a daemon whose main thread spins for ever is killed at the cap', async (t) => {
+  const fx = fixture(t);
+  await fx.start();
+  const [first] = fx.boots();
+  const frozenAt = Date.now();
+  fx.freeze('spin');
+  await delay(CAP_MS - 1000);
+  assert.ok(isPidAlive(first), 'burning CPU reads as progress: not killed before the cap');
+  assert.ok(await waitFor(() => !isPidAlive(first), 4000 + 2000 + 2000), 'killed at the cap');
+  const killedAfterMs = Date.now() - frozenAt;
+  assert.ok(killedAfterMs >= CAP_MS - 200, `not before the cap (${killedAfterMs}ms)`);
+  assert.match(fx.log(), /still alive, its own counters advance: own\[cpu \+[1-9]\d*ms/);
+  assert.match(fx.log(), new RegExp(`hard cap ${CAP_MS}ms reached \\(its own counters advance\\)`));
+  assert.doesNotMatch(fx.log(), new RegExp(MAIN_ON_MACHINE), '(c) spinning never reads as held by the machine');
+  assert.ok(await waitFor(() => fx.boots().length === 2, 10_000), 'a replacement started');
+  fx.track(fx.boots()[1]);
+});
+
+test('a reading the machine holds up never delays the cap', async (t) => {
+  const fx = fixture(t);
+  await fx.start({ bin: SUITE_SUPERVISOR, env: { MIXDOG_SUPERVISOR_STALL_READINGS: '1' } });
+  const [first] = fx.boots();
+  const frozenAt = Date.now();
+  fx.freeze();
+  assert.ok(await waitFor(() => !isPidAlive(first), CAP_MS + 1000 + 2000 + 2000), 'killed at the cap');
+  const killedAfterMs = Date.now() - frozenAt;
+  assert.ok(killedAfterMs >= CAP_MS - 1000, `not before the cap (${killedAfterMs}ms)`);
+  assert.match(fx.log(), new RegExp(`hard cap ${CAP_MS}ms reached \\(a reading of the daemon is still on its way\\)`));
+  assert.ok(await waitFor(() => fx.boots().length === 2, 10_000), 'a replacement started');
+  fx.track(fx.boots()[1]);
+});
+
+test('readings that never return are not piled up over replacements', async (t) => {
+  const fx = fixture(t);
+  await fx.start({ bin: SUITE_SUPERVISOR, env: { MIXDOG_SUPERVISOR_STALL_READINGS: '1' } });
+  // Two daemons each leave one reading that never returns: both live to the cap.
+  for (const nth of [1, 2]) {
+    fx.track(fx.boots()[nth - 1]);
+    fx.freeze();
+    assert.ok(
+      await waitFor(() => fx.boots().length === nth + 1, CAP_MS + 1000 + 2000 + 10_000),
+      `replacement ${nth} started`,
+    );
+  }
+  assert.doesNotMatch(fx.log(), /earlier readings never returned/);
+  // The third is not read at all: no further thread is spent on a reading,
+  // and a daemon that cannot be read gets no time past the limit.
+  const third = fx.boots()[2];
+  fx.track(third);
+  const frozenAt = Date.now();
+  fx.freeze();
+  assert.ok(await waitFor(() => !isPidAlive(third), KILL_BOUND_MS + 2000), 'killed');
+  const killedAfterMs = Date.now() - frozenAt;
+  assert.ok(killedAfterMs < CAP_MS, `at the limit, not the cap (${killedAfterMs}ms)`);
+  assert.match(fx.log(), /could not be read \(earlier readings never returned\)/);
+  assert.ok(await waitFor(() => fx.boots().length === 4, 10_000), 'a replacement started');
+  fx.track(fx.boots()[3]);
+});
+
+test('the product build has no instruments and ignores the seams', async (t) => {
+  const probe = spawnSync(SUPERVISOR, ['--threads', String(process.pid), '1', '1'], { encoding: 'utf8' });
+  assert.equal(probe.status, 2);
+  assert.match(probe.stderr, /unknown argument --threads/);
+  const fx = fixture(t);
+  const starved = join(fx.paths.root, 'starved-machine');
+  writeFileSync(starved, '30 0');
+  // The old machine seam and the stalled-reading seam: neither saves a stuck daemon.
+  await fx.start({ env: { MIXDOG_SUPERVISOR_STALL_READINGS: '1', MIXDOG_SUPERVISOR_MACHINE_FILE: starved } });
+  await assertStuckAtLimit(fx, 'idle');
+});
+
+test("the supervisor's unit tests pass", () => {
+  const run = spawnSync('cargo', ['test', '--locked', '--release', '--manifest-path', MANIFEST], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /test result: ok\. [1-9]\d* passed; 0 failed/);
 });
 
 // Regression: the reader stopped at the first non-UTF-8 byte, every later
@@ -186,8 +550,8 @@ test('answers forged by another thread never keep a frozen main thread alive', a
 
 test('the kill is bounded even when the diagnostics output blocks', async (t) => {
   const fx = fixture(t);
-  // A stderr pipe nobody reads: the daemon's 4 MiB write fills it and blocks,
-  // and so does the supervisor's diagnostic line.
+  // A stderr pipe nobody reads: the daemon's 4 MiB write fills it and blocks
+  // (on a worker), and so does the supervisor's diagnostic line.
   await fx.start({ stderr: 'pipe' });
   const [first] = fx.boots();
   const frozenAt = Date.now();
