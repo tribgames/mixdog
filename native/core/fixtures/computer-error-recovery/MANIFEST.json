@@ -1,0 +1,102 @@
+{
+  "cases": 38,
+  "command": "node benchmarks/rust-core/recorders/record-computer-error-recovery.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "computer-bridge/error-recovery.mjs computerToolErrorRecovery and formatComputerToolError (the text a failed computer call returns the model, client.mjs formatComputerToolError)",
+  "exclusions": {
+    "computerResultRecovery": "a reply body with a structured code (yielded, delivery_accepted) has no counterpart: the Rust backend answers its replies as text parts and raises failures as errors"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 126706,
+      "path": "golden.json",
+      "sha256": "edec858f71c161478faaa17a429a9422984f5421ac02028eeeeedb92e22e961c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "a485a887ae28a5dc21879f95298ec9fed80580c83191ea3a036d5e925f0aecf7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-computer-error-recovery.mjs",
+  "recorderSha256": "4039189e4862f877cff1cb7974ac79382a174775f477a57c49f211106d0a2ef0",
+  "replay": {
+    "compare": "computer_recovery::tool_error_recovery and format_tool_error over the recorded messages and targets; compared whole",
+    "entry": "Drive these public items on o1: mixdog-tools/src/desktop/computer_recovery.rs:139 tool_error_recovery; mixdog-tools/src/desktop/computer_recovery.rs:144 format_tool_error; mixdog-tools/src/desktop/computer.rs:59 ComputerTool (the call: a failure of the host is worded by format_tool_error).",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 139,
+        "name": "tool_error_recovery",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_recovery.rs"
+      },
+      {
+        "line": 144,
+        "name": "format_tool_error",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_recovery.rs"
+      },
+      {
+        "line": 59,
+        "methods": "the call: a failure of the host is worded by format_tool_error",
+        "name": "ComputerTool",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "computer-error-recovery",
+  "totalBytes": 126706,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
