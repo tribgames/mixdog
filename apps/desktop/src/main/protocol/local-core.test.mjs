@@ -7,7 +7,8 @@ import test from 'node:test';
 
 import { beginDaemonSpawnCapture } from '../../../../../packages/protocol-client/src/launch/crash-capture/spawn-capture.mjs';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
-import { coreBinaryPath, coreEnvironment, packagedMixdogRoot } from './local-core.ts';
+import { ensureCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
+import { coreBinaryPath, coreEnvironment, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
 
 test('a packaged app tells the core where its unpacked resources are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -73,4 +74,35 @@ test('the launched core writes fd 2 into its boot capture, which records its rea
   assert.equal(record.exitCode, 101);
   assert.equal(record.exitReason, 'exited with code 101');
   assert.ok(record.stderrBytes > 0);
+});
+test('the desktop waits for a core that takes 20 s to serve, as a large profile makes it (the library default gives up at 15 s)', async () => {
+  const serving = { state: 'serving', rpcPort: 4242, blocked: null };
+  const run = async (readyTimeoutMs) => {
+    let clock = 0;
+    return ensureCore({
+      readDiscovery: async () => {
+        if (clock < 20_000) {
+          if (clock === 0) throw Object.assign(new Error('absent'), { name: 'CoreDiscoveryError', code: 'absent' });
+          return { state: 'booting', rpcPort: null, blocked: null };
+        }
+        return serving;
+      },
+      launch: async () => {},
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs,
+    });
+  };
+  await assert.rejects(run(undefined), /core is not ready/);
+  assert.deepEqual(await run(DESKTOP_CORE_READY_TIMEOUT_MS), serving);
+
+  let asked;
+  const endpoint = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    ensure: async (options) => void (asked = options),
+  });
+  await endpoint().catch(() => {});
+  assert.equal(asked.readyTimeoutMs, DESKTOP_CORE_READY_TIMEOUT_MS);
 });
