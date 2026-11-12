@@ -443,10 +443,27 @@ function Stop-LegacyDaemon {
         $upgrade.force = $true
         Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
     }
+    $waited = 0
     while (-not $process.WaitForExit(10000)) {
-        $busy = try { (Invoke-LegacyDaemon $Record 'GET' '/health').busySessions } catch { '?' }
-        Write-Host "    waiting for the 1.4.5 daemon to become idle (busy: $busy)"
+        $waited += 10
+        $health = try { Invoke-LegacyDaemon $Record 'GET' '/health' } catch { $null }
+        $busy = if ($health) { $health.busySessions } else { '?' }
+        Write-Host "    waiting for the 1.4.5 daemon to become idle ($waited s, busy: $busy)"
         Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail "1.4.5 busy: $busy"
+        if ($waited -ge $DrainLimitSeconds) {
+            # Every session ends in this switch (the user was told): the daemon is ended by its pid, after the pid is
+            # checked to be the installed app's executable running a daemon script, so a reused pid is never touched.
+            $info = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.pid)"
+            if (-not $info -or $info.ExecutablePath -ne $installedExe -or $info.CommandLine -notmatch 'daemon\.mjs') {
+                throw "pid $($Record.pid) is not the 1.4.5 daemon ($($info.CommandLine)); it was not ended. Check daemon.json, end the daemon yourself, then rerun."
+            }
+            Write-Host "    the 1.4.5 daemon did not drain within $DrainLimitSeconds s; ending pid $($Record.pid). Work that was running: busy sessions $busy; $($health | ConvertTo-Json -Compress -Depth 3)"
+            Stop-Process -Id ([int]$Record.pid) -Force
+            if (-not $process.WaitForExit(30000)) {
+                throw "The 1.4.5 daemon pid $($Record.pid) is still alive 30 s after it was ended. Run: Stop-Process -Id $($Record.pid) -Force (or taskkill /PID $($Record.pid) /F), then rerun."
+            }
+            return
+        }
     }
 }
 
@@ -1228,7 +1245,7 @@ if ($FastDirect -and -not $FastDirectWorker) {
     }
     if ($StopBeforeSwap) {
         Write-Step 'stopping before the swap (-StopBeforeSwap); the detached worker would:'
-        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'ask the running 1.4.5 daemon to drain through /upgrade and wait until it exits (no timer)' }
+        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'ask the running 1.4.5 daemon to drain through /upgrade and wait up to the drain limit, then end it by its pid (every session ends)' }
         Write-Host "  1. close the app: $(if ($appBefore.Count) { 'pid ' + ($appBefore.ProcessId -join ', ') } else { '(not running)' })"
         Write-Host "  2. $drain"
         Write-Host '  3. force-stop what still holds files under the install dir (after 10 s)'
