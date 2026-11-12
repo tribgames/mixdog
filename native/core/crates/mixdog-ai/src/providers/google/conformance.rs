@@ -219,7 +219,7 @@ fn requests_encode_to_the_recorded_wire() {
             assert!(id.starts_with("agent-") && id.len() == "agent-".len() + 36);
             assert!(
                 wire.headers.contains(&(
-                    "user-agent".into(),
+                    "User-Agent".into(),
                     "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)".into()
                 ))
             );
@@ -543,8 +543,17 @@ fn clock() -> Box<dyn Fn() -> u64 + Send + Sync> {
     Box::new(|| NOW_MS)
 }
 
+/// An environment that sets nothing.
+struct NoVars;
+
+impl crate::registry::keys::Environment for NoVars {
+    fn var(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
 async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
-    super::antigravity(store, "2.19.1".into(), http, traits(), clock(), None).await.expect("adapter")
+    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock(), None).await.expect("adapter")
 }
 
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {
@@ -772,8 +781,8 @@ async fn antigravity_refreshes_once_on_401_with_the_recorded_requests() {
     );
     let seen = http.seen.lock().unwrap();
     assert_eq!(String::from_utf8_lossy(&seen[1].body), token.body, "the recorded refresh request");
-    assert!(seen[0].headers.contains(&("authorization".into(), "Bearer stale-access".into())));
-    assert!(seen[2].headers.contains(&("authorization".into(), "Bearer fixture-access-token".into())));
+    assert!(seen[0].headers.contains(&("Authorization".into(), "Bearer stale-access".into())));
+    assert!(seen[2].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
     let stored = store.0.lock().unwrap().clone().unwrap();
     assert_eq!((stored.access_token.as_str(), stored.project_id.as_str()), ("fixture-access-token", "fixture-project"));
     assert_eq!(stored.expires_at_ms, NOW_MS + 3_600_000);
@@ -851,7 +860,7 @@ async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
     assert_eq!(http.urls(), scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>());
     let seen = http.seen.lock().unwrap();
     assert_eq!(String::from_utf8_lossy(&seen[0].body), token.body);
-    assert!(seen[1].headers.contains(&("authorization".into(), "Bearer fixture-access-token".into())));
+    assert!(seen[1].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
 }
 
 fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {
@@ -998,9 +1007,12 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
 // Structure
 // ---------------------------------------------------------------------------
 
+/// The stream's content windows Node has (`createRestStreamWatchdogs`) live in `watchdog.rs` on the runtime's clock
+/// (`mixdog_rt::Deadline`); no provider source holds a timer of its own.
 #[test]
 fn no_content_timer_exists_in_the_provider_sources() {
     let sources = [
+        include_str!("watchdog.rs"),
         include_str!("adapter.rs"),
         include_str!("auth/antigravity.rs"),
         include_str!("auth/mod.rs"),
@@ -1024,9 +1036,9 @@ fn no_content_timer_exists_in_the_provider_sources() {
 }
 
 #[test]
-fn error_text_is_never_matched() {
-    // Classification reads typed fields; the same wording under different
-    // typed fields classifies differently.
+fn error_wording_sets_only_the_codes_node_reads_it_for() {
+    // The kind is read from typed fields; wording counts only where Node's `antigravityError` reads it (capacity or
+    // rate-limit wording on an untyped 429), never for a context overflow.
     let codec = GoogleCodec::antigravity(ENDPOINT, "p", "2.19.1", traits());
     let classify = |status, message: &str| {
         codec
@@ -1037,7 +1049,7 @@ fn error_text_is_never_matched() {
             })
             .kind
     };
-    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::RateLimited);
+    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::Overloaded);
     assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
 }
 

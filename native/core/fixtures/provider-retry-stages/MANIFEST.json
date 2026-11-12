@@ -1,0 +1,375 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch",
+  "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines. The OpenAI OAuth route is built with the recording host's Codex client identity (user agent, version, beta features: the values its first request carries, the host's OS named in the user agent) and its `x-client-request-id`s are the world's 16-byte `randomBytes` draws (`draws.bytes16First`/`bytes16Count`).",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider('xai', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: 'api-key', apiKey } or { authMode: 'adc', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world's h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case's input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.",
+  "exclusions": [
+    "`draws` is not compared: the recorder's count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients' draws, and the sample is compared through the recorded wait",
+    "`attemptRequests` is not compared: the recorder's own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed",
+    "The Cursor case's HTTP/2 streams are recorded by the world's h2c hub (lib/h2-world.mjs): `:authority` is written as the host and `:scheme` as the scheme of the origin the product addressed (the loopback address and clear text are the world's), the pseudo-headers in the order :method, :scheme, :authority, :path (the client library's choice, not the product's), and the body of the Run stream is its first Connect frame (later frames - heartbeats - are not part of the arrival). Replay side: the Rust h2 client (reqwest) adds `accept: */*` to every request and the `content-length` of a whole body, and `node:http2` adds no header of its own, so the replay's h2 listener leaves those two headers out of the arrival",
+    "no `MaxListenersExceededWarning` is recorded: every request of the recording process adds a `close` listener to the loopback endpoint's shared keep-alive socket, and Node warns on the eleventh (the recorder sets `EventEmitter.defaultMaxListeners = 0`); the warning is the recording process's, which the number of cases before a send decides, and no product output",
+    "`streaming stages` is not compared: the core raises `streaming` from its run loop when a stream opens (mixdog-agent/src/send.rs, `RunEvent::Stage(Stage::Streaming)`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder's `reconnecting` stage and the provider's own `requesting` stage (raised where Node's send raises it: SendIdentity::raise_stage / SendStages), compared whole and in order",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 324912,
+      "path": "cases.json",
+      "sha256": "d5c80ee1dc910af8aee1879e0db238c67fc4cbaf36666757afcf2ab911bb857c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/h2-world.mjs",
+      "sha256": "80f51ab5a2756cb834a7eab38cda9af3def84354e1814c6a740973e1f37c1c53"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "14328d15667d2c5ad8f14803aeae9164c02ffe2894fde446c53e204612064d30"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/world-http2.mjs",
+      "sha256": "3c60c5e19e285a4337b23c17283e7ee0888442153bf302d9ed39513e7ca55d03"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "anthropic-api-key-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-encoded-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-429",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-stream-error",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-reissues-a-dropped-stream-and-raises-the-stage-again",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-falls-back-to-a-non-streaming-request",
+      "level": "wire"
+    },
+    {
+      "id": "xai-chat-raises-the-stage-again-after-a-key-reload",
+      "level": "wire"
+    },
+    {
+      "id": "xai-responses-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "xai-chat-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "vertex-gemini-retries-its-stream-without-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "gateway-messages-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "grok-oauth-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "antigravity-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-redacts-an-echoed-credential",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-redacts-an-echoed-credential-in-a-429",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-redacts-an-opaque-credential-in-a-429",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-refreshes-a-revoked-token-403",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-a-policy-403-is-terminal",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-keeps-an-ordinary-field-named-code-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again",
+      "level": "wire"
+    },
+    {
+      "id": "openai-oauth-http-redacts-the-superseded-credential-after-a-refresh",
+      "level": "wire"
+    },
+    {
+      "id": "opencode-go-gemini-raises-the-ladder-stage",
+      "level": "wire"
+    },
+    {
+      "id": "vertex-claude-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "vertex-maas-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "devin-surfaces-the-first-failure",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-end-frame-error-surfaces-the-server-error",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-oversized-request-is-terminal",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-end-frame-error-redacts-an-opaque-credential",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-token-exchange-redacts-an-opaque-credential",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-an-encoded-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-double-percent-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-mixed-case-percent-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-wrapped-base64-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-html-entity-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-json-escaped-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-utf16-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-each-segment-of-a-jwt-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-the-earlier-send-of-a-key-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-the-key-of-an-earlier-send-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "antigravity-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh",
+      "level": "wire"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9145,
+    "patches": [
+      {
+        "file": "node-fix-scrub-carried-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs"
+        ],
+        "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
+      },
+      {
+        "file": "node-fix-scrub-echoed-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs"
+        ],
+        "sha256": "932615ff535e360cf1ec4567f79ea278c42e780308576cd82d276b30ca7138e2"
+      },
+      {
+        "file": "node-fix-cursor-end-frame-error.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
+        ],
+        "sha256": "40ed377b904db9019af7cb040c9c5a3a0d5858a90d683f30ae5424b75df7b825"
+      },
+      {
+        "file": "node-fix-scrub-canonical-credential.patch",
+        "paths": [
+          "src/cli.mjs",
+          "src/runtime/agent/orchestrator/config-providers-merge.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/command-code-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/custom-provider.mjs",
+          "src/runtime/agent/orchestrator/providers/devin-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-isolated.test.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
+          "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/muse-code-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-oauth-tokens.mjs",
+          "src/runtime/shared/custom-provider-keys.mjs",
+          "src/runtime/shared/provider-api-key.mjs",
+          "src/session-runtime/services/provider-admin.mjs",
+          "src/standalone/daemon.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-models.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini-credential-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-catalog.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-dispatch.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/registry.mjs"
+        ],
+        "sha256": "6feb432a8b4b370d5eb599d187b9a88fc8678e3c0a17819477f7d6b296a33070"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 53
+    },
+    "srcSha256": "2c2bb004daa3ac842cf37105f148e69ad6b3009e83b38bc72607cde75c6838ed",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
+  "recorderSha256": "3ca3621ca1312f0ca9047a974d52e5b922255dbb7dbc38f76d9412b3c5611486",
+  "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
+  "set": "provider-retry-stages",
+  "totalBytes": 324912,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

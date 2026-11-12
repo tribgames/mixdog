@@ -63,14 +63,19 @@ pub fn wire(caps: &CapsLookup, request: &ModelRequest, model: &VertexModel, base
         transport: TransportKind::Http1,
         method: "POST".into(),
         url: format!("{base}/publishers/anthropic/models/{}:streamRawPredict", path_id(&model.id)),
-        headers: vec![("content-type".into(), "application/json".into())],
+        // Node's spelling (vertex-ai.mjs:483), which undici keeps on the wire.
+        headers: vec![("Content-Type".into(), "application/json".into())],
         body,
     })
 }
 
 /// A refused Claude send: Vertex's error body read as Anthropic's (`applyAnthropicErrorContract` over the body text).
 pub fn classify(response: &ErrorResponse) -> ProviderError {
-    classify_response(response)
+    let mut error = classify_response(response);
+    // The route words its own refusal (vertex-ai.mjs:497): the status and the first 300 UTF-16 units of the body.
+    let text = String::from_utf8_lossy(&response.body);
+    error.message = format!("Vertex AI Claude streamRawPredict {}: {}", response.status.unwrap_or(0), mixdog_js::slice_utf16(&text, 300));
+    error
 }
 
 /// Anthropic's decoder for the model, every turn billed as the requested publisher model at its location.

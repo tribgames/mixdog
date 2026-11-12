@@ -10,7 +10,9 @@
 // redirect) and determinism logging; this script only swaps its two loopback
 // ports for servers of its own. No real host is contacted.
 //
-//   node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree T [--only devin-oauth|cursor-api]
+//   node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree T [--patch <file>[,<file>...]] [--only devin-oauth|cursor-api]
+// The Cursor scenarios are recorded from b6f10295a with node-patches/node-fix-cursor-end-frame-error.patch (a Connect end frame carrying an error
+// reaches the bridge as that error, not as the `aborted` its own cancel raises), and node-fix-scrub-echoed-credential.patch beside it.
 import http from 'node:http';
 import http2 from 'node:http2';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,9 +20,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { FIXTURES_ROOT, commitStage, stageSet, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, stageSet, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
 
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const args = parseArgs();
 const tree = resolveTree(args);
 const only = args.get('only');
@@ -242,7 +246,14 @@ for (const a of adapters) {
 }
 mkdirSync(outDir, { recursive: true });
 writeJson(join(outDir, 'unrecorded.json'), { note: 'Scenarios that did not produce a recording, with the reason.', unrecorded });
-writeSetManifest(outDir, { set: 'providers-ai-other', recorder: 'benchmarks/rust-core/recorders/record-providers-ai-other.mjs', command: 'node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree <tree>', extra: { scenarios: recorded.sort(), unrecordedCount: unrecorded.length } });
+const patch = args.get('patch');
+writeSetManifest(outDir, {
+  set: 'providers-ai-other',
+  recorder: 'benchmarks/rust-core/recorders/record-providers-ai-other.mjs',
+  command: `node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree <export of ${NODE_COMMIT}${patch ? ` with ${patch} applied` : ''}>${patch ? ` --patch ${patch}` : ''}`,
+  identity: nodeTreeIdentity(args, tree, NODE_COMMIT),
+  extra: { ...recorderProvenance(import.meta.url), scenarios: recorded.sort(), unrecordedCount: unrecorded.length },
+});
 await hub.close();
 httpServer.closeAllConnections();
 httpServer.close();

@@ -62,6 +62,21 @@ impl ProviderAdapter for VersionedAdapter {
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
         self.inner.retry_policy_for(model)
     }
+    /// The dialect's version is read before the send raises its first stage, as Node's send awaits it first
+    /// (`ensureAntigravityVersion`, `warmCursorClientVersion`).
+    async fn prepare_send(&self, request: &ModelRequest) {
+        self.versions.warm(self.dialect).await;
+        self.inner.prepare_send(request).await;
+    }
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.inner.retry_policy_of(request)
+    }
+    fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages_of(request)
+    }
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line_of(request)
+    }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.inner.keepalive()
     }
@@ -97,6 +112,22 @@ impl ProviderAdapter for VersionedAdapter {
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.versions.warm(self.dialect).await;
         self.inner.attempt(request).await
+    }
+
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages(model)
+    }
+
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line(model)
+    }
+
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.inner.recovers_spent(model, failure)
+    }
+
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.inner.recover_spent(request).await
     }
 
     fn release_send(&self, group: &str) {

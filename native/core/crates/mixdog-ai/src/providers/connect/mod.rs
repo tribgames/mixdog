@@ -111,7 +111,7 @@ pub fn provider_error(failure: ConnectFailure, delivery: DeliveryState) -> Provi
 
 /// A random version-4 UUID.
 pub fn random_uuid() -> String {
-    let bytes: [u8; 16] = rand::random();
+    let bytes: [u8; 16] = crate::random::bytes();
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let variant = (u8::from_str_radix(&hex[16..17], 16).expect("hex") & 3) | 8;
     format!(

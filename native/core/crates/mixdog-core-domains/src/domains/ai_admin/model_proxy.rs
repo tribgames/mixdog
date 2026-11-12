@@ -336,6 +336,7 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         source_type: None,
         // The remote adapter's exclusions are the remote PC's to record.
         on_tool_excluded: None,
+        send_identity: Default::default(),
     })
 }
 
@@ -423,6 +424,9 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::AccountStage(p::AccountStage::Changed { provider, at, .. }) => w::ProxyEvent::AccountChanged { provider: provider.clone(), at: *at },
         E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
         E::OutputStarted => w::ProxyEvent::OutputStarted,
+        E::ContentSummary { has_thinking, block_types } => {
+            w::ProxyEvent::ContentSummary { has_thinking: *has_thinking, block_types: block_types.clone() }
+        }
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -496,6 +500,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         }
         w::ProxyEvent::WireRerouted { route } => E::WireRerouted(route),
         w::ProxyEvent::OutputStarted => E::OutputStarted,
+        w::ProxyEvent::ContentSummary { has_thinking, block_types } => E::ContentSummary { has_thinking, block_types },
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,

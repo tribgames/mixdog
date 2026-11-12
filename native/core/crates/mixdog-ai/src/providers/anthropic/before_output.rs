@@ -8,17 +8,15 @@ use std::collections::VecDeque;
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ModelStream;
-use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
 
 /// Output that reached the caller in Node: a text or reasoning delta, a finished tool call, or
 /// stream progress of a visible kind (`isVisibleStreamProgress`: text, reasoning, tool).
 fn shows_output(event: &StreamEvent) -> bool {
-    let visible = |kind: &ProgressKind| matches!(kind, ProgressKind::Text | ProgressKind::Reasoning | ProgressKind::Tool);
     match event {
         StreamEvent::TextDelta(_) | StreamEvent::ReasoningDelta(_) | StreamEvent::ToolCallDone(_) => true,
-        StreamEvent::Progress(kind) | StreamEvent::ChunkProgress(Some(kind)) => visible(kind),
+        StreamEvent::Progress(kind) | StreamEvent::ChunkProgress(Some(kind)) => kind.is_visible(),
         _ => false,
     }
 }

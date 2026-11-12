@@ -173,7 +173,7 @@ impl Routing<'_> {
                 "scope": "xai-chat-session-v1",
                 "providerKey": namespace,
                 "model": model,
-                "sessionId": if session.is_empty() { format!("ephemeral:{}", std::process::id()) } else { session.to_owned() },
+                "sessionId": if session.is_empty() { format!("ephemeral:{}", crate::pid::id()) } else { session.to_owned() },
             })
         };
         uuid_from_seed(&stable_stringify(&seed))
@@ -253,7 +253,7 @@ impl Routing<'_> {
         let enabled = unbounded || shards > 1;
         let slot = if !unbounded {
             if shards > 0 {
-                let basis = if session.is_empty() { std::process::id().to_string() } else { session.to_owned() };
+                let basis = if session.is_empty() { crate::pid::id().to_string() } else { session.to_owned() };
                 let digest = Sha256::digest(basis.as_bytes());
                 u64::from(u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]])) % shards
             } else {
