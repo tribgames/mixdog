@@ -93,11 +93,17 @@ pub enum Probe<T> {
 #[derive(Clone)]
 pub struct CredentialFile {
     path: PathBuf,
+    /// Where the credential is at each read and write, when that is not always `path`: the file of the account the
+    /// provider resolves to at that moment (`boundProviderAuthPath`, which Node's loaders ask on every load).
+    current: Option<CurrentPath>,
     pub(super) io: CredentialIo,
     /// `MIXDOG_MODEL_PROXY=client`: the server holds no model credentials, so the file reads as
     /// absent and refuses every write (`modelProxyClientMode()` at each Node credential loader).
     remote_client: bool,
 }
+
+/// Resolves the file a credential is read from and written to now.
+pub type CurrentPath = std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, PathBuf> + Send + Sync>;
 
 type Document = Map<String, Value>;
 
@@ -151,7 +157,20 @@ fn merged(path: &Path, update: Document) -> Document {
 
 impl CredentialFile {
     pub fn new(path: PathBuf, io: CredentialIo) -> Self {
-        Self { path, io, remote_client: false }
+        Self { path, current: None, io, remote_client: false }
+    }
+
+    /// Reads and writes go to the file `current` names at that moment; [`Self::path`] stays the provider's own file.
+    pub fn following(mut self, current: CurrentPath) -> Self {
+        self.current = Some(current);
+        self
+    }
+
+    async fn path_now(&self) -> PathBuf {
+        match &self.current {
+            Some(current) => current().await,
+            None => self.path.clone(),
+        }
     }
 
     /// The file of a server that holds no model credentials when `on`.
@@ -174,7 +193,7 @@ impl CredentialFile {
         if self.remote_client {
             return Probe::Absent;
         }
-        let path = self.path.clone();
+        let path = self.path_now().await;
         match self
             .io
             .read
@@ -212,7 +231,7 @@ impl CredentialFile {
                 "model credentials are not available on this server: MIXDOG_MODEL_PROXY=client runs every model call on the client PC.",
             ));
         }
-        let path = self.path.clone();
+        let path = self.path_now().await;
         let job = self
             .io
             .write

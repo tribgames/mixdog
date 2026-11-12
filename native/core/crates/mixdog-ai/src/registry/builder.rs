@@ -635,7 +635,7 @@ fn adapter<T: ProviderAdapter + 'static>(a: T) -> Arc<dyn ProviderAdapter> {
 
 impl DefaultProviderBuilder {
     fn file(&self, provider: &str) -> Result<CredentialFile, String> {
-        self.env.accounts.credential_file(provider, "default").map_err(|e| e.to_string())
+        self.env.accounts.current_credential_file(provider).map_err(|e| e.to_string())
     }
 
     /// Declares the stored-row capability of the adapter built under `name` (see `cached_model_info`).
@@ -1450,7 +1450,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
     async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
         // An unreadable file counts as present: it is never a logout, so a credential read that
         // never ran (`Probe::Unreadable`) already reads as present here and cannot be missing.
-        Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, "default").await.unwrap_or(false))
+        Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, &self.env.accounts.current_slot(name).await).await.unwrap_or(false))
     }
 
     async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
@@ -1459,7 +1459,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
             return Ok(CredentialState::Absent);
         }
         // A read that never ran is a momentary failure (Node's catch), not a logout.
-        Ok(self.env.accounts.credential_state(name, "default").await.unwrap_or(CredentialState::Unreadable))
+        Ok(self.env.accounts.credential_state(name, &self.env.accounts.current_slot(name).await).await.unwrap_or(CredentialState::Unreadable))
     }
 
     async fn oauth_credential_expiry(&self, name: &str) -> Option<f64> {
