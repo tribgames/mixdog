@@ -18,7 +18,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -71,12 +71,23 @@
   "recorderSha256": "4b90fe1e3e6e7e0f83aa83725d88a70322f1495e496ed14a7b0a2abd9926592f",
   "replay": {
     "compare": "mixdog-app-server thread reads: replay the open of six cold sessions, three refresh ticks and the one rewrite; compare the stored sessions read per tick and the session-state updates published (whole)",
-    "entry": "NO RUST ENTRY ON o1: the desktop SessionHost cold-view refresh (ticks, concurrency, session-state updates): no production counterpart found.",
+    "entry": "A built mixdogd over its real WebSocket listener; the desktop protocol client (packages/protocol-client connect, sessionReducer, sessionStateOf) opens the six sessions, a second client writes one: node benchmarks/rust-core/recorders/replay-session-host-cold-refresh.mjs --mixdogd <exe>. The core pushes a write to every client watching the thread (session actor publish), so the desktop needs no refresh tick.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the desktop SessionHost cold-view refresh (ticks, concurrency, session-state updates): no production counterpart found"
-    ],
-    "normalised": {},
+    "missingOnO1": [],
+    "replayedBy": {
+      "the cold-view refresh skips unchanged sessions and refreshes a written one": "node benchmarks/rust-core/recorders/replay-session-host-cold-refresh.mjs --mixdogd <exe>"
+    },
+    "declared": {
+      "written.reads, readsAfterNextTick": "Node's desktop re-reads the written session on its refresh tick; the core pushes the write, so the desktop sends no read after opening (compared: no read after the opening reads)",
+      "written.published[].snapshot.projectionStamp": "Node's host projection counter",
+      "written.published[].frameSource": "whether Node's host built the frame live or from a stored replay",
+      "written.published[].snapshot.remoteEnabled, remoteSessionId": "Node's host fields, not part of what the session shows here"
+    },
+    "normalised": {
+      "initialStamps": "the stamp Node's scripted store gave each session (`<id>:1`) is the row the session shows (the writer's turn answers it)",
+      "written.published": "compared as the sessions whose shown rows (kind, text) or queue changed, and the written session's last row; the core's own state fields (token stats, the user's prompt history fed by the writer's prompts) are not part of Node's snapshot",
+      "rows": "the core writes a row only through a turn: each stored row is the answer of a writer's turn with the carrier prompt `write <row>`, whose prompt row and turn divider the written session shows besides; the written session's rows are compared by its last row (Node's scripted store replaced the session's row)"
+    },
     "protocolMethods": [],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"

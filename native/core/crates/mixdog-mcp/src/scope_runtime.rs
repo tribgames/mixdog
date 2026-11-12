@@ -398,32 +398,34 @@ impl ScopeRuntime {
         let Resolved { mut configs, targets } = resolved;
         match op {
             Op::Reset => {
-                if !self.hub.apply_at(scope, generation, Vec::new()) {
+                if !self.hub.apply_at(scope, generation, Vec::new(), &|_| true) {
                     return;
                 }
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if self.hub.apply_at(scope, generation, configs) {
+                if self.hub.apply_at(scope, generation, configs, &|_| true) {
                     self.settled(scope, &names).await;
                 }
             }
             Op::Reconcile => {
-                let before: HashSet<String> = self.hub.servers_in(scope).iter().map(|s| s.name().to_owned()).collect();
+                // The apply connects new and changed servers and those whose last connect failed
+                // (a sign-in or a stored credential may have changed), once each.
+                let before: HashSet<String> = self
+                    .hub
+                    .servers_in(scope)
+                    .iter()
+                    .filter(|s| !matches!(&*s.state(), ServerState::Failed { .. }))
+                    .map(|s| s.name().to_owned())
+                    .collect();
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if !self.hub.apply_at(scope, generation, configs) {
+                if !self.hub.apply_at(scope, generation, configs, &|_| true) {
                     return;
                 }
                 self.settled(scope, &names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>()).await;
-                // A server whose last connect failed is retried (a sign-in or a stored credential may have changed).
-                for server in self.hub.servers_in(scope) {
-                    if matches!(&*server.state(), ServerState::Failed { .. }) {
-                        let _ = server.reconnect().await;
-                    }
-                }
             }
             Op::Only(_, enabled) => {
                 if !*enabled {
                     configs.retain(|c| !targets.contains(&c.name));
-                    self.hub.apply_at(scope, generation, configs);
+                    self.hub.apply_at(scope, generation, configs, &|_| false);
                     return;
                 }
                 let kept: Vec<_> = targets
@@ -431,11 +433,15 @@ impl ScopeRuntime {
                     .filter_map(|t| self.hub.server_in(scope, t))
                     .filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config()))
                     .collect();
-                if !self.hub.apply_at(scope, generation, configs) {
+                // The toggle connects its own servers only (`reconnectSingleMcpServer`).
+                if !self.hub.apply_at(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) {
                     return;
                 }
+                // A failed one was replaced by the apply, which connects it.
                 for server in kept {
-                    let _ = server.reconnect().await;
+                    if self.hub.server_in(scope, server.name()).is_some_and(|now| Arc::ptr_eq(&now, &server)) {
+                        let _ = server.reconnect().await;
+                    }
                 }
                 self.settled(scope, &targets).await;
             }

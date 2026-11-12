@@ -67,6 +67,7 @@ exclude = [
     "crates/mixdog-patch",
     "crates/mixdog-graph",
     "crates/mixdog-secure-desktop",
+    "vendor/fancy-regex",
 ]
 
 [workspace.package]
@@ -179,6 +180,7 @@ zbus = { version = "4.4", default-features = false } # not in Codex's pins; D-Bu
 dom_query = "0.29" # not in Codex (web extraction)
 dom_smoothie = "0.19" # not in Codex (web extraction)
 encoding_rs = "0.8" # not in Codex (web charset decoding)
+fancy-regex = "0.19" # not in Codex (MCP outputSchema: ajv-formats' url pattern; already in the tree through jsonschema)
 flate2 = "1.1.8"
 futures = { version = "0.3", default-features = false }
 gix = { version = "0.89.0", default-features = false, features = ["sha1"] }
@@ -263,3 +265,8 @@ webrtc = "=0.21.1" # not in Codex
 rtc = "=0.21.1" # not in Codex; protocol core under `webrtc`
 shiguredo_libvpx = "=2026.2.0-canary.3" # not in Codex
 jpeg-decoder = { version = "0.3", default-features = false } # not in Codex
+
+[patch.crates-io]
+# The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps
+# (native/core/vendor/fancy-regex/MIXDOG.md): an MCP output schema's pattern ends when its call is cancelled.
+fancy-regex = { path = "vendor/fancy-regex" }

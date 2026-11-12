@@ -68,7 +68,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-testkit = { workspace = true }
 # The pinned test clients and the loopback server (`transport::loopback`) exist behind this feature only.
 mixdog-ai = { path = ".", features = ["count-work", "test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 rcgen = { workspace = true }

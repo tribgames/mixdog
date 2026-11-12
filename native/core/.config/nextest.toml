@@ -70,6 +70,7 @@ test-group = 'pg-cluster'
 filter = '''package(mixdog-app-server-daemon) & (
     test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
+  | test(=compose::tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
   | test(=compose::tests::the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token)
   | test(=compose::tests::the_github_tool_a_session_gets_is_nodes_builtin_one)
