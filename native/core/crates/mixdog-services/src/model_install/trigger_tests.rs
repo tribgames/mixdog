@@ -1,6 +1,6 @@
 //! When the judge and the embedder fetch, load and repair: the first judged
 //! step's refresh, the one repair per load failure until files are replaced,
-//! the prewarm skip rules, and the memory runtime's gates and warmups. Files
+//! the judge's refusals, and the memory runtime's gates and warmups. Files
 //! come from a local HTTP server; the background work is awaited through the
 //! state tick the product publishes, never through sleeps.
 
@@ -169,7 +169,7 @@ async fn a_load_failure_repairs_only_damaged_files_and_only_once_until_files_are
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_failure() {
+async fn a_judgment_is_refused_while_installing_when_not_installed_and_after_a_load_failure() {
     let files = Files::new();
     let tick = StateTick::default();
 
@@ -178,7 +178,7 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
     let release = files.manifest(&server, "r1");
     let empty = tempfile::tempdir().expect("dir");
     let model = judge(empty.path(), &release, &tick, true);
-    assert!(!model.prewarm().await);
+    assert!(matches!(model.probs(step()).await, Err(JudgeError::NotInstalled(_))));
 
     // An install in flight: judgments answer at once, a second install is refused.
     let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
@@ -191,39 +191,38 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
         async move { model.install(&release, None, &cancel).await }
     });
     until(&tick, || installing.is_installing()).await;
-    assert!(!installing.prewarm().await);
     assert!(matches!(installing.probs(step()).await, Err(JudgeError::Installing)));
     assert!(matches!(installing.install(&stalled_release, None, &CancellationToken::new()).await, Err(InstallError::Busy)));
     cancel.cancel();
     assert!(running.await.expect("joins").is_err(), "a cancelled install fails");
     assert!(!installing.is_installing());
 
-    // Installed but unloadable: the load starts, fails, and is not started again.
+    // Installed but unloadable: the load starts, fails, and is not started again inside the back-off.
     let loadable = tempfile::tempdir().expect("dir");
     let broken = judge(loadable.path(), &release, &tick, false);
     broken.install(&release, None, &CancellationToken::new()).await.expect("installs");
-    assert!(broken.prewarm().await, "the load starts in the background");
-    until(&tick, || !broken.last_error().is_empty()).await;
-    assert!(!broken.prewarm().await, "a remembered failure is not retried");
+    assert!(matches!(broken.probs(step()).await, Err(JudgeError::Load(_))));
+    assert!(!broken.last_error().is_empty());
+    assert!(matches!(broken.probs(step()).await, Err(JudgeError::Load(_))), "a remembered failure is not retried");
     assert!(!broken.status().ready);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
-async fn prewarm_loads_the_real_model_ahead_of_the_first_step_and_shutdown_unloads_it() {
+async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
     let dir = PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR"));
     let files = Files::new();
     let server = files.serve().await;
     let tick = StateTick::default();
     let model = judge_over(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort());
 
-    assert!(model.prewarm().await);
-    until(&tick, || model.is_ready()).await;
-    assert!(model.prewarm().await, "loaded");
+    assert!(!model.is_ready(), "nothing is loaded before a judgment");
+    model.probs(step()).await.expect("judged");
+    assert!(model.is_ready());
     model.shutdown().await;
     assert!(!model.is_ready());
-    assert!(model.prewarm().await, "a shut-down model loads again");
-    until(&tick, || model.is_ready()).await;
+    model.probs(step()).await.expect("a shut-down model loads again");
+    assert!(model.is_ready());
     assert_eq!(server.hits("/model.onnx"), 0);
 }
 

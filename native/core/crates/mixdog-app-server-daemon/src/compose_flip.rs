@@ -2115,7 +2115,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             );
             let mcp_glue = mcp.glue.clone();
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
-            let (process_unsupported, early_cycles, early_goals, hop_codex_declared, hop_source, mcp_catalog, memory_module, memory_search) = (process.unsupported.clone(), early.cycles.clone(), early.goals.clone(), ready.hop.codex_declared.clone(), ready.hop.source.clone(), mcp.catalog.clone(), memory.module(), memory.search());
+            let (early_cycles, early_goals, mcp_catalog, memory_module, memory_search) = (early.cycles.clone(), early.goals.clone(), mcp.catalog.clone(), memory.module(), memory.search());
             // `SessionQuota::over_config(goals, config)` is exactly `{ goals, auto_resume: over_config }`; the closure is the one hoisted above.
             let quota = mixdog_core_session::session::quota_lane::SessionQuota {
                 goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(quota_store.clone(), early_goals.clone() /* batch-d: `early_rows` returns `Arc<GoalRuntime>` */),
@@ -2138,14 +2138,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 runs,
                 surfaces: Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(exclusions.clone())), // the same exclusions the tool pool's catalog takes
                 wakes: b.wakes.clone(), // `Exec.wakes`
-                effort: Arc::new(mixdog_core_session::session::effort_prewarm::JudgePrewarm::new(
-                    b.models.effort_judge.clone(),
-                    config.clone(),
-                    registry.clone(),
-                    hop_source.clone(), // run-host-28
-                    process_unsupported.clone(),
-                    hop_codex_declared.clone(),
-                )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new((!skip_memory).then(|| memory_module.clone()))),
                 sensitive: sensitive_marks.clone(),
