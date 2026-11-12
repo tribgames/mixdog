@@ -118,13 +118,14 @@ const notes = {};
     { cwd: 'C:\\x', base: { PATH: [launcher, 'A'].join(delimiter) } },
     { cwd: 'C:\\x', base: { PATH: ['A', '', 'B'].join(delimiter) } },
     { cwd: 'C:\\x', base: {} },
+    { cwd: 'C:\\x', base: { PATH: 'A', PYTHONUTF8: '0', PYTHONIOENCODING: 'latin-1', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', OPENAI_API_KEY: 'k', NODE_OPTIONS: '--x', HOME: 'h' } },
   ];
   const scrub = (text) => String(text).replaceAll(launcher, '<LAUNCHER>');
   sets['exec-env'] = {
     platform: process.platform,
     cases: cases.map((c) => {
       const env = buildShellSpawnEnv(c.cwd, { ...c.base });
-      return { cwd: c.cwd, base: { ...c.base, ...(c.base.PATH === undefined ? {} : { PATH: scrub(c.base.PATH) }) }, PATH: env.PATH === undefined ? null : scrub(env.PATH), MIXDOG_SESSION_CWD: env.MIXDOG_SESSION_CWD ?? null };
+      return { cwd: c.cwd, base: { ...c.base, ...(c.base.PATH === undefined ? {} : { PATH: scrub(c.base.PATH) }) }, env: Object.fromEntries(Object.entries(env).map(([name, value]) => [name, scrub(value)])) };
     }),
   };
 }
@@ -275,6 +276,12 @@ const notes = {};
     ['read', { path: 'a/./b/../c.txt', limit: 5, offset: 1 }, 'C:\\work'],
     ['read', { path: 'C:/work/sub/../c.txt' }, 'C:\\work'],
     ['read', { path: '/abs/rooted.txt' }, 'C:\\work'],
+    // roots a `..` must not climb out of or remove: a UNC share, a drive, a device path, the filesystem root
+    ...[
+      '\\\\server\\share\\..\\x', '\\\\server\\share\\a\\..\\..\\x', '//server/share/../x', '\\\\server\\share', '\\\\server\\share\\', '\\\\server\\share\\.\\a\\', '\\\\server\\a\\..\\b', '\\\\server', '\\\\',
+      'C:\\..\\x', 'C:/a/../../x', 'C:\\', 'C:', 'C:x\\..\\y', 'c:\\Work\\sub\\', '\\\\?\\C:\\a\\..\\..\\b', '\\\\.\\pipe\\..\\x', '\\\\?\\UNC\\server\\share\\..\\x', '\\\\?\\', '\\\\?\\C:', '\\\\.\\a\\', '\\\\?\\x\\..\\..\\..\\y', '\\\\?\\\\\\C:\\a', '\\\\.',
+      '\\..\\x', '/../../x', '/', '\\', '..\\..\\x', 'a/../../../x', '.', '..',
+    ].map((value) => ['read', { path: value }, 'C:\\work']),
     ['read', { path: '' }, 'C:\\work'],
     ['read', { path: 'https://example.com/a/../b' }, 'C:\\work'],
     ['read', { path: 'file:///C:/x' }, 'C:\\work'],
@@ -382,14 +389,16 @@ const notes = {};
     }
     recordedScenarios.push({ ...scenario, snapshots, events: events.map(unplace), rejected });
   }
-  sets['scm-locks'] = { platform: process.platform, keys: spellings.map((spelling, index) => ({ spelling, sameAsFirst: keys[index] === keys[0] })), scenarios: recordedScenarios };
-  notes['scm-locks'] = 'the realpath spelling of the Node key test is textually the directory itself on the recording machine; the key of a path is compared by spelling equality only';
+  const rootKey = gitRepoLockKey(root);
+  sets['scm-locks'] = { platform: process.platform, rootPlaceholder: '<ROOT>', keys: spellings.map((spelling, index) => ({ spelling, key: keys[index].replace(rootKey, '<ROOT>') })), scenarios: recordedScenarios };
+  notes['scm-locks'] = 'the realpath spelling of the Node key test is textually the directory itself on the recording machine; each key is recorded with the key of the sandbox root replaced by <ROOT>';
 }
 
 // ---- fs: the default page of `list` (builtin/list-tool-integrity.test.mjs :33) ----
 {
   const { executeBuiltinTool } = await load(`${bt}.mjs`);
   const { normalizeToolEnvelope } = await load(`${orch}/session/tool-envelope.mjs`);
+  const { classifyResultKind } = await load(`${orch}/session/result-classification.mjs`);
   const root = join(sandbox, 'list-page');
   mkdirSync(root, { recursive: true });
   for (let index = 0; index < 101; index += 1) writeFileSync(join(root, `entry-${String(index).padStart(3, '0')}.txt`), 'ok');
@@ -398,13 +407,15 @@ const notes = {};
   const inputs = [
     { path: '<ROOT>', hidden: true }, { path: '<ROOT>', hidden: true, head_limit: 200 }, { path: '<ROOT>', hidden: true, head_limit: 100 },
     { path: '<ROOT>', hidden: true, head_limit: 10, offset: 95 }, { path: '<ROOT>', hidden: true, offset: 100 }, { path: '<ROOT>', hidden: true, offset: 101 }, { path: '<ROOT>', hidden: true, head_limit: 0 },
-    { path: '<ROOT>' },
+    { path: '<ROOT>' }, { path: '<ROOT>/missing' }, { path: '<ROOT>', hidden: true, limit: 10, offset: 95 }, { path: '<ROOT>', hidden: true, head_limit: 5, limit: 10 },
   ];
   const calls = [];
   for (const input of inputs) {
     const given = { ...input, path: input.path.replace('<ROOT>', root) };
     const envelope = normalizeToolEnvelope(await executeBuiltinTool('list', given, root));
-    calls.push({ input, text: scrub(envelope.result ?? ''), isError: envelope.isError === true || /^Error[\s:[]/.test(String(envelope.result ?? '')) });
+    // The error flag is the one Node's batch executor sets on a tool return (execute-call.mjs classifyToolReturn); a tool return carries no flag of its own.
+    const failed = envelope.explicitFailure || classifyResultKind(envelope.result, envelope.explicitSuccess, 'list') === 'error';
+    calls.push({ input, text: scrub(envelope.result ?? ''), isError: failed });
   }
   sets['fs-list-page'] = { count: 101, calls };
 }
@@ -431,6 +442,8 @@ const notes = {};
     <table><tr><th>Option</th><th>Value</th></tr><tr><td>port</td><td>8080</td></tr></table>
     <ul><li>First</li><li>Second</li></ul><div hidden>Hidden noise</div>
     <script>throw new Error('must not execute')</script></main><aside>Advertisement</aside>`, 'text/html'],
+    ['https://example.com/long', `<title>Long page</title><main><h1>Long</h1><p>${'A sentence that fills the page well past the excerpt length. '.repeat(8)}</p></main>`, 'text/html; charset=utf-8'],
+    ['https://example.com/long.md', 'x'.repeat(300), 'text/markdown'],
     ['https://example.com', '<meta property="og:image" content="/cover.png"><div id="root"></div><script>render()</script>', 'text/html'],
     ['https://example.com', '<title>Small page</title><div><p>A small useful page.</p><p>More details here.</p></div>', 'text/html'],
     ['https://example.com/docs', challenge('Just a moment...'), 'text/html'],
@@ -441,7 +454,7 @@ const notes = {};
   for (const [url, body, contentType] of cases) {
     try {
       const page = await extractDocument(url, body, contentType);
-      outcomes.push({ url, body, contentType, content: page.content, extractor: page.extractor, title: page.title });
+      outcomes.push({ url, body, contentType, page });
     } catch (error) {
       outcomes.push({ url, body, contentType, errorCode: error.code ?? null });
     }
@@ -537,7 +550,7 @@ writeSetManifest(out, {
       'fs-markers': 'capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them',
       'exec-deadline': 'Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
       'agent-tool-call-ids': 'a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values',
-      'scm-locks': 'the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; the "rejected" outcome of an aborted wait is a list apart from the events, because the order of a promise\'s rejection handler against another task\'s start is a tick of Node\'s promise queue, not a behaviour',
+      'scm-locks': 'the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core\'s `/` separators for the recorded `\\`; the "rejected" outcome of an aborted wait is a list apart from the events, because the order of a promise\'s rejection handler against another task\'s start is a tick of Node\'s promise queue, not a behaviour',
     },
   },
 });
