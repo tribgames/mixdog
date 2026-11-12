@@ -49,9 +49,9 @@ export function createWorkflowContext({ packs, agents }) {
   // prompt and rides in the worker session at spawn time — repeating it in
   // the Lead prompt only bloats context. Lead picks agents by description
   // (a when-to-use signal); orchestration carries the delegation rules.
-  function agentCatalog(dir, ids) {
+  function agentCatalog(load, ids) {
     return ids
-      .map((id) => agents.loadAgentDefinition(dir, id))
+      .map(load)
       .filter(Boolean)
       .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
       .join('\n');
@@ -67,11 +67,19 @@ export function createWorkflowContext({ packs, agents }) {
   function leadPromptParts(config, dir, { agentMode = false, agentId = '' } = {}) {
     const mode = configuredOrchestrationMode(config);
     const ids = agents.delegatableAgentIds(config, dir);
-    const isContact = (id) => isContactAgentId(id, agents.loadAgentDefinition(dir, id)?.kind);
+    // Each definition is validated against its files (a stat per file) once
+    // per composition, not once per use: with ~100 agents that is hundreds of
+    // synchronous stats on the main thread for every session prompt.
+    const loaded = new Map();
+    const load = (id) => {
+      if (!loaded.has(id)) loaded.set(id, agents.loadAgentDefinition(dir, id));
+      return loaded.get(id);
+    };
+    const isContact = (id) => isContactAgentId(id, load(id)?.kind);
     if (!agentMode) {
       // Bots are never a coding Lead's agents: only agent-mode Leads hand them work.
       const workflowIds = ids.filter((id) => !isContact(id));
-      const catalog = agentCatalog(dir, workflowIds);
+      const catalog = agentCatalog(load, workflowIds);
       return {
         // Solo without agents has nothing to delegate to on request either.
         orchestrationContext: mode === 'none' && !workflowIds.length ? '' : orchestrationInstructions(mode),
@@ -80,13 +88,13 @@ export function createWorkflowContext({ packs, agents }) {
       };
     }
     const subAgents = agentCatalog(
-      dir,
+      load,
       ids.filter((id) => !isContact(id))
     );
     const contacts = [
       agentId === MIXY_AGENT_ID ? '' : `- ${mixyDisplayName()} (${MIXY_AGENT_ID}): the user's representative bot`,
       agentCatalog(
-        dir,
+        load,
         ids.filter((id) => isContact(id) && id !== agentId)
       ),
     ]
