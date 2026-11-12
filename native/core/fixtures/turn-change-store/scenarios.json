@@ -100,7 +100,7 @@
       ]
      }
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000022,\"updatedAt\":1700000000022},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000024,\"updatedAt\":1700000000024},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -161,8 +161,8 @@
        }
       ],
       "revision": 1,
-      "createdAt": 1700000000022,
-      "updatedAt": 1700000000022
+      "createdAt": 1700000000024,
+      "updatedAt": 1700000000024
      }
     ],
     "count": 2
@@ -188,7 +188,7 @@
       ]
      }
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000022,\"updatedAt\":1700000000022},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000032},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000024,\"updatedAt\":1700000000024},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000034},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -210,7 +210,7 @@
       ],
       "revision": 2,
       "createdAt": 1700000000009,
-      "updatedAt": 1700000000032
+      "updatedAt": 1700000000034
      },
      {
       "checkpointId": "cp-2",
@@ -240,8 +240,8 @@
        }
       ],
       "revision": 1,
-      "createdAt": 1700000000022,
-      "updatedAt": 1700000000022
+      "createdAt": 1700000000024,
+      "updatedAt": 1700000000024
      }
     ],
     "count": 2
@@ -277,7 +277,7 @@
       ]
      }
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000022,\"updatedAt\":1700000000022},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000032},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000024,\"updatedAt\":1700000000024},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000034},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -299,7 +299,7 @@
       ],
       "revision": 2,
       "createdAt": 1700000000009,
-      "updatedAt": 1700000000032
+      "updatedAt": 1700000000034
      },
      {
       "checkpointId": "cp-2",
@@ -329,8 +329,8 @@
        }
       ],
       "revision": 1,
-      "createdAt": 1700000000022,
-      "updatedAt": 1700000000022
+      "createdAt": 1700000000024,
+      "updatedAt": 1700000000024
      }
     ],
     "count": 2
@@ -342,7 +342,7 @@
      "path": "c.txt",
      "state": "reverted"
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000022,\"updatedAt\":1700000000022},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000032},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":2,\"createdAt\":1700000000022,\"updatedAt\":1700000000051},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000024,\"updatedAt\":1700000000024},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000034},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":2,\"createdAt\":1700000000024,\"updatedAt\":1700000000053},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -364,7 +364,7 @@
       ],
       "revision": 2,
       "createdAt": 1700000000009,
-      "updatedAt": 1700000000032
+      "updatedAt": 1700000000034
      },
      {
       "checkpointId": "cp-2",
@@ -394,8 +394,8 @@
        }
       ],
       "revision": 2,
-      "createdAt": 1700000000022,
-      "updatedAt": 1700000000051
+      "createdAt": 1700000000024,
+      "updatedAt": 1700000000053
      }
     ],
     "count": 2
@@ -421,7 +421,7 @@
       ]
      }
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000022,\"updatedAt\":1700000000022},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000032},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":2,\"createdAt\":1700000000022,\"updatedAt\":1700000000051},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"},{\"path\":\"d.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/d.txt\\n+++ b/d.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":3,\"createdAt\":1700000000022,\"updatedAt\":1700000000061},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-append\",\"records\":[{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000009,\"updatedAt\":1700000000009}]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":1,\"createdAt\":1700000000024,\"updatedAt\":1700000000024},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":5,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":2,\"createdAt\":1700000000009,\"updatedAt\":1700000000034},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"outside\":[{\"path\":\"/elsewhere/x.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a//elsewhere/x.txt\\n+++ b//elsewhere/x.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\"}],\"revision\":2,\"createdAt\":1700000000024,\"updatedAt\":1700000000053},\"evict\":[]}\n{\"put\":{\"checkpointId\":\"cp-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"},{\"path\":\"d.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/d.txt\\n+++ b/d.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":3,\"createdAt\":1700000000024,\"updatedAt\":1700000000063},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -443,7 +443,7 @@
       ],
       "revision": 2,
       "createdAt": 1700000000009,
-      "updatedAt": 1700000000032
+      "updatedAt": 1700000000034
      },
      {
       "checkpointId": "cp-2",
@@ -472,8 +472,8 @@
        }
       ],
       "revision": 3,
-      "createdAt": 1700000000022,
-      "updatedAt": 1700000000061
+      "createdAt": 1700000000024,
+      "updatedAt": 1700000000063
      }
     ],
     "count": 2
@@ -552,7 +552,7 @@
       ]
      }
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-legacy\",\"records\":[{\"checkpointId\":\"old-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":10,\"updatedAt\":10},{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"revision\":2,\"createdAt\":20,\"updatedAt\":30},{\"checkpointId\":\"new-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000071,\"updatedAt\":1700000000071}]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-legacy\",\"records\":[{\"checkpointId\":\"old-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":10,\"updatedAt\":10},{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"revision\":2,\"createdAt\":20,\"updatedAt\":30},{\"checkpointId\":\"new-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000073,\"updatedAt\":1700000000073}]}",
     "json": null,
     "records": [
      {
@@ -613,8 +613,8 @@
        }
       ],
       "revision": 1,
-      "createdAt": 1700000000071,
-      "updatedAt": 1700000000071
+      "createdAt": 1700000000073,
+      "updatedAt": 1700000000073
      }
     ],
     "count": 3
@@ -626,7 +626,7 @@
      "path": "b.txt",
      "state": "applied"
     },
-    "jsonl": "{\"version\":1,\"sessionId\":\"session-legacy\",\"records\":[{\"checkpointId\":\"old-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":10,\"updatedAt\":10},{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"revision\":2,\"createdAt\":20,\"updatedAt\":30},{\"checkpointId\":\"new-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000071,\"updatedAt\":1700000000071}]}\n{\"put\":{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":3,\"createdAt\":20,\"updatedAt\":1700000000084},\"evict\":[]}",
+    "jsonl": "{\"version\":1,\"sessionId\":\"session-legacy\",\"records\":[{\"checkpointId\":\"old-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":10,\"updatedAt\":10},{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"reverted\"}],\"revision\":2,\"createdAt\":20,\"updatedAt\":30},{\"checkpointId\":\"new-1\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"c.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/c.txt\\n+++ b/c.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":1700000000073,\"updatedAt\":1700000000073}]}\n{\"put\":{\"checkpointId\":\"old-2\",\"kind\":\"git\",\"root\":\"/work/repo\",\"agents\":[],\"files\":[{\"path\":\"b.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"--- a/b.txt\\n+++ b/b.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n\",\"state\":\"applied\"}],\"revision\":3,\"createdAt\":20,\"updatedAt\":1700000000088},\"evict\":[]}",
     "json": null,
     "records": [
      {
@@ -667,7 +667,7 @@
       ],
       "revision": 3,
       "createdAt": 20,
-      "updatedAt": 1700000000084
+      "updatedAt": 1700000000088
      },
      {
       "checkpointId": "new-1",
@@ -687,8 +687,8 @@
        }
       ],
       "revision": 1,
-      "createdAt": 1700000000071,
-      "updatedAt": 1700000000071
+      "createdAt": 1700000000073,
+      "updatedAt": 1700000000073
      }
     ],
     "count": 3
