@@ -117,6 +117,11 @@ fn pdf_file_part(filename: Option<&str>, data: &str) -> Value {
     })
 }
 
+fn unavailable_label(filename: Option<&str>, mime: &str) -> String {
+    let name = filename.and_then(|f| f.rsplit(['/', '\\']).next()).unwrap_or("");
+    [name, mime, "file"].into_iter().find(|v| !v.is_empty()).unwrap_or("file").to_owned()
+}
+
 fn is_pdf(mime: &str) -> bool {
     mime.trim().eq_ignore_ascii_case("application/pdf")
 }
@@ -149,9 +154,12 @@ fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
                     filename.as_deref().unwrap_or("unnamed")
                 ),
             ),
-            BinarySource::AttachmentRef(reference) => {
-                text_part(assistant, format!("[attachment: {reference}]"))
-            }
+            // The product path reads a stored file before the body is built; one still a
+            // reference here could not be (`unavailableAttachmentText`).
+            BinarySource::AttachmentRef(_) => text_part(
+                assistant,
+                format!("[attachment unavailable: {}]", unavailable_label(filename.as_deref(), mime_type)),
+            ),
         }),
         ContentPart::Document { source, title } => Some(match source {
             DocumentSource::Base64 { media_type, data } if is_pdf(media_type) => {
