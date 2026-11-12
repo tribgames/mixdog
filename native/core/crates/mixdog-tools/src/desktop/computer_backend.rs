@@ -24,6 +24,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use base64::Engine;
+use futures::future::FutureExt;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::computer::ComputerAction;
@@ -62,6 +63,7 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_linux;
 use super::computer_recovery::lead_code as error_code;
 use super::computer_screen::Screen;
 use crate::state::secrets::ComputerSecretHost;
@@ -320,6 +322,8 @@ pub struct ProcessComputerBackend {
     turn: mixdog_rt::Gate,
     next_id: AtomicI64,
     screen: Screen,
+    /// The Linux readiness probe, shared by the commands of the next few seconds.
+    readiness: computer_linux::ReadinessCache,
     /// A typed secret's field may still hold focus: reads are refused until the next action.
     secret_focus: AtomicBool,
     /// A visible execution is open: some action ran since the last `execution_end`, abort or
@@ -368,6 +372,7 @@ impl ProcessComputerBackend {
             turn: mixdog_rt::Gate::new(),
             next_id: AtomicI64::new(1),
             screen: Screen::default(),
+            readiness: computer_linux::ReadinessCache::default(),
             secret_focus: AtomicBool::new(false),
             executing: AtomicBool::new(false),
             bound: AtomicBool::new(false),
@@ -1057,6 +1062,27 @@ impl ComputerBackend for ProcessComputerBackend {
             });
         };
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
+        let mut command = host_command(request.action, input);
+        // On Linux a default capture without window control becomes a full-screen capture, and an action whose own capability
+        // (input device, window control, AT-SPI, ...) is missing is refused before anything is dispatched (`client.mjs:300,320`).
+        let linux = cfg!(target_os = "linux");
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64);
+        let check = || {
+            let manager = self.manager.clone();
+            async move {
+                let env: computer_linux::Env = std::env::vars().collect();
+                computer_linux::check_readiness(&env, &computer_linux::SystemProbes::new(manager, env.clone())).await
+            }
+            .boxed()
+        };
+        let mut note = None;
+        if let Some(fallback) = computer_linux::capture_fallback(&self.readiness, &command, linux, now_ms, check).await {
+            command = fallback.command;
+            note = Some(fallback.note);
+        }
+        if let Some(refusal) = computer_linux::preflight(&self.readiness, &command, linux, now_ms, check).await {
+            return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
+        }
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
         self.bound.store(true, Ordering::SeqCst);
         if !self.executing.swap(true, Ordering::SeqCst) {
@@ -1064,7 +1090,6 @@ impl ComputerBackend for ProcessComputerBackend {
                 observer.began(self.config.observe_only);
             }
         }
-        let mut command = host_command(request.action, input);
         let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
         // refused, and the next action (which moves on) lifts the hold.
@@ -1077,7 +1102,7 @@ impl ComputerBackend for ProcessComputerBackend {
             }
             self.secret_focus.store(false, Ordering::SeqCst);
         }
-        match name.as_str() {
+        let result = match name.as_str() {
             "sequence" => self.act(command, &cancel).await,
             "capture" => self.capture(command, &cancel).await,
             "zoom" => Err(unsupported("capture mode=\"zoom\" needs the desktop host's frame store")),
@@ -1102,7 +1127,14 @@ impl ComputerBackend for ProcessComputerBackend {
                 parts_of(&self.call(command, &cancel).await?)
             }
             _ => parts_of(&self.call(command, &cancel).await?),
-        }
+        };
+        // The fallback's note follows a result that is not an error.
+        result.map(|mut parts| {
+            if let Some(note) = note {
+                parts.push(ToolPart::Text(note.into()));
+            }
+            parts
+        })
     }
 
     fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
