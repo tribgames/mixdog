@@ -25,7 +25,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9142,
+    "files": 9143,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -90,20 +90,22 @@
           "src/runtime/shared/custom-provider-keys.mjs",
           "src/runtime/shared/provider-api-key.mjs",
           "src/session-runtime/services/provider-admin.mjs",
-          "src/standalone/daemon.mjs"
+          "src/standalone/daemon.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs"
         ],
-        "sha256": "2c309dccf2e6b4024f2513b384d034a9839076399d5c6f588181a2a8efa9b347"
+        "sha256": "d2a4a2eb4f8bf94349d8590613bd1ca66fc2e017cb84f577d97c50bc17eaaffa"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 36
+      "filesDifferingFromCommit": 38
     },
-    "srcSha256": "da91c237f97fdce4c626a25dc1e4ae4905e9e314ab78f46b495bd9946ae5401c",
+    "srcSha256": "af81a74ed846d7566f621fdb6a8d2232012729c134eb78b81a5b12b3aa0c9578",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-oauth-scrub.mjs",

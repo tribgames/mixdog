@@ -31,7 +31,7 @@ import { recorderProvenance } from './lib/provenance.mjs';
 
 // mock.module needs the flag; run again with it when started without.
 if (!process.execArgv.includes('--experimental-test-module-mocks')) {
-  const run = spawnSync(process.execPath, ['--experimental-test-module-mocks', ...process.argv.slice(1)], { stdio: 'inherit', windowsHide: true });
+  const run = spawnSync(process.execPath, ['--experimental-test-module-mocks', ...process.argv.slice(1)], { stdio: 'inherit', windowsHide: true, timeout: 280_000 });
   process.exit(run.status ?? 1);
 }
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -96,6 +96,11 @@ const server = createServer((req, res) => {
     if (req.method === 'HEAD') return res.end();
     const exchange = [origin, req.method, path, authorization, null];
     const at = exchanges.push(exchange) - 1;
+    for (const waiting of arrivals) {
+      if (waiting.authorization !== authorization || waiting.path !== path) continue;
+      arrivals.delete(waiting);
+      waiting.resolve(at);
+    }
     res.on('finish', () => {
       finished.add(at);
       ended.get(at)?.();
@@ -119,7 +124,19 @@ const server = createServer((req, res) => {
     res.end(answer.rest);
   });
 });
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const DEADLINE_MS = 60_000;
+/** `wait`, or a rejection naming `what` when it has not happened within the deadline. */
+const within = (what, wait) => {
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the recorder waited ${DEADLINE_MS}ms for ${what}, which never happened`)), DEADLINE_MS);
+  });
+  return Promise.race([wait, expired]).finally(() => clearTimeout(timer));
+};
+await within('the endpoint to listen', new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+}));
 const base = `http://127.0.0.1:${server.address().port}/v1`;
 // A request to the Devin token endpoint goes to the endpoint instead, naming the origin it addressed. The model catalog's
 // background fetches (models.dev, the price list) are refused without reaching the network or the recording.
@@ -132,17 +149,22 @@ globalThis.fetch = (input, init) => {
   headers.set('x-bench-origin', url.origin);
   return realFetch(`http://127.0.0.1:${server.address().port}${url.pathname}${url.search}`, { ...init, headers });
 };
+/** The index of the exchange carrying `authorization` to `path`, once it has arrived: the server's arrival signals it. */
+const arrivals = new Set();
+const arrival = (authorization, path) => {
+  const at = exchanges.findIndex((e) => e[3] === authorization && e[2] === path);
+  if (at >= 0) return Promise.resolve(at);
+  return within(
+    `a request with ${authorization} to ${path}`,
+    new Promise((resolve) => arrivals.add({ authorization, path, resolve }))
+  );
+};
 /** Resolves with the index of the next exchange carrying `authorization` to `path` once its response has ended. */
-const answered = (authorization, path) =>
-  new Promise((resolve) => {
-    const watch = () => {
-      const at = exchanges.findIndex((e) => e[3] === authorization && e[2] === path);
-      if (at < 0) return setImmediate(watch);
-      if (finished.has(at)) return resolve(at);
-      ended.set(at, () => resolve(at));
-    };
-    watch();
-  });
+const answered = async (authorization, path) => {
+  const at = await arrival(authorization, path);
+  if (!finished.has(at)) await within(`the response to ${authorization} ${path} to end`, new Promise((resolve) => ended.set(at, resolve)));
+  return at;
+};
 
 let config = { providers: {}, modelSettings: {} };
 const cfg = {
@@ -168,6 +190,7 @@ const refusal = (quoted) => ({
 const pad = (i) => String(i).padStart(5, '0');
 // The values avoid what the custom error's own text rules redact (`key-…`, `sk-…`, `token=…`): only the registry redacts them.
 const SIGN_IN_TOKEN = 'devin-sign-in-grant-41c7d09e';
+const DEVIN_SIGN_IN_NOW = 1_800_000_000_000;
 
 // ---- the scenarios ------------------------------------------------------------------------------------------------------
 const SCENARIOS = {
@@ -211,7 +234,7 @@ const SCENARIOS = {
       test({ id: c.id, name: 'account c', apiKeyEnv: 'CT_KEY_C' }),
       (async () => {
         // D starts once C's stream has begun.
-        while (!exchanges.some((e) => e[3] === `Bearer ${keyC}` && e[2] === '/v1/chat/completions')) await new Promise(setImmediate);
+        await arrival(`Bearer ${keyC}`, '/v1/chat/completions');
         return test({ id: d.id, name: 'account d', apiKeyEnv: 'CT_KEY_D' });
       })(),
     ]);
@@ -220,8 +243,15 @@ const SCENARIOS = {
   },
   // The sign-in's token is a credential from the exchange that granted it: the next response quoting it is redacted.
   'sign-in-token-scrubbed-at-once': async (steps) => {
-    const record = await exchangeDevinCode('sign-in-code-5a1d', 'sign-in-verifier-0c3e');
-    steps.push(['devin sign-in', 'sign-in-code-5a1d', { granted: record.access_token === SIGN_IN_TOKEN }, null]);
+    // The token has no `exp` claim: its record expires a year after the clock, which the recording fixes.
+    mock.timers.enable({ apis: ['Date'], now: DEVIN_SIGN_IN_NOW });
+    let record;
+    try {
+      record = await exchangeDevinCode('sign-in-code-5a1d', 'sign-in-verifier-0c3e');
+    } finally {
+      mock.timers.reset();
+    }
+    steps.push(['devin sign-in', 'sign-in-code-5a1d', record, null]);
     const e = await save('account e', { apiKeyEnv: 'CT_KEY_E' });
     const keyE = 'account-e-credential-2f88';
     process.env.CT_KEY_E = keyE;
@@ -237,6 +267,7 @@ for (const [name, run] of Object.entries(SCENARIOS)) {
   resetRegistry();
   config = { providers: {}, modelSettings: {} };
   exchanges = [];
+  arrivals.clear();
   ended.clear();
   finished.clear();
   // Each step: [who, the key it read (a variable's value, a typed key) or the sign-in's code, the answer, the thrown text].
@@ -251,13 +282,20 @@ const lines = (rows) => `[\n${rows.map((row) => JSON.stringify(row)).join(',\n')
 const scenarioText = Object.entries(recorded).map(([name, { steps, exchanges: seen }]) => `${JSON.stringify(name)}: {"steps": ${lines(steps)}, "exchanges": ${lines(seen)}}`);
 writeText(
   join(stage, 'golden.json'),
-  `{"caps": ${JSON.stringify({ retired: RETIRED_CAP, carried: CARRIED_CAP })},\n"served": ${lines(servedTable)},\n"scenarios": {\n${scenarioText.join(',\n')}\n}}\n`
+  `{"caps": ${JSON.stringify({ retired: RETIRED_CAP, carried: CARRIED_CAP })},\n"devinSignInNow": ${DEVIN_SIGN_IN_NOW},\n"served": ${lines(servedTable)},\n"scenarios": {\n${scenarioText.join(',\n')}\n}}\n`
 );
 const provenance = recorderProvenance(import.meta.url);
 writeSetManifest(stage, {
   set: 'credential-transitions',
   recorder: provenance.recorder,
-  extra: provenance,
+  extra: {
+    ...provenance,
+    clock: 'the Devin sign-in runs on a fixed clock (`devinSignInNow`, mock.timers Date): its record expires a year after it, and the replay gives the core that clock',
+    exclusions: [
+      'the connection warm-up (`HEAD /` of the production link) is answered by the endpoint and not recorded: it is the link\'s, one per new connection, not a step of any scenario; the replay answers it and does not compare it',
+      'the Devin sign-in\'s result is the record `exchangeDevinCode` returns, recorded whole; the core\'s entry (`exchange_checked`) returns the account label and stores the record, so the replay compares the stored file with the recorded record',
+    ],
+  },
   command: `node benchmarks/rust-core/recorders/record-credential-transitions.mjs --tree <export of ${NODE_COMMIT} with ${cli.get('patch')} applied> --patch ${cli.get('patch')}`,
   identity,
 });

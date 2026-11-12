@@ -1,4 +1,5 @@
 {"caps": {"retired":4096,"carried":4096},
+"devinSignInNow": 1800000000000,
 "served": [
 {"status":200,"contentType":"application/json","body":"{\"data\":[{\"id\":\"m-a\"}]}"},
 {"status":200,"contentType":"text/event-stream","body":"data: {\"id\":\"c1\",\"model\":\"m-a\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"OK\"},\"finish_reason\":null}],\"usage\":null}\n\ndata: {\"id\":\"c1\",\"model\":\"m-a\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4}}\n\ndata: [DONE]\n\n"},
@@ -24622,7 +24623,7 @@
 [null,"POST","/v1/chat/completions","Bearer attached-after-the-stream-began-0b9e",1]
 ]},
 "sign-in-token-scrubbed-at-once": {"steps": [
-["devin sign-in","sign-in-code-5a1d",{"granted":true},null],
+["devin sign-in","sign-in-code-5a1d",{"access_token":"devin-sign-in-grant-41c7d09e","refresh_token":null,"expires_at":1831536000000},null],
 ["e","account-e-credential-2f88",null,"400 refused; the keys on file: [REDACTED]"]
 ], "exchanges": [
 ["https://api.devin.ai","POST","/auth/cli/token","",5],
