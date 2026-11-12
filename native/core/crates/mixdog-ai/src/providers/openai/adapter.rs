@@ -13,7 +13,8 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
-use crate::transport::deadlines::MODEL_STREAM_FETCH;
+use crate::transport::deadlines::OPENAI_HTTP_RESPONSE;
+use crate::transport::deadlines::OPENAI_OAUTH_HTTP_RESPONSE;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -125,7 +126,7 @@ impl fmt::Debug for Credential {
 pub trait CredentialSource: Send + Sync {
     async fn current(&self) -> Result<Credential, ProviderError>;
     /// The server rejected `rejected` with a 401: reload the key or refresh
-    /// the token. `None` when there is nothing newer to try.
+    /// the token. `None` when the source still holds the rejected credential; the request is sent once more either way.
     async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError>;
 }
 
@@ -451,14 +452,15 @@ impl OpenAiAdapter {
         wire: WireRequest,
     ) -> Result<Opened, ProviderError> {
         let packed = self.compressed(&wire).await;
-        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), MODEL_STREAM_FETCH).await?;
+        let exchange = if codec.route() == Route::ApiKey { OPENAI_HTTP_RESPONSE } else { OPENAI_OAUTH_HTTP_RESPONSE };
+        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), exchange).await?;
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
             let mut body = response.body;
             while body.next().await.is_some() {}
             drop(body);
-            response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
+            response = self.http.send(wire, exchange).await?;
             if response.is_success() {
                 ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }
@@ -770,7 +772,8 @@ impl OpenAiAdapter {
                 })?,
                 Wire::Http => self.open_http(codec, request, authorized).await?,
             };
-            let handshake = wire_kind == Wire::Ws && matches!(opened, Opened::Rejected(_));
+            let refused = matches!(opened, Opened::Rejected(_));
+            let handshake = wire_kind == Wire::Ws && refused;
             let rejected = match opened {
                 Opened::Stream(stream) => match stream.first_frame_failure() {
                     Some(failure) if !stripped && without_effort_updates(&wire, &failure).is_some() => failure,
@@ -780,10 +783,12 @@ impl OpenAiAdapter {
             };
             if rejected.status == Some(401) && !refreshed {
                 refreshed = true;
+                // Node reissues the request once after a 401 whether or not the reload found a new credential
+                // (`reloadApiKey` / `ensureAuth({ forceRefresh })`): a transient 401 recovers on the same key.
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
-                    continue;
                 }
+                continue;
             }
             if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
                 stripped = true;
@@ -797,14 +802,13 @@ impl OpenAiAdapter {
             if wire_kind == Wire::Ws {
                 err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
             }
-            if handshake {
-                // `httpResponseError({ label: `${errLabel} handshake`, ... })`: the message leads with what refused and how.
+            if refused {
+                // `httpResponseError({ label, status, text })`: the message leads with what refused and how, the
+                // diagnostic cut at 200 units. The label is `${errLabel} handshake` on a socket, `httpLabel` on HTTP.
+                let label = if handshake { format!("{} handshake", codec.ws_label()) } else { codec.http_label().to_owned() };
                 let status = rejected.status.unwrap_or(0);
-                err.message = if err.message.is_empty() {
-                    format!("{} handshake {status}", codec.ws_label())
-                } else {
-                    format!("{} handshake {status}: {}", codec.ws_label(), err.message)
-                };
+                let diagnostic = mixdog_js::slice_utf16(&err.message, 200);
+                err.message = if diagnostic.is_empty() { format!("{label} {status}") } else { format!("{label} {status}: {diagnostic}") };
             }
             return Err(Failed { error: err, handshake });
         }

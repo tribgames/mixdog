@@ -137,6 +137,8 @@ impl WsSocket for ScriptSocket {
 enum Dialed {
     Socket(Vec<Message>),
     Rejected(u16),
+    /// An upgrade refused with `status` and this body.
+    Refused(u16, &'static str),
 }
 
 struct ScriptedDial {
@@ -178,6 +180,9 @@ impl WsDial for ScriptedDial {
             )),
             Dialed::Rejected(status) => Err(ConnectError::Rejected(
                 Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap(),
+            )),
+            Dialed::Refused(status, body) => Err(ConnectError::Rejected(
+                Response::builder().status(status).body(Some(body.as_bytes().to_vec())).unwrap(),
             )),
         }
     }
@@ -417,6 +422,95 @@ async fn an_error_frame_that_is_not_an_effort_rejection_reaches_the_decoder() {
     let result = collect(&adapter, request(None)).await;
     assert!(result.is_err(), "the failure is the stream's, not swallowed");
     assert_eq!(dial.sent.lock().unwrap().len(), 1, "nothing was replayed");
+}
+
+// ---- the recorded error cases, replayed whole (providers-intercepted) -----------------------------------------------
+
+macro_rules! recorded {
+    ($family:literal, $scenario:literal, $file:literal) => {
+        serde_json::from_str::<serde_json::Value>(mixdog_testkit::fixture_text(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/providers-intercepted/",
+            $family,
+            "/",
+            $scenario,
+            "/",
+            $file
+        )))
+        .unwrap()
+    };
+}
+
+fn key_adapter(transport: TransportKind, http: Arc<ScriptedHttp>, dial: Arc<ScriptedDial>, credentials: Arc<Credentials>) -> OpenAiAdapter {
+    let context = Arc::new(SessionContext::new());
+    let config = OpenAiConfig::api_key(true, Arc::new(Facts), context.clone());
+    OpenAiAdapter::new(
+        ProviderId::from("openai"),
+        OpenAiCodec::new(config, transport),
+        AdapterLinks { http, dial, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials, context, listing: ListingLookup::new() },
+    )
+}
+
+/// The turn requests of a recording, in the order Node sent them (the rest are token refreshes).
+fn turns(exchange: &serde_json::Value) -> Vec<&serde_json::Value> {
+    exchange["records"].as_array().unwrap().iter().filter(|r| r["path"].as_str().unwrap().ends_with("/responses")).collect()
+}
+
+fn assert_recorded_error(err: &ProviderError, result: &serde_json::Value) {
+    let node = &result["error"];
+    assert_eq!(err.message, node["message"].as_str().unwrap());
+    assert_eq!(err.status.map(u64::from), node["status"].as_u64());
+}
+
+/// An HTTP error scenario: the served body at the recorded status, once per recorded turn; the key source reads the
+/// same key again (the API-key routes) or the account renews it (OAuth).
+async fn replay_http(oauth: bool, exchange: serde_json::Value, result: serde_json::Value) {
+    let status = u16::try_from(result["error"]["status"].as_u64().unwrap()).unwrap();
+    let turns = turns(&exchange);
+    let http = ScriptedHttp::with(turns.iter().map(|t| (status, vec![], vec![Bytes::from(t["served"].as_str().unwrap().to_owned())])).collect());
+    let adapter = if oauth {
+        adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("old", Some("new")))
+    } else {
+        key_adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("fixture-key", None))
+    };
+    let err = adapter.attempt(request(None)).await.err().expect("the recorded rejection");
+    assert_recorded_error(&err, &result);
+    assert_eq!(http.seen.lock().unwrap().len(), turns.len(), "the requests Node sent");
+}
+
+#[tokio::test]
+async fn the_recorded_direct_http_400_reads_as_nodes() {
+    replay_http(false, recorded!("openai-responses-sse-direct", "error-400", "exchange.json"), recorded!("openai-responses-sse-direct", "error-400", "result.json")).await;
+}
+
+/// A 401 on the API-key route is sent once more with the key read again, which is the same key: Node's second request.
+#[tokio::test]
+async fn the_recorded_direct_http_401_is_resent_once_with_the_same_key() {
+    replay_http(false, recorded!("openai-responses-sse-direct", "error-401", "exchange.json"), recorded!("openai-responses-sse-direct", "error-401", "result.json")).await;
+}
+
+#[tokio::test]
+async fn the_recorded_oauth_http_400_reads_as_nodes() {
+    replay_http(true, recorded!("openai-oauth-responses-sse", "error-400", "exchange.json"), recorded!("openai-oauth-responses-sse", "error-400", "result.json")).await;
+}
+
+#[tokio::test]
+async fn the_recorded_oauth_http_401_reads_as_nodes() {
+    replay_http(true, recorded!("openai-oauth-responses-sse", "error-401", "exchange.json"), recorded!("openai-oauth-responses-sse", "error-401", "result.json")).await;
+}
+
+/// The recorder's server refuses the upgrade with the status text `fixture handshake rejection` as the body
+/// (`lib/intercept.mjs`, `cb(false, status, …)`); the direct route retries the upgrade once with the same key.
+#[tokio::test]
+async fn the_recorded_direct_handshake_401_reads_as_nodes() {
+    let exchange = recorded!("openai-responses-ws", "error-http-handshake-401", "exchange.json");
+    let result = recorded!("openai-responses-ws", "error-http-handshake-401", "result.json");
+    let refused = exchange["records"].as_array().unwrap().len();
+    let dial = ScriptedDial::with((0..refused).map(|_| Dialed::Refused(401, "fixture handshake rejection")).collect());
+    let adapter = key_adapter(TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial.clone(), Credentials::new("fixture-key", None));
+    let err = adapter.attempt(request(None)).await.err().expect("the recorded refusal");
+    assert_recorded_error(&err, &result);
+    assert_eq!(dial.requests.lock().unwrap().len(), refused, "the upgrades Node sent");
 }
 
 // ---- the connection warm-up (shared/llm/http-agent.mjs:496-527, openai-oauth.mjs:106, :170) --------------------------
