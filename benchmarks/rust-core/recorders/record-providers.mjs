@@ -13,14 +13,22 @@
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installDeterminism } from './lib/determinism.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
-import { FIXTURES_ROOT, GIT_TIMEOUT_MS, REPO_ROOT, commitStage, exactProductIdentity, recordingProvenance, sha256, stageSet, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { FIXTURES_ROOT, GIT_TIMEOUT_MS, REPO_ROOT, commitStage, exactProductIdentity, patchedProductIdentity, recordingProvenance, sha256, stageSet, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
+// `--apply-patch <file>[,<file>…]` (with `--commit`): the tree must be the exact export of the commit; those Node changes are applied to it,
+// in that order, before anything is loaded from it, and the manifest names the commit and the patches. The request bodies that carry the
+// tool definitions (anthropic-shared-prefix) follow the patched definitions; no other recording of the set reads them.
+const patchFiles = (args.get('apply-patch') ?? '').split(',').filter(Boolean).map((file) => resolve(file));
+if (patchFiles.length) {
+  exactProductIdentity(tree, args.get('commit'));
+  for (const file of patchFiles) execFileSync('git', ['apply', file], { cwd: tree, timeout: GIT_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+}
 const finalDir = join(FIXTURES_ROOT, 'providers');
 // The files of the set no recorder writes: assembled by their work packages, kept as they are and stated in the
 // manifest with their own source and hash. Every other file is written by this run.
@@ -319,8 +327,8 @@ const RECORDERS = 'benchmarks/rust-core/recorders';
 writeSetManifest(setDir, {
   set: 'providers',
   recorder: `${RECORDERS}/record-providers.mjs`,
-  command: `node ${RECORDERS}/record-providers.mjs --tree <tree with node_modules>${commit ? ` --commit ${commit}` : ''}`,
-  ...(commit ? { identity: exactProductIdentity(tree, commit) } : {}),
+  command: `node ${RECORDERS}/record-providers.mjs --tree <tree with node_modules>${commit ? ` --commit ${commit}` : ''}${patchFiles.length ? ` --apply-patch ${args.get('apply-patch')}` : ''}`,
+  ...(commit ? { identity: patchFiles.length ? patchedProductIdentity(tree, commit, patchFiles) : exactProductIdentity(tree, commit) } : {}),
   extra: {
     ...recordingProvenance(`${RECORDERS}/record-providers.mjs`, [
       ...ISOLATED.map((file) => `${RECORDERS}/${file}`),

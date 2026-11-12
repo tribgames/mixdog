@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+  "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
   "externalFixtures": [
     {
       "path": "gemini-explicit-cache/cases.json",
@@ -568,17 +568,58 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
     "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
     "exact": true,
-    "files": 9142,
+    "files": 9147,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+      ],
+      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+    },
+    "patches": [
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      }
+    ],
     "refComparison": {
       "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 13
     },
-    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
+    "srcSha256": "1b4e0d9dd75c0f38c45f32f53d531fddb9fe415f851cd571bd96d3fda437d379",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -590,7 +631,7 @@
     "oracles/xai-tool-search-head-parity.json": "src/runtime/agent/orchestrator/providers/xai-tool-search-head-parity.json"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
-  "recorderSha256": "3c3f9386cb9a27b26b6c2e046e7cf3b31ecf4b64dece7944e4ae2f5e51643ecc",
+  "recorderSha256": "fa5797651fc246fbb01edc1cd192ca94f6ca7f8b21de48d8387011602f84d54d",
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",
@@ -610,15 +651,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 2575166,
-  "reRecorded": [
-    {
-      "path": "anthropic-shared-prefix/cases.json",
-      "command": "node benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patch applied>",
-      "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "patch": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-      "patchSha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088",
-      "why": "the read tool definition (tail) and the machine tool changed the tool definitions these requests carry by hash"
-    }
-  ]
+  "totalBytes": 2575166
 }
