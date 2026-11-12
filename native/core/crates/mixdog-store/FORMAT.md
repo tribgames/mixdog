@@ -611,11 +611,15 @@ run once on an empty file, outside a transaction (they set `auto_vacuum`).
 
 ### 8.2 `index/store.sqlite` (`src/schema/sql/index.sql`)
 
-`application_id` `0x4D584958` ('MXIX'), `user_version` 13. Every change to the DDL bumps
+`application_id` `0x4D584958` ('MXIX'), `user_version` 14. Every change to the DDL bumps
 `user_version` (2: the frame location of each `message_rows` version; 3: `history.facets`,
 `compactions.drop_mode` and `compaction_dropped`; 4: `sessions.title`; 5: the worker index;
 6: `agent_tag` over the agent registry's sessions, in its walk order; 7: `model_switches`;
-8: `compactions.silent`; 13: the worker index revision).
+8: `compactions.silent`; 13: the worker index revision; 14: its generation, the removal bound, and a removal for every deleted row).
+A revision is `(worker_revision.gen, rev)`: `gen` is random per index built. Removals are kept
+for the last 4096 revisions (`worker_revision.floor` is the newest revision whose removals
+were dropped); a reader of another generation or holding a revision below `floor` is handed
+the whole index.
 
 The worker index revision: what the agent registry loads (each listed `worker` map, each
 listed agent-only session's list row, and whether each is listed) is followed by

@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 13: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 14: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 13;
+PRAGMA user_version = 14;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -109,11 +109,17 @@ CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at D
 -- maps, the agent-only sessions' list rows, and whether each is listed) is followed by a
 -- counter the triggers below bump inside every transaction that changes it, whichever
 -- connection or process writes. A rolled-back write leaves the counter as it was. Each
--- changed row takes the new value in `sessions.worker_rev`; a listed row deleted without
--- its delete mark leaves its id in `worker_removed`. A reader that reads the counter and
+-- changed row takes the new value in `sessions.worker_rev`; a row deleted (purged, marked or not:
+-- a mark advances its revision, the purge after it is a removal of its own) leaves its id in `worker_removed`. A reader that reads the counter and
 -- the rows past the revision it holds in one read transaction has every change since.
-CREATE TABLE worker_revision (one INTEGER PRIMARY KEY CHECK (one = 1), rev INTEGER NOT NULL);
-INSERT INTO worker_revision (one, rev) VALUES (1, 0);
+-- `gen` is random per index built (a rebuild starts the counter at 0 again, so a revision means
+-- something only with its generation). Removals are kept for the last 4096 revisions only:
+-- `floor` is the newest revision whose removals were dropped, and a reader holding a revision
+-- below it, or of another generation, is handed the whole index.
+CREATE TABLE worker_revision (
+    one INTEGER PRIMARY KEY CHECK (one = 1), rev INTEGER NOT NULL, floor INTEGER NOT NULL, gen INTEGER NOT NULL
+);
+INSERT INTO worker_revision (one, rev, floor, gen) VALUES (1, 0, 0, random());
 CREATE TABLE worker_removed (id TEXT PRIMARY KEY, rev INTEGER NOT NULL) WITHOUT ROWID;
 CREATE INDEX worker_removed_rev ON worker_removed(rev);
 CREATE INDEX sessions_worker_rev ON sessions(worker_rev);
@@ -136,10 +142,12 @@ BEGIN
     UPDATE sessions SET worker_rev = (SELECT rev FROM worker_revision) WHERE sid = NEW.sid;
 END;
 CREATE TRIGGER worker_rev_delete AFTER DELETE ON sessions
-    WHEN OLD.deleted = 0 AND (OLD.worker IS NOT NULL OR OLD.visibility IS 'agent-only')
+    WHEN OLD.worker IS NOT NULL OR OLD.visibility IS 'agent-only'
 BEGIN
     UPDATE worker_revision SET rev = rev + 1;
     INSERT OR REPLACE INTO worker_removed (id, rev) VALUES (OLD.id, (SELECT rev FROM worker_revision));
+    UPDATE worker_revision SET floor = max(floor, rev - 4096);
+    DELETE FROM worker_removed WHERE rev <= (SELECT floor FROM worker_revision);
 END;
 
 -- Session search: a needle is a substring of one of the seven folded fields. A trigram

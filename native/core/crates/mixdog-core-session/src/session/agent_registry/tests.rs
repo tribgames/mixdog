@@ -125,7 +125,7 @@ impl Store {
 
     /// The index as a load holding revision `since` is handed it: nothing when nothing was written since, else all of it.
     fn index_at(&self, since: Option<Revision>) -> Index {
-        let revision = Revision { index: self.revision.load(Ordering::SeqCst), kept: 0 };
+        let revision = Revision { index: self.revision.load(Ordering::SeqCst), generation: 0, kept: 0 };
         if since == Some(revision) {
             return Index::Unchanged;
         }
