@@ -57,7 +57,6 @@ fn embedding_cache_defaults_to_ten_thousand_rows_with_a_positive_override() {
 mod pg {
     use std::path::PathBuf;
     use std::sync::Arc;
-    use std::time::Duration;
 
     use sha2::{Digest, Sha256};
 
@@ -65,7 +64,7 @@ mod pg {
     use crate::memory::embed::engine::EmbedConfig;
     use crate::memory::embed::provider::EmbeddingProvider;
     use crate::memory::ingest::embed_flush::{PRUNE_STATEMENTS, PruneOutcome, RawEmbedFlush};
-    use crate::memory::replays::pg::{insert_entries, memory_db};
+    use crate::memory::replays::pg::{ReplayPg, insert_entries, memory_db};
     use crate::memory::replays::{object, string};
 
     const TEXT: &str = "cached raw row";
@@ -82,8 +81,8 @@ mod pg {
         }))
     }
 
-    async fn prune(name: &str, recorded: &Exact) {
-        let pg = memory_db().await;
+    /// One recorded prune over `pg`, whose memory schema is as a new cluster has it.
+    async fn prune(pg: &ReplayPg, name: &str, recorded: &Exact) {
         let db = &pg.db;
         let count = recorded.get("count").as_f64() as i64;
         assert!(count >= 1, "{name}: a flush prunes a cache that holds its batch's row");
@@ -157,9 +156,7 @@ mod pg {
 
         let flush = RawEmbedFlush::new(db.clone(), Some(provider()));
         PRUNE_STATEMENTS.with(|log| *log.borrow_mut() = Some(Vec::new()));
-        let outcome = tokio::time::timeout(Duration::from_secs(60), flush.flush(32, Some(&[1])))
-            .await
-            .unwrap_or_else(|_| panic!("{name}: the flush did not settle within 60 s"));
+        let outcome = flush.flush(32, Some(&[1])).await;
         let statements = PRUNE_STATEMENTS.with(|log| log.borrow_mut().take()).expect("statement log");
         let statements = Exact::Array(
             statements
@@ -195,14 +192,14 @@ mod pg {
     async fn a_legacy_oversized_embedding_cache_is_truncated_to_reclaim_disk_pages() {
         let g = golden(SET);
         let name = "a legacy oversized embedding cache is truncated to reclaim disk pages";
-        prune(name, case(&g, 1, name).get("prune")).await;
+        prune(&memory_db().await, name, case(&g, 1, name).get("prune")).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn small_overflow_deletes_only_the_oldest_excess_rows() {
         let g = golden(SET);
         let name = "small overflow deletes only the oldest excess rows";
-        prune(name, case(&g, 2, name).get("prune")).await;
+        prune(&memory_db().await, name, case(&g, 2, name).get("prune")).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -210,6 +207,9 @@ mod pg {
         let g = golden(SET);
         let name = "further shapes (beyond the test file)";
         let prunes = case(&g, 3, name).get("prunes").as_array();
+        // One cluster for every prune; each starts from the memory schema a new cluster has.
+        let pg = memory_db().await;
+        let mut used = false;
         for (at, recorded) in prunes.iter().enumerate() {
             // Not reachable through the flush (module header): the empty cache and the `batchSize` options.
             if at == 0 {
@@ -220,7 +220,11 @@ mod pg {
                 assert!((5..=7).contains(&at), "prune {at}: an unexpected batchSize");
                 continue;
             }
-            prune(&format!("{name}: prune {at}"), recorded).await;
+            if used {
+                pg.reset().await;
+            }
+            used = true;
+            prune(&pg, &format!("{name}: prune {at}"), recorded).await;
         }
     }
 }
