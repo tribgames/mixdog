@@ -121,6 +121,8 @@ writeFileSync(join(dataDir, 'modelsdev-catalog.json'), JSON.stringify({ fetchedA
 const { initProviders, getProvider } = await P('agent/orchestrator/providers/registry.mjs');
 const { pinSessionWireRoute } = await P('agent/orchestrator/providers/wire-route.mjs');
 const { newProviderAccountId, readProviderAccountPool, setCustomProviderKeyIds } = await P('shared/provider-accounts.mjs');
+const { makeResolveRoute, makeResolveDefaultProvider } = await P('agent/orchestrator/runtime-core/config-helpers.mjs');
+const { routeFastKey } = await P('agent/orchestrator/runtime-core/model-capabilities.mjs');
 
 // ---- answers ----
 const j = JSON.stringify;
@@ -212,6 +214,13 @@ const UNSUPPORTED = { message: 'This model is not available on the /v1/messages 
 
 // One send: `session` (optional) is pinned first as the turn does (`pinSessionWireRoute`).
 const send = (model, { tools = [], history = [], session = null, opts = {} } = {}) => ({ model, tools, history, session, opts });
+// A send whose turn effort is what Node's `resolveRoute(config, request)` answers: the recording keeps the route's
+// inputs and its effort, and the send's `opts.effort` is that answer (null when no layer names one).
+const resolveRoute = makeResolveRoute(makeResolveDefaultProvider(() => true));
+const layered = (model, routeConfig, request, opts) => {
+  const { effort } = resolveRoute(structuredClone(routeConfig), structuredClone(request));
+  return { ...send(model, { opts: { ...opts, effort } }), route: { config: routeConfig, request, effort } };
+};
 
 const scenarios = [
   // xAI: Responses over HTTP/SSE by default; Chat when its API mode says so.
@@ -347,6 +356,20 @@ const scenarios = [
   { id: 'config-effort-openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS }), send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high' } })] },
   { id: 'config-effort-openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')), sends: [send('openai/gpt-5', { tools: TOOLS }), send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'high' } })] },
   { id: 'config-effort-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'medium' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS }), send('openrouter/auto', { tools: TOOLS, opts: { effort: 'low' } })] },
+  // The whole precedence of a reasoning effort, one case per pair of neighbouring layers: the turn's own effort
+  // (`resolveRoute` request), the session's saved choice (`modelSettings`), the agent preset's, the provider's
+  // `reasoningEffort`. Node's `resolveRoute` decides the route's effort, the provider's send then reads it as `opts.effort`.
+  ...[
+    ['effort-layers-turn-over-session', { effort: 'high' }, true],
+    ['effort-layers-session-over-preset', {}, true],
+    ['effort-layers-preset-over-config', {}, false],
+  ].map(([id, request, saved]) => ({
+    id, provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'xhigh' }, reply: () => ok(chatText('The result is 42.')),
+    sends: [layered('grok-4.3', {
+      presets: [{ id: 'fixture-preset', provider: 'xai', model: 'grok-4.3', effort: 'low' }],
+      ...(saved ? { modelSettings: { [routeFastKey('xai', 'grok-4.3')]: { effort: 'medium' } } } : {}),
+    }, { model: 'fixture-preset', ...request }, { sessionId: 'sess-xai' })],
+  })),
   // A configured effort the engine does not carry: xAI knows low/medium/high/xhigh, OpenRouter's list has `max` and not `bogus`, DeepSeek maps what it knows and leaves thinking on for the rest.
   { id: 'config-effort-unsupported-xai-chat', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'max' }, reply: () => ok(chatText('The result is 42.')), sends: [send('grok-4.3', { opts: { sessionId: 'sess-xai' } })] },
   { id: 'config-effort-unsupported-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'bogus' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS })] },
@@ -518,6 +541,7 @@ for (const s of scenarios) {
       tools: one.tools.map((t) => t.name),
       history,
       opts: one.opts,
+      ...(one.route ? { route: one.route } : {}),
       sessionId: opts.sessionId ?? null,
       ...(one.session ? { pin: pin ?? null, pinAfter: session.wireRoute ?? null } : {}),
       requests: hub.records.map(({ reply, ...rec }) => ({ ...rec, answer: { status: reply.status ?? 200, body: reply.body } })),
