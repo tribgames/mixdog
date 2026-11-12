@@ -733,7 +733,8 @@ async fn authorize(
                     // hook to work around, and the turn may now wait on them.
                     guards.note_user_wait();
                     let given = match &other {
-                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
+                        // A person's denial with no reason of its own is "denied by user" (`lifecycle.mjs:74`, `held-requests.mjs:198`).
+                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone().filter(|reason| !reason.is_empty()).or_else(|| Some("denied by user".to_owned())),
                         // `finishToolApproval(entry.id, false, 'approval timed out')` (tool-approval.mjs:77).
                         ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
                         _ => None,

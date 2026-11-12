@@ -288,8 +288,6 @@ export async function runSteps(c, app, model) {
   }
   // What each client is shown at the end, then what is stored: the conversation a client reads once the app started again.
   const shown = Object.fromEntries([...model.aliases.keys()].map((alias) => [alias, rows(alias)]));
-  // A room case also keeps what each client was shown along the way: every row in the order it first appeared.
-  const events = c.room ? Object.fromEntries([...model.aliases.keys()].map((alias) => [alias, eventsOf(app.shown, id(alias), fields)])) : undefined;
   await app.quit(within);
   await app.open(within);
   const stored = {};
@@ -297,23 +295,7 @@ export async function runSteps(c, app, model) {
   await app.quit(within);
   // The stored room records as the room host keeps them (Node's agent-rooms.json, the core's `rooms` table), read once the app has quit.
   const rooms = c.room ? await app.roomRecords() : undefined;
-  return { steps, requests: model.requests, shown, ...(events ? { events } : {}), stored, ...(rooms ? { rooms } : {}), aliases: Object.fromEntries(model.aliases), names: Object.fromEntries(model.names), root: caseRoot(c), userData: app.userData };
-}
-
-/** Every distinct row a client was shown of one session, in the order it first appeared. */
-function eventsOf(shown, sessionId, fields) {
-  const seen = new Set();
-  const out = [];
-  for (const update of shown) {
-    if (update.sessionId !== sessionId) continue;
-    for (const row of rowsOf(update.snapshot, fields)) {
-      const key = JSON.stringify(row);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(row);
-    }
-  }
-  return out;
+  return { steps, requests: model.requests, shown, stored, ...(rooms ? { rooms } : {}), aliases: Object.fromEntries(model.aliases), names: Object.fromEntries(model.names), root: caseRoot(c), userData: app.userData };
 }
 
 async function runEach(c, app, model, steps, count, id, rows, submissionId) {
@@ -442,61 +424,6 @@ const notes = [
 const asking = { bots: ann, call: send(), hooks: [{ tool: 'read', action: 'ask' }], answers: { work: { tool: 'read', args: { file_path: 'notes.txt' } } } };
 /** The report reached the sender: its wake turn ran. */
 const reported = [{ do: 'until', request: 'other', n: 2 }, { do: 'idle', who: 'H' }];
-
-// A `session` send to a group room (agent-room-host.mjs `member`/`ask`, the desktop's agent-room-messages.ts): posted in the room as a
-// row naming its sender, answered by the addressed member alone in its own member session, reported to the sender. The room is the
-// host's own (`agentRoomAction create`); Cara is switched off once it exists; Dave is no member.
-const roomBots = [...ann, { id: 'bob', name: 'Bob' }, { id: 'cara', name: 'Cara' }, { id: 'dave', name: 'Dave' }];
-const roomSend = (extra = {}) => ({ action: 'send', session_id: '@ROOM', prompt: 'WORK: check the build.', ...extra });
-const roomStart = [
-  { do: 'task', as: 'L', prompt: 'You are the lead.' },
-  { do: 'room', name: 'Plan room', members: ['ann', 'bob', 'cara'] },
-  { do: 'switchOff', agent: 'cara', who: 'L' },
-];
-const leadKick = [{ do: 'say', to: 'L', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }];
-/** The sent turns and their reports have run: then the member sessions are shown, and the sender is idle. */
-const roomEnd = (who = 'L', members = ['bob']) => [{ do: 'settle', ms: 6000 }, ...members.map((agent) => ({ do: 'member', agent, as: `M${agent[0].toUpperCase()}` })), { do: 'idle', who }];
-const roomCase = (name, call, { before = [], kick = leadKick, who = 'L', members = ['bob'], answers } = {}) => ({
-  name: `room-${name}`,
-  room: true,
-  bots: roomBots,
-  call,
-  ...(answers ? { answers } : {}),
-  steps: [...roomStart, ...before, ...kick, ...roomEnd(who, members)],
-});
-const homeKick = [{ do: 'home', agent: 'ann', as: 'H' }, { do: 'say', to: 'H', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }];
-const annInRoom = (until) => [{ do: 'say', to: 'ROOM', prompt: '/ask Ann KICK: send it.' }, until];
-const ROOM_CASES = [
-  roomCase('send-member-session', { action: 'send', session_id: '@MB', prompt: 'WORK: check the build.' }, {
-    before: [{ do: 'say', to: 'ROOM', prompt: '/ask Bob WORK: start.' }, { do: 'until', request: 'work' }, { do: 'settle', ms: 4000 }, { do: 'member', agent: 'bob', as: 'MB' }],
-  }),
-  roomCase('lead-to', roomSend({ to: 'bob' })),
-  roomCase('lead-to-name', roomSend({ to: ' BOB ' })),
-  roomCase('lead-mention', roomSend({ prompt: '@Bob WORK: check the build.' })),
-  roomCase('lead-mention-only', roomSend({ prompt: '@Bob' }), { members: [] }),
-  roomCase('lead-hop', { action: 'send', session_id: '@L', prompt: 'RELAY: forward it to Bob.' }, {
-    kick: homeKick,
-    who: 'H',
-    answers: { relay: { tool: 'session', args: roomSend({ to: 'bob' }) } },
-  }),
-  roomCase('missing-member', roomSend({ to: 'zed' }), { members: [] }),
-  roomCase('no-member', roomSend(), { members: [] }),
-  roomCase('two-members', roomSend({ prompt: '@Bob, Ann WORK: check the build.' }), { members: [] }),
-  roomCase('switched-off', roomSend({ to: 'cara' }), { members: [] }),
-  roomCase('effort', roomSend({ to: 'bob', effort: 'high' })),
-  // Bob's turn cuts Ann's short (her call ends "Cancelled"); she relays his report in a turn of her own.
-  roomCase('member-to-member', roomSend({ to: 'bob' }), { kick: annInRoom({ do: 'until', request: 'work', n: 2 }), members: ['ann', 'bob'] }),
-  roomCase('member-to-self', roomSend({ to: 'ann' }), { kick: annInRoom({ do: 'until', request: 'tool-result' }), members: ['ann'] }),
-  roomCase('bot', roomSend({ to: 'bob' }), { kick: homeKick, who: 'H' }),
-  roomCase('unknown', { ...roomSend({ to: 'bob' }), session_id: 'sess_room_zzzzzz' }, { members: [] }),
-  roomCase('member-left', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'update', patch: { members: ['ann', 'cara'] } }], members: [] }),
-  roomCase('sender-not-member', roomSend({ to: 'bob' }), {
-    kick: [{ do: 'home', agent: 'dave', as: 'H' }, { do: 'say', to: 'H', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }],
-    who: 'H',
-  }),
-  roomCase('archived', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'leave' }] }),
-  roomCase('deleted', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'remove' }], members: [] }),
-];
 
 export const CASES = [
   // The plain send, the reference the others differ from.
@@ -655,7 +582,6 @@ export const CASES = [
     env: { MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: '3000' },
     steps: [...start, ...kick, { do: 'asks', who: 'R' }, { do: 'unasked', who: 'R' }, { do: 'idle', who: 'R' }, ...reported],
   },
-  ...ROOM_CASES,
   {
     name: 'recipient-deleted-in-flight',
     bots: ann,

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { nodeTreeIdentity, parseArgs, REPO_ROOT, resolveTree, sha256, stableStringify } from './lib/common.mjs';
 import { withJob } from './lib/process-job.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { CASES, caseRoot, eachAtOnce, normalized } from './session-send-world/cases.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -86,7 +87,6 @@ if (args.get('once')) {
   const cases = { ...previous, ...first };
   const golden = `${stableStringify({ cases }, 2)}\n`;
   writeFileSync(join(SET_DIR, 'golden.json'), golden);
-  const hashed = (path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) });
   const manifest = {
     set: 'session-send-world',
     command: 'node --import tsx benchmarks/rust-core/recorders/record-session-send-world.mjs --tree <tree> --service <daemon.cjs>   (cwd <tree>/apps/desktop)',
@@ -99,24 +99,7 @@ if (args.get('once')) {
     cases: Object.keys(cases).length,
     files: [{ path: 'golden.json', bytes: Buffer.byteLength(golden), sha256: sha256(Buffer.from(golden)) }],
     product: identity,
-    provenance: {
-      nodeVersion: process.version,
-      recorder: 'benchmarks/rust-core/recorders/record-session-send-world.mjs',
-      recorderSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
-      inputs: [
-        'benchmarks/rust-core/recorders/lib/common.mjs',
-        'benchmarks/rust-core/recorders/lib/phone-files-replay.mjs',
-        'benchmarks/rust-core/recorders/lib/phone-files-script.mjs',
-        'benchmarks/rust-core/recorders/lib/phone-relay-core.mjs',
-        'benchmarks/rust-core/recorders/lib/process-job.mjs',
-        'benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs',
-        'benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs',
-        'benchmarks/rust-core/recorders/session-send-world/cases.mjs',
-        'benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs',
-        'benchmarks/rust-core/recorders/session-send-world/replay.mjs',
-        'benchmarks/rust-core/recorders/session-send-world/world.mjs',
-      ].map(hashed),
-    },
+    provenance: recorderProvenance(import.meta.url),
   };
   writeFileSync(join(SET_DIR, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`recorded ${chosen.length} cases twice, identical; golden sha256 ${sha256(Buffer.from(golden))}; tree ${identity.commit}`);

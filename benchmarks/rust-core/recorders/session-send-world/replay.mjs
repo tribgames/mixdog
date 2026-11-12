@@ -104,7 +104,7 @@ function coreApp(exe, coreRoot, model, env) {
     capabilities = createCapabilityLane({
       protocol: {
         call: (method, params) => client.call(method, params),
-        snapshot: () => null,
+        snapshot: () => ({ entries: [] }),
         noteUserInput() {},
         respond: (id, answer) => client.respond(id, answer),
         pendingServerRequests: () => client.pendingServerRequests(),

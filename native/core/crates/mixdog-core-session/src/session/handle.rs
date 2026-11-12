@@ -525,25 +525,8 @@ impl SessionHandle {
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {
             header.insert(key.into(), now.clone());
         }
-        // `inheritToNewSession` (`lifecycle/inheritance.mjs:258-266`): a cold heir is built in memory, carried into and only
-        // then persisted, so a refused carry leaves no session. The carry is decided on the heir's route before it exists;
-        // until it does, the source stands for it as the measured session (the heir is a copy of its header) and tool surface.
         let heirs = super::SessionDirectory::over(directory.clone());
-        let compact = params.compact == Some(true);
-        let planned = match params.into_thread_id {
-            Some(_) => None,
-            None => {
-                let target = super::inheritance::InheritTarget {
-                    provider: super::inheritance::clean(header.get("provider")),
-                    model: super::inheritance::clean(header.get("model")),
-                    selected_context_window: None,
-                    session: Some(self.id.clone()),
-                    tools_of: Some(self.id.clone()),
-                    source: Some(self.id.clone()),
-                };
-                Some(heirs.plan_carry(&self.id, &target, compact).await?)
-            }
-        };
+        let new_heir = params.into_thread_id.is_none();
         let created = directory
             .create(CreateSpec {
                 id: params.into_thread_id,
@@ -562,10 +545,13 @@ impl SessionHandle {
         directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
         // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
-        match planned {
-            Some(carry) => heirs.commit_carry(&self.id, &created.id, carry).await,
-            None => heirs.carry_into(&self.id, &created.id, compact).await,
+        let carried = heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await;
+        // `inheritToNewSession` (`lifecycle/inheritance.mjs:258-266`): a cold heir is persisted only after the carry, so a carry
+        // that fails leaves no session. The heir is marked as being copied while it is measured, so a prune of the source waits.
+        if carried.is_err() && new_heir {
+            heirs.discard(&created.id).await;
         }
+        carried
     }
 
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
