@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-anthropic-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "node benchmarks/rust-core/recorders/record-anthropic-stream.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -27,7 +27,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -43,7 +43,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+      "sha256": "14328d15667d2c5ad8f14803aeae9164c02ffe2894fde446c53e204612064d30"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
