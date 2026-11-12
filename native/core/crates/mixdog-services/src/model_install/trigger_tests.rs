@@ -68,10 +68,16 @@ fn judge(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool) -> A
 }
 
 fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf) -> Arc<EffortJudgeModel> {
+    judge_hosted(dir, manifest, tick, explicit, ort_library, false)
+}
+
+/// `real_host`: the model loads in the real host process (the test binary is not `mixdogd`, which the product starts).
+fn judge_hosted(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf, real_host: bool) -> Arc<EffortJudgeModel> {
     let mut model = config(dir);
     model.explicit = explicit;
     model.ort_library = crate::effort_judge::model::OrtRuntime::Library(ort_library);
-    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), ..JudgeOptions::default() })
+    let host = real_host.then(|| crate::effort_judge::host_tests::real_host_launch(&model));
+    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), host, ..JudgeOptions::default() })
         .expect("judge")
 }
 
@@ -215,7 +221,7 @@ async fn prewarm_loads_the_real_model_ahead_of_the_first_step_and_shutdown_unloa
     let files = Files::new();
     let server = files.serve().await;
     let tick = StateTick::default();
-    let model = judge_over(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort());
+    let model = judge_hosted(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort(), true);
 
     assert!(model.prewarm().await);
     until(&tick, || model.is_ready()).await;
