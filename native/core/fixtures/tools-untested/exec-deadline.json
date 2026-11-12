@@ -1,0 +1,3801 @@
+{
+  "note": null,
+  "calls": [
+    {
+      "env": {},
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {},
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {},
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "20000"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": " "
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "-5"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "MIXDOG_SHELL_AUTO_BACKGROUND_MS": "abc"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 200000,
+        "promotedTimeoutMs": 100000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 200000,
+        "promotedTimeoutMs": 2147283647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 200000,
+        "promotedTimeoutMs": 100000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "200000"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {},
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {},
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 20000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 20000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 5000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 300000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 600000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 5000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 10
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 45000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "wait_ms": 45000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 4000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 60000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 60000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 60000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 2147363647,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 60000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 5000000000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 2147483647,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 2147483647,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 120000,
+        "promotedTimeoutMs": 180000,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 90000
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "timeout_ms": 300000,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 300000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 300000,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": true,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "wait_ms": 90000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 0,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 0,
+        "autoBackgroundMs": 0
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": true,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 1
+      }
+    },
+    {
+      "env": {
+        "BASH_MAX_TIMEOUT_MS": "0"
+      },
+      "args": {
+        "background": true,
+        "timeout_ms": 4000
+      },
+      "backgroundOnTimeout": false,
+      "plan": {
+        "timeout": 4000,
+        "promotedTimeoutMs": 0,
+        "promoteAtTimeout": false,
+        "backgroundDeadlineMs": 4000,
+        "autoBackgroundMs": 0
+      }
+    }
+  ]
+}

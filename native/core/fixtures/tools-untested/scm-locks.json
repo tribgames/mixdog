@@ -1,0 +1,566 @@
+{
+  "note": "the realpath spelling of the Node key test is textually the directory itself on the recording machine; the key of a path is compared by spelling equality only",
+  "platform": "win32",
+  "keys": [
+    {
+      "spelling": "<ROOT>\\Repo\\.git",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\.git/",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\.git\\x\\..",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\REPO\\.GIT",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>/Repo/.git",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\.git\\",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\.git\\.",
+      "sameAsFirst": true
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\.git\\x",
+      "sameAsFirst": false
+    },
+    {
+      "spelling": "<ROOT>\\Repo\\other",
+      "sameAsFirst": false
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "writes on different worktrees run together; writes on one worktree run one at a time in order",
+      "ops": [
+        {
+          "op": "run",
+          "name": "a1",
+          "repo": "repo-scope",
+          "scopes": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "a2",
+          "repo": "repo-scope",
+          "scopes": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "b",
+          "repo": "repo-scope",
+          "scopes": [
+            "wt-b"
+          ],
+          "hold": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a1"
+        },
+        {
+          "op": "await",
+          "name": "a1"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a2"
+        },
+        {
+          "op": "release",
+          "name": "b"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        },
+        {
+          "op": "await",
+          "name": "b"
+        }
+      ],
+      "snapshots": [
+        [
+          "a1:start",
+          "b:start"
+        ],
+        [
+          "a1:start",
+          "b:start",
+          "a1:end",
+          "a2:start"
+        ]
+      ],
+      "events": [
+        "a1:start",
+        "b:start",
+        "a1:end",
+        "a2:start",
+        "a2:end",
+        "b:end"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "a write naming several worktrees conflicts with a write on any of them",
+      "ops": [
+        {
+          "op": "run",
+          "name": "move",
+          "repo": "repo-multi",
+          "scopes": [
+            "wt-a",
+            "wt-new"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "a",
+          "repo": "repo-multi",
+          "scopes": [
+            "wt-a"
+          ]
+        },
+        {
+          "op": "run",
+          "name": "new",
+          "repo": "repo-multi",
+          "scopes": [
+            "wt-new"
+          ]
+        },
+        {
+          "op": "run",
+          "name": "b",
+          "repo": "repo-multi",
+          "scopes": [
+            "wt-b"
+          ]
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "move"
+        },
+        {
+          "op": "await",
+          "name": "move"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "new"
+        }
+      ],
+      "snapshots": [
+        [
+          "move:start",
+          "b"
+        ]
+      ],
+      "events": [
+        "move:start",
+        "b",
+        "move:end",
+        "a",
+        "new"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "a waiting whole-repository write is never starved by later worktree writes",
+      "ops": [
+        {
+          "op": "run",
+          "name": "a",
+          "repo": "repo-starve",
+          "scopes": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "repo",
+          "repo": "repo-starve",
+          "scopes": "whole",
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "b",
+          "repo": "repo-starve",
+          "scopes": [
+            "wt-b"
+          ]
+        },
+        {
+          "op": "run",
+          "name": "a2",
+          "repo": "repo-starve",
+          "scopes": [
+            "wt-a"
+          ]
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "repo"
+        },
+        {
+          "op": "await",
+          "name": "repo"
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        }
+      ],
+      "snapshots": [
+        [
+          "a:start"
+        ],
+        [
+          "a:start",
+          "a:end",
+          "repo:start"
+        ]
+      ],
+      "events": [
+        "a:start",
+        "a:end",
+        "repo:start",
+        "repo:end",
+        "b",
+        "a2"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "a later write that conflicts with nothing ahead of it is not held back by a queue",
+      "ops": [
+        {
+          "op": "run",
+          "name": "a",
+          "repo": "repo-convoy",
+          "scopes": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "a2",
+          "repo": "repo-convoy",
+          "scopes": [
+            "wt-a"
+          ]
+        },
+        {
+          "op": "run",
+          "name": "b",
+          "repo": "repo-convoy",
+          "scopes": [
+            "wt-b"
+          ]
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        }
+      ],
+      "snapshots": [
+        [
+          "a:start",
+          "b"
+        ]
+      ],
+      "events": [
+        "a:start",
+        "b",
+        "a:end",
+        "a2"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "worktree scopes are canonical paths; an empty scope holds the whole repository",
+      "ops": [
+        {
+          "op": "run",
+          "name": "held",
+          "repo": "<ROOT>\\.git",
+          "scopes": [
+            "<ROOT>\\Worktree"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "same",
+          "repo": "<ROOT>\\.git",
+          "scopes": [
+            "<ROOT>\\WORKTREE\\"
+          ]
+        },
+        {
+          "op": "run",
+          "name": "whole",
+          "repo": "<ROOT>\\.git",
+          "scopes": []
+        },
+        {
+          "op": "run",
+          "name": "none",
+          "repo": "<ROOT>\\.git",
+          "scopes": null
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "held"
+        },
+        {
+          "op": "await",
+          "name": "held"
+        },
+        {
+          "op": "await",
+          "name": "same"
+        },
+        {
+          "op": "await",
+          "name": "whole"
+        },
+        {
+          "op": "await",
+          "name": "none"
+        }
+      ],
+      "snapshots": [
+        [
+          "held:start"
+        ]
+      ],
+      "events": [
+        "held:start",
+        "held:end",
+        "same",
+        "whole",
+        "none"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "writers on different repositories run in parallel",
+      "ops": [
+        {
+          "op": "run",
+          "name": "first",
+          "repo": "repo-a",
+          "scopes": "whole",
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "second",
+          "repo": "repo-b",
+          "scopes": "whole",
+          "hold": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "first"
+        },
+        {
+          "op": "release",
+          "name": "second"
+        },
+        {
+          "op": "await",
+          "name": "first"
+        },
+        {
+          "op": "await",
+          "name": "second"
+        }
+      ],
+      "snapshots": [
+        [
+          "first:start",
+          "second:start"
+        ]
+      ],
+      "events": [
+        "first:start",
+        "second:start",
+        "first:end",
+        "second:end"
+      ],
+      "rejected": []
+    },
+    {
+      "name": "a queued write aborts without running or blocking later work",
+      "ops": [
+        {
+          "op": "run",
+          "name": "writer",
+          "repo": "repo-abort",
+          "scopes": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "run",
+          "name": "queued",
+          "repo": "repo-abort",
+          "scopes": "whole",
+          "abortable": true
+        },
+        {
+          "op": "run",
+          "name": "behind",
+          "repo": "repo-abort",
+          "scopes": [
+            "wt-b"
+          ]
+        },
+        {
+          "op": "abort",
+          "name": "queued"
+        },
+        {
+          "op": "await",
+          "name": "behind"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "writer"
+        },
+        {
+          "op": "await",
+          "name": "writer"
+        },
+        {
+          "op": "run",
+          "name": "after",
+          "repo": "repo-abort",
+          "scopes": "whole"
+        },
+        {
+          "op": "await",
+          "name": "after"
+        }
+      ],
+      "snapshots": [
+        [
+          "writer:start",
+          "behind"
+        ]
+      ],
+      "events": [
+        "writer:start",
+        "behind",
+        "writer:end",
+        "after"
+      ],
+      "rejected": [
+        "queued: AbortError"
+      ]
+    }
+  ]
+}

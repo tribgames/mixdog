@@ -1,0 +1,45 @@
+{
+  "note": null,
+  "platform": "win32",
+  "cases": [
+    {
+      "cwd": "C:\\Project\\mixdog",
+      "base": {
+        "PATH": "A;B",
+        "MIXDOG_SESSION_CWD": "C:\\wrong-session"
+      },
+      "PATH": "<LAUNCHER>;A;B",
+      "MIXDOG_SESSION_CWD": "C:\\Project\\mixdog"
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "A;B"
+      },
+      "PATH": "<LAUNCHER>;A;B",
+      "MIXDOG_SESSION_CWD": "C:\\x"
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "<LAUNCHER>;A"
+      },
+      "PATH": "<LAUNCHER>;A",
+      "MIXDOG_SESSION_CWD": "C:\\x"
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "A;;B"
+      },
+      "PATH": "<LAUNCHER>;A;B",
+      "MIXDOG_SESSION_CWD": "C:\\x"
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {},
+      "PATH": "<LAUNCHER>",
+      "MIXDOG_SESSION_CWD": "C:\\x"
+    }
+  ]
+}
