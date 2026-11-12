@@ -1437,12 +1437,20 @@ impl super::TaskWorkspace for FixedTaskWorkspace {
 pub struct RecordingPlace {
     pub projects: Vec<String>,
     pub entered: std::sync::Mutex<Vec<(String, Value, Option<Value>)>>,
+    /// The Projects marked used after an accepted new task, in order; `touch_error` makes that write fail.
+    pub touched: std::sync::Mutex<Vec<String>>,
+    pub touch_error: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl super::NewThreadPlace for RecordingPlace {
     async fn projects(&self) -> Result<Vec<String>, String> {
         Ok(self.projects.clone())
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.touched.lock().expect("touched").push(path.to_owned());
+        self.touch_error.clone().map_or(Ok(()), Err)
     }
 
     async fn enter_worktree(

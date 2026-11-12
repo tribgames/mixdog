@@ -516,6 +516,10 @@ impl super::NewThreadPlace for HeldPlace {
         Ok(Vec::new())
     }
 
+    async fn touch_project(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
         if !self.held.swap(true, Ordering::SeqCst) {
             self.entered.notify_one();
@@ -875,5 +879,34 @@ async fn the_129th_request_in_flight_is_refused() {
     release.add_permits(super::new_task::MAX_ACTIVE);
     for task in held {
         within("a released request's answer", task).await.expect("joined").expect_err("released");
+    }
+}
+
+/// Node's recording `fixtures/project-recency-failure-cases` ("an accepted submission commits its receipt and stays subscribed after
+/// ${cause} breaks recency"): the recency write after the accepted prompt fails, the task is still accepted with its receipt
+/// committed, and a retry of the same submission answers the same task without a second prompt. The write itself is the one the
+/// accepted task makes, once, on the Project the draft names; Node's record of it is `calls` (one create, one submit).
+#[tokio::test(start_paused = true)]
+async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
+    let golden = mixdog_testkit::Exact::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/project-recency-failure-cases/golden.json"));
+    let case = &golden.get("cases").as_array()[1];
+    assert_eq!(case.get("case").as_str(), "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency");
+    for recorded in case.get("observed").get("runs").as_array() {
+        let id = recorded.get("options").get("id").as_str();
+        let rig = Rig::new();
+        let runs = counting(&rig);
+        let place = Arc::new(super::testing::RecordingPlace { touch_error: Some("registry publication failed".to_owned()), ..Default::default() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_place = place.clone();
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let first = within("the submission's answer", submit(&directory, "op-1", id, "accepted work", json!({}))).await.expect("accepted");
+        let retry = within("the retry's answer", submit(&directory, "op-2", id, "accepted work", json!({}))).await.expect("retry");
+        let receipt = stored(&rig, id).expect("a receipt");
+        assert_eq!(receipt.phase().name(), recorded.get("receipt").get("phase").as_str(), "{id}");
+        assert_eq!(first, recorded.get("receipt").get("sessionId").as_str(), "{id}");
+        assert_eq!(retry, recorded.get("retry").get("sessionId").as_str(), "{id}");
+        assert_eq!(runs.load(Ordering::SeqCst) as f64, recorded.get("calls").get("submits").as_f64(), "{id}: prompts sent");
+        assert_eq!(directory.loaded_ids().len() as f64, recorded.get("calls").get("creates").as_f64(), "{id}: tasks created");
+        assert_eq!(*place.touched.lock().unwrap(), vec!["/ws".to_owned()], "{id}: one recency write, none for the retry");
     }
 }
