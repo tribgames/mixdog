@@ -103,7 +103,8 @@ export const LEAD_SCENARIOS = [
   // A `load_tool` of the slow server's tool in the first turn, while the server's connect is still in flight (the gate holds its handshake). The
   // first request is answered with that call and the request that carries its result is the recording. `'released'` lets the gate go once the call
   // is made (the connect finishes inside the wait for it: the tool is described); `'held'` never does (the wait ends on the server's startup budget,
-  // 1500 ms, and the tool is reported missing).
+  // 1500 ms, and the tool is reported missing). The budget runs from the start of the connect, which is held from boot on: the released server's is a
+  // minute, so the call finds the connect either finished or still inside its budget, whatever the machine's load, and never past it.
   ...['released', 'held'].map((mcpGate) => ({
     name: `mcp-load-tool-${mcpGate === 'released' ? 'connects-in-time' : 'connect-not-released'}`,
     route: 'anthropic',
@@ -112,7 +113,7 @@ export const LEAD_SCENARIOS = [
     mcpGateAfterCall: true,
     toolCall: { name: 'load_tool', input: { names: ['mcp__stub__echo'] } },
     path: ['node'],
-    config: withAgent({ mcpServers: { stub: { command: 'node', args: ['{DATA}/mcp-stub.mjs'], startupTimeoutMs: 1500 } } }),
+    config: withAgent({ mcpServers: { stub: { command: 'node', args: ['{DATA}/mcp-stub.mjs'], startupTimeoutMs: mcpGate === 'released' ? 60_000 : 1500 } } }),
     data: { 'mcp-stub.mjs': mcpStub({ instructions: 'Echo text back to the user. Use it only when asked to repeat something.', gate: true }) },
   })),
   {
