@@ -30,7 +30,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mailbox-scenarios.mjs",
-      "sha256": "70c76c46afc421961cf76bcc8f10a47c47b5c78ffb6abc5044c1e9a561922167"
+      "sha256": "db9e8b89337558e23d65b376a57bf0789d483ba6cbc9d946c12b3c02b831d1a6"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -72,7 +72,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-remote-streaming-mailbox-cases.mjs",
-  "recorderSha256": "b665289c6c19d17b29ce65ac6a5af0efca0895167468fb6e12bdfbcf4b83c1ba",
+  "recorderSha256": "c9b06016e17e53364ba20f49509794df8eceea6a168c9cfd3170088db3617692",
   "replay": {
     "compare": "mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires",
     "entry": "NO RUST ENTRY ON o1: the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates.",
