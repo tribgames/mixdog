@@ -1,0 +1,52 @@
+{
+  "cases": 11,
+  "command": "node benchmarks/rust-core/recorders/record-config-create-patch.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "order of the changes of one patch": "the golden's objects are written with sorted keys, so a replay reads each config's keys in another order than Node did and the order of independent edits follows it; the changes are compared as a list sorted by path (each edit is unique by path)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5835,
+      "path": "golden.json",
+      "sha256": "f5a5c9538bf730f4be37ef2595c7f4bb2317d60dd3e344f7251534f61ba97524"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per case: both configs and the patch (every change, path and value or removal, in Node's order)",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-config-create-patch.mjs",
+  "recorderSha256": "f5a1aa8b70c6c14f47334bf0fc70ba68ab530589ee9438ce9c64f83bbdf24128",
+  "set": "config-create-patch",
+  "syntheticInputs": [
+    "the before and after configs: the profile, compaction, auto-clear, skills, shell and provider settings the Node settings-writer tests use",
+    "the data directory: empty but for a config file already separated (defaultsVersion 2)"
+  ],
+  "totalBytes": 5835
+}

@@ -1,0 +1,47 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-trace-redaction.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4160,
+      "path": "golden.json",
+      "sha256": "b6d6e56a71406df232aa35ea20d1566a9aff7067102a84e00f3d91df6033e7c3"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "the trace sink and the failure sink as Node wrote them, every line, nothing excluded",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-trace-redaction.mjs",
+  "recorderSha256": "9202efbf146d60f14db3c689c29e849248cffa78e7dd9b0666c44edd5c7c7283",
+  "set": "agent-trace-redaction",
+  "syntheticInputs": [
+    "the three tool calls of agent-trace-failures.test.mjs, given to traceAgentTool unchanged; the clock is fixed at `now`"
+  ],
+  "totalBytes": 4160
+}

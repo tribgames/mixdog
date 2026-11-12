@@ -1,0 +1,48 @@
+{
+  "note": "the trace rows and failure rows of real Node over the three calls of its redaction test",
+  "now": 1700000000000,
+  "cases": [
+    {
+      "sessionId": "structured-failure",
+      "iteration": 1,
+      "toolName": "computer",
+      "toolKind": "internal",
+      "toolMs": 1,
+      "resultKind": "error",
+      "resultText": {
+        "isError": true,
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: foreground_unavailable\nAuthorization: Bearer secret-example-token"
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "data": "image-bytes-must-not-enter-logs"
+          }
+        ]
+      }
+    },
+    {
+      "sessionId": "structured-failure",
+      "iteration": 1,
+      "toolName": "shell",
+      "toolKind": "internal",
+      "toolMs": 1,
+      "resultKind": "error",
+      "resultText": "\r\n ⚠️ destructive command warning\r\n Error: Session \"sess_cancelled\" closed: aborted during call"
+    },
+    {
+      "sessionId": "structured-failure",
+      "iteration": 1,
+      "toolName": "shell",
+      "toolKind": "internal",
+      "toolMs": 1,
+      "resultKind": "error",
+      "resultText": "Error: failed: mysql --password hunter2-flag -p hunter2-short https://user:hunter2-url@host.example/x"
+    }
+  ],
+  "trace": "{\"iteration\":1,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"computer\",\"tool_kind\":\"internal\",\"tool_ms\":1,\"tool_args\":null,\"tool_args_hash\":null,\"tool_args_summary\":null,\"result_kind\":\"error\",\"result_error_first_line\":\"Error: foreground_unavailable\",\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":0,\"result_lines_est\":0,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"structured-failure\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"shell\",\"tool_kind\":\"internal\",\"tool_ms\":1,\"tool_args\":null,\"tool_args_hash\":null,\"tool_args_summary\":null,\"result_kind\":\"error\",\"result_error_first_line\":\"⚠️ destructive command warning\",\"result_error_category\":\"expected-cancellation\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":99,\"result_lines_est\":3,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"structured-failure\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"shell\",\"tool_kind\":\"internal\",\"tool_ms\":1,\"tool_args\":null,\"tool_args_hash\":null,\"tool_args_summary\":null,\"result_kind\":\"error\",\"result_error_first_line\":\"Error: failed: mysql --password [redacted] -p [redacted] https://user:[redacted]@host.example/x\",\"result_error_category\":\"command-exit\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":101,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"structured-failure\"}\n",
+  "failures": "{\"ts\":1700000000000,\"session_id\":\"structured-failure\",\"iteration\":1,\"tool_name\":\"computer\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":1,\"tool_args\":null,\"error_first_line\":\"Error: foreground_unavailable\",\"error_preview\":\"Error: foreground_unavailable\\nAuthorization: Bearer [redacted]\",\"result_bytes_est\":62,\"result_lines_est\":2}\n{\"ts\":1700000000000,\"session_id\":\"structured-failure\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"command-exit\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":1,\"tool_args\":null,\"error_first_line\":\"Error: failed: mysql --password [redacted] -p [redacted] https://user:[redacted]@host.example/x\",\"error_preview\":\"Error: failed: mysql --password [redacted] -p [redacted] https://user:[redacted]@host.example/x\",\"result_bytes_est\":95,\"result_lines_est\":1}\n"
+}

@@ -151,7 +151,20 @@ pub trait Sessions: Send + Sync {
         text
     }
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool;
+    /// `closeRuntime`'s answer: `Ok(false)` when there is nothing to close, `Err` (the text Node
+    /// throws, `agent session <id> could not be durably closed`) when the close did not land. A
+    /// surface that cannot tell the two apart keeps this default.
+    async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        Ok(self.close_session(session_id, reason, options).await)
+    }
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String>;
+    /// `registry.childrenOf(id)`: the agent sessions linked directly below `session_id`.
+    fn child_session_ids(&self, session_id: &str) -> Vec<String>;
+    /// `registry.beginCancellation(ids)`: while the returned guard lives, these sessions refuse
+    /// admission (a spawn or send under them). A surface with no admission has nothing to hold.
+    fn begin_cancellation(&self, _ids: &[String]) -> Box<dyn Send> {
+        Box::new(())
+    }
     /// The agent's statusline route, dropped when its session closes.
     fn clear_statusline_route(&self, session_id: &str);
 }
@@ -161,6 +174,9 @@ pub trait Tasks: Send + Sync {
     fn list(&self, scope: &Scope) -> Vec<TaskFacts>;
     fn get(&self, task_id: &str, scope: &Scope) -> Option<TaskFacts>;
     fn cancel(&self, task_id: &str, reason: &str);
+    /// `cancelBackgroundTasks({ surface: 'agent', callerSessionId, reason })`: every running job
+    /// this session started (a job with no owner is never claimed).
+    fn cancel_owned(&self, session_id: &str, reason: &str);
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned;
 }
 

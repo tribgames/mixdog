@@ -1,0 +1,966 @@
+[
+  {
+    "name": "every_member_closes",
+    "failClose": [],
+    "members": [
+      "sess_w1",
+      "sess_c1",
+      "sess_c2",
+      "sess_c3"
+    ],
+    "links": [
+      {
+        "id": "sess_c1",
+        "parent": "sess_w1"
+      },
+      {
+        "id": "sess_c2",
+        "parent": "sess_c1"
+      },
+      {
+        "id": "sess_c3",
+        "parent": "sess_w1"
+      }
+    ],
+    "runs": {
+      "cancelTree": {
+        "returned": true,
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c3",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "close": {
+        "returned": {
+          "closed": true,
+          "tag": "w1",
+          "sessionId": "sess_w1",
+          "task_id": null
+        },
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c2",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ],
+          [
+            "forgetTerminalSession",
+            "w1",
+            "sess_w1"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c1"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c2"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c3"
+          ],
+          [
+            "markReleased",
+            [
+              "sess_w1",
+              "sess_c1",
+              "sess_c2",
+              "sess_c3"
+            ]
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "closeAll": {
+        "returned": {
+          "closed": [
+            {
+              "closed": true,
+              "tag": "w1",
+              "sessionId": "sess_w1",
+              "task_id": null
+            }
+          ],
+          "failed": []
+        },
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c2",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ],
+          [
+            "forgetTerminalSession",
+            "w1",
+            "sess_w1"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c1"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c2"
+          ],
+          [
+            "removeWorkerRow",
+            "sess_c3"
+          ],
+          [
+            "markReleased",
+            [
+              "sess_w1",
+              "sess_c1",
+              "sess_c2",
+              "sess_c3"
+            ]
+          ],
+          [
+            "purgeWorkerRows"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      }
+    }
+  },
+  {
+    "name": "a_failing_descendant_under_a_parent_that_closes",
+    "failClose": [
+      "sess_c2"
+    ],
+    "members": [
+      "sess_w1",
+      "sess_c1",
+      "sess_c2",
+      "sess_c3"
+    ],
+    "links": [
+      {
+        "id": "sess_c1",
+        "parent": "sess_w1"
+      },
+      {
+        "id": "sess_c2",
+        "parent": "sess_c1"
+      },
+      {
+        "id": "sess_c3",
+        "parent": "sess_w1"
+      }
+    ],
+    "runs": {
+      "cancelTree": {
+        "returned": null,
+        "threw": {
+          "message": "agent session sess_c2 could not be durably closed",
+          "aggregate": false,
+          "parts": []
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c3",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "close": {
+        "returned": null,
+        "threw": {
+          "message": "agent session sess_c2 could not be durably closed",
+          "aggregate": false,
+          "parts": []
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "closeAll": {
+        "returned": {
+          "closed": [],
+          "failed": [
+            {
+              "tag": "w1",
+              "error": "agent session session could not be durably closed"
+            }
+          ]
+        },
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ],
+          [
+            "purgeWorkerRows"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      }
+    }
+  },
+  {
+    "name": "two_failing_members",
+    "failClose": [
+      "sess_c2",
+      "sess_c3"
+    ],
+    "members": [
+      "sess_w1",
+      "sess_c1",
+      "sess_c2",
+      "sess_c3"
+    ],
+    "links": [
+      {
+        "id": "sess_c1",
+        "parent": "sess_w1"
+      },
+      {
+        "id": "sess_c2",
+        "parent": "sess_c1"
+      },
+      {
+        "id": "sess_c3",
+        "parent": "sess_w1"
+      }
+    ],
+    "runs": {
+      "cancelTree": {
+        "returned": null,
+        "threw": {
+          "message": "agent tree cancel failed for 2 of 4 sessions: agent session sess_c2 could not be durably closed; agent session sess_c3 could not be durably closed",
+          "aggregate": true,
+          "parts": [
+            "agent session sess_c2 could not be durably closed",
+            "agent session sess_c3 could not be durably closed"
+          ]
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c3",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": false
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "close": {
+        "returned": null,
+        "threw": {
+          "message": "agent tree cancel failed for 2 of 4 sessions: agent session sess_c2 could not be durably closed; agent session sess_c3 could not be durably closed",
+          "aggregate": true,
+          "parts": [
+            "agent session sess_c2 could not be durably closed",
+            "agent session sess_c3 could not be durably closed"
+          ]
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": false
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "closeAll": {
+        "returned": {
+          "closed": [],
+          "failed": [
+            {
+              "tag": "w1",
+              "error": "agent tree cancel failed for 2 of 4 sessions: agent session session could not be durably closed; agent session session could not be durably closed"
+            }
+          ]
+        },
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_w1",
+            "cli-agent-close"
+          ],
+          [
+            "purgeWorkerRows"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": true,
+          "sess_c1": true,
+          "sess_c2": false,
+          "sess_c3": false
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      }
+    }
+  },
+  {
+    "name": "the_target_itself_fails",
+    "failClose": [
+      "sess_w1"
+    ],
+    "members": [
+      "sess_w1",
+      "sess_c1",
+      "sess_c2",
+      "sess_c3"
+    ],
+    "links": [
+      {
+        "id": "sess_c1",
+        "parent": "sess_w1"
+      },
+      {
+        "id": "sess_c2",
+        "parent": "sess_c1"
+      },
+      {
+        "id": "sess_c3",
+        "parent": "sess_w1"
+      }
+    ],
+    "runs": {
+      "cancelTree": {
+        "returned": null,
+        "threw": {
+          "message": "agent session sess_w1 could not be durably closed",
+          "aggregate": false,
+          "parts": []
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_c3",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "close",
+            "sess_w1",
+            "agent session cancelled",
+            {
+              "tombstone": false
+            }
+          ]
+        ],
+        "terminal": {
+          "sess_w1": false,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "close": {
+        "returned": null,
+        "threw": {
+          "message": "agent session sess_w1 could not be durably closed",
+          "aggregate": false,
+          "parts": []
+        },
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c2",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ]
+        ],
+        "terminal": {
+          "sess_w1": false,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      },
+      "closeAll": {
+        "returned": {
+          "closed": [],
+          "failed": [
+            {
+              "tag": "w1",
+              "error": "agent session session could not be durably closed"
+            }
+          ]
+        },
+        "threw": null,
+        "calls": [
+          [
+            "close",
+            "sess_c2",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c2",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c1",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_c3",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ownerClosed",
+            "sess_c3",
+            "cli-agent-close"
+          ],
+          [
+            "close",
+            "sess_w1",
+            "cli-agent-close",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "purgeWorkerRows"
+          ]
+        ],
+        "terminal": {
+          "sess_w1": false,
+          "sess_c1": true,
+          "sess_c2": true,
+          "sess_c3": true
+        },
+        "status": {
+          "sess_w1": "idle",
+          "sess_c1": "idle",
+          "sess_c2": "idle",
+          "sess_c3": "idle"
+        }
+      }
+    }
+  }
+]

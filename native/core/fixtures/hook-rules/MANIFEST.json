@@ -1,0 +1,49 @@
+{
+  "cases": 19,
+  "command": "node benchmarks/rust-core/recorders/record-hook-rules.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3942,
+      "path": "golden.json",
+      "sha256": "67c15add2d74889b6b770782e2290b56cf153e575355f2fba2216ba8f7be7b12"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per step: the edit or call, the hooks file the bus wrote after an edit, the decision of a call",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-hook-rules.mjs",
+  "recorderSha256": "0caf759a8f1bee43bfcca501b698d588528e270d72aa168fcfc50143b638249b",
+  "set": "hook-rules",
+  "syntheticInputs": [
+    "the rule edits and tool names: those of session-adopt-hooks.test.mjs, with a deny rule and an enable toggle added"
+  ],
+  "totalBytes": 3942
+}

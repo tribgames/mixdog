@@ -80,23 +80,35 @@ impl JobStarter {
         };
         let label = meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| meta.session_id.clone().filter(|s| !s.is_empty())).unwrap_or_else(|| operation.to_owned());
         let admission_cancel = Cancel::new();
-        // Read once: the board calls `cancel` and the report appendix with its table locked, so
-        // neither may look the row up again.
         let session = meta.session_id.clone().filter(|s| !s.is_empty());
+        let handle: Arc<OnceLock<Arc<JobHandle>>> = Arc::default();
+        // The session a cancel closes is the one the job holds when it is cancelled: a spawn gets its session while it
+        // runs (`mergeJobMeta`), so the one it started with is none (`task?.meta || jobMeta`, job-start.mjs).
         let cancel: Arc<dyn Fn() + Send + Sync> = {
-            let (token, sessions, session, changed) = (admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone());
+            let (token, sessions, session, changed, handle) = (admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
             Arc::new(move || {
                 token.abort(JOB_CANCELLED);
-                let (changed, sessions, session) = (changed.clone(), sessions.clone(), session.clone());
-                drop(mixdog_rt::spawn("agent-task-cancel", TaskClass::Work, async move {
-                    if let Some(session) = session {
+                let current = handle.get().and_then(|job| job.snapshot()).and_then(|s| s.meta.session_id).filter(|s| !s.is_empty());
+                let session = current.or_else(|| session.clone());
+                let (changed, sessions) = (changed.clone(), sessions.clone());
+                if let Some(session) = session {
+                    // `mgr.closeSession(...)` runs up to its first await on the spot; the rest of it goes on as its own task.
+                    let mut closing = Box::pin(async move {
                         sessions.close_session(&session, "agent-task-cancel", CloseOptions { tombstone: false, owner_close: false }).await;
+                    });
+                    let mut cx = std::task::Context::from_waker(futures::task::noop_waker_ref());
+                    if closing.as_mut().poll(&mut cx).is_pending() {
+                        drop(mixdog_rt::spawn("agent-task-cancel", TaskClass::Work, closing));
                     }
-                    changed();
+                }
+                // `setImmediate(notifyStatusChange)`: the status goes out on the next turn of the loop, not after the close.
+                let check_phase = mixdog_rt::time::check_phase();
+                drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move {
+                    check_phase.await;
+                    changed()
                 }));
             })
         };
-        let handle: Arc<OnceLock<Arc<JobHandle>>> = Arc::default();
         // The job's work waits for its first status to go out: a caller sees the running card
         // before any agent work begins.
         let (published, announced) = tokio::sync::oneshot::channel::<()>();

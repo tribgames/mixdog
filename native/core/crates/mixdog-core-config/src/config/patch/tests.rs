@@ -183,3 +183,21 @@ async fn reload_full_config_reads_an_external_edit() {
 
 #[allow(dead_code)]
 fn _keep(_: Arc<()>) {}
+
+/// What a settings save writes equals what real Node's `createConfigPatch` wrote for the configs its settings-writer tests use
+/// (`fixtures/config-create-patch/golden.json`, from `record-config-create-patch.mjs`): the aliases of one setting and a keychain
+/// overlay are no edit, an explicit provider OFF, a cleared nested setting and the peers' profile edits are each their one change,
+/// whole, the independent edits of one patch in path order (the golden's keys are sorted, Node's input order is not kept).
+#[test]
+fn a_settings_save_writes_the_patch_nodes_create_config_patch_wrote() {
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/config-create-patch/golden.json");
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    let by_path = |list: &mut Vec<Value>| list.sort_by_key(|c| c["path"].to_string());
+    for case in golden["cases"].as_array().unwrap() {
+        let mut got: Vec<Value> = create_config_patch(&doc(&case["before"]), &doc(&case["after"])).iter().map(json_of).collect();
+        let mut want = case["patch"].as_array().unwrap().clone();
+        by_path(&mut got);
+        by_path(&mut want);
+        assert_eq!(got, want, "{}", case["name"]);
+    }
+}
