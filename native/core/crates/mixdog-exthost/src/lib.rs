@@ -30,6 +30,7 @@ mod stream;
 mod syntax;
 mod visualize_panes;
 
+pub use containment::Containment;
 pub use browser::RenderBrowser;
 pub use browser::RenderBrowserConfig;
 pub use document::DocumentService;

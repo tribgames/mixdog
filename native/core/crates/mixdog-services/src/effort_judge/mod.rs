@@ -3,6 +3,7 @@
 //! rating into an effort. Runs on the same ONNX Runtime as the embeddings.
 
 pub mod error;
+pub mod host;
 pub mod input;
 pub mod install;
 pub mod judge;
@@ -22,3 +23,6 @@ mod tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod worker_tests;
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup")]
+mod host_tests;

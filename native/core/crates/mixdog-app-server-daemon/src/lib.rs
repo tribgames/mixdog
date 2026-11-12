@@ -24,6 +24,7 @@ mod compose_test_support;
 pub mod compose_core;
 pub mod compose_mcp;
 pub mod connection_close;
+pub mod effort_judge_host;
 pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod compose_flip;
