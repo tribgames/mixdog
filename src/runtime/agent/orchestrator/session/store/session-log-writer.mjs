@@ -621,6 +621,9 @@ export function createSessionLog({ logPath, session, ...options }) {
   const opts = recorderOptions(options);
   const header = diskHeaderOf(session, opts);
   const messages = Array.isArray(session.messages) ? session.messages : [];
+  // What the messages are stored under is asked before they are projected: a
+  // projection that moves it (a part the store refused) is not the baseline.
+  const projection = opts.projectionKey();
   const messageJsons = messages.map((message) => messageJson(opts.projectMessage(message)));
   const base = { logId: newLogId(), id: session.id, prev: null, legacy: null, header };
   // `header` is plain JSON already (diskHeaderOf) and every message is parsed
@@ -631,7 +634,7 @@ export function createSessionLog({ logPath, session, ...options }) {
     messages: messageJsons.map((j) => JSON.parse(j)),
   }));
   publishNew(proven.tmpPath, logPath, options.claim);
-  return openSessionLog({ logPath, expect: { logId: base.logId, seq: 1 }, messages, ...options });
+  return openSessionLog({ logPath, expect: { logId: base.logId, seq: 1 }, messages, projection, ...options });
 }
 
 /**
@@ -646,7 +649,7 @@ export function createSessionLog({ logPath, session, ...options }) {
  * state, the damaged file kept whole beside it. Either way the recorder starts
  * from exactly the replayed state. An invalid log throws ESESSIONLOGINVALID.
  */
-export function openSessionLog({ logPath, expect = null, messages = null, ...options }) {
+export function openSessionLog({ logPath, expect = null, messages = null, projection = undefined, ...options }) {
   assertClaim(options.claim);
   options.claim.assertHeld();
   let fd = openSync(logPath, 'r+');
@@ -682,6 +685,7 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
     options: recorderOptions(options),
     known,
     replayed: true,
+    projection,
   });
   if (expect) {
     try {
@@ -773,7 +777,7 @@ function repairDamagedLog(logPath, log, claim) {
 }
 
 export class SessionLogRecorder {
-  constructor({ logPath, fd, log, refs, options, known = null, replayed = false }) {
+  constructor({ logPath, fd, log, refs, options, known = null, replayed = false, projection = undefined }) {
     this.logPath = logPath;
     this._jsonPath = join(dirname(logPath), `${basename(logPath, SESSION_LOG_SUFFIX)}.json`);
     this.sessionId = log.sessionId;
@@ -796,7 +800,7 @@ export class SessionLogRecorder {
     this._stale = null;
     this._closed = false;
     this._closedHard = false;
-    this._reset(log.logId, log.seq, log.size, log.header, refs);
+    this._reset(log.logId, log.seq, log.size, log.header, refs, projection);
     // The references are the replay's own objects, which no session holds
     // (_takeLive).
     this._replayed = replayed;
@@ -863,7 +867,9 @@ export class SessionLogRecorder {
     };
   }
 
-  _reset(logId, seq, size, header, refs) {
+  // `projection`: what `refs` were stored under, when the caller projected
+  // them itself (a new log, a rewrite); otherwise what they would be now.
+  _reset(logId, seq, size, header, refs, projection = this._options.projectionKey()) {
     this.logId = logId;
     this._seq = seq;
     this._ackedSeq = seq;
@@ -878,7 +884,7 @@ export class SessionLogRecorder {
     // The references are the messages of the tenure that left the log (_resume).
     this._leftRefs = false;
     // The projection this tenure's messages are stored under (_closeLeaving).
-    this._projection = this._options.projectionKey();
+    this._projection = projection;
     this._settle(this._refs);
     // The log's record-stamp part (recordStampPart) at which this recorder
     // knows exactly what the file holds, and the generation the log holds
@@ -1518,8 +1524,19 @@ export class SessionLogRecorder {
           // _releaseForRename).
           writeBatchSync(this._fd, buffer, start);
           if (onKnown) written = this._openStat();
+          // A known state with this batch on it is known too, while its
+          // fsync runs: a reader that finds the file exactly as this write
+          // left it is told what it holds, and one that finds anything else
+          // (another writer's bytes, even of the same length, move its
+          // times) reads it. Unknown, the log of a session in a turn was
+          // replayed whole by every caller that asked for the session during
+          // an fsync, 85% of the daemon's thread (2026-11-12).
+          if (written) this._know(written, generation);
+          else this._forgetKnown();
           await syncFd(this._fd);
         } catch (err) {
+          // Whether the batch's bytes reached the file is not known.
+          this._forgetKnown();
           if (this._closedHard) return;
           // Kept for the next batch, at the same offset; every waiting caller
           // learns this write failed.
@@ -1774,6 +1791,7 @@ export class SessionLogRecorder {
     // A new base on a log that is no longer the record would be as unread.
     if (this.jsonDivergedSync()) throw divergedJsonError(this._jsonPath);
     const header = { ...accepted, id: this.sessionId };
+    const projection = this._options.projectionKey();
     const messageJsons = messages.map((message) => this._messageJson(message));
     const temps = [];
     try {
@@ -1799,6 +1817,7 @@ export class SessionLogRecorder {
         proven,
         legacy,
         messages,
+        projection,
         renames: [
           { tmpPath: proven.tmpPath, path: this.logPath, log: true },
           ...(json ? [{ tmpPath: json.tmpPath, path: redaction.jsonPath }] : []),
@@ -1830,11 +1849,11 @@ export class SessionLogRecorder {
   _renamed(job, step) {
     syncDir(dirname(step.path));
     if (!step.log) return;
-    const { base, proven, legacy, messages } = job.plan;
+    const { base, proven, legacy, messages, projection } = job.plan;
     this._fd = openSync(this.logPath, 'r+');
     this.legacy = legacy;
     this._jsonProven = null;
-    this._reset(base.logId, 1, proven.size, proven.replay.header, messages);
+    this._reset(base.logId, 1, proven.size, proven.replay.header, messages, projection);
   }
 
   // A rename that did not land: the files not yet swapped in go, and before

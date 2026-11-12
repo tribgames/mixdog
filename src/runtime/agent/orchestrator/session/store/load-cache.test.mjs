@@ -36,11 +36,13 @@ import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs'
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
 import { attachmentRefForBuffer } from '../../../../attachments/store.mjs';
 import {
+  claimSessionWriter,
   releaseSessionWriter,
   sessionWriterHeldHere,
   sessionWriterHeldStrictlyHere,
 } from './session-writer-claim.mjs';
 import { _sessionLogIoForTest } from './session-log-writer.mjs';
+import { abandonRecorder } from './session-writers.mjs';
 import { parseSessionLog } from './session-log-reader.mjs';
 import { encodePatch } from './session-log-format.mjs';
 import { readDurableSessionRecord } from './transcript-durability.mjs';
@@ -577,7 +579,7 @@ test('a live session this process is writing is never read back, however often i
   assert.equal(await releaseSessionWriter(session.id), true);
 });
 
-test('a live session with a batch being written is served from memory after a scan of what its log gained, never a replay of it', async (t) => {
+test('a live session with a batch being written is served from memory by what its recorder knows, without reading its log', async (t) => {
   const f = fixture(t);
   const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
   const live = loadSession(f.id);
@@ -619,7 +621,7 @@ test('a live session with a batch being written is served from memory after a sc
     io.fsync = realFsync;
   });
   const read = [];
-  for (const round of [1, 2]) {
+  for (const round of [1, 2, 3]) {
     let resume = null;
     io.fsync = (fd, callback) => {
       io.fsync = realFsync;
@@ -635,12 +637,16 @@ test('a live session with a batch being written is served from memory after a sc
     resume();
     assert.equal(await saving, 'saved');
   }
-  // The first scan reads the log once; the next goes on from where that one stopped.
-  assert.ok(read[1] < 64 * 1024, `${read[1]} bytes of a ${size}-byte log were read to serve the copy held here (first: ${read[0]})`);
+  // The first load decides whether the log or the json beside it speaks, by a
+  // read. From then on the recorder knows what the log holds, a batch being
+  // written included: nothing of it is read.
+  assert.deepEqual(read.slice(1), [0, 0], `bytes of a ${size}-byte log read to serve the copy held here (first: ${read[0]})`);
   assert.equal(await releaseSessionWriter(f.id), true);
 });
 
-test('a live copy of a session whose claim is not held here is decided by a replay of its record, not by a scan that goes on', async (t) => {
+for (const claimed of [false, true]) {
+  const state = claimed ? 'claim was taken again after its tenure ended' : 'claim is not held here';
+  test(`a live copy of a session whose ${state} is decided by a replay of its record, not by a scan that goes on`, async (t) => {
   const f = fixture(t);
   const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
   const live = loadSession(f.id);
@@ -662,31 +668,46 @@ test('a live copy of a session whose claim is not held here is decided by a repl
   const fd = openSync(logPath, 'r+');
   writeSync(fd, rewritten, 0, rewritten.length, 0);
   closeSync(fd);
+  // The claim alone vouches for nothing a reader left before it was taken.
+  if (claimed) assert.equal(claimSessionWriter(f.id).held, true);
   const loaded = loadSession(f.id);
   assert.notEqual(loaded, live, 'the live copy was served for a record another owner changed');
   assert.equal(loaded.generation, 7);
-});
+  if (claimed) assert.equal(await releaseSessionWriter(f.id), true);
+  });
+}
 
-test('a tenure in which the attachment store refused a part is not taken up from: the part is stored once the store takes it', async (t) => {
-  const f = fixture(t);
-  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
-  const bytes = Buffer.from('an image the store is asked to keep');
-  const ref = attachmentRefForBuffer(bytes);
-  // The store's directory cannot be made: a file has its name.
-  const blocked = join(f.root, 'prompt-attachments');
-  writeFileSync(blocked, '');
-  const live = loadSession(f.id);
-  const image = { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' };
-  live.messages = [...live.messages, { role: 'user', content: [image] }];
-  assert.equal(await saveSessionAsync(live), 'saved');
-  assert.equal(readFileSync(logPath, 'utf8').includes(ref), false);
-  assert.equal(await releaseSessionWriter(f.id), true);
-  rmSync(blocked);
-  live.messages = [...live.messages, { role: 'user', content: 'after the store came back' }];
-  assert.equal(await saveSessionAsync(live), 'saved');
-  assert.equal(await releaseSessionWriter(f.id), true);
-  assert.equal(readFileSync(logPath, 'utf8').includes(ref), true, 'the part stayed the placeholder it was first stored as');
-});
+// The tenure that stored the placeholder: one that recorded it on a log it
+// opened and was released, one whose recorder was abandoned, one that created
+// the log with the message in it.
+for (const tenure of ['released', 'abandoned', 'created the log']) {
+  test(`a tenure in which the attachment store refused a part (${tenure}) is not taken up from: the part is stored once the store takes it`, async (t) => {
+    const f = fixture(t);
+    const bytes = Buffer.from('an image the store is asked to keep');
+    const ref = attachmentRefForBuffer(bytes);
+    // The store's directory cannot be made: a file has its name.
+    const blocked = join(f.root, 'prompt-attachments');
+    writeFileSync(blocked, '');
+    const created = tenure === 'created the log';
+    const live = created ? { id: `${f.id}_new`, generation: 1, closed: false, messages: [] } : loadSession(f.id);
+    if (created) {
+      setLiveSession(live);
+      t.after(() => _liveSessions.delete(live.id));
+    }
+    const logPath = join(dirname(f.path), `${live.id}.log.jsonl`);
+    const image = { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' };
+    live.messages = [...live.messages, { role: 'user', content: [image] }];
+    assert.equal(await saveSessionAsync(live), 'saved');
+    assert.equal(readFileSync(logPath, 'utf8').includes(ref), false);
+    if (tenure === 'abandoned') await abandonRecorder(live.id, new Error('a barrier that did not land'));
+    else assert.equal(await releaseSessionWriter(live.id), true);
+    rmSync(blocked);
+    live.messages = [...live.messages, { role: 'user', content: 'after the store came back' }];
+    assert.equal(await saveSessionAsync(live), 'saved');
+    assert.equal(await releaseSessionWriter(live.id), true);
+    assert.equal(readFileSync(logPath, 'utf8').includes(ref), true, 'the part stayed the placeholder it was first stored as');
+  });
+}
 
 test('loadSessionStatus reuses a settled file answer and never outranks a rewrite or a live copy', (t) => {
   const f = fixture(t);
