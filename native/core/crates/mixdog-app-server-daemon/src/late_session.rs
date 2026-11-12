@@ -780,6 +780,10 @@ impl mixdog_core_session::session::NewThreadPlace for LateNewPlace {
         self.0.get().expect("new thread place bound (compose::verify_bound)").projects().await
     }
 
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.0.get().expect("new thread place bound (compose::verify_bound)").touch_project(path).await
+    }
+
     async fn enter_worktree(
         &self,
         thread: &ThreadId,

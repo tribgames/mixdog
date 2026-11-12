@@ -711,6 +711,14 @@ impl SessionDirectory {
         let turn = if self.holds_user_conversation(id).await? || self.holds_submission(id, submission).await? { None } else { self.first_turn(&handle, req, input).await? };
         crash_gate("submitted");
         request.commit(Phase::Accepted).await?;
+        // Recency is advisory, also after the prompt is accepted: a failed write changes nothing of the task, its receipt or its
+        // subscription (`touchProject` of `submitNewTask` swallows it).
+        let project = params.project_path.as_ref().or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_ref())).filter(|path| !path.trim().is_empty());
+        if let Some(path) = project
+            && let Err(error) = self.deps().new_place.touch_project(path).await
+        {
+            tracing::warn!("project recency update failed (non-fatal): {error}");
+        }
         Ok(Started { thread: id.clone(), summary, turn })
     }
 }
