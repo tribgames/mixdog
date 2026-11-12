@@ -1134,7 +1134,8 @@ if (-not (Test-Path -LiteralPath $InstallDir)) {
 if (-not $FastDirectWorker) {
     $upstreamCheckRoot = if ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
     # Work branches are never pushed, so one has no upstream and no release commits to be behind.
-    & git -C $upstreamCheckRoot rev-parse --abbrev-ref '@{upstream}' 2>$null | Out-Null
+    # --quiet: no stderr text, which a native command under ErrorActionPreference=Stop would raise as an error.
+    & git -C $upstreamCheckRoot rev-parse --verify --quiet '@{upstream}' | Out-Null
     $hasUpstream = $LASTEXITCODE -eq 0
     if (-not $hasUpstream) {
         Write-Host 'the current branch has no upstream; skipping the check for newer release commits'
