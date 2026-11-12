@@ -104,6 +104,25 @@ test('staging puts the host core and every server runtime where the build and th
   assert.notEqual((await build('node')).build, manifest.build);
 });
 
+test('a host-only staging needs only the host binary and leaves no server bundles', async () => {
+  const targetDir = makeTempDirSync('stage-core-host-only');
+  const runtimeDir = makeTempDirSync('stage-core-host-only-rt');
+  builtTargets(targetDir, [HOST_TARGETS['win32-x64']]);
+  const staged = await stageCore({
+    targetDir,
+    runtimeDir,
+    version: '1.4.6',
+    host: { platform: 'win32', arch: 'x64' },
+    reportedVersion: () => '1.4.6',
+    buildPayload: async () => assert.fail('no server payload is built'),
+    verifyPayload: async () => assert.fail('no server payload is checked'),
+    hostOnly: true,
+  });
+  assert.equal(staged, null);
+  assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
+  assert.ok(existsSync(join(runtimeDir, 'core', 'js-runtime.json')));
+  assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
+});
 test('a missing target, or a host binary reporting another version, stops the staging', async () => {
   const targetDir = makeTempDirSync('stage-core-missing');
   const runtimeDir = makeTempDirSync('stage-core-missing-rt');
