@@ -29,6 +29,8 @@ param(
     [string]$CoreBinary = '',
     # Everything up to the swap; the detached worker is not started and the install is not touched.
     [switch]$StopBeforeSwap,
+    # Passed on to dev-update-windows.ps1 (see there): run by the worker before a full replacement.
+    [string]$BeforeSwapScript = '',
     [string]$ReceiptPath = '',
     [switch]$CleanupOnly,
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
@@ -439,6 +441,7 @@ try {
     $arguments += @('-ReceiptPath', $receiptPath)
     if ($CoreBinary) { $arguments += @('-CoreBinary', $CoreBinary) }
     if ($StopBeforeSwap) { $arguments += '-StopBeforeSwap' }
+    if ($BeforeSwapScript) { $arguments += @('-BeforeSwapScript', $BeforeSwapScript) }
     Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
     $timings['snapshotPreparationMs'] = [math]::Round(
         ([DateTime]::UtcNow - $deployStartedAtUtc).TotalMilliseconds
@@ -456,7 +459,10 @@ try {
     if ($StopBeforeSwap) { Write-Step 'stopped before the swap; nothing was installed'; return }
 
     Write-Step 'waiting for the detached install worker'
-    $deadline = (Get-Date).AddMinutes(15)
+    # The snapshot holds what the worker installs (and runs): it stays until the worker ends. A script run before
+    # the swap (a data conversion) takes its own time on top of the swap's.
+    $workerLimitMinutes = if ($BeforeSwapScript) { 120 } else { 15 }
+    $deadline = (Get-Date).AddMinutes($workerLimitMinutes)
     $status = ''
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 2
@@ -469,7 +475,7 @@ try {
         if ($status -eq 'completed') { Write-Host '  worker completed'; break }
         if ($status -eq 'failed') { throw "FastDirect worker failed: $($receipt.detail)" }
     }
-    if ($status -ne 'completed') { throw "FastDirect worker did not finish within 15 minutes (last status: $status)" }
+    if ($status -ne 'completed') { throw "FastDirect worker did not finish within $workerLimitMinutes minutes (last status: $status)" }
 }
 catch {
     $failure = $_
