@@ -66,7 +66,7 @@ export { workspaceVersion };
 
 /**
  * Stages the core this app starts: `.runtime/core/mixdogd[.exe]` and its `js-runtime.json`. A local deploy
- * stages only this (`--host-only`); the server bundles need the other platforms' builds.
+ * stages only this (`--binary`, or `--host-only` over a triple build); the server bundles need the other platforms' builds.
  * @param {object} options
  * @param {string} options.binary      the built `mixdogd` of the host platform
  */
@@ -101,6 +101,8 @@ export async function stageHostCore({
  * @param {(file: string) => string} [options.reportedVersion]  `mixdogd --version` of the host binary
  * @param {typeof buildJsPayload} [options.buildPayload]  builds one server platform's JS runtime payload
  * @param {typeof verifyRemotePayload} [options.verifyPayload]  integrity check of that payload before it is archived
+ * @param {boolean} [options.hostOnly]  stage only this app's own core: no server bundles for the ssh install, so no other
+ *   platform's binary is needed (an app built for the machine it is built on, not a release)
  */
 export async function stageCore({
   targetDir,
@@ -111,6 +113,7 @@ export async function stageCore({
   reportedVersion = hostReportedVersion,
   buildPayload = buildJsPayload,
   verifyPayload = verifyRemotePayload,
+  hostOnly = false,
 }) {
   const hostKey = `${host.platform}-${host.arch}`;
   const hostTarget = HOST_TARGETS[hostKey];
@@ -127,6 +130,7 @@ export async function stageCore({
     reportedVersion,
   });
 
+  if (hostOnly) return null;
   const binaries = {};
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
     const source = await builtBinary(targetDir, target, key.split('-')[0]);
@@ -154,6 +158,9 @@ if (invokedPath === import.meta.url) {
   const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
   try {
     await checkReleaseVersion();
+    // `--binary=<exe>`: the host core from any cargo build (the local deploy: no `<triple>` directory, no server
+    // bundles). Without it the host core is read from `<target-dir>/<triple>/release`; `--host-only` there also leaves
+    // out the server bundles, so the other platforms' binaries are not demanded.
     const binary = argument('binary');
     if (binary) {
       // Local deploy: the host core only, from `cargo build --release -p mixdog-cli` (no `<triple>` directory).
@@ -170,8 +177,13 @@ if (invokedPath === import.meta.url) {
         runtimeDir: join(desktopDir, '.runtime'),
         version: argument('version') ?? (await workspaceVersion()),
         host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
+        hostOnly: process.argv.includes('--host-only'),
       });
-      console.log(`[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`);
+      console.log(
+        manifest
+          ? `[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`
+          : '[stage-core] host core only (no server bundles)'
+      );
     }
   } catch (error) {
     console.error(`[stage-core] failed: ${error.message}`);
