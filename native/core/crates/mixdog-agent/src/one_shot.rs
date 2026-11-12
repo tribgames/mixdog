@@ -66,9 +66,7 @@ impl TranscriptSink for DiscardSink {
     fn message_id(&self) -> String {
         String::new()
     }
-    async fn durable(&self, _ticket: Ticket) -> Result<(), crate::env::NotDurable> {
-        Ok(())
-    }
+    async fn durable(&self, _ticket: Ticket) {}
 }
 
 /// A run outside any session: the host's clock, jitter, retry wait and decider,

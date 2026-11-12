@@ -775,9 +775,7 @@ impl TranscriptSink for Sink {
     fn message_id(&self) -> String {
         format!("m{}", self.0.fetch_add(1, Ordering::Relaxed) + 1)
     }
-    async fn durable(&self, _: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
-        Ok(())
-    }
+    async fn durable(&self, _: Ticket) {}
 }
 
 // ---- one scenario ----------------------------------------------------------------------------------------------------------------------
