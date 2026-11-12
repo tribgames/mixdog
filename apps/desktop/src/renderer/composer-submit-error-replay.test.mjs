@@ -14,6 +14,14 @@ import { composerSubmitErrorText } from './composer-submit-error';
 import i18n from './i18n';
 
 const golden = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/composer-submit-error-cases/golden.json', import.meta.url), 'utf8'));
+// The product no longer ships a decoder of a relay answer frame (the phone page talks to the core through phone-client since PH-1): the
+// frame a phone gets is rebuilt as the page's decoder at b6f10295a (remote-shim-dispatch.ts handleMessage) rebuilt it.
+const decodeRelayFrame = async (frame) => {
+  const failure = Object.assign(new Error(frame.error), { code: frame.errorCode });
+  const params = codedErrorParams(frame.errorCode, frame.errorParams);
+  if (params) failure.details = params;
+  return failure;
+};
 const scenarios = composerErrorScenarios({
   i18n,
   composerSubmitErrorText,
@@ -22,6 +30,7 @@ const scenarios = composerErrorScenarios({
   ipcErrorFromEnvelope,
   roomMemberSwitchedOffError,
   executeRemoteFrame,
+  decodeRelayFrame,
   SUPPORTED_UI_LANGUAGES,
   readLocale: (value) => JSON.parse(readFileSync(new URL(`./locales/${value}.json`, import.meta.url), 'utf8')),
 });

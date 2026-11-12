@@ -4,19 +4,14 @@
 const KEY = '"{{name}}" is switched off.';
 const GENERIC = 'This bot is switched off.';
 
-export function composerErrorScenarios({ i18n, composerSubmitErrorText, codedErrorParams, ipcErrorEnvelope, ipcErrorFromEnvelope, roomMemberSwitchedOffError, executeRemoteFrame, SUPPORTED_UI_LANGUAGES, readLocale }) {
-  // What the preload does with an IPC refusal, and what remote-shim-dispatch does with a relay frame.
+export function composerErrorScenarios({ i18n, composerSubmitErrorText, codedErrorParams, ipcErrorEnvelope, ipcErrorFromEnvelope, roomMemberSwitchedOffError, executeRemoteFrame, decodeRelayFrame, SUPPORTED_UI_LANGUAGES, readLocale }) {
+  // What the preload does with an IPC refusal, and (decodeRelayFrame) what the phone page does with a relay frame.
   const overIpc = (error) => ipcErrorFromEnvelope(structuredClone(ipcErrorEnvelope(error)));
   async function relayFrame(error) {
     return executeRemoteFrame({ send: async () => { throw error; } }, JSON.stringify({ id: 1, method: 'send', params: [] }));
   }
-  const overRelay = async (error) => {
-    const frame = await relayFrame(error);
-    const failure = Object.assign(new Error(frame.error), { code: frame.errorCode });
-    const params = codedErrorParams(frame.errorCode, JSON.parse(JSON.stringify(frame)).errorParams);
-    if (params) failure.details = params;
-    return failure;
-  };
+  // The error the page rebuilds from the frame a phone received: the page's own decoder, handed the frame as its JSON text carries it.
+  const overRelay = async (error) => decodeRelayFrame(JSON.parse(JSON.stringify(await relayFrame(error))));
   const view = (error) => ({ message: error.message, code: error.code ?? null, details: error.details ?? null });
   return {
     'a send to a switched-off room member shows the refusal in the UI language': async () => {
