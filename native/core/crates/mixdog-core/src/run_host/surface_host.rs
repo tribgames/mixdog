@@ -232,6 +232,8 @@ pub struct LeadSurfaceHost {
     /// Thread id to the key its surface was last brought to. In this process only, as Node's is: a thread
     /// first seen here (resumed) is checked once.
     applied: std::sync::Mutex<HashMap<String, Applied>>,
+    /// Thread id to the config revision it is being created against (`NewThreadTools::creating`), until it is seeded.
+    creating: std::sync::Mutex<HashMap<String, u64>>,
     /// Thread id to the inputs its last MCP reconcile left (`RECONCILE_STATE`); in this process only, as Node's is.
     mcp_state: std::sync::Mutex<HashMap<String, Value>>,
 }
@@ -291,12 +293,16 @@ impl LeadSurfaceHost {
     pub fn new(sources: SurfaceSources) -> Result<Self, VariantError> {
         check_pool(&sources.pool)?;
         let agent_defs = agent_definitions(&sources.pool);
-        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default(), mcp_state: std::sync::Mutex::default() })
+        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default(), mcp_state: std::sync::Mutex::default(), creating: std::sync::Mutex::default() })
     }
 
     /// `availabilityKey()`: the config installed, the surface generation and the gate list.
     fn gates(&self, feature_denied: &[String]) -> String {
-        format!("{}|{}|{}", (self.sources.config_revision)(), self.sources.surface_generation.get(), feature_denied.join(","))
+        self.gates_at((self.sources.config_revision)(), feature_denied)
+    }
+
+    fn gates_at(&self, revision: u64, feature_denied: &[String]) -> String {
+        format!("{revision}|{}|{}", self.sources.surface_generation.get(), feature_denied.join(","))
     }
 
     /// `appliedKeys.get(session)`.
@@ -632,6 +638,13 @@ impl TurnSettings for LeadSurfaceHost {
         self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
     }
 
+    async fn await_initial_mcp(&self, thread: &ThreadId) {
+        let Ok(header) = self.sources.threads.header(thread).await else { return };
+        if let Some(scope) = header_scope(&header) {
+            self.sources.scopes.await_initial(scope).await;
+        }
+    }
+
     /// `currentAgents()`: a coding Lead's agent catalog for its workflow and mode, as the prompt would list it
     /// (`agentListEntries(leadPartsFor(session, leadPromptParts).agentCatalogContext) || []`).
     async fn current_agents(&self, _thread: &ThreadId, header: &Header) -> Result<Option<Vec<AgentEntry>>, String> {
@@ -861,7 +874,9 @@ impl NewThreadTools for LeadSurfaceHost {
         // Each session is created with a scope of its own, as each `createSession` boots a runtime of its
         // own (`session-service/entries/lifecycle.mjs:47`, `begin.mjs:24`); the runtime scope is never handed on.
         let scope = uuid::Uuid::new_v4().to_string();
-        s.scopes.open(&scope, thread.as_str(), &cwd).await.map_err(|error| format!("mcp scope {scope}: {error}"))?;
+        // The connect is started and not awaited: Node's boot runs `connectConfiguredMcp()` unawaited (`boot/tools.mjs:56`), so a
+        // server slow to connect is not in the first turn's tool surface and joins through the late-tool announcement.
+        s.scopes.start(&scope, thread.as_str(), &cwd).map_err(|error| format!("mcp scope {scope}: {error}"))?;
         let mut scoped = header.clone();
         scoped.insert("mcpScopeId".to_owned(), json!(scope));
         self.seed_scoped(thread, &scoped, &scope).await
@@ -879,8 +894,14 @@ impl NewThreadTools for LeadSurfaceHost {
         self.seed_scoped(thread, &scoped, &scope).await
     }
 
+    fn creating(&self, thread: &ThreadId) {
+        let revision = (self.sources.config_revision)();
+        self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), revision);
+    }
+
     /// The thread was seeded and not created: the scope the seed opened for it is released.
     fn abandon(&self, thread: &ThreadId) {
+        self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
         self.sources.scopes.release(thread.as_str());
     }
 }
@@ -985,7 +1006,10 @@ impl LeadSurfaceHost {
         session["deferredInitialRefreshPending"] = json!(true);
         // `noteToolAvailability`: built from the settings as they stand, its first turn need not rebuild it.
         let settings = composed.prompt_settings.get("revision").and_then(Value::as_str).unwrap_or_default().to_owned();
-        self.note_applied(thread, Applied { gates: self.gates(&feature_denied), settings });
+        // The key of the config the thread is created against: a route the draft saved meanwhile is a change the first turn finds.
+        let created_against = self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
+        let gates = created_against.map_or_else(|| self.gates(&feature_denied), |revision| self.gates_at(revision, &feature_denied));
+        self.note_applied(thread, Applied { gates, settings });
         land_prompt(&mut session, composed, &model)?;
         let mut seeded = session.as_object().cloned().ok_or_else(|| "the seeded session is not an object".to_owned())?;
         seeded.shift_remove("messages");

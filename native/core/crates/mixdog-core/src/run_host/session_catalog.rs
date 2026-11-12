@@ -417,6 +417,19 @@ impl CatalogView for SessionCatalog {
         Some(heard.await.map_err(|_| "load_tool: the header update did not run".to_owned()))
     }
 
+    /// `catalogLacks`: a requested name the deferred catalog does not hold (case-insensitive).
+    fn lacks(&self, thread: &ThreadId, names: &[String]) -> bool {
+        let Some((_, session)) = self.running(thread) else { return false };
+        let known: HashSet<String> = self.union(&session).iter().map(|tool| tool_name(tool).to_lowercase()).collect();
+        names.iter().any(|name| !known.contains(&name.to_lowercase()))
+    }
+
+    async fn await_connect(&self, thread: &ThreadId) {
+        if let Some(settings) = &self.mcp {
+            settings.await_initial_mcp(thread).await;
+        }
+    }
+
     /// `resolveBridgeTarget` after the argument checks.
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution {
         let Some((header, session)) = self.running(thread) else { return CallResolution::NotFound };

@@ -22,6 +22,8 @@ pub mod compose;
 #[cfg(test)]
 mod compose_test_support;
 pub mod compose_core;
+#[cfg(all(test, windows))]
+mod lead_request_tests;
 pub mod compose_mcp;
 pub mod connection_close;
 pub mod effort_judge_host;
