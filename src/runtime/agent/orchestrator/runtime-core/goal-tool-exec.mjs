@@ -1,10 +1,11 @@
 /**
- * goal-tool-exec.mjs — the model-facing `goal` tool: status, create, and the
- * model's two settlements (complete after its evidence audit, block on an
- * impasse), each replying with the compact or full Goal view.
+ * goal-tool-exec.mjs — the model-facing `goal` tool: status, create, extend
+ * (the user's ask for more time), and the model's two settlements (complete
+ * after its evidence audit, block on an impasse), each replying with the
+ * compact or full Goal view.
  */
 import { validateGoalToolCall } from './goal-tool-defs.mjs';
-import { assertSessionId, parseGoalDuration } from './goal-state.mjs';
+import { assertSessionId, parseGoalDuration, setGoalTimeLimit } from './goal-state.mjs';
 
 function toolReply(goal, { full = false } = {}) {
   let goalView = goal;
@@ -15,14 +16,20 @@ function toolReply(goal, { full = false } = {}) {
   return JSON.stringify({ goal: goalView, remaining_ms: goal?.remainingMs ?? null });
 }
 
+const MAX_TOOL_MINUTES = 10_080;
+
+/** A minutes field as validated ms: a JSON number from 1 to 10080, nothing coerced. */
+function toolMinutesMs(value, field) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1 || value > MAX_TOOL_MINUTES) {
+    throw new Error(`goal ${field} must be a number from 1 to ${MAX_TOOL_MINUTES} minutes`);
+  }
+  return parseGoalDuration(value * 60_000);
+}
+
 /** create budget in ms, or undefined when the call carries none. */
 function toolTimeLimitMs(args) {
-  if (args.time_limit_minutes == null || args.time_limit_minutes === '') return undefined;
-  const minutes = Number(args.time_limit_minutes);
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    throw new Error('goal time_limit_minutes must be a positive number');
-  }
-  return parseGoalDuration(minutes * 60_000);
+  if (args.time_limit_minutes == null) return undefined;
+  return toolMinutesMs(args.time_limit_minutes, 'time_limit_minutes');
 }
 
 // A settlement applies to the Goal this turn worked on: one replaced
@@ -68,6 +75,22 @@ const GOAL_TOOL_ACTIONS = {
         ...(timeLimitMs != null ? { timeLimitMs } : {}),
       })
     );
+    return toolReply(goal, { full: true });
+  },
+  // The user's explicit ask for more time (the tool description restricts it
+  // to that): the cap grows by the asked minutes and re-earns its warnings,
+  // exactly as the user's own duration edit does.
+  async extend(ctx, id, args) {
+    const addedMs = toolMinutesMs(args.extend_minutes, 'extend_minutes');
+    const goal = await ctx.withMutation(id, () => {
+      const current = ctx.requireGoal(id);
+      if (!['active', 'paused'].includes(current.status)) {
+        throw new Error(`goal extend works only on an active or paused Goal (status ${current.status})`);
+      }
+      if (!(current.timeLimitMs > 0)) throw new Error('goal extend needs a Goal with a time cap; this one has none');
+      setGoalTimeLimit(current, parseGoalDuration(current.timeLimitMs + addedMs), ctx.now());
+      return ctx.commit(id, current);
+    });
     return toolReply(goal, { full: true });
   },
   block: settleStatus,

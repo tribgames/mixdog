@@ -350,6 +350,24 @@ export function resumeGoalState(goal, at, added = null) {
   goal.updatedAt = at;
 }
 
+/** Re-cap a live or paused Goal at `limitMs` (already validated): a new
+ *  commitment re-earns its deadline warnings, and a running Goal whose time
+ *  already reaches the new cap ends as duration_reached. */
+export function setGoalTimeLimit(goal, limitMs, at) {
+  const used = activeElapsedMs(goal, at);
+  goal.timeLimitMs = limitMs;
+  goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
+  if (goal.status === 'active') {
+    goal.timeUsedMs = used;
+    goal.lastStartedAt = at;
+    if (used >= limitMs) {
+      stopActiveClock(goal, at);
+      goal.status = 'duration_reached';
+    }
+  }
+  goal.updatedAt = at;
+}
+
 export function startActiveClock(goal, now = Date.now()) {
   if (goal.status === 'active' && !goal.lastStartedAt) goal.lastStartedAt = now;
 }

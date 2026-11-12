@@ -28,6 +28,7 @@ test('Responses function tools preserve optional Goal fields in direct and defer
     assert.deepEqual(Object.keys(wire.parameters.properties).sort(), [
       'action',
       'blocker',
+      'extend_minutes',
       'objective',
       'time_limit_minutes',
     ]);

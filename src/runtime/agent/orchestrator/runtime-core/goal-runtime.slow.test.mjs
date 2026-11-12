@@ -513,11 +513,12 @@ test('Goal tool schema is the minimal lifecycle surface within its size budget',
     'action',
     'objective',
     'time_limit_minutes',
+    'extend_minutes',
     'blocker',
   ]);
-  assert.deepEqual(goalTool.inputSchema.properties.action.enum, ['status', 'create', 'complete', 'block']);
+  assert.deepEqual(goalTool.inputSchema.properties.action.enum, ['status', 'create', 'complete', 'block', 'extend']);
   assert.match(goalTool.description, /todo/);
   assert.doesNotMatch(goalTool.description, /goal-management/);
   const size = JSON.stringify(goalTool).length;
-  assert.ok(size < 1_900, `goal tool schema is ${size} chars; budget 1900`);
+  assert.ok(size < 2_200, `goal tool schema is ${size} chars; budget 2200`);
 });
