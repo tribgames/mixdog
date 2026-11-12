@@ -167,8 +167,7 @@ mod chars_tests {
     /// Node's own `materializePastedTexts` (`record-pasted-text-chars.mjs`) is the oracle for `chars` and `sizeBytes`.
     #[test]
     fn chars_and_size_are_nodes() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/phone-chat/pasted-text-chars.json");
-        let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pasted-text-chars/pasted-text-chars.json")).unwrap();
         for case in recorded["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let text = case["entry"]["text"].as_str().unwrap();

@@ -1,14 +1,19 @@
 // Records what Node b6f10295a's `materializePromptSubmission` (src/runtime/attachments/store.mjs:619, `materializePastedTexts` :466-499) makes of a
 // pasted text's `chars`, `sizeBytes` and `attachmentRef`, run unchanged from the exact export.
 //
-//   node record-pasted-text-chars.mjs <export dir> <out file>
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+//   node benchmarks/rust-core/recorders/record-pasted-text-chars.mjs --tree <export dir>
+// writes the set native/core/fixtures/pasted-text-chars (its one recording and its manifest).
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { NODE_COMMIT, verifyNodeExport } from '../../../apps/desktop/src/renderer/remote-protocol-chat-node-export.mjs';
+import { FIXTURES_ROOT, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
-const [exportDir, outFile] = process.argv.slice(2);
+const args = parseArgs();
+const exportDir = resolveTree(args);
+const setDir = join(FIXTURES_ROOT, 'pasted-text-chars');
 // The export is the commit's tree, file by file, before anything of it runs.
 verifyNodeExport(exportDir);
 const dataDir = mkdtempSync(join(tmpdir(), 'pasted-chars-'));
@@ -34,5 +39,14 @@ const cases = inputs.map(({ name, entry }) => {
   const { options } = materializePromptSubmission('see [Pasted text #1]', { pastedTexts: { 1: entry } });
   return { name, entry, materialized: options.pastedTexts[1] };
 });
-writeFileSync(outFile, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-pasted-text-chars.mjs', commit: NODE_COMMIT, cases }, null, 2)}\n`);
+mkdirSync(setDir, { recursive: true });
+writeJson(join(setDir, 'pasted-text-chars.json'), { recorder: 'benchmarks/rust-core/recorders/record-pasted-text-chars.mjs', commit: NODE_COMMIT, cases });
+const { recorder, recorderSha256, nodeVersion, inputs: modules } = recorderProvenance(import.meta.url);
+writeSetManifest(setDir, {
+  set: 'pasted-text-chars',
+  recorder,
+  command: 'node benchmarks/rust-core/recorders/record-pasted-text-chars.mjs --tree <exact b6f10295a export>',
+  extra: { recorderSha256, nodeVersion, inputs: modules },
+  identity: nodeTreeIdentity(args, exportDir, NODE_COMMIT),
+});
 console.log(`recorded ${cases.length} cases`);
