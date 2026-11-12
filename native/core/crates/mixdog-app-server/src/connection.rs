@@ -31,6 +31,8 @@ use crate::sharded::lock;
 /// What `initialize` established. Set once; the latch of the gate.
 pub(crate) struct Session {
     pub(crate) client: ClientInfo,
+    /// The transport's origin of the connection, as the method table judges it.
+    pub(crate) origin: mixdog_protocol::Origin,
     pub(crate) opt_out_notification_methods: HashSet<String>,
     pub(crate) approvals_inbox: bool,
     pub(crate) host: Option<HostCapabilities>,

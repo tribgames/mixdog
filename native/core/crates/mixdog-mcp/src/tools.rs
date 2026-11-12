@@ -134,10 +134,14 @@ impl Tool for McpTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        self.server
+        let output = self
+            .server
             .call_tool(&ctx.thread_id.to_string(), &self.entry.tool, args, &ctx.cancel, ctx.deadline)
             .await
-            .map_err(|error| tool_error(&self.server, error))
+            .map_err(|error| tool_error(&self.server, error))?;
+        // The links of a mail the core's own Gmail connector read, for the session that read it: Browser Use may open them.
+        crate::mail_reads::record(self.server.config(), &self.entry.tool, ctx.thread_id.as_str(), &output, mixdog_tools::desktop::mail_links::now_ms());
+        Ok(output)
     }
 }
 

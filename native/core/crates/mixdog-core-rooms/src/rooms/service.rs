@@ -479,6 +479,21 @@ mod tests {
         assert_eq!(Value::Object(route), json!({ "provider": "openai", "model": "m", "effort": "high", "fast": true }));
     }
 
+    /// `fixtures/composer-submit-error-cases`: the refusal of a send to a switched-off member is the error Node's host threw,
+    /// `error.message`, code and `details.name` alike (the relay's answer to a phone is recorded whole).
+    #[test]
+    fn the_switched_off_refusal_is_the_error_nodes_room_send_throws() {
+        const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/composer-submit-error-cases/golden.json");
+        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden.json");
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["case"].as_str().unwrap().starts_with("a send to a switched-off room member")).expect("the recorded case");
+        let node = &case["observed"]["original"];
+        let CoreError::DomainError { domain, code, message, detail } = failure(RoomError::SwitchedOff(node["details"]["name"].as_str().unwrap().to_owned())) else { panic!("a domain error") };
+        assert_eq!(&*domain, "room");
+        assert_eq!(code.as_deref(), node["code"].as_str());
+        assert_eq!(message.as_deref(), node["message"].as_str());
+        assert_eq!(detail.as_deref(), Some(&DomainErrorDetail::RoomMemberSwitchedOff { name: node["details"]["name"].as_str().unwrap().to_owned() }));
+    }
+
     use super::super::records::{RoomDoc, RoomRecord, RoomStore};
     use std::sync::Mutex;
 
