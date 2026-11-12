@@ -15,7 +15,7 @@ use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::{ConnectionId, SubscriptionId};
 use mixdog_core_api::mock::{MockConnection, MockLimits};
 use mixdog_core_api::sink::ConnectionSink;
-use mixdog_core_api::{FeedSource, Reply, ThreadHandle};
+use mixdog_core_api::{FeedSource, Reply, ThreadDirectory, ThreadHandle};
 use serde_json::json;
 
 use super::testing::{CallCounted, CommitHook, Rig};
@@ -164,6 +164,71 @@ fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>
         }
     }
     panic!("the {stage} child ended without finishing: {:?}", child.wait());
+}
+
+/// A script whose turn commits a call named `call` and never ends (the process dies there); `told` fires once the row is durable.
+fn dies_after_call(rig: &Rig, call: &'static str, told: Arc<tokio::sync::Notify>) {
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let body = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": call, "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from(format!("itm_{call}")), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+}
+
+/// `thread/modelMessages/list`: what a client reads, as (role, content) with the whole rows for the mark check.
+async fn listed(directory: &SessionDirectory, id: &mixdog_core_api::ids::ThreadId) -> Vec<serde_json::Value> {
+    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(reply) = directory.request(read).await.expect("thread/modelMessages/list") else { panic!("a value reply") };
+    reply["messages"].as_array().cloned().expect("the messages")
+}
+
+/// A fork taken after a recovery inherits its rows, mark included; a kill in the fork's own turn and the recovery of it must close
+/// only the fork's turn: the parent's cancelled result and restart line are not derived again, and no client read shows the mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_in_a_fork_leaves_the_rows_of_the_recovered_parent_alone() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let told = Arc::new(tokio::sync::Notify::new());
+    dies_after_call(&rig, "call_parent", told.clone());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let parent = start_thread(&first).await;
+    turn(&parent, "one", "op-1").await;
+    super::testing::awaiting(|| "the parent's call row to be durable".to_owned(), told.notified()).await;
+
+    // The process dies; the next open recovers the parent, and a fork is taken from the recovered thread.
+    let second = SessionDirectory::new(rig.deps_on(store.clone()));
+    let recovered = second.open_handle(&parent.id, &CallContext::internal("test")).await.expect("the parent reopens");
+    let fork = CoreRequest { method: Method("thread/fork"), params: json!({ "threadId": parent.id, "opId": "op-fork" }), op: Some(mixdog_core_api::ids::OpId::from("op-fork")), ctx: CallContext::internal("test") };
+    let Reply::Value(forked) = recovered.request(fork).await.expect("thread/fork") else { panic!("thread/fork answers a value") };
+    let fork_id = mixdog_core_api::ids::ThreadId::from(forked["thread"]["id"].as_str().expect("the fork's id"));
+    let parent_rows = listed(&second, &parent.id).await;
+    assert_eq!(parent_rows.len(), 4, "{parent_rows:?}");
+
+    dies_after_call(&rig, "call_fork", told.clone());
+    let heir = second.open_handle(&fork_id, &CallContext::internal("test")).await.expect("the fork opens");
+    turn(&heir, "two", "op-2").await;
+    super::testing::awaiting(|| "the fork's call row to be durable".to_owned(), told.notified()).await;
+
+    let third = SessionDirectory::new(rig.deps_on(store));
+    third.open_handle(&fork_id, &CallContext::internal("test")).await.expect("the fork reopens");
+    let heir_rows = listed(&third, &fork_id).await;
+    let shown: Vec<(&str, &str)> = heir_rows.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
+    let restart = "[Request interrupted by process restart]";
+    // The parent's four rows once, then the fork's own turn closed once (the inheritance boundary row, if any, is not a recovery row).
+    let closed: Vec<&(&str, &str)> = shown.iter().filter(|(role, content)| *role == "tool" && *content == "Cancelled").collect();
+    assert_eq!(closed.len(), 2, "one cancelled result per turn: {shown:?}");
+    assert_eq!(shown.iter().filter(|(_, content)| *content == restart).count(), 2, "one restart line per turn: {shown:?}");
+    // The inheritance boundary is stamped on the fork's last inherited row (`meta.sessionInheritances`), so the rows are compared by what they say.
+    let said = |rows: &[serde_json::Value]| rows.iter().map(|m| (m["role"].clone(), m["content"].clone())).collect::<Vec<_>>();
+    assert_eq!(said(&heir_rows[..4]), said(&parent_rows), "the parent's rows come first, as they were");
+    assert!(heir_rows.iter().chain(&parent_rows).all(|row| row.pointer("/meta/restartRecovery").is_none()), "no read shows the stored mark");
 }
 
 /// The kill points are every boundary a kill can leave the store at, three kinds (`CommitPoint`): before a commit's batch reaches the

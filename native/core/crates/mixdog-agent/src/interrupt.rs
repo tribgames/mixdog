@@ -193,6 +193,17 @@ fn written_by_recovery(row: &serde_json::Value) -> bool {
     row.pointer(&format!("/meta/{RECOVERY_MARK}")) == Some(&serde_json::Value::Bool(true))
 }
 
+/// The row as a client or a hook sees it: the stored recovery mark is the core's own provenance and no field of Node's row.
+pub fn without_recovery_mark(row: &mut serde_json::Value) {
+    let Some(object) = row.as_object_mut() else { return };
+    if let Some(meta) = object.get_mut("meta").and_then(serde_json::Value::as_object_mut) {
+        meta.shift_remove(RECOVERY_MARK);
+        if meta.is_empty() {
+            object.shift_remove("meta");
+        }
+    }
+}
+
 fn set_meta_mark(body: &mut serde_json::Value, key: &str) {
     if let Some(object) = body.as_object_mut() {
         let meta = object.entry("meta").or_insert_with(|| serde_json::json!({}));
