@@ -25,9 +25,10 @@ mod across_processes {
     use std::io::Read as _;
     use std::path::Path;
     use std::process::Child;
-    use std::process::ChildStdout;
     use std::process::Command;
     use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     use serde_json::Value;
     use serde_json::json;
@@ -50,9 +51,13 @@ mod across_processes {
         std::io::stdin().read_to_end(&mut Vec::new()).unwrap();
     }
 
+    /// Failure deadline of every wait on a contender: nothing in a passing run waits for it.
+    const DEADLINE: Duration = Duration::from_secs(60);
+
     struct Contender {
         child: Child,
-        out: BufReader<ChildStdout>,
+        /// Each line the contender printed; `None` once its stdout closed, which is how its exit is seen.
+        lines: mpsc::Receiver<Option<String>>,
     }
 
     impl Contender {
@@ -68,14 +73,26 @@ mod across_processes {
             std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
             let mut child = command.spawn().unwrap();
             let out = BufReader::new(child.stdout.take().unwrap());
-            Self { child, out }
+            let (send, lines) = mpsc::channel();
+            std::thread::spawn(move || {
+                for line in out.lines().map_while(Result::ok) {
+                    if send.send(Some(line)).is_err() {
+                        return;
+                    }
+                }
+                let _ = send.send(None);
+            });
+            Self { child, lines }
         }
 
         /// What the contender answered: `{"held": bool}`.
         fn verdict(&mut self) -> Value {
             loop {
-                let mut line = String::new();
-                assert_ne!(self.out.read_line(&mut line).unwrap(), 0, "a contender ended before it answered");
+                let line = self
+                    .lines
+                    .recv_timeout(DEADLINE)
+                    .unwrap_or_else(|_| panic!("a contender gave no VERDICT line within {DEADLINE:?}"))
+                    .expect("a contender ended before it answered");
                 if let Some(answer) = line.strip_prefix("VERDICT ") {
                     return serde_json::from_str(answer).unwrap();
                 }
@@ -85,6 +102,11 @@ mod across_processes {
         /// SIGKILL (`TerminateProcess` on Windows), the way the recording ended its holders.
         fn kill(mut self) {
             self.child.kill().unwrap();
+            while let Some(_line) = self
+                .lines
+                .recv_timeout(DEADLINE)
+                .unwrap_or_else(|_| panic!("a killed contender's stdout did not close within {DEADLINE:?}"))
+            {}
             self.child.wait().unwrap();
         }
     }
@@ -126,7 +148,7 @@ mod across_processes {
         assert_eq!(held(&owned), golden["holder"]);
         let owned = owned.unwrap();
         // A hosted Read tool opens, reads and closes any file of the data dir. (Windows refuses the read of a locked range.)
-        let _ = std::fs::read(temp.data().join(LOCK_FILE));
+        std::fs::read(temp.data().join(LOCK_FILE)).expect("a held lock file can be read, as Node's can");
         drop(std::fs::OpenOptions::new().read(true).write(true).open(temp.data().join(LOCK_FILE)).unwrap());
         assert_eq!(Contender::start(&temp.data()).verdict(), golden["contender"]);
         assert_eq!(owned.revalidate().is_ok(), golden["intact"]);
