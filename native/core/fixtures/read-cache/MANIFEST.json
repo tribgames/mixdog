@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 222535,
+      "bytes": 224758,
       "path": "golden.json",
-      "sha256": "f0580b6f25e47f4f066f24e4db9a88f3f8e7f33bbc9c14d1a4b2e0b308f3d1ab"
+      "sha256": "3cee9c05b7097dd27e5e1dec391eb0c5a2aba5a82149f1905bc8726796b91345"
     }
   ],
   "inputs": [
@@ -23,7 +23,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/read-cache-scenarios.mjs",
-      "sha256": "470a81418081f82b79bc5813ec2c0db3e50f2e2af5e7fcd136e7d9f9cb3f5952"
+      "sha256": "b4667133dc5e3324bec0e1a5310df2a811737a862d86c442c5891eaf868fdceb"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/tool-failure-rows.mjs",
@@ -54,10 +54,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-read-cache.mjs",
-  "recorderSha256": "45b65677376777172089929da17d592a519ef2e18b9b6996df92c76e835ea121",
+  "recorderSha256": "6563f6b61b452b4b620c79b7e1036124ce060e01cf8bd599f1ec4079c86c8f40",
   "set": "read-cache",
   "syntheticInputs": {
-    "betweenTurns": "write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id",
+    "betweenTurns": "write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id; direct: setReadCached / tryReadCached / setScopedToolCached / tryScopedToolCached / clearReadDedupSession called in the recorded order under one session id",
     "patchBinary": {
       "givenAs": "MIXDOG_PATCH_NATIVE_BIN (the engine apply_patch runs on)",
       "sha256": "03c73fe9895dad6684060e7b0155bb41a8dc96ad75c49c9c9b550cbec27afd1d"
@@ -69,5 +69,5 @@
       "b.txt": "b6285c57e8797db5d4c51c80d6f11938afda9b11c6a003549709189e9b4b92a2"
     }
   },
-  "totalBytes": 222535
+  "totalBytes": 224758
 }

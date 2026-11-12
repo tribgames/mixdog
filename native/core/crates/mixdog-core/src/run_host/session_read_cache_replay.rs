@@ -267,6 +267,49 @@ async fn a_closed_and_resumed_session_reads_like_nodes() {
     replay("the session closed and resumed between the turns").await;
 }
 
+/// The recorded `direct` scenario: the cache calls in Node's order, through the production cache (`LiveReuses::run`), the run that
+/// started before the close and the run of the reopened session each acting as the recording says. Returns what each look found.
+async fn play_direct(scenario: &Value) -> Vec<Value> {
+    let workspace = tempfile::tempdir().unwrap();
+    for (name, text) in recording()["files"].as_object().unwrap() {
+        std::fs::write(workspace.path().join(name), text.as_str().unwrap()).unwrap();
+    }
+    let tokens = mixdog_rt::testing::tokens();
+    let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    let reuses = LiveReuses::default();
+    let run = || reuses.run(io.clone(), "direct-session", workspace.path(), false, Arc::new(Fixed));
+    let running = run();
+    let mut reopened = None;
+    let mut looks = Vec::new();
+    for op in scenario["phases"][0]["direct"].as_array().unwrap() {
+        if op["close"] == json!(true) {
+            reuses.clear_session("direct-session");
+            reopened = Some(run());
+            continue;
+        }
+        let who = if op["as"] == "reopened" { reopened.as_ref().unwrap() } else { &running };
+        let call = |name: &str, arguments: Value| ToolCall { id: "c".into(), name: name.into(), arguments, native_type: None };
+        let tool = |kind: &Value| if kind == "read" { call("read", json!({ "path": "a.txt" })) } else { call("list", json!({ "path": "." })) };
+        if let Some(kind) = op["fill"].as_str() {
+            who.store_with_roots(&tool(&json!(kind)), op["content"].as_str().unwrap(), op["id"].as_str().unwrap(), None).await;
+        } else {
+            looks.push(match who.lookup(&tool(&op["look"]), true).await {
+                Some(hit) => json!({ "content": hit.content, "firstToolUseId": hit.first_tool_use_id }),
+                None => Value::Null,
+            });
+        }
+    }
+    looks
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_still_reading_after_its_close_fills_the_cache_the_reopened_session_finds() {
+    let golden = recording();
+    let at = golden["scenarios"].as_array().unwrap().iter().position(|s| s["name"] == "a turn still reading after its session was closed").expect("a recorded scenario");
+    let looks = play_direct(&golden["scenarios"][at]).await;
+    assert_eq!(json!(looks), golden["results"][at]["steps"][0]["direct"]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_hundred_and_first_entry_of_a_session_evicts_the_first() {
     replay("the hundred and first entry").await;

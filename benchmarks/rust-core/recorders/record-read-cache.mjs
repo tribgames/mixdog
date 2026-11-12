@@ -42,6 +42,8 @@ if (process.argv[2] === '--child') {
   const { stopOwnedPgForShutdown } = await imp('src/runtime/memory/lib/pg/supervisor.mjs');
   const cfgMod = await imp(`${S}config.mjs`);
   const mgr = await imp(`${S}session/manager.mjs`);
+  const readCache = await imp(`${S}session/cache/read-cache.mjs`);
+  const scopedCache = await imp(`${S}session/cache/scoped-cache.mjs`);
 
   const scenario = scenarios()[Number(process.env.RECORDER_SCENARIO)];
   for (const entry of readdirSync(workspace)) rmSync(join(workspace, entry), { recursive: true, force: true });
@@ -80,7 +82,22 @@ if (process.argv[2] === '--child') {
     );
     const session = createSession({ ...built, skipSkills: true, workflow: { id: 'headless', delegatesAgents: false } });
     for (const phase of scenario.phases) {
-      if (phase.turn) {
+      if (phase.direct) {
+        const sessionId = 'direct-session';
+        const looks = [];
+        const readArgs = { path: 'a.txt' };
+        const listArgs = { path: '.' };
+        for (const op of phase.direct) {
+          if (op.close) readCache.clearReadDedupSession(sessionId);
+          else if (op.fill === 'read') readCache.setReadCached({ sessionId, args: readArgs, cwd: workspace, content: op.content, toolUseId: op.id });
+          else if (op.fill === 'list') scopedCache.setScopedToolCached({ sessionId, toolName: 'list', args: listArgs, cwd: workspace, content: op.content, toolUseId: op.id });
+          else {
+            const hit = op.look === 'read' ? readCache.tryReadCached({ sessionId, args: readArgs, cwd: workspace }) : scopedCache.tryScopedToolCached({ sessionId, toolName: 'list', args: listArgs, cwd: workspace });
+            looks.push(hit ? { content: hit.content, firstToolUseId: hit.firstToolUseId } : null);
+          }
+        }
+        steps.push({ direct: looks });
+      } else if (phase.turn) {
         queue = [...phase.turn];
         sends = [];
         let outcome;
@@ -196,7 +213,7 @@ try {
           sessionBuilderInputs: 'sessionOptions with the headless tool profile, skipSkills true and workflow { id: headless, delegatesAgents: false }',
           workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
           patchBinary: { givenAs: 'MIXDOG_PATCH_NATIVE_BIN (the engine apply_patch runs on)', sha256: createHash('sha256').update(readFileSync(patchBin)).digest('hex') },
-          betweenTurns: 'write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id',
+          betweenTurns: 'write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id; direct: setReadCached / tryReadCached / setScopedToolCached / tryScopedToolCached / clearReadDedupSession called in the recorded order under one session id',
         },
         node: process.version,
       },
