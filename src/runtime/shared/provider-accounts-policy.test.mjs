@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, after, mock } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,30 +24,69 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 const provider = 'openai-oauth';
 const file = join(dir, 'provider-accounts.json');
-function rewrite(edit) {
+// Another process's write lands between two runs of the daemon's main thread.
+async function rewrite(edit) {
+  await new Promise((resolve) => setImmediate(resolve));
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   edit(raw.providers[provider]);
+  // An external write: no manual cache clear, the next read must see it.
   writeFileSync(file, JSON.stringify(raw));
 }
 
 test('a roster saved before switching policies maps auto onto a policy', async () => {
   await registerProviderAccount(provider, newProviderAccountId());
-  rewrite((pool) => {
+  await rewrite((pool) => {
     delete pool.policy;
     pool.auto = false;
   });
   assert.equal(readProviderAccountPool(provider).policy, 'manual');
-  rewrite((pool) => {
+  await rewrite((pool) => {
     pool.auto = true;
   });
   assert.equal(readProviderAccountPool(provider).policy, 'limit');
   assert.equal(readProviderAccountPool(provider).auto, true);
   // An older build that only knows `auto` turned switching off.
-  rewrite((pool) => {
+  await rewrite((pool) => {
     pool.policy = 'headroom';
     pool.auto = false;
   });
   assert.equal(readProviderAccountPool(provider).policy, 'manual');
+});
+
+// Every request resolves its account through this read, on the main thread: a
+// burst of them must cost one file read, not one each.
+test('a burst of roster reads touches the file once, and a write is seen at once', async () => {
+  await registerProviderAccount(provider, newProviderAccountId());
+  const real = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (path, ...rest) => {
+    if (String(path).endsWith('provider-accounts.json')) reads += 1;
+    return real(path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    for (let n = 0; n < 50; n += 1) readProviderAccountPool(provider);
+  } finally {
+    fs.readFileSync = real;
+    syncBuiltinESMExports();
+  }
+  assert.ok(reads <= 1, `${reads} file reads for 50 reads`);
+  const before = readProviderAccountPool(provider).accounts.length;
+  await registerProviderAccount(provider, newProviderAccountId());
+  assert.equal(readProviderAccountPool(provider).accounts.length, before + 1);
+});
+
+test('another process\'s change (removed account, new selection) is seen by the next run', async () => {
+  await registerProviderAccount(provider, newProviderAccountId());
+  const first = readProviderAccountPool(provider).accounts[0].id;
+  assert.ok(readProviderAccountPool(provider).accounts.length >= 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  await rewrite((pool) => {
+    pool.accounts = [];
+    pool.selectedId = null;
+  });
+  assert.equal(readProviderAccountPool(provider).accounts.some((a) => a.id === first), false);
+  assert.equal(readProviderAccountPool(provider).accounts.length, 0);
 });
 
 test('policy writes keep auto readable for builds that predate it', async () => {

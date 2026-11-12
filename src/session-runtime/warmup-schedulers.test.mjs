@@ -32,9 +32,6 @@ function fixture(t, overrides = {}) {
     reloadFullConfig: () => {
       calls.push('reload');
     },
-    ensureConfigForRouteProvider: () => {
-      calls.push('config');
-    },
     awaitKeychainPrewarm: async () => {},
     ensureProvidersReady: async () => {
       calls.push('providers');
@@ -114,7 +111,7 @@ for (const method of ['scheduleStatuslineUsageWarmup', 'refreshStatuslineUsageAf
     f.close();
     provider.resolve();
     await setImmediate();
-    assert.deepEqual(f.calls, ['config']);
+    assert.deepEqual(f.calls, []);
     assert.deepEqual(Object.values(f.timers).filter(Boolean), []);
   });
 
@@ -126,7 +123,7 @@ for (const method of ['scheduleStatuslineUsageWarmup', 'refreshStatuslineUsageAf
     f.setRoute({ provider: 'anthropic-oauth', model: 'replacement' });
     provider.resolve();
     await setImmediate();
-    assert.deepEqual(f.calls, ['config', ['usage', { provider: 'openai-oauth', model: 'first' }]]);
+    assert.deepEqual(f.calls, [['usage', { provider: 'openai-oauth', model: 'first' }]]);
     assert.deepEqual(Object.values(f.timers).filter(Boolean), [], 'usage is refreshed by turns and reads');
   });
 }

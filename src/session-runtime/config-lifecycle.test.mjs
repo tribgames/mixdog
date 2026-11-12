@@ -106,7 +106,6 @@ function fixture({
     normalizeSystemShellConfig: () => ({ command: '' }),
     normalizeWebSearchRouteConfig: (value) => value || null,
     outputStyleStatus,
-    LAZY_SECRET_PROVIDERS: new Set(),
     clean: (value) => String(value || '').trim(),
     resolve,
     STANDALONE_DATA_DIR: process.cwd(),

@@ -79,7 +79,6 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
         setConfiguredShell() {},
         normalizeSystemShellConfig: value => ({ command: value?.command || '' }),
         normalizeWebSearchRouteConfig: value => value || null,
-        LAZY_SECRET_PROVIDERS: new Set(),
         clean: value => String(value || '').trim(),
         resolve,
         STANDALONE_DATA_DIR: process.env.MIXDOG_DATA_DIR,

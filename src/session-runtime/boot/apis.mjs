@@ -306,7 +306,7 @@ function localProviderAdapters(boot) {
       invalidateProviderCaches();
       await ensureProvidersReady(rt.config.providers || {});
       await reg.refreshCatalogs?.({ force: true });
-      invalidateProviderCaches({ preserveProviderInit: true });
+      invalidateProviderCaches();
     },
   };
 }

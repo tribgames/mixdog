@@ -10,7 +10,6 @@ import {
 import { LOCAL_PROVIDER_ID, configureLocalProviderIdleTtl } from '../../runtime/local-provider/managed-runtime.mjs';
 import { resolve } from 'node:path';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { LAZY_SECRET_PROVIDERS } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import {
   ensureProviderEnabled,
   normalizeSystemShellConfig,
@@ -104,7 +103,6 @@ function wireConfigLifecycle(boot) {
     normalizeSystemShellConfig,
     normalizeWebSearchRouteConfig,
     outputStyleStatus,
-    LAZY_SECRET_PROVIDERS,
     clean,
     resolve,
     // Late-bound: the effect targets (notification bus, MCP connect, context
@@ -166,7 +164,6 @@ function wireConfigLifecycle(boot) {
     applyConfigChange,
     ensureFullConfig,
     displayConfig,
-    ensureConfigForRouteProvider,
   } = lifecycle;
   Object.assign(boot, {
     applyConfigChange,
@@ -184,7 +181,6 @@ function wireConfigLifecycle(boot) {
     reloadFullConfig,
     ensureFullConfig,
     displayConfig,
-    ensureConfigForRouteProvider,
     persistLeadRoute: (routeLike, { onlyIfAbsent = false } = {}) => {
       const leadRoute = normalizeWorkflowRoute(routeLike);
       if (!leadRoute) return null;

@@ -37,6 +37,7 @@ function createSearchRuntime(t, id, model) {
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => reg,
     getWarmProviderModelCache: () => () => {},
+    getEnsureFullConfig: () => () => rt.config,
   });
   const { runNativeWebSearch } = createNativeWebSearch({
     getRoute: () => route,

@@ -13,7 +13,6 @@ export function createStatuslineUsageWarmup({
   getRoute,
   getConfig,
   isCloseRequested,
-  ensureConfigForRouteProvider,
   awaitKeychainPrewarm,
   ensureProvidersReady,
   ensureProviderEnabled,
@@ -29,7 +28,6 @@ export function createStatuslineUsageWarmup({
   async function refreshIdleStatuslineUsage() {
     await awaitKeychainPrewarm();
     if (isCloseRequested()) return null;
-    ensureConfigForRouteProvider();
     const route = getRoute();
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), route.provider));
     if (isCloseRequested()) return null;

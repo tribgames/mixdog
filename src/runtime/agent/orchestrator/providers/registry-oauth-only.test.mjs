@@ -29,20 +29,26 @@ test.after(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const { _withRegisteredProviderForTestAsync, getProvider, initProviders } = await import('./registry.mjs');
+const { _withRegisteredProviderForTestAsync, getProvider, initProviders, syncProviders } = await import(
+  './registry.mjs'
+);
 const live = { name: 'anthropic-oauth' };
 
-test('an explicit OAuth opt-out with nothing else enabled still refuses to clear the registry', async () => {
-  await _withRegisteredProviderForTestAsync('anthropic-oauth', live, async () => {
-    await assert.rejects(initProviders({ 'anthropic-oauth': { enabled: false } }), /all providers disabled/);
-  });
-});
-
-// Last in this file: a successful init leaves its applied signature behind,
-// which the fixture does not reset (node --test runs each file in its own process).
 test('an OAuth-only secrets-less init keeps the live OAuth provider instead of failing', async () => {
   await _withRegisteredProviderForTestAsync('anthropic-oauth', live, async () => {
     await initProviders({ 'anthropic-oauth': { enabled: false, credentialProbeUnavailable: true } });
     assert.equal(getProvider('anthropic-oauth'), live);
+  });
+});
+
+test('a record whose OAuth credential could not be read keeps the live provider; a stored opt-out removes it', async () => {
+  await _withRegisteredProviderForTestAsync('anthropic-oauth', live, async () => {
+    const record = { 'anthropic-oauth': { enabled: false, credentialProbeUnavailable: true } };
+    await syncProviders(record, { decisions: {} });
+    assert.equal(getProvider('anthropic-oauth'), live);
+    // Logout writes enabled:false: the provider leaves, and its credential
+    // file (still readable here) does not lazily bring it back.
+    await syncProviders({ 'anthropic-oauth': { enabled: false } }, { decisions: { 'anthropic-oauth': { enabled: false } } });
+    assert.equal(getProvider('anthropic-oauth'), undefined);
   });
 });

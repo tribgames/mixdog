@@ -35,7 +35,6 @@ function runtime() {
     normalizeSystemShellConfig: () => ({ command: '' }),
     normalizeWebSearchRouteConfig: (value) => value || null,
     outputStyleStatus: () => ({}),
-    LAZY_SECRET_PROVIDERS: new Set(),
     clean: (value) => String(value || '').trim(),
     resolve,
     onConfigChanged: () => { reloads += 1; },

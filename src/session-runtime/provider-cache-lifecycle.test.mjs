@@ -325,6 +325,7 @@ test('provider readiness cannot initialize providers after its runtime closes du
   let initialized = 0;
   const readiness = createProviderReadiness({
     rt,
+    getEnsureFullConfig: () => () => rt.config,
     keychain: { prewarmSecrets: () => keychain.promise },
     getReg: () => ({
       initProviders: async () => {
@@ -346,6 +347,7 @@ test('startup catalog refresh cannot launch another warmup after runtime closure
   let warmed = 0;
   const readiness = createProviderReadiness({
     rt,
+    getEnsureFullConfig: () => () => rt.config,
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => ({
       initProviders: async () => {},
@@ -372,6 +374,7 @@ test('provider set change re-runs the catalog refresh completion once per new pr
   const warmArgs = [];
   const readiness = createProviderReadiness({
     rt,
+    getEnsureFullConfig: () => () => rt.config,
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => ({
       initProviders: async () => {},
@@ -415,6 +418,7 @@ test('an already initialized config still attaches to a refresh another runtime 
   let warmed = 0;
   const readiness = createProviderReadiness({
     rt,
+    getEnsureFullConfig: () => () => rt.config,
     keychain: { prewarmSecrets: async () => {} },
     getReg: () => ({
       initProviders: async () => {
@@ -433,10 +437,10 @@ test('an already initialized config still attaches to a refresh another runtime 
   assert.equal(warmed, 1);
 
   // The shared registry opened a new catalog epoch elsewhere; this runtime's
-  // config is unchanged, so init is reused but the new refresh is observed.
+  // request asks the registry again and observes the new refresh.
   current = b.promise;
   await readiness.ensureProvidersReady(config);
-  assert.equal(inits, 1, 'the cached init is reused');
+  assert.equal(inits, 2, 'every request asks the registry');
   assert.equal(rt.startupProviderCatalogRefreshPending, true);
   b.resolve();
   await setImmediate();

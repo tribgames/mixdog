@@ -5,7 +5,13 @@ import test from 'node:test';
 
 import { createCustomProvider, effectiveCustomModelRows, normalizeCustomProviderConfig } from './custom-provider.mjs';
 import { applyCustomRequestBody } from './custom-provider-config.mjs';
-import { initProviders, getProvider, getProviderInitErrors, providerInputExcludesCache } from './registry.mjs';
+import {
+  initProviders,
+  getProvider,
+  getProviderInitErrors,
+  providerInputExcludesCache,
+  syncProviders,
+} from './registry.mjs';
 import { mergeStoredProviders } from '../config-providers-merge.mjs';
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
@@ -884,13 +890,10 @@ test('registry instantiates custom providers without presets and reports invalid
     () => p.listModels()
   );
   assert.equal(listed[0].provider, id);
-  // Only an invalid custom provider: nothing usable, the live registry is kept
-  // and the reason is recorded.
-  await assert.rejects(
-    initProviders({ 'custom-bad': { ...base, protocol: 'nope', apiKey: 'k', models: [{ id: 'm1' }] } }),
-    /all providers disabled/
-  );
+  // An invalid custom provider is skipped with its reason; the registry keeps the rest.
+  await initProviders({ 'custom-bad': { ...base, protocol: 'nope', apiKey: 'k', models: [{ id: 'm1' }] } });
   assert.match(getProviderInitErrors().get('custom-bad'), /unsupported protocol/);
+  assert.equal(getProvider('custom-bad'), undefined);
   assert.ok(getProvider(id));
 });
 
@@ -930,7 +933,7 @@ test('one invalid custom provider is isolated: valid custom and first-party prov
   assert.equal(getProvider('mixdog-local')?.name, 'mixdog-local');
   assert.equal(getProvider(good)?.name, good);
   assert.equal(getProvider(bad), undefined);
-  assert.deepEqual([...getProviderInitErrors().keys()], [bad]);
+  assert.equal(getProviderInitErrors().has(good), false);
   assert.match(getProviderInitErrors().get(bad), /modelOverrides\[broken\]\.contextWindow/);
   assert.ok(stderr.some((line) => line.includes(bad) && line.includes('skipped')));
   // Fixing it on the next init loads it and clears the error.
@@ -954,7 +957,7 @@ test('one invalid custom provider is isolated: valid custom and first-party prov
     },
   });
   assert.equal(getProvider(bad)?.name, bad);
-  assert.equal(getProviderInitErrors().size, 0);
+  assert.equal(getProviderInitErrors().has(bad), false);
 });
 
 const invalidCustom = {
@@ -974,52 +977,45 @@ const validCustom = {
   modelOverrides: { m1: { manual: true } },
 };
 
-test('only-invalid custom config, warm: the now-invalid live provider is removed and the reason is reported', async () => {
+test('a record that makes a live custom provider invalid removes it and reports the reason', async () => {
   const warm = 'custom-only-warm';
   await initProviders({ 'mixdog-local': { enabled: true }, [warm]: validCustom });
   assert.equal(getProvider(warm)?.name, warm);
   const write = process.stderr.write;
   process.stderr.write = () => true;
   try {
-    await assert.rejects(initProviders({ 'mixdog-local': { enabled: false }, [warm]: invalidCustom }), (err) => {
-      assert.equal(err.code, 'PROVIDERS_NONE_ENABLED');
-      assert.match(err.message, /all providers disabled/);
-      assert.match(err.message, new RegExp(`${warm}.*modelOverrides\\[broken\\]\\.maxOutputTokens`));
-      return true;
-    });
+    await syncProviders(
+      { 'mixdog-local': { enabled: false }, [warm]: invalidCustom },
+      { decisions: { [warm]: { type: 'custom' } } }
+    );
   } finally {
     process.stderr.write = write;
   }
   assert.equal(getProvider(warm), undefined);
-  // Genuinely-disabled guard semantics are unchanged: the rest of the live registry stays.
+  // No stored decision turned mixdog-local off: it stays.
   assert.equal(getProvider('mixdog-local')?.name, 'mixdog-local');
   assert.match(getProviderInitErrors().get(warm), /maxOutputTokens/);
   // Restoring the previously applied config reloads the removed provider.
   await initProviders({ 'mixdog-local': { enabled: true }, [warm]: validCustom });
   assert.equal(getProvider(warm)?.name, warm);
-  assert.equal(getProviderInitErrors().size, 0);
+  assert.equal(getProviderInitErrors().has(warm), false);
 });
 
-test('only-invalid custom config, cold: rejected with the reason, nothing registered under that name', async () => {
+test('an invalid custom provider never registers: its reason is reported and the registry keeps the rest', async () => {
   const cold = 'custom-only-cold';
   await initProviders({ 'mixdog-local': { enabled: true } });
   const write = process.stderr.write;
   process.stderr.write = () => true;
   try {
-    await assert.rejects(
-      initProviders({ [cold]: invalidCustom }),
-      new RegExp(`all providers disabled.*${cold}.*maxOutputTokens`)
-    );
+    await initProviders({ [cold]: invalidCustom });
   } finally {
     process.stderr.write = write;
   }
   assert.equal(getProvider(cold), undefined);
+  assert.match(getProviderInitErrors().get(cold), /maxOutputTokens/);
   assert.equal(getProvider('mixdog-local')?.name, 'mixdog-local');
-  // A config with no enabled provider at all keeps the old message.
-  await assert.rejects(initProviders({ 'mixdog-local': { enabled: false } }), (err) => {
-    assert.equal(err.message, '[provider] all providers disabled in config — refusing to clear registry');
-    return true;
-  });
+  // A request whose view reads every provider as off removes nothing.
+  await initProviders({ 'mixdog-local': { enabled: false } });
   assert.equal(getProvider('mixdog-local')?.name, 'mixdog-local');
 });
 

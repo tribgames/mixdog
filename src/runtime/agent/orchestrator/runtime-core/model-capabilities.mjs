@@ -17,7 +17,6 @@ const FAST_CAPABLE_PROVIDERS = new Set([
   'cursor-oauth',
   'cursor-api',
 ]);
-export const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth']);
 
 export function routeFastKey(provider, model) {
   const p = clean(provider);

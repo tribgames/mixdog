@@ -56,6 +56,13 @@ export function beginBoot(params) {
     keychain,
     getReg: () => boot.reg,
     getWarmProviderModelCache: () => boot.warmProviderModelCache,
+    getEnsureFullConfig: () => boot.ensureFullConfig,
+    // The stored provider decisions (disable, logout, deleted custom
+    // providers); null while no stored agent section reads.
+    getStoredProviders: () => {
+      const agent = boot.sharedCfgMod.readConfig()?.agent;
+      return agent ? agent.providers || {} : null;
+    },
   });
   const routePreparation = createRoutePreparationGate({
     onError: (error) =>

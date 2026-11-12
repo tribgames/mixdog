@@ -56,9 +56,8 @@ export function createCatalogLoader({
         const { loadModelProxyProviderConfig } = await import(
           '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs'
         );
+        // Re-read the PC's provider set; readiness below applies it as the record.
         await loadModelProxyProviderConfig({ force: true });
-        // Rebuild even when daemon readiness already settled on the old PC set.
-        await reg().initProviders({});
       }
       await ensureProvidersReady(config().providers || {});
     } catch (error) {
