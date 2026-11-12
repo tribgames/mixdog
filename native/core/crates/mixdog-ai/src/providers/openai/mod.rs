@@ -20,6 +20,8 @@ pub mod oauth;
 pub mod policy;
 pub mod pool;
 pub mod profile;
+#[cfg(any(test, feature = "test-support"))]
+pub mod scripted;
 pub mod switch;
 mod tool_flight;
 

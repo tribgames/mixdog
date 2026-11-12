@@ -15,6 +15,10 @@
     },
     {
       "t": 0,
+      "on": "background-dial"
+    },
+    {
+      "t": 0,
       "on": "upgrade",
       "conn": 1,
       "action": "stuck"

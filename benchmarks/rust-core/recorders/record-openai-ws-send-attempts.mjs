@@ -79,14 +79,15 @@ const serve = (plans, refusals = []) => {
     onFrame: (conn) => {
       const plan = plans[frames++];
       for (const frame of plan.frames) conn.send(frame);
-      if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
+      // 'rst': the TCP connection is reset after the upgrade (an `error` of the socket with code ECONNRESET at the client, no close frame).
+      if (plan.close) (plan.close[0] === 'rst' ? conn.ws._socket.resetAndDestroy() : plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
     },
   });
 };
-async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
+async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, follow, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
   serve(plans, refusals);
   // The send's own backoff sleeps run on the virtual clock: every armed retry sleep is advanced to (a recorded step) until the send ends.
-  const outcome = await send(poolKey, body, sendExtras);
+  const outcome = await send(poolKey, body, sendExtras, follow);
   await closeAll();
   return { ...outcome, events: world.trace.map((e) => ({ ...e })) };
 }
@@ -96,14 +97,14 @@ async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body
 // Every retry step of these cases follows a failed attempt whose connection is ended (dropped or closed by the server, or released by the
 // client), and no case keeps a connection open across a step: the step waits until every connection opened so far is closed at the server.
 const releasedClosed = () => world.count((e) => e.event === 'closed') >= world.count((e) => e.event === 'open');
-const send = (poolKey, body, sendExtras = {}) => rec.clock.followRetries(sendViaWebSocket({
+const send = (poolKey, body, sendExtras = {}, follow = {}) => rec.clock.followRetries(sendViaWebSocket({
   auth: { type: 'xai', access_token: 'fixture-access-token' }, body, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
   onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),
   onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
   onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
   _agentTraceFn: (row) => world.note({ event: 'agent-trace', row }),
   ...sendExtras,
-}).then((result) => ({ result }), (error) => ({ error })), { ready: releasedClosed });
+}).then((result) => ({ result }), (error) => ({ error })), { ready: releasedClosed, ...follow });
 const closeAll = async () => {
   for (const conn of world.conns) conn.close?.(1000, 'recorder-end');
   await world.until((trace) => trace.every((e) => e.event !== 'open') || trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
@@ -134,6 +135,72 @@ await rec.run('ws-duplicate-reasoning-rejection-strips-replay-once', `${SRC}:392
 // :74 a transient connect error spends the stream budget and retries: covered by ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error (the upgrade is reset, the sender retries and surfaces the first error).
 // :417 the budget is spent: the first error surfaces and the last attempt's error is its cause - the send's rejection as the caller gets it.
 await rec.run('ws-stream-drops-on-every-connection-spend-budget-first-error-with-last-as-cause', `${SRC}:417`, { connections: 'every connection: created, then the server drops it (1006)', count: 12 }, () => overSocket(Array.from({ length: 12 }, () => ({ frames: [{ type: 'response.created', response: { id: 'resp_drop', model: 'gpt-fixture' } }], close: [1006, ''] })), { poolKey: 'sa-exhaust' }));
+// ---- which error a spent or ended outage surfaces (`firstAttemptError`): every path of handshake-failure.mjs / stream-failure.mjs ----
+// An outage is a list of attempts, one per acquire: `reset` (the upgrade is reset), `stuck` (the upgrade is never answered: the acquire's hedge legs at 0/3/6/9/12 s and its 15 s deadline,
+// EWSACQUIRETIMEOUT), `status` (the upgrade is refused), or an opened socket (`frames` then `close`). The error the send surfaces is recorded with its cause chain and as the user reads it.
+const { presentErrorText } = await rec.raw('shared/err-text.mjs');
+const HEDGE_LEGS = 5;
+const OUTAGE_SITES = /at (async )?\S*[sS]leep\S* |at scheduleHedge |openai-ws-connect\.mjs:22\d:/;
+const drop = (n, code = n % 2 ? 1012 : 1011) => ({ frames: [{ type: 'response.created', response: { id: `resp_drop_${n}`, model: 'gpt-fixture' } }], close: [code, `drop-${n}`] });
+const stuck = (times) => Array.from({ length: times }, () => ({ upgrade: 'stuck' }));
+const refused = (status) => ({ upgrade: { status } });
+const outage = (id, source, attempts) => rec.run(id, source, { attempts }, async () => {
+  const refusals = [];
+  const plans = [];
+  for (const attempt of attempts) {
+    if (attempt.upgrade === 'stuck') for (let leg = 0; leg < HEDGE_LEGS; leg++) refusals.push(null);
+    else if (attempt.upgrade === 'reset') refusals.push({ reset: true });
+    else if (attempt.upgrade) refusals.push({ status: attempt.upgrade.status, headers: [['content-type', 'application/json']], body: '{"error":{"message":"refused"}}' });
+    else {
+      refusals.push(undefined);
+      plans.push({ frames: attempt.frames, close: attempt.close });
+    }
+  }
+  // The acquire's timers (hedge, deadline) come due on the virtual clock, but a leg dials in real I/O time: the clock waits until every leg the acquire has started reached the
+  // server before a step, and after a hedge step until the new leg's dial is seen.
+  const legsBefore = attempts.map((_, k) => attempts.slice(0, k).reduce((sum, a) => sum + (a.upgrade === 'stuck' ? HEDGE_LEGS : 1), 0));
+  const count = (kind) => world.count((e) => e.event === kind);
+  const stages = (stage) => world.count((e) => e.event === 'stage' && e.stage === stage);
+  const ready = () => {
+    const begun = stages('requesting');
+    if (!releasedClosed() || begun === 0 || count('upgrade-request') <= legsBefore[Math.min(begun, attempts.length) - 1]) return false;
+    // A refused or reset upgrade ends the acquire when the client has seen it (the lone leg fails at once): the hedge timer still armed meanwhile must not be stepped to first.
+    const kind = attempts[Math.min(begun, attempts.length) - 1];
+    if (!kind.upgrade) return stages('streaming') >= attempts.slice(0, begun).filter((a) => !a.upgrade).length;
+    return kind.upgrade === 'stuck' || stages('reconnecting') >= begun;
+  };
+  const causes = (site) => {
+    if (!/scheduleHedge/.test(site)) return null;
+    const before = count('upgrade-request');
+    return () => count('upgrade-request') > before;
+  };
+  // Past the described attempts every upgrade is left unanswered, so a send that dials more than described fails as an acquire timeout instead of opening an unplanned socket.
+  refusals.push(...Array.from({ length: 40 }, () => null));
+  // `followRetries` picks the timer it steps to before it waits for the world: a timer is offered only once the world is ready for the step, and every world event offers again.
+  const gate = { test: (site) => OUTAGE_SITES.test(site) && ready() };
+  const offered = world.onNote;
+  world.onNote = () => {
+    offered?.();
+    for (const wake of [...rec.clock.armListeners]) wake();
+  };
+  const outcome = await overSocket(plans, { refusals, poolKey: `sa-${id}`, follow: { sites: gate, causes } }).finally(() => {
+    world.onNote = offered;
+  });
+  // The same error with its cause dropped, as the user would read it without the chain.
+  const bare = outcome.error ? Object.assign(new Error(outcome.error.message), { ...outcome.error, cause: undefined }) : null;
+  return { ...outcome, presented: outcome.error ? presentErrorText(outcome.error) : null, presentedWithoutCause: bare ? presentErrorText(bare) : null };
+});
+await outage('ws-reset-then-acquire-timeouts-surface-the-first-reset', `${SRC}:111`, [{ upgrade: 'reset' }, ...stuck(LIMIT)]);
+await outage('ws-drop-then-acquire-timeouts-surface-the-drop', `${SRC}:111`, [drop(0), ...stuck(LIMIT)]);
+await outage('ws-reset-then-stream-drops-surface-the-last-remembered-drop-with-the-last-as-cause', `${SRC}:417`, [{ upgrade: 'reset' }, ...Array.from({ length: LIMIT }, (_, n) => drop(n + 1))]);
+await outage('ws-stream-drops-surface-the-last-remembered-drop-with-the-last-as-cause', `${SRC}:417`, Array.from({ length: LIMIT + 1 }, (_, n) => drop(n)));
+await outage('ws-stream-drops-then-a-reset-surface-the-last-remembered-drop-with-the-reset-as-cause', `${SRC}:417`, [...Array.from({ length: LIMIT }, (_, n) => drop(n)), { frames: [{ type: 'response.created', response: { id: 'resp_rst', model: 'gpt-fixture' } }], close: ['rst'] }]);
+await outage('ws-drop-then-unclassified-refusal-surfaces-the-drop', `${SRC}:111`, [drop(0), refused(400)]);
+await outage('ws-reset-then-unclassified-refusal-surfaces-the-reset', `${SRC}:111`, [{ upgrade: 'reset' }, refused(400)]);
+await outage('ws-reset-then-401-surfaces-the-401', `${SRC}:86`, [{ upgrade: 'reset' }, refused(401)]);
+await outage('ws-drop-then-403-surfaces-the-403', `${SRC}:86`, [drop(0), refused(403)]);
+await outage('ws-drop-then-426-surfaces-the-426', `${SRC}:86`, [drop(0), refused(426)]);
+await outage('ws-reset-then-503-refusals-surface-the-first-reset', `${SRC}:111`, [{ upgrade: 'reset' }, ...Array.from({ length: LIMIT }, () => refused(503))]);
 // :272 / :297 / :362 the retry stage carries a reason class and a code from a known list, never the text of the failure: one send per code, the stage events of each are in its events.
 const failedWith = (code, message) => [{ type: 'response.failed', response: { id: 'resp_code', error: { code, message } } }];
 await rec.run('ws-retry-stage-carries-known-codes-never-failure-text', `${SRC}:272`, { codes: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words', 'INJECTED_CLASS text'], connections: 'response.failed with the code and a message that repeats it, then completed' }, async () => {

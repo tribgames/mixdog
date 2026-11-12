@@ -872,6 +872,8 @@ struct Harness {
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+    /// A real adapter and the decider that judges its failures, in place of the scripted provider.
+    real: Option<(Arc<dyn ProviderAdapter>, Arc<dyn mixdog_core_api::domain::retry::RetryDecider>)>,
 }
 
 /// The calls the loop reported to the host's failure log.
@@ -908,7 +910,12 @@ impl Harness {
             artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            real: None,
         }
+    }
+
+    fn with_adapter(provider: Arc<dyn ProviderAdapter>) -> Self {
+        Self { real: Some((provider, Arc::new(mixdog_ai::retry::StandardRetryDecider))), ..Self::new(Vec::new()) }
     }
 
     fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Self {
@@ -930,7 +937,7 @@ impl Harness {
             clock: self.clock.clone(),
             jitter: Arc::new(HalfJitter),
             waiter: self.waiter.clone(),
-            decider: Arc::new(MockRetryDecider),
+            decider: self.real.as_ref().map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
             steer: self.steer.clone(),
             observer: self.observer.clone(),
             sink: self.sink.clone(),
@@ -986,7 +993,7 @@ impl Harness {
         Run::new(
             env,
             self.cancel.clone(),
-            self.provider.clone(),
+            self.real.as_ref().map_or_else(|| self.provider.clone() as Arc<dyn ProviderAdapter>, |(provider, _)| provider.clone()),
             ToolSet::with_builtins(tools, builtins),
             tool_env,
             config,
@@ -1422,22 +1429,70 @@ async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_r
     let (stages, replays) = replay_connect_case("cutRole", true).await;
     assert_eq!((stages.len(), replays), (0, 0));
 }
-/// A spent WebSocket budget surfaces the outage's first failure, not the last (`openai-ws-send-attempts`
-/// `exhausted()`, recorded in its tests as "exhausted budget surfaces the first error").
-#[tokio::test]
-async fn a_spent_websocket_budget_surfaces_the_first_failure() {
-    let closes: Vec<Attempt> = (0..24)
-        .map(|n| {
-            let mut error = ProviderError::transport(TransportFault::WsClose { code: Some(1006) }, DeliveryState::Ambiguous);
-            error.message = format!("close {n}");
-            Attempt::Reject(error)
-        })
-        .collect();
-    let h = Harness::new(closes);
-    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the budget is spent");
-    let AgentError::Provider(error) = failure.error else { panic!("a provider error") };
-    assert_eq!(error.message, "close 0");
-    assert!(h.provider.requests().len() > 1, "the failures were retried first");
+/// Node's recordings of a WebSocket outage (`provider-openai-ws-send-attempts`, the `outage` cases: handshake resets,
+/// stuck upgrades, refusals and stream drops in every order): the real OpenAI adapter over a scripted dial, driven by the
+/// real agent loop and retry decider, surfaces the error Node's send surfaced, after as many upgrade requests and request
+/// frames, worded as the user reads it.
+#[tokio::test(start_paused = true)]
+async fn an_outage_surfaces_the_error_nodes_websocket_send_surfaced() {
+    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-openai-ws-send-attempts/cases.json");
+    let recording: JsonValue = serde_json::from_str(&RECORDING).unwrap();
+    let mut replayed = 0;
+    for case in recording["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let Some(attempts) = case["input"]["attempts"].as_array() else { continue };
+        let mut script = Vec::new();
+        for attempt in attempts {
+            match &attempt["upgrade"] {
+                JsonValue::String(kind) if kind == "reset" => script.push(mixdog_ai::providers::openai::scripted::Dialed::Reset),
+                JsonValue::String(_) => script.extend((0..5).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck)),
+                JsonValue::Object(refusal) => script.push(mixdog_ai::providers::openai::scripted::Dialed::Rejected(refusal["status"].as_u64().unwrap() as u16)),
+                _ => {
+                    let close = &attempt["close"];
+                    let (code, reason) = match close[0].as_u64() {
+                        Some(code) => (code as u16, close[1].as_str().unwrap().to_owned()),
+                        None => (1006, String::new()),
+                    };
+                    let frames = attempt["frames"].as_array().unwrap().iter().map(|frame| frame.to_string()).collect();
+                    script.push(mixdog_ai::providers::openai::scripted::Dialed::Socket { frames, close: (code, reason) });
+                }
+            }
+        }
+        // Past the recorded attempts every upgrade is left unanswered, as in the recording.
+        script.extend((0..40).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck));
+        let dial = mixdog_ai::providers::openai::scripted::ScriptedDial::with(script);
+        let h = Harness::with_adapter(mixdog_ai::providers::openai::scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk));
+        let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the outage ends in a failure");
+        let AgentError::Provider(error) = failure.error else { panic!("{id}: a provider error") };
+
+        let node = &case["result"]["error"];
+        let events = case["result"]["events"].as_array().unwrap();
+        let node_message = node["message"].as_str().unwrap();
+        if node_message.starts_with("OpenAI OAuth WS closed before response.completed") {
+            assert_eq!(error.message, node_message, "{id}: the error that surfaced");
+        } else if node["code"] == "EWSACQUIRETIMEOUT" {
+            assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error that surfaced");
+        } else if node["code"] == "ECONNRESET" {
+            assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: the error that surfaced");
+        } else {
+            assert_eq!(error.status.map(u64::from), node["props"]["httpStatus"].as_u64(), "{id}: the error that surfaced");
+        }
+        let upgrades = events.iter().filter(|e| e["event"] == "upgrade-request").count();
+        assert_eq!(dial.dials() as usize, upgrades, "{id}: upgrade requests");
+        let frames = events.iter().filter(|e| e["event"] == "frame" && e["dir"] == "client->server").count();
+        assert_eq!(dial.frames().len(), frames, "{id}: request frames");
+        // What the user reads, and what they would read had the failure carried no cause.
+        let text = mixdog_ai::service::error_text::present_error_text(
+            &mixdog_ai::service::error_text::ErrorView::from(&*error),
+            &mixdog_ai::service::error_text::PresentOptions::default(),
+        );
+        if !node_message.contains("WS handshake") {
+            assert_eq!(text, case["result"]["presented"].as_str().unwrap(), "{id}: the text the user reads");
+            assert_eq!(text, case["result"]["presentedWithoutCause"].as_str().unwrap(), "{id}: the text without the cause");
+        }
+        replayed += 1;
+    }
+    assert_eq!(replayed, 11, "every recorded outage");
 }
 
 #[tokio::test]

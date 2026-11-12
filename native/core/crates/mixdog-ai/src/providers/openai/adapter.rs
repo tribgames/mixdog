@@ -42,6 +42,7 @@ use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_core_api::domain::provider::WsPhase;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use mixdog_rt::CpuBulk;
@@ -511,7 +512,13 @@ impl OpenAiAdapter {
             let (socket, upgrade) = match dialed {
                 Ok(connected) => connected,
                 Err(ConnectError::Transport(fault)) => {
-                    return Err(ProviderError::transport(fault, DeliveryState::NotSent));
+                    let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
+                    // `ws` reports a connection reset during the upgrade as the request's own error.
+                    if error.transport == Some(TransportFault::Reset) {
+                        error.code = Some("ECONNRESET".into());
+                        error.message = "socket hang up".into();
+                    }
+                    return Err(error);
                 }
                 Err(ConnectError::Proxy { code, message }) => {
                     // The network proxy policy or the proxy refused: nothing was sent.
@@ -556,7 +563,11 @@ impl OpenAiAdapter {
         socket
             .send(Message::text(text))
             .await
-            .map_err(|fault| ProviderError::transport(fault, DeliveryState::Ambiguous))?;
+            .map_err(|fault| {
+                let mut error = ProviderError::transport(fault, DeliveryState::Ambiguous);
+                error.ws_phase = Some(WsPhase::Stream);
+                error
+            })?;
         let owner = checkout.owner;
         let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
@@ -752,7 +763,11 @@ impl OpenAiAdapter {
         loop {
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
-                Wire::Ws => self.open_ws(request, authorized, &credential).await?,
+                // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
+                Wire::Ws => self.open_ws(request, authorized, &credential).await.map_err(|mut error| {
+                    error.ws_phase.get_or_insert(WsPhase::Handshake);
+                    error
+                })?,
                 Wire::Http => self.open_http(codec, request, authorized).await?,
             };
             let handshake = wire_kind == Wire::Ws && matches!(opened, Opened::Rejected(_));
@@ -778,6 +793,9 @@ impl OpenAiAdapter {
             let mut err = codec.classify(&rejected);
             if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
                 err.reauth_required = true;
+            }
+            if wire_kind == Wire::Ws {
+                err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
             }
             return Err(Failed { error: err, handshake });
         }
@@ -820,6 +838,8 @@ impl Source {
 
 struct ResponsesStream {
     source: Option<Source>,
+    /// The exchange runs on a WebSocket: a failure of it is a stream failure of that send (`wsFailurePhase`).
+    ws: bool,
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
@@ -859,7 +879,8 @@ fn frame_turn_state(unit: &[u8]) -> Option<String> {
 
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
-        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
+        let ws = matches!(source, Source::Ws { .. });
+        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
     }
 
     /// Reads a WebSocket's first frame ahead of the consumer.
@@ -969,7 +990,10 @@ impl ModelStream for ResponsesStream {
             if let Some(event) = self.queue.pop_front() {
                 return Some(Ok(event));
             }
-            if let Some(err) = self.failed.take() {
+            if let Some(mut err) = self.failed.take() {
+                if self.ws {
+                    err.ws_phase = Some(WsPhase::Stream);
+                }
                 return Some(Err(err));
             }
             let source = self.source.as_mut()?;

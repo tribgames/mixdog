@@ -344,6 +344,8 @@ pub struct Run {
     pub(crate) retry: RetryStates,
     /// The first WebSocket failure of the send's outage (`firstAttemptError`): what a spent budget surfaces.
     pub(crate) first_ws_failure: Option<ProviderError>,
+    /// The retries the WebSocket send's outage has spent (`attemptIndex`): one budget for the handshake and the stream.
+    pub(crate) ws_retries: u32,
     pub(crate) max_output_override: Option<u32>,
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
@@ -487,6 +489,7 @@ impl Run {
             reactive_overflow_retry_pending: false,
             retry,
             first_ws_failure: None,
+            ws_retries: 0,
             max_output_override: None,
             tool_batch_just_completed: false,
             last_batch_later: false,
