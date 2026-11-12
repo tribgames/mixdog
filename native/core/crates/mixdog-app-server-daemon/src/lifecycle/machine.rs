@@ -15,6 +15,7 @@ use super::model::BUSY_WORK_SETTLED;
 use super::model::SERVICE_CALLS_SETTLED;
 use super::model::Blocked;
 use super::model::BlockedStatus;
+use super::model::ClientGrace;
 use super::model::ClientKind;
 use super::model::CommandError;
 use super::model::CoreStatus;
@@ -65,6 +66,12 @@ pub struct Machine {
     /// client left", so a core that nobody has reached yet is not stopped by a work item
     /// finishing before its launcher connects.
     client_seen: bool,
+    client_grace: ClientGrace,
+    /// The armed no-clients grace: its generation and the Node text of the registry that emptied (`client-grace.mjs` `graceTimer`).
+    grace: Option<(u64, &'static str)>,
+    grace_generation: u64,
+    /// The grace ran out with nobody attached (`signalled`): a core idle from now on stops itself, until a client attaches again.
+    grace_fired: bool,
     /// Service calls in flight (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`): they keep the core from stopping itself with
     /// nobody attached, but are not listed as running work and do not hold an explicit stop.
     calls: usize,
@@ -95,6 +102,10 @@ impl Machine {
             hold: false,
             clients: 0,
             client_seen: false,
+            client_grace: ClientGrace::immediate(),
+            grace: None,
+            grace_generation: 0,
+            grace_fired: false,
             calls: 0,
             new_tasks: 0,
             new_tasks_cut: false,
@@ -105,6 +116,11 @@ impl Machine {
             release_started: false,
             effects: Vec::new(),
         }
+    }
+
+    pub fn with_client_grace(mut self, grace: ClientGrace) -> Self {
+        self.client_grace = grace;
+        self
     }
 
     pub fn take_effects(&mut self) -> Vec<Effect> {
@@ -150,6 +166,45 @@ impl Machine {
         self.clients += 1;
         self.client_seen = true;
         self.seq += 1;
+        // A lifecycle client that attaches again keeps the core up: the pending grace and the latch both clear (`noteLifecycleClient`).
+        if self.grace.take().is_some() {
+            self.effects.push(Effect::CancelGrace);
+        }
+        self.grace_fired = false;
+    }
+
+    /// The grace of generation `generation` ran out. Node's timer re-checks the clients and signals the shutdown, which the work still
+    /// running defers like any self-shutdown (`maybeSelfShutdown`): the stop then follows the work's end.
+    pub fn grace_expired(&mut self, generation: u64) {
+        let Some((armed, text)) = self.grace else { return };
+        if armed != generation {
+            return;
+        }
+        self.grace = None;
+        if self.clients > 0 {
+            return;
+        }
+        self.grace_fired = true;
+        self.seq += 1;
+        self.settle(text);
+    }
+
+    /// `maybeArm`: only once per emptying (an armed grace is never pushed out, a fired one never re-armed).
+    fn arm_grace(&mut self, kind: ClientKind) {
+        if self.clients > 0 || !self.client_seen || self.grace.is_some() || self.grace_fired {
+            return;
+        }
+        if matches!(self.phase, Phase::Stopped | Phase::Fenced(_)) {
+            return;
+        }
+        let delay = self.client_grace.after(kind);
+        if delay.is_zero() {
+            self.grace_fired = true;
+            return;
+        }
+        self.grace_generation += 1;
+        self.grace = Some((self.grace_generation, kind.node_text()));
+        self.effects.push(Effect::ArmGrace { generation: self.grace_generation, delay });
     }
 
     pub fn call_started(&mut self) {
@@ -210,6 +265,7 @@ impl Machine {
     pub fn client_closed(&mut self, kind: ClientKind) {
         self.clients = self.clients.saturating_sub(1);
         self.seq += 1;
+        self.arm_grace(kind);
         self.settle(kind.node_text());
     }
 
@@ -546,7 +602,7 @@ impl Machine {
                 self.begin_release(cause);
             }
             Phase::Serving
-                if self.client_seen && self.clients == 0 && self.activities.is_empty() && !calls =>
+                if self.grace_fired && self.clients == 0 && self.activities.is_empty() && !calls =>
             {
                 self.effects.push(Effect::NodeTrigger(trigger));
                 self.commit_drain(StopReason::NoClients);
@@ -907,6 +963,123 @@ mod tests {
         assert!(a.check_terminate("bad").is_err());
         let b = Machine::new("a".into(), "1".into());
         assert!(b.check_terminate(&token).is_err(), "tokens do not cross processes");
+    }
+
+    fn graced() -> Machine {
+        let mut m = Machine::new("inst".into(), "1.4.6".into()).with_client_grace(ClientGrace::node());
+        m.set_serving().unwrap();
+        m.take_effects();
+        m
+    }
+
+    fn armed(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::ArmGrace { generation, delay } => Some((*generation, *delay)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `client-grace.mjs:56-75`: the last client leaving arms the grace and stops nothing; a client attaching inside it cancels it
+    /// (`:86-91`); a timer that was cancelled never acts; the next emptying arms a full grace again.
+    #[test]
+    fn a_client_back_inside_the_grace_keeps_the_core_up() {
+        let mut m = graced();
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        let effects = m.take_effects();
+        assert_eq!(armed(&effects), [(1, ClientGrace::NODE_LOCAL)]);
+        assert_eq!(releases(&effects), 0);
+        assert_eq!(m.status().state, StateName::Serving);
+        m.client_opened();
+        assert_eq!(m.take_effects(), [Effect::CancelGrace]);
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0, "the timer of a cancelled grace is stale");
+        m.client_closed(ClientKind::Session);
+        assert_eq!(armed(&m.take_effects()), [(2, ClientGrace::NODE_LOCAL)], "a full grace again");
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0);
+        m.grace_expired(2);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert_eq!(node_triggers(&effects), ["no live session clients"]);
+        assert_eq!(m.status().state, StateName::Draining);
+    }
+
+    /// An armed grace is not pushed out by a later close (`client-grace.mjs:62-66`), and the remote client's is the long one.
+    #[test]
+    fn the_grace_follows_the_client_that_left_last_and_is_armed_once() {
+        let remote = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+        assert_eq!(remote.after(ClientKind::Remote), std::time::Duration::from_secs(1800));
+        assert_eq!(remote.after(ClientKind::Channel), std::time::Duration::from_secs(10));
+        let mut m = Machine::new("i".into(), "1".into()).with_client_grace(remote);
+        m.set_serving().unwrap();
+        m.take_effects();
+        m.client_opened();
+        m.client_opened();
+        m.client_closed(ClientKind::Remote);
+        assert!(armed(&m.take_effects()).is_empty(), "one client is still attached");
+        m.client_closed(ClientKind::Remote);
+        assert_eq!(armed(&m.take_effects()), [(1, ClientGrace::NODE_REMOTE)]);
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(2);
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+
+    /// The grace ending while a turn runs is a self-shutdown deferred by the work (`maybeSelfShutdown`): the turn is not cut, and the
+    /// stop follows its end; a client attaching meanwhile keeps the core up for good.
+    #[test]
+    fn the_grace_ending_over_a_running_turn_waits_for_it_and_a_client_cancels_the_stop() {
+        let mut m = graced();
+        m.client_opened();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(1);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 0);
+        assert!(!effects.iter().any(|e| matches!(e, Effect::CancelRunning(_))));
+        assert_eq!(m.status().state, StateName::Serving);
+        m.client_opened();
+        m.end_activity(turn);
+        assert_eq!(releases(&m.take_effects()), 0, "a client is attached again");
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(2);
+        assert_eq!(releases(&m.take_effects()), 1, "idle, nobody attached, the grace is over");
+    }
+
+    #[test]
+    fn the_stop_after_the_grace_waits_for_the_running_turn_and_names_it() {
+        let mut m = graced();
+        m.client_opened();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(1);
+        m.take_effects();
+        m.end_activity(turn);
+        let effects = m.take_effects();
+        assert_eq!(releases(&effects), 1);
+        assert_eq!(node_triggers(&effects), ["busy service work settled"]);
+    }
+
+    /// A client arriving once the drain is committed does not undo it: the release runs once.
+    #[test]
+    fn a_client_arriving_in_the_drain_does_not_undo_it() {
+        let mut m = graced();
+        m.client_opened();
+        m.client_closed(ClientKind::Session);
+        m.take_effects();
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 1);
+        m.client_opened();
+        assert_eq!(m.status().state, StateName::Draining);
+        m.client_closed(ClientKind::Session);
+        m.grace_expired(1);
+        assert_eq!(releases(&m.take_effects()), 0, "one release only");
     }
 
     #[test]

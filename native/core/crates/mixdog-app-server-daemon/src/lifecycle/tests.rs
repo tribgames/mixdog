@@ -42,7 +42,7 @@ fn release_events(events: &[String]) -> Vec<&str> {
 }
 
 #[test]
-fn the_last_client_leaving_an_idle_core_stops_it_with_no_grace() {
+fn the_last_client_leaving_an_idle_core_stops_it_when_no_grace_is_configured() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
     let first = fx.lifecycle.connection(ClientKind::Session);
@@ -56,6 +56,66 @@ fn the_last_client_leaving_an_idle_core_stops_it_with_no_grace() {
     assert_eq!(exit["reason"], "noClients");
     assert_eq!(exit["instanceId"], "instance-1");
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
+}
+
+/// Node's grace (`client-grace.mjs`) through the real handle on a clock the test moves: a flapping client does not end the core.
+#[test]
+fn a_client_leaving_and_returning_inside_the_grace_does_not_stop_the_core() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    drop(fx.lifecycle.connection(ClientKind::Session));
+    assert_eq!(timer.armed(), [Duration::from_secs(10)]);
+    timer.advance(Duration::from_secs(9));
+    assert!(!fx.recorder.has_exited());
+    let back = fx.lifecycle.connection(ClientKind::Session);
+    assert!(timer.armed().is_empty(), "the client's return cancels the grace");
+    timer.advance(Duration::from_secs(3600));
+    assert!(!fx.recorder.has_exited());
+    assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Serving);
+    drop(back);
+    assert_eq!(timer.armed(), [Duration::from_secs(10)], "a full grace again");
+    timer.advance(Duration::from_secs(10));
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["no live session clients"]);
+    assert_eq!(last_exit(fx.runtime_root.path())["reason"], "noClients");
+}
+
+#[test]
+fn a_remote_client_leaving_gets_the_long_grace_and_the_turn_it_left_running_is_not_cut() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+    let fx = super::testing::fixture_with_grace(grace, timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    let client = fx.lifecycle.connection(ClientKind::Remote);
+    let work = fx.lifecycle.begin_activity(turn());
+    drop(client);
+    assert_eq!(timer.armed(), [Duration::from_secs(1800)]);
+    timer.advance(Duration::from_secs(1799));
+    assert!(!fx.recorder.has_exited());
+    timer.advance(Duration::from_secs(1));
+    assert!(!fx.recorder.has_exited(), "the running turn defers the stop");
+    assert!(fx.recorder.cancelled().is_empty(), "and is not cancelled");
+    drop(work);
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["busy service work settled"]);
+}
+
+#[test]
+fn a_client_arriving_while_the_core_is_winding_down_does_not_undo_the_release() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    drop(fx.lifecycle.connection(ClientKind::Session));
+    timer.advance(Duration::from_secs(10));
+    let late = fx.lifecycle.connection(ClientKind::Session);
+    fx.recorder.wait_exit();
+    drop(late);
+    timer.advance(Duration::from_secs(3600));
+    assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER, "one release");
 }
 
 fn release_reason(events: &[String]) -> Vec<&str> {

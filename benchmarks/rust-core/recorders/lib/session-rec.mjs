@@ -8,14 +8,16 @@ import { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, re
 import { exact } from './exact.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+
 export async function runSessionRecorder(recorderUrl, meta, build) {
   const cli = parseArgs();
   const tree = resolveTree(cli);
   const outDir = cli.get('out') ?? join(FIXTURES_ROOT, meta.set);
   // `--commit <full id>`: the tree must be exactly that commit's export (with `--patch`, the commit with that fix), checked before
-  // anything runs; the manifest then names the commit. Without it the identity is the closest commit of this repository's history.
+  // anything runs; the manifest then names the commit. Without it the tree must be exactly Node's reference commit.
   const commit = cli.get('commit');
-  const identity = commit ? nodeTreeIdentity(cli, cli.get('identity-tree') ?? tree, commit) : null;
+  const identity = nodeTreeIdentity(cli, cli.get('identity-tree') ?? tree, commit ?? NODE_COMMIT);
   const stage = stageSet(outDir);
   const provenance = recorderProvenance(recorderUrl, meta.dataFiles ?? []);
   const recorder = provenance.recorder;
@@ -25,7 +27,6 @@ export async function runSessionRecorder(recorderUrl, meta, build) {
     set: meta.set,
     recorder,
     command: `node ${recorder} --tree <tree>${commit ? ` --commit ${commit}` : ''}`,
-    identityTree: cli.get('identity-tree') ?? tree,
     identity,
     extra: { ...provenance, testFile: meta.testFile, entry: meta.entry, replay: meta.replay, ...(meta.values ? { values: meta.values } : {}), exclusions: meta.exclusions, ...(meta.patch ? { patch: meta.patch } : {}) },
   });

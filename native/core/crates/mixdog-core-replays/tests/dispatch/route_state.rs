@@ -42,51 +42,52 @@ use mixdog_store::schema::record::Header;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
-use super::context_world::tests::{Fixed, Quiet, WindowFacts};
-use super::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
-use super::run_seams::ConfigRunSeams;
+use super::inheritance_fit::{TextOnly, seams};
+use mixdog_core::run_host::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
 
-struct NoEvidence;
+/// The route facts of a route change over the window rule alone (no catalog row): the model's window as
+/// `resolveSessionContextMeta` states it.
+struct WindowFacts;
+impl mixdog_core::run_host::route_change::RouteFacts for WindowFacts {
+    fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<ContextMeta> {
+        Some(mixdog_core_run::run_host::session_context_meta::resolve_context_meta(None, None, provider, model, seed, false))
+    }
+    fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+        None
+    }
+}
 
+struct Fixed;
+impl mixdog_agent::env::Clock for Fixed {
+    fn now_ms(&self) -> i64 {
+        0
+    }
+}
+
+struct NoBots;
 #[async_trait]
-impl mixdog_core_agents::agents::AgentEvidence for NoEvidence {
-    async fn home_greeted(&self, _: &str) -> bool {
-        false
+impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBots {
+    async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
     }
-    async fn home_chatted(&self, _: &str) -> bool {
-        false
-    }
-    async fn mixy_owns_routines(&self) -> Result<bool, String> {
-        Ok(false)
+    async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
     }
 }
 
-/// The process seams over an empty saved configuration and an empty environment (the recorder ran with neither).
-async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
-    let agents = mixdog_core_agents::agents::AgentDefinitions::new(
-        dir.path(),
-        dir.path(),
-        tokens.interactive_io,
-        mixdog_core_config::config::AgentRoutes::new(config.clone(), dir.path()),
-        Arc::new(NoEvidence),
-        Arc::new(|| Value::Null),
-        dir.path().join("workspace"),
-    );
-    let seams = ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
-    (dir, Arc::new(seams))
+struct Quiet;
+impl mixdog_core_session::session::route_session::RouteStatusline for Quiet {
+    fn write(&self, _: &str, _: &mixdog_core_ports::ports::route::Route, _: Option<u64>) {}
 }
-
-struct TextOnly;
-impl MediaMeter for TextOnly {
-    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
-        match part {
-            mixdog_core_api::domain::provider::ContentPart::Text(text, _) => mixdog_agent::compact::estimate::PartMeter { text: text.clone(), tokens: 0 },
-            other => panic!("media part in a text-only golden: {other:?}"),
-        }
+impl mixdog_core_session::session::route_session::ContextStatusCache for Quiet {
+    fn invalidate(&self, _: &ThreadId) {}
+}
+impl mixdog_core_session::session::route_session::RouteConfig for Quiet {
+    fn agent_config(&self) -> mixdog_core_ports::ports::domain_sessions::Obj {
+        mixdog_core_ports::ports::domain_sessions::Obj::new()
+    }
+    fn bots(&self) -> &(dyn mixdog_core_run::run_host::route_chain::BotRoutes + Send + Sync) {
+        &NoBots
     }
 }
 
@@ -300,7 +301,7 @@ impl Client {
             .expect("the thread store");
         let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(Arc::new(store)))));
         let threads = Arc::new(SessionThreads::new(directory.clone()));
-        let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+        let change = Arc::new(mixdog_core::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
         let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
         // The route cell starts empty: a thread's route is set by the call.
         let cell = Arc::new(SessionRouteCells::new(|request: &Obj| Ok(request.clone())));
@@ -577,7 +578,9 @@ async fn inheritance_carry(line: &str) {
         header
     };
     let heir_small = untouched(pre.get("emptyCompaction").get("target"));
-    let heir_roomy = untouched(pre.get("accepted").get("target"));
+    // The heir as it was before any carry: a failed carry leaves it so, which is what Node's `372 failing` target shows (the target of an
+    // accepted carry already names its source).
+    let heir_roomy = untouched(asked.get("failing").get("target"));
     // The scripted compactor's answers, recorded as the cases' inputs.
     let compacted = |line: f64, scenario: &str| {
         let answer = case(&recording, line).get("input").get("compactorAnswers").get(scenario);
@@ -585,19 +588,19 @@ async fn inheritance_carry(line: &str) {
     };
     let preflight = plain(asked.get("preflight"));
     let mut scenarios = vec![
-        ("306 compacting", &heir_small, 20_000, compacted(306.0, "compacting"), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target")),
-        ("306 emptyCompaction", &heir_small, 20_000, compacted(306.0, "emptyCompaction"), vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target")),
-        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target")),
-        ("372 compact", &heir_roomy, 500_000, compacted(372.0, "compact"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target")),
-        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target")),
-        ("372 empty", &heir_roomy, 500_000, compacted(372.0, "empty"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target")),
+        ("306 compacting", &heir_small, 20_000, compacted(306.0, "compacting"), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target"), pre.get("compacting").try_get("calls"), pre.get("compacting").try_get("saves")),
+        ("306 emptyCompaction", &heir_small, 20_000, compacted(306.0, "emptyCompaction"), vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target"), pre.get("emptyCompaction").try_get("calls"), pre.get("emptyCompaction").try_get("saves")),
+        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target"), None, pre.get("accepted").try_get("saves")),
+        ("372 compact", &heir_roomy, 500_000, compacted(372.0, "compact"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target"), asked.get("compact").try_get("calls"), asked.get("compact").try_get("saves")),
+        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target"), None, asked.get("failing").try_get("saves")),
+        ("372 empty", &heir_roomy, 500_000, compacted(372.0, "empty"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target"), None, asked.get("empty").try_get("saves")),
     ];
     for default in asked.get("default").as_array() {
         let args = default.get("args").as_array();
         let compact = args.first().map(|options| options.get("compact").as_bool());
-        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target")));
+        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target"), None, default.try_get("saves")));
     }
-    for (label, heir, window, compactor, calls, fit, answers, target) in scenarios {
+    for (label, heir, window, compactor, calls, fit, answers, target, recorded_calls, recorded_saves) in scenarios {
         if !label.starts_with(line) {
             continue;
         }
@@ -607,9 +610,83 @@ async fn inheritance_carry(line: &str) {
             assert_eq!(Exact::plain(&carry.inherit(compact).await), Exact::plain(&want), "{label}: the answer");
         }
         assert_eq!(Exact::plain(&carry.messages().await), *target.get("messages"), "{label}: the heir's conversation");
+        // What the heir holds on disk: the recorded target's header fields whole (`selectedContextWindow` is the core's name of the
+        // picked window Node's route carried, seeded above), and the saves Node made — each one the target, written at once
+        // (`{ immediate: true }`) — are the store batches that landed during the carry. The core's header also holds its own `id`
+        // (Node's target has it beside the header) and, once a carry was tried (the set stays after a refusal: a superset is safe),
+        // the source's offload bookkeeping (`offloadSources`: the sessions whose offloaded tool results the heir may read, rules
+        // version 2), which Node's session does not have.
+        let heir_id = ThreadId::from("heir");
+        let mut want_header = obj(target);
+        want_header.remove("messages");
+        want_header.insert("selectedContextWindow".into(), json!(window));
+        want_header.insert("offloadSources".into(), json!(["source"]));
+        want_header.insert("offloadSourcesRules".into(), json!(2));
+        let stored = carry._rig.store.stored_header(&heir_id).expect("the heir's stored header");
+        // A header is a map: its keys are compared by name, not by the order the core stored them in.
+        let by_name = |header: serde_json::Map<String, Value>| Exact::plain(&Value::Object(header.into_iter().collect::<std::collections::BTreeMap<_, _>>().into_iter().collect()));
+        assert_eq!(by_name(stored), by_name(want_header), "{label}: the heir's header");
+        if let Some(saves) = recorded_saves {
+            for save in saves.as_array() {
+                assert_eq!(save.as_array()[0], *target, "{label}: Node saved the target");
+                assert_eq!(Exact::plain(&plain(&save.as_array()[1])), Exact::plain(&json!({ "immediate": true })), "{label}: Node saved at once");
+            }
+            // The core's own header writes around the carry (the reference-set mark taken before it and lifted when it fails, `inheritance.rs`
+            // `carry_into`) have no Node counterpart; the save of the rows is the one that holds them, so the saves are the batches that landed
+            // holding the carried rows — the rows are written once, all of them, or not at all.
+            use mixdog_store::schema::record::Record;
+            let rows = carry._rig.store.records(&heir_id).iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+            assert_eq!(rows, target.get("messages").as_array().len(), "{label}: the rows the heir's log holds are the saved target's");
+            assert_eq!(saves.as_array().len(), usize::from(rows > 0), "{label}: how many times the heir was saved");
+        }
+        // The compactor's calls: Node's mock counted them, and the ones that carry a budget carry the one it was asked for
+        // (`calls[n].budgetTokens`; an empty answer is asked again, as the recording's two calls show).
+        if let Some(calls) = recorded_calls {
+            let asked: Vec<u64> = mixdog_core_session::session::testing::lock(&carry._rig.compaction.heir_asked).iter().map(|(budget, _)| *budget).collect();
+            let budgets: Vec<Option<u64>> = calls.as_array().iter().map(|call| call.try_get("budgetTokens").map(|budget| budget.as_f64() as u64)).collect();
+            assert_eq!(asked.len(), budgets.len(), "{label}: how many times the compactor was asked");
+            for (n, (got, want)) in asked.iter().zip(&budgets).enumerate() {
+                if let Some(want) = want {
+                    assert_eq!(got, want, "{label}: the budget of call {n}");
+                }
+            }
+        }
     }
 }
 
+/// A header Node wrote holds no `offloadSources` (Node's session has none; `offload_sources.rs`): the core reads it as it is, and a
+/// save leaves it so: the reference set stays unknown, not empty, until a transcript scan computes it, so what the save writes is Node's
+/// header with the one change made, no `offloadSources` and no `offloadSourcesRules` among it.
+#[tokio::test(start_paused = true)]
+async fn a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save() {
+    use mixdog_core_session::session::testing::Rig;
+    use mixdog_store::schema::record::Record;
+    // The header the unpatched Node saved (`fixtures/session-route-state-legacy`, recorded with no patch applied: the other recording's
+    // Node carries the prune-after-save fix), as recorded.
+    let legacy = Exact::load(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-route-state-legacy/recording.json"));
+    let mut node_header = obj(legacy.get("cases").as_array()[0].get("result").get("header"));
+    assert!(!node_header.contains_key("offloadSources") && !node_header.contains_key("offloadSourcesRules"), "the recorded header is the unpatched Node's");
+    node_header.remove("id");
+    node_header.remove("messages");
+    let rig = Rig::new();
+    let id = ThreadId::from("node-written");
+    let session: Record = serde_json::from_value(json!({
+        "k": "session", "v": mixdog_store::schema::record::SESSION_RECORD_VERSION, "id": "node-written", "log_id": "0123456789abcdef01234567",
+        "header": { "inline": node_header },
+    }))
+    .expect("a session record");
+    rig.store.seed(&id, vec![session]);
+    let directory = mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    assert_eq!(rig.store.stored_header(&id).expect("the stored header"), node_header, "the core reads Node's header whole");
+    Carry::call(&directory, "thread/name/set", json!({ "threadId": "node-written", "opId": "op-title", "title": "renamed" })).await.expect("a save");
+    // The rename's own write: the title and the three fields that say who set it and when (`renameSessionTitle`).
+    let mut saved = rig.store.stored_header(&id).expect("the saved header");
+    for written in ["title", "titleLocked", "titleSource", "titleUpdatedAt"] {
+        assert!(saved.shift_remove(written).is_some(), "the save wrote {written}");
+    }
+    let by_name = |header: serde_json::Map<String, Value>| Exact::plain(&Value::Object(header.into_iter().collect::<std::collections::BTreeMap<_, _>>().into_iter().collect()));
+    assert_eq!(by_name(saved), by_name(node_header), "the save left Node's header as it was: no `offloadSources`, no `offloadSourcesRules`");
+}
 /// The recorded heir sessions (`inheritanceFit(CONVERSATION, heir)`): the heir is the session measured, it sends no
 /// tools, and its conversation is text only.
 struct Heir(Header);

@@ -266,6 +266,8 @@ pub enum AgentError {
     /// the session last sent, outside a compaction. Node refuses the send; the text is the error's `message`, and the
     /// turn shows `Session state changed unexpectedly.` (`err-text.mjs:274`).
     PrefixMutation(String),
+    /// A committed row did not reach the store before the next step needed it; the text is the error as Node throws it.
+    NotDurable(String),
 }
 
 #[derive(Debug)]
@@ -311,7 +313,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
-            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) => f.write_str(message),
+            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) | Self::NotDurable(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,
@@ -897,6 +899,7 @@ impl Run {
     pub(crate) async fn until_durable(&self, ticket: Ticket) -> Result<(), AgentError> {
         or_cancelled(&self.cancel, self.env.sink.durable(ticket))
             .await
-            .ok_or(AgentError::Aborted)
+            .ok_or(AgentError::Aborted)?
+            .map_err(|failure| AgentError::NotDurable(failure.0))
     }
 }

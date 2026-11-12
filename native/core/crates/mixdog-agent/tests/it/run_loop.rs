@@ -348,6 +348,8 @@ struct Sink {
     stalled: std::sync::atomic::AtomicBool,
     /// A store that cannot classify a message: every commit is refused.
     refused: std::sync::atomic::AtomicBool,
+    /// A store whose row write failed: the durability wait reports it.
+    unsaved: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl TranscriptSink for Sink {
@@ -365,10 +367,14 @@ impl TranscriptSink for Sink {
     fn message_id(&self) -> String {
         format!("m{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
     }
-    async fn durable(&self, _ticket: Ticket) {
+    async fn durable(&self, _ticket: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
         if self.stalled.load(Ordering::Relaxed) {
             std::future::pending::<()>().await;
         }
+        if self.unsaved.load(Ordering::Relaxed) {
+            return Err(mixdog_agent::env::NotDurable("Session t: the conversation is not saved to disk, so the next turn cannot start (disk full)".into()));
+        }
+        Ok(())
     }
 }
 
@@ -1829,6 +1835,72 @@ async fn abort_does_not_wait_for_stalled_storage() {
     let failure = task.await.unwrap().expect_err("aborted");
     assert!(started.elapsed() < Duration::from_millis(50), "abort bound (RL G3)");
     assert_eq!(dump(&failure.transcript), ["user:go", "assistant[echo#c1]:"]);
+}
+
+/// A row the store did not take is no acknowledgement: the turn fails with the store's text before the request or the tools it gated.
+#[tokio::test]
+async fn a_row_that_did_not_land_fails_the_turn_before_the_next_step() {
+    let h = Harness::new(vec![]);
+    h.sink.unsaved.store(true, Ordering::Relaxed);
+    let mut cfg = config();
+    cfg.first_request_after = Some(Ticket(1));
+    let failure = h.run(cfg, vec![], vec![AgentMessage::user("go")]).run().await.expect_err("not saved");
+    assert!(matches!(&failure.error, AgentError::NotDurable(text) if text.ends_with("(disk full)")), "{:?}", failure.error);
+    assert!(h.provider.requests().is_empty(), "no request without the row on disk");
+
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])]);
+    h.sink.unsaved.store(true, Ordering::Relaxed);
+    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("not saved");
+    assert!(matches!(failure.error, AgentError::NotDurable(_)), "{:?}", failure.error);
+}
+
+/// A sink that logs, in order, each commit and each durability wait with how many requests had been sent then.
+struct OrderedSink {
+    provider: Arc<Scripted>,
+    tickets: AtomicU64,
+    log: Mutex<Vec<(&'static str, u64, usize)>>,
+}
+#[async_trait]
+impl TranscriptSink for OrderedSink {
+    async fn commit(&self, message: &AgentMessage) -> Result<Ticket, mixdog_agent::env::CommitError> {
+        let n = self.tickets.fetch_add(1, Ordering::SeqCst) + 1;
+        let what = if message.tool_call_id().is_some() { "commit tool result" } else { "commit" };
+        self.log.lock().unwrap().push((what, n, self.provider.requests().len()));
+        Ok(Ticket(n))
+    }
+    fn replace(&self, _: &[AgentMessage], _: &Rewrite) {}
+    fn message_id(&self) -> String {
+        format!("m{}", self.tickets.load(Ordering::SeqCst) + 1)
+    }
+    async fn durable(&self, ticket: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
+        self.log.lock().unwrap().push(("durable", ticket.0, self.provider.requests().len()));
+        Ok(())
+    }
+}
+
+/// The request after a tool batch leaves only once the tool result it carries is durable: Node appends each turn row
+/// synchronously (`appendFileSync`, `turn-checkpoint-journal.mjs:503`) before its next request, so a process killed with
+/// that request on the wire restarts holding the result; a core that sent first would restart without it and resume with
+/// a cancelled call instead. Fails without `Run::drive`'s wait on the last pushed ticket (`run.rs`).
+#[tokio::test]
+async fn the_request_after_a_tool_batch_waits_until_its_tool_result_is_durable() {
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let sink = Arc::new(OrderedSink { provider: h.provider.clone(), tickets: AtomicU64::new(0), log: Mutex::new(Vec::new()) });
+    let mut env = h.run_env();
+    env.sink = sink.clone();
+    let run = Run::new(env, h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]), h.tool_env(), config(), vec![AgentMessage::user("go")], RunCarry::default());
+    finish(run).await;
+    assert_eq!(h.provider.requests().len(), 2);
+    let log = sink.log.lock().unwrap().clone();
+    let &(_, result, sent) = log.iter().find(|(what, ..)| *what == "commit tool result").expect("the tool result is committed");
+    assert_eq!(sent, 1, "the tool result is committed after the first request: {log:?}");
+    assert!(
+        log.iter().any(|&(what, ticket, sent)| what == "durable" && ticket >= result && sent == 1),
+        "the second request left before the tool result it carries was durable: {log:?}"
+    );
 }
 
 /// A gate that never answers for the streamed call no listed call consumed.

@@ -181,6 +181,8 @@ pub mod testing;
 #[cfg(any(test, feature = "test-support"))]
 pub mod tests;
 #[cfg(test)]
+mod recovery_kill_tests;
+#[cfg(test)]
 mod sensitive_record_tests;
 #[cfg(test)]
 mod sensitive_carry_tests;

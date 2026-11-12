@@ -9,6 +9,7 @@
 //! RPC listener is bound and discovery can name it does it call `set_serving`. Until then
 //! `stop` exits at once.
 
+mod grace;
 mod handle;
 mod machine;
 mod model;
@@ -36,6 +37,7 @@ pub use handle::new_instance_id;
 pub use model::*;
 pub use ports::CorePort;
 pub use ports::Exiter;
+pub use ports::GraceTimer;
 pub use ports::Ports;
 pub use ports::Publication;
 pub use real::CancelRegistry;
