@@ -638,6 +638,13 @@ impl TurnSettings for LeadSurfaceHost {
         self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
     }
 
+    async fn await_initial_mcp(&self, thread: &ThreadId) {
+        let Ok(header) = self.sources.threads.header(thread).await else { return };
+        if let Some(scope) = header_scope(&header) {
+            self.sources.scopes.await_initial(scope).await;
+        }
+    }
+
     /// `currentAgents()`: a coding Lead's agent catalog for its workflow and mode, as the prompt would list it
     /// (`agentListEntries(leadPartsFor(session, leadPromptParts).agentCatalogContext) || []`).
     async fn current_agents(&self, _thread: &ThreadId, header: &Header) -> Result<Option<Vec<AgentEntry>>, String> {

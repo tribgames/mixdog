@@ -48,7 +48,7 @@ const withDeadline = (promise, label, ms = DEADLINE_MS) => {
 const sse = (events) => events.map(([name, data]) => `${name ? `event: ${name}\n` : ''}data: ${JSON.stringify(data)}\n\n`).join('');
 
 /** A loopback provider of one wire: every POST body is kept, and the answer is one short text. */
-async function provider(route) {
+async function provider(route, toolCall) {
   const posts = [];
   let waiting = null;
   const server = createServer((req, res) => {
@@ -65,6 +65,21 @@ async function provider(route) {
       const post = { url: req.url, body: JSON.parse(raw || '{}') };
       posts.push(post);
       if (waiting?.match(post)) waiting.resolve(post);
+      // A scenario's tool call answers the request that carries the prompt; the request that carries its result is answered with the text.
+      if (toolCall && !JSON.stringify(post.body).includes('tool_result')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(
+          sse([
+            ['message_start', { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: route.model, content: [], stop_reason: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
+            ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_1', name: toolCall.name, input: {} } }],
+            ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(toolCall.input) } }],
+            ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+            ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 2 } }],
+            ['message_stop', { type: 'message_stop' }],
+          ])
+        );
+        return;
+      }
       if (route.wire === 'anthropic') {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(
@@ -215,7 +230,7 @@ function seed(sandbox, scenario, route, baseURL, gatePort) {
 async function oneScenario(scenario) {
   const route = ROUTES[scenario.route];
   const sandbox = mkdtempSync(join(scratchRoot, 'lead-req-'));
-  const server = await provider(route);
+  const server = await provider(route, scenario.toolCall);
   const gate = await gateServer();
   let child = null;
   let doc = null;
@@ -268,7 +283,7 @@ async function oneScenario(scenario) {
     await withDeadline(attached.call('session.subscribe', { sessionId }), 'session.subscribe');
     // The turn is submitted only once the configured servers' initial connect settled (Node starts it unawaited and a turn's grace for it is zero, so
     // a server still connecting is not in the first request). The one exception is a scenario that holds a server's handshake on purpose.
-    if (scenario.mcpGate === 'held') {
+    if (scenario.mcpGate === 'held' || scenario.mcpGateAfterCall) {
       await withDeadline(gate.arrival, 'the slow MCP stub to start connecting (it holds its handshake)');
     } else {
       if (scenario.mcpGate === 'released') {
@@ -279,6 +294,13 @@ async function oneScenario(scenario) {
     }
     const submitted = await withDeadline(attached.call('session.submit', { sessionId, prompt: `${PROMPT_TOKEN} ${scenario.prompt ?? 'hello'}` }), 'session.submit');
     if (submitted?.accepted !== true) throw new Error(`session.submit: ${JSON.stringify(submitted)}`);
+    if (scenario.mcpGateAfterCall) {
+      // The first request is answered with the `load_tool` call, which waits for the held connect; the gate is let go once the call is made.
+      await withDeadline(server.arrival((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN)), 'the provider to receive the lead request');
+      if (scenario.mcpGate === 'released') gate.open();
+      const result = await withDeadline(server.arrival((post) => JSON.stringify(post.body).includes('tool_result')), 'the provider to receive the request that carries the load_tool result');
+      return { request: result, paths: { data, ws, home }, sessionId };
+    }
     const request = await withDeadline(server.arrival((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN)), 'the provider to receive the lead request');
     return { request, paths: { data, ws, home }, sessionId };
   } catch (error) {
@@ -357,7 +379,7 @@ const only = args.get('only');
 const recorded = [];
 for (const scenario of LEAD_SCENARIOS.filter((s) => !only || s.name === only)) {
   const request = await recordChecked(scenario);
-  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, env: scenario.env ?? {}, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, mcpGate: scenario.mcpGate ?? null, request });
+  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, env: scenario.env ?? {}, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, mcpGate: scenario.mcpGate ?? null, mcpGateAfterCall: scenario.mcpGateAfterCall ?? false, toolCall: scenario.toolCall ?? null, request });
   console.log(`${scenario.name}: ${JSON.stringify(request.body).length} bytes`);
 }
 if (only) {

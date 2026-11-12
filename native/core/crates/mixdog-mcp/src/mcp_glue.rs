@@ -192,6 +192,8 @@ pub trait McpScopes: Send + Sync {
     /// (`tool-surface.mjs:100,109,142`). It is never handed to a session: each session is created with a
     /// scope of its own, as each Node `createSession` boots a runtime of its own.
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
+    /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
+    async fn await_initial(&self, _scope: &str) {}
 }
 
 /// A server's toggle chain: the state last asked (`desired`) and the run in flight (`running`), which every
@@ -277,6 +279,12 @@ impl McpGlue {
     /// submits a turn, so the first request does not depend on which server finished connecting first.
     pub async fn connections_settled(&self) {
         self.scopes.all_settled().await;
+    }
+
+    /// How many callers wait for a scope's first connect now (`load_tool` waiting for a server still connecting is one);
+    /// the receiver follows the count: the signal a replay waits on before it lets a held connect go.
+    pub fn first_connect_waiters(&self) -> tokio::sync::watch::Receiver<usize> {
+        self.scopes.waiting_all()
     }
 
     /// Starts [`connect_runtime_scope`](Self::connect_runtime_scope) in the background and does not wait
@@ -730,6 +738,10 @@ impl McpScopes for McpGlue {
 
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
         self.scopes.open_runtime(&cwd.to_string_lossy()).await
+    }
+
+    async fn await_initial(&self, scope: &str) {
+        self.scopes.await_initial(scope).await;
     }
 }
 

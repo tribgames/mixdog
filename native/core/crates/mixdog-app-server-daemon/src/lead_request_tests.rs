@@ -34,21 +34,24 @@ struct Post {
 }
 
 /// A loopback endpoint of one wire: every POST is sent to the test, and answered with one short text; anything else is the model list.
-fn endpoint(wire: &str, model: &str) -> (u16, Receiver<Post>) {
+///
+/// `tool_call` (the recorder's `toolCall`): the request that carries the prompt is answered with that call (an Anthropic `tool_use`), and the
+/// request that carries its result with the text.
+fn endpoint(wire: &str, model: &str, tool_call: Option<Value>) -> (u16, Receiver<Post>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("its address").port();
     let (posts, received) = channel();
     let (wire, model) = (wire.to_owned(), model.to_owned());
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let (posts, wire, model) = (posts.clone(), wire.clone(), model.clone());
-            std::thread::spawn(move || answer(stream, &wire, &model, &posts));
+            let (posts, wire, model, tool_call) = (posts.clone(), wire.clone(), model.clone(), tool_call.clone());
+            std::thread::spawn(move || answer(stream, &wire, &model, tool_call.as_ref(), &posts));
         }
     });
     (port, received)
 }
 
-fn answer(mut stream: TcpStream, wire: &str, model: &str, posts: &Sender<Post>) {
+fn answer(mut stream: TcpStream, wire: &str, model: &str, tool_call: Option<&Value>, posts: &Sender<Post>) {
     let mut raw = Vec::new();
     let mut chunk = [0u8; 8192];
     let head_end = loop {
@@ -103,8 +106,19 @@ fn answer(mut stream: TcpStream, wire: &str, model: &str, posts: &Sender<Post>) 
     let (kind, text) = if method != "POST" {
         ("application/json", json!({ "object": "list", "data": [{ "id": model, "object": "model", "type": "model" }], "has_more": false }).to_string())
     } else {
-        posts.send(Post { url, body: serde_json::from_slice(&body).expect("a JSON body") }).expect("the test is waiting");
-        let events = if wire == "anthropic" {
+        let body: Value = serde_json::from_slice(&body).expect("a JSON body");
+        let carries_result = body.to_string().contains("tool_result");
+        posts.send(Post { url, body }).expect("the test is waiting");
+        let events = if let Some(call) = tool_call.filter(|_| !carries_result) {
+            sse(&[
+                ("message_start", json!({ "type": "message_start", "message": { "id": "msg_1", "type": "message", "role": "assistant", "model": model, "content": [], "stop_reason": null, "usage": { "input_tokens": 10, "output_tokens": 1 } } })),
+                ("content_block_start", json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_1", "name": call["name"], "input": {} } })),
+                ("content_block_delta", json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": call["input"].to_string() } })),
+                ("content_block_stop", json!({ "type": "content_block_stop", "index": 0 })),
+                ("message_delta", json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 2 } })),
+                ("message_stop", json!({ "type": "message_stop" })),
+            ])
+        } else if wire == "anthropic" {
             sse(&[
                 ("message_start", json!({ "type": "message_start", "message": { "id": "msg_1", "type": "message", "role": "assistant", "model": model, "content": [], "stop_reason": null, "usage": { "input_tokens": 10, "output_tokens": 1 } } })),
                 ("content_block_start", json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } })),
@@ -166,19 +180,31 @@ fn sandbox_env(home: &Path, programs: &[&str]) {
     }
 }
 
+/// A real-time deadline for an await: a thread of its own ends the process with `what` if it is not dropped within `secs`. It does not read the
+/// runtime's clock, which a replay that advances time by hand holds still.
+struct Deadline(Sender<()>);
+
+fn deadline(what: String, secs: u64) -> Deadline {
+    let (disarm, armed) = channel::<()>();
+    std::thread::spawn(move || {
+        if armed.recv_timeout(Duration::from_secs(secs)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            eprintln!("deadline: {what} did not happen within {secs} s");
+            std::process::exit(101);
+        }
+    });
+    Deadline(disarm)
+}
+
 /// The reply to request `id` (`method`), within one deadline.
 async fn reply(halves: &mut TransportHalves, id: u64, method: &str) -> Value {
-    const DEADLINE: Duration = Duration::from_secs(120);
-    let awaited = async {
-        loop {
-            let TransportEvent::Frame(text) = halves.reader.recv().await else { panic!("the connection closed before the reply to {method} (request {id})") };
-            let frame: Value = serde_json::from_str(&text).expect("a frame");
-            if frame["id"] == id {
-                return frame;
-            }
+    let _deadline = deadline(format!("the reply to {method} (request {id})"), 120);
+    loop {
+        let TransportEvent::Frame(text) = halves.reader.recv().await else { panic!("the connection closed before the reply to {method} (request {id})") };
+        let frame: Value = serde_json::from_str(&text).expect("a frame");
+        if frame["id"] == id {
+            return frame;
         }
-    };
-    tokio::time::timeout(DEADLINE, awaited).await.unwrap_or_else(|_| panic!("no reply to {method} (request {id}) within {} s", DEADLINE.as_secs()))
+    }
 }
 
 /// The ids a request's op takes: lowercase UUIDv7s.
@@ -266,7 +292,9 @@ async fn replay(name: &str, dir: PathBuf) {
         }
     }
     let data = crate::compose_test_support::data_in(&dir);
-    let (port, posts) = endpoint(route["wire"].as_str().expect("wire"), model);
+    let tool_call = case["toolCall"].as_object().map(|call| Value::Object(call.clone()));
+    let (port, posts) = endpoint(route["wire"].as_str().expect("wire"), model, tool_call);
+    let after_call = case["mcpGateAfterCall"] == true;
     // The gate of a slow MCP stub (the recorder's `gateServer`): the stub connects to it and holds its handshake until it is sent a byte.
     let gate = TcpListener::bind("127.0.0.1:0").expect("a loopback port for the gate");
     let gate_port = gate.local_addr().expect("its address").port();
@@ -347,7 +375,8 @@ async fn replay(name: &str, dir: PathBuf) {
         });
         let (first, arrivals) = arrival.await.expect("the gate's wait");
         let mut first = first.unwrap_or_else(|_| panic!("the slow MCP stub did not connect to the gate within {} s", CONNECT_DEADLINE.as_secs()));
-        if mode == "released" {
+        // A scenario whose `load_tool` waits for the connect lets the gate go only once that call is made (below).
+        if mode == "released" && !after_call {
             first.write_all(b"go").expect("opening the gate");
             std::thread::spawn(move || {
                 for mut stub in arrivals {
@@ -358,23 +387,50 @@ async fn replay(name: &str, dir: PathBuf) {
             held_stubs = Some((first, arrivals));
         }
     }
-    if case["mcpGate"] != "held" {
-        tokio::time::timeout(CONNECT_DEADLINE, core.mcp_connections_settled()).await.unwrap_or_else(|_| panic!("the initial MCP connect did not settle within {} s", CONNECT_DEADLINE.as_secs()));
+    if case["mcpGate"] != "held" && !after_call {
+        let _deadline = deadline("the initial MCP connect to settle".to_owned(), CONNECT_DEADLINE.as_secs());
+        core.mcp_connections_settled().await;
     }
     let prompt = format!("{PROMPT_TOKEN} {}", case["prompt"].as_str().expect("prompt"));
     let turn = call(&mut halves, 3, "turn/start", json!({ "opId": op(3), "threadId": thread, "input": { "prompt": prompt } })).await;
     assert_eq!(turn["kind"], "started", "{turn}");
 
-    let wanted = |post: &Post| post.body.to_string().contains(PROMPT_TOKEN);
-    let post = tokio::task::spawn_blocking(move || loop {
-        match posts.recv_timeout(Duration::from_secs(60)) {
-            Ok(post) if wanted(&post) => return post,
-            Ok(_) => {}
-            Err(error) => panic!("the provider endpoint received no request carrying the prompt within 60 s: {error}"),
+    // The next request carrying `what` (the prompt, or the result of the scenario's tool call).
+    let next_post = |posts: Receiver<Post>, what: &'static str| {
+        tokio::task::spawn_blocking(move || {
+            loop {
+                match posts.recv_timeout(Duration::from_secs(60)) {
+                    Ok(post) if post.body.to_string().contains(what) => return (post, posts),
+                    Ok(_) => {}
+                    Err(error) => panic!("the provider endpoint received no request carrying {what} within 60 s: {error}"),
+                }
+            }
+        })
+    };
+    let (mut post, posts) = next_post(posts, PROMPT_TOKEN).await.expect("the endpoint's wait");
+    if after_call {
+        // The first request was answered with the `load_tool` call, which now waits for the connect the gate holds.
+        let (first, arrivals) = held_stubs.take().expect("the gate holds the slow stub");
+        if case["mcpGate"] == "released" {
+            // The gate is let go once the call counts itself waiting for the connect, so the connect finishes inside that wait.
+            {
+                let _deadline = deadline("`load_tool` to wait for the held connect".to_owned(), 60);
+                core.mcp_first_connect_waiters().wait_for(|waiting| *waiting >= 1).await.expect("the waiter count");
+            }
+            let mut first = first;
+            first.write_all(b"go").expect("opening the gate");
+            std::thread::spawn(move || {
+                for mut stub in arrivals {
+                    let _ = stub.write_all(b"go");
+                }
+            });
+        } else {
+            // Never released: the wait ends on the server's startup budget (the recorded 1500 ms, on this process's own clock; the paused-clock
+            // case of that wait is `scope_runtime_suite`'s), and the stub is let go when the replay ends.
+            held_stubs = Some((first, arrivals));
         }
-    })
-    .await
-    .expect("the endpoint's wait");
+        post = next_post(posts, "tool_result").await.expect("the endpoint's wait").0;
+    }
     // A stub still holding its handshake is let go, so it ends with the core.
     if let Some((mut first, arrivals)) = held_stubs {
         first.write_all(b"go").expect("opening the gate");
@@ -573,6 +629,18 @@ fn mcp_slow_submitted_before_connect() {
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn mcp_slow_submitted_after_connect() {
     crate::compose_test_support::in_child(module_path!(), "mcp_slow_submitted_after_connect", runtime(), |dir| replay("mcp-slow-submitted-after-connect", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_load_tool_connects_in_time() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_load_tool_connects_in_time", runtime(), |dir| replay("mcp-load-tool-connects-in-time", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_load_tool_connect_not_released() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_load_tool_connect_not_released", runtime(), |dir| replay("mcp-load-tool-connect-not-released", dir));
 }
 
 #[test]
