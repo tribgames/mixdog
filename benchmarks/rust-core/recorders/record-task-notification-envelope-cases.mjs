@@ -80,6 +80,11 @@ await set.finish({
     notRun: 'the two shell cases of the Node test (closed elsewhere); entry enqueuedAt is the held clock (golden.clock.dateNow)',
   },
   replay: { entry: 'render_agent_completion for each recorded input and compare the text; the classifiers over the recorded texts; completions::entry and DeliveredCompletions over the legacy and current texts', normalised: {} },
-  exclusions: { modelVisibleOfLegacy: 'modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed' },
+  exclusions: {
+    headerStatus: "backgroundTaskHeaderStatus (tool-execution-contract.mjs) is read only by shouldPersistModelVisibleToolCompletion's `background task` header branch (runtime-tool-routing.mjs), a form the core never produces: its envelope status is parsed.status, compared; the core's model_visible (agent_registry/flow.rs) persists envelopes only. Owner that keeps it: src/runtime/shared/tool-execution-contract.mjs",
+    exitCode: "parsed.exitCode is read only by renderBackgroundTaskNotification and renderBackgroundTask (src/runtime/shared/background-tasks.mjs), Node's shell task renderers; the core renders shell completions from its job rows (mixdog-tools exec/jobs.rs) and never parses an envelope for it. Owner that keeps it: src/runtime/shared/background-tasks.mjs",
+    outputFile: "parsed.outputFile: same reader and owner as exitCode (src/runtime/shared/background-tasks.mjs)",
+    modelVisibleOfLegacy: 'modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed',
+  },
 });
 process.exit(0);

@@ -6,7 +6,10 @@
     "runs": "task-notification-envelope.mjs renderAgentCompletionEnvelope, parseTaskNotification, taskNotificationId; tool-execution-contract.mjs isModelVisibleToolCompletionWrapper, isInternalRuntimeNotificationText, backgroundTaskHeaderStatus, modelVisibleToolCompletionMessage; session-ingest.mjs shouldExcludeIngestMessage; manager/pending-message-entry.mjs markCompletionEntry; manager/delivered-completions.mjs"
   },
   "exclusions": {
-    "modelVisibleOfLegacy": "modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed"
+    "exitCode": "parsed.exitCode is read only by renderBackgroundTaskNotification and renderBackgroundTask (src/runtime/shared/background-tasks.mjs), Node's shell task renderers; the core renders shell completions from its job rows (mixdog-tools exec/jobs.rs) and never parses an envelope for it. Owner that keeps it: src/runtime/shared/background-tasks.mjs",
+    "headerStatus": "backgroundTaskHeaderStatus (tool-execution-contract.mjs) is read only by shouldPersistModelVisibleToolCompletion's `background task` header branch (runtime-tool-routing.mjs), a form the core never produces: its envelope status is parsed.status, compared; the core's model_visible (agent_registry/flow.rs) persists envelopes only. Owner that keeps it: src/runtime/shared/tool-execution-contract.mjs",
+    "modelVisibleOfLegacy": "modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed",
+    "outputFile": "parsed.outputFile: same reader and owner as exitCode (src/runtime/shared/background-tasks.mjs)"
   },
   "fileCount": 1,
   "files": [
@@ -43,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ef44d7f9eaf31054314f2a8829c5e972de793bf1cab34db4788b1a3546875bca"
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -69,10 +72,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-task-notification-envelope-cases.mjs",
-  "recorderSha256": "e8d81f8eb13727a81f82fb5803eaa48cac5a3fd31040349c9dfd07b0d920c9b4",
+  "recorderSha256": "50c0d3b3b4036cf91000f045b8122d77506f48e4c05f5734eb3faf2807697b66",
   "replay": {
     "compare": "render_agent_completion for each recorded input and compare the text; the classifiers over the recorded texts; completions::entry and DeliveredCompletions over the legacy and current texts",
-    "entry": "Drive these public items on o1: mixdog-agent/src/agent_tool/board.rs:255 render_agent_completion; mixdog-agent/src/project.rs:196 is_model_visible_tool_completion_wrapper; mixdog-protocol/src/text_class.rs:95 parse_task_notification; mixdog-protocol/src/text_class.rs:82 background_task_header_status; mixdog-core-session/src/session/delivered.rs:66 DeliveredCompletions.",
+    "entry": "Drive these public items on o1: mixdog-agent/src/agent_tool/board.rs:255 render_agent_completion; mixdog-agent/src/project.rs:196 is_model_visible_tool_completion_wrapper; mixdog-protocol/src/text_class.rs:76 parse_task_notification; mixdog-core-session/src/session/delivered.rs:66 DeliveredCompletions.",
     "existsButNotPublicOnO1": [
       "mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test"
     ],
@@ -93,13 +96,8 @@
         "path": "native/core/crates/mixdog-agent/src/project.rs"
       },
       {
-        "line": 95,
+        "line": 76,
         "name": "parse_task_notification",
-        "path": "native/core/crates/mixdog-protocol/src/text_class.rs"
-      },
-      {
-        "line": 82,
-        "name": "background_task_header_status",
         "path": "native/core/crates/mixdog-protocol/src/text_class.rs"
       },
       {
