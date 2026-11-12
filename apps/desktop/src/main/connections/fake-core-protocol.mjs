@@ -19,6 +19,16 @@ export function fakeProtocol(entries = []) {
       return new Promise((resolve, reject) => this.calls.push({ method, params, resolve, reject }));
     },
     watchSection: () => () => {},
+    // The session lane's readers: no client is open, so nothing is folded and no store change arrives.
+    client: () => null,
+    whenSynced: async () => {},
+    onStoreChange: () => () => {},
+    resumeThread(threadId, window) {
+      return this.call('thread/resume', { threadId, window });
+    },
+    unsubscribeThread(threadId) {
+      return this.call('thread/unsubscribe', { threadId });
+    },
     start: async () => {},
     reopen: async () => {},
     ensureOpen: async () => {},

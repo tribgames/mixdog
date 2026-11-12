@@ -525,6 +525,8 @@ test("a connection with a core endpoint routes its client's capabilities through
     },
     snapshot: () => ({ status: 'ready', entries: [] }),
     onEvent: () => () => {},
+    onStoreChange: () => () => {},
+    onReplaced: () => () => {},
     pendingServerRequests: () => [],
     close: async () => {},
   };

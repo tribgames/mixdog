@@ -26,6 +26,7 @@ import {
   workspaceSearchOptions,
   workspaceTextWrites,
 } from '../shared/remote-files-arguments';
+import { projectSummaries } from '../main/protocol/service-route';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 type Client = ProtocolClient<SessionFold>;
@@ -224,12 +225,7 @@ export const adapter: PhoneProtocolAdapter = {
   group: 'files',
   calls: {
     // ── the project list ──
-    listProjects: async (_params, host) =>
-      ((await rpc(host, 'project/list', {})).projects as Array<{ name: string; path: string; alias: string | null }>).map(({ name, path, alias }) => ({
-        name,
-        path,
-        alias,
-      })),
+    listProjects: async (_params, host) => projectSummaries(await rpc(host, 'project/list', {})),
     addProject: ([projectPath], host) => {
       const path = requiredString(projectPath, 'projectPath');
       return void_(rpc(host, 'project/create', { path }));

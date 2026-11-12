@@ -80,6 +80,18 @@ async function fakeCore(t, { initialize: firstInitialize } = {}) {
         );
       }
       if (frame.method === 'thread/read') return answer({ thread: { id: frame.params.threadId }, state: {}, items: [], hasOlder: false });
+      if (frame.method === 'thread/resume') {
+        // A resume is answered with the thread's subscription, and its snapshot follows on the thread's feed.
+        const threadId = frame.params.threadId;
+        answer({ thread: { id: threadId }, subscription: { id: `ts-${threadId}`, mode: 'snapshot', epoch: 'te', startSeq: 1 } });
+        return socket.send(
+          JSON.stringify({
+            method: 'thread/snapshot',
+            params: { thread: { id: threadId }, state: {}, items: [], hasOlder: false },
+            feed: { id: threadId, epoch: 'te', seq: 0 },
+          })
+        );
+      }
       return answer(frame.method === 'mcp/mcpStatus' ? { servers: [], from: who.instanceId } : {});
     });
   };

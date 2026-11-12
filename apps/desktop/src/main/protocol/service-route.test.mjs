@@ -15,24 +15,46 @@ const paramsSchema = (method) => clientMethods.definitions[clientMethods.methods
 
 const HELD = { held: true };
 
-// A project path resolves to its folder first (project/directory); the task workspace has its own folder; everything else answers ok.
+/** The library's thread calls of a connection whose requests are `call`'s: they are recorded as the requests they send. */
+const threadCalls = (call) => ({
+  resumeThread: (threadId, window) => call('thread/resume', { threadId, window }),
+  unsubscribeThread: (threadId) => call('thread/unsubscribe', { threadId }),
+});
+
+// A project path resolves to its folder first (project/directory); the task workspace has its own folder; the project list is
+// empty; everything else answers ok. A file search completes with no file as soon as its query is taken.
 function lane(
   answer = async (method) =>
-    method === 'project/directory' ? { path: '/resolved' } : method === 'project/taskWorkspace' ? { path: '/workspace' } : { ok: true }
+    method === 'project/directory'
+      ? { path: '/resolved' }
+      : method === 'project/taskWorkspace'
+        ? { path: '/workspace' }
+        : method === 'project/list'
+          ? { projects: [] }
+          : { ok: true }
 ) {
   const calls = [];
   const notified = [];
+  const listeners = new Set();
+  const emit = (method, params) => {
+    for (const listener of [...listeners]) listener({ type: 'notification', notification: { method, params } });
+  };
+  const call = async (method, params) => {
+    calls.push({ method, params });
+    const reply = await answer(method, params);
+    if (method === 'search/update') emit('search/completed', { sessionId: params.sessionId, query: params.query });
+    return reply;
+  };
   const service = createServiceLane({
     protocol: {
-      call: async (method, params) => {
-        calls.push({ method, params });
-        return answer(method, params);
-      },
+      call,
+      ...threadCalls(call),
       notify: (method, params) => notified.push({ method, params }),
+      onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
     },
     snapshot: () => HELD,
   });
-  return { calls, notified, service };
+  return { calls, notified, service, emit };
 }
 
 const route = { provider: 'p', model: 'm' };
@@ -86,7 +108,6 @@ const CASES = [
   ['moveProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/move', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
   ['copyProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/copy', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
   ['projectEntryPath', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/entryPath', { root: '/resolved', rel: 'a' }]]],
-  ['listSessions', [], [['thread/list', {}]]],
   [
     'markSessionRead',
     ['t1', 7, false],
@@ -101,10 +122,6 @@ const CASES = [
   ['stopShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/terminate', { threadId: 't1', taskId: 'j1' }]]],
   ['releaseShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/release', { threadId: 't1', taskId: 'j1' }]]],
   ['setQuotaAutoResume', [false], [['config/value/write', { path: 'quotaAutoResume', value: false }]]],
-  ['readAttachmentImage', ['d1', 99], [['blob/read', { digest: 'd1', length: 99 }]]],
-  ['readAttachmentImage', ['d1'], [['blob/read', { digest: 'd1' }]]],
-  ['readSessionTranscript', ['t1'], [['thread/read', { threadId: 't1', window: { lastItems: 512 } }]]],
-  ['readSessionHistory', ['t1'], [['thread/items/list', { threadId: 't1' }]]],
   [
     'readSessionFinalAnswer',
     ['t1', 123],
@@ -112,21 +129,6 @@ const CASES = [
   ],
   ['prefetchSession', ['t1', 64, 'trace'], [['thread/read', { threadId: 't1', window: { lastItems: 64 } }]]],
   ['prefetchSession', ['t1'], [['thread/read', { threadId: 't1', window: { lastItems: 32 } }]]],
-  [
-    'readTranscriptHistory',
-    ['t1', { before: 'i9', limit: 512, byteBudget: 1000 }],
-    [
-      [
-        'thread/items/list',
-        { threadId: 't1', cursor: { type: 'item', itemId: 'i9' }, limit: 512, byteBudget: 1000, sortDirection: 'desc' },
-      ],
-    ],
-  ],
-  [
-    'readTranscriptHistory',
-    ['t1', { after: 'i2', limit: 10 }],
-    [['thread/items/list', { threadId: 't1', cursor: { type: 'item', itemId: 'i2' }, limit: 10, sortDirection: 'asc' }]],
-  ],
   ['setSessionFavorite', ['t1', true], [['thread/metadata/update', { threadId: 't1', favorite: true }]]],
   ['setSessionProject', ['t1', '/p'], [['thread/metadata/update', { threadId: 't1', projectPath: '/p' }]]],
   ['setSessionArchived', ['t1', true], [['thread/archive', { threadId: 't1' }]]],
@@ -222,7 +224,7 @@ test('the snapshot-returning methods answer with the held snapshot, the others w
   for (const [method, args] of [['setModelRoute', [route, 't1']], ['setFast', [true]]]) {
     assert.equal(await service.call(method, args), HELD, method);
   }
-  assert.deepEqual(await service.call('listProjects', []), { reply: 1 });
+  assert.deepEqual(await service.call('listAgentPool', []), { reply: 1 });
 });
 
 test('setVisibleSessions resumes the new visible threads and unsubscribes the ones that left', async () => {
@@ -252,15 +254,13 @@ test('a replaced core client gets the visible threads resumed again; one it refu
   const calls = [];
   let replaced;
   let refuse = false;
+  const call = async (method, params) => {
+    calls.push({ method, params });
+    if (refuse && method === 'thread/resume' && params.threadId === 'b') throw new Error('gone');
+    return { ok: true };
+  };
   const service = createServiceLane({
-    protocol: {
-      call: async (method, params) => {
-        calls.push({ method, params });
-        if (refuse && method === 'thread/resume' && params.threadId === 'b') throw new Error('gone');
-        return { ok: true };
-      },
-      onReplaced: (listener) => (replaced = listener),
-    },
+    protocol: { call, ...threadCalls(call), onReplaced: (listener) => (replaced = listener) },
     snapshot: () => HELD,
   });
   await service.call('setVisibleSessions', [['a', 'b'], 1]);
@@ -284,18 +284,16 @@ test('a replacement resume refused after the thread was hidden and shown again l
   let replaced;
   let rejectStale;
   let holdNext = false;
+  const call = async (method, params) => {
+    calls.push({ method, params });
+    if (holdNext && method === 'thread/resume') {
+      holdNext = false;
+      return new Promise((_, reject) => (rejectStale = reject));
+    }
+    return { ok: true };
+  };
   const service = createServiceLane({
-    protocol: {
-      call: async (method, params) => {
-        calls.push({ method, params });
-        if (holdNext && method === 'thread/resume') {
-          holdNext = false;
-          return new Promise((_, reject) => (rejectStale = reject));
-        }
-        return { ok: true };
-      },
-      onReplaced: (listener) => (replaced = listener),
-    },
+    protocol: { call, ...threadCalls(call), onReplaced: (listener) => (replaced = listener) },
     snapshot: () => HELD,
   });
   await service.call('setVisibleSessions', [['a'], 1]);
@@ -322,6 +320,92 @@ test('searchProjectFiles starts a consumer once per root and only re-queries aft
     calls.map(({ method }) => method),
     ['search/start', 'search/update', 'search/update']
   );
+});
+
+// The core answers `search/update` with nothing: the files come on the search's feed (`search/updated`), and `search/completed`
+// ends the query. Node's method answered the paths, a folder's ending with a slash.
+test('searchProjectFiles answers the files the feed carried for its query when the core completes it', async () => {
+  let emitFor;
+  const { service, emit } = lane(async (method, params) => {
+    if (method === 'search/update') emitFor(params);
+    return {};
+  });
+  emitFor = ({ sessionId, query }) => {
+    emit('search/updated', { sessionId, query: 'other', files: [{ path: 'stale.ts', matchType: 'file' }] });
+    emit('search/updated', { sessionId: 'search:another', query, files: [{ path: 'theirs.ts', matchType: 'file' }] });
+    emit('search/updated', { sessionId, query, files: [{ path: 'src', matchType: 'directory' }, { path: 'src/a.ts', matchType: 'file' }] });
+  };
+  assert.deepEqual(await service.call('searchProjectFiles', ['/p', 'a', 50, false, true, 'mention']), ['src/', 'src/a.ts']);
+});
+
+test('a newer query of the same consumer ends the older one, which answers what it had', async () => {
+  const held = [];
+  const listeners = new Set();
+  const emit = (method, params) => {
+    for (const listener of [...listeners]) listener({ type: 'notification', notification: { method, params } });
+  };
+  const call = async (method, params) => {
+    if (method === 'search/update') held.push(params.query);
+    return {};
+  };
+  const service = createServiceLane({
+    protocol: { call, ...threadCalls(call), notify: () => undefined, onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)) },
+    snapshot: () => HELD,
+  });
+  const older = service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);
+  await new Promise((resolve) => setImmediate(resolve));
+  emit('search/updated', { sessionId: 'search:mention', query: 'a', files: [{ path: 'a.ts', matchType: 'file' }] });
+  const newer = service.call('searchProjectFiles', ['/p', 'ab', 50, false, false, 'mention']);
+  assert.deepEqual(await older, ['a.ts'], 'the core completes only the query it holds');
+  await new Promise((resolve) => setImmediate(resolve));
+  emit('search/updated', { sessionId: 'search:mention', query: 'ab', files: [{ path: 'ab.ts', matchType: 'file' }] });
+  emit('search/completed', { sessionId: 'search:mention', query: 'ab' });
+  assert.deepEqual(await newer, ['ab.ts']);
+  assert.deepEqual(held, ['a', 'ab']);
+  assert.equal(listeners.size, 0, 'no listener outlives its query');
+});
+
+// Recorded from a core on a converted profile (2026-11-13): `project/list` answers `{ projects: [{ path, name, alias, hidden,
+// lastUsedAt }] }`, and the project folders `{ path }`. The contract's answers are the rows and the strings.
+test('the project list is the contract rows, and a project folder is its path', async () => {
+  const { service } = lane(async (method) =>
+    method === 'project/list'
+      ? { projects: [{ path: 'C:\\Project\\mixdog', name: 'mixdog', alias: null, hidden: false, lastUsedAt: 1794176253087 }] }
+      : { path: 'C:\\answered' }
+  );
+  assert.deepEqual(await service.call('listProjects', []), [{ name: 'mixdog', path: 'C:\\Project\\mixdog', alias: null }]);
+  for (const [method, args] of [
+    ['projectDirectory', ['/p']],
+    ['projectRecoveryDirectory', ['/p']],
+    ['getTaskWorkspace', []],
+    ['projectEntryPath', ['/p', 'a']],
+  ]) {
+    assert.equal(await service.call(method, args), 'C:\\answered', method);
+  }
+});
+
+test('an attachment is read a page at a time by its digest; a missing one, one over the bound and a non-reference are null', async () => {
+  const ref = 'a'.repeat(64);
+  const pageBytes = 786_432;
+  const blob = Buffer.alloc(pageBytes + 5, 7);
+  const reads = [];
+  const { service } = lane(async (method, params) => {
+    assert.equal(method, 'blob/read');
+    reads.push(params);
+    if (params.digest !== `sha256:${ref}`) throw Object.assign(new Error('rpc'), { detail: { kind: 'rpc', data: { reason: 'blobNotFound' } } });
+    return { bytesB64: blob.subarray(params.offset, params.offset + params.length).toString('base64') };
+  });
+  assert.equal(await service.call('readAttachmentImage', [ref]), blob.toString('base64'));
+  assert.deepEqual(reads, [
+    { digest: `sha256:${ref}`, offset: 0, length: pageBytes },
+    { digest: `sha256:${ref}`, offset: pageBytes, length: pageBytes },
+  ]);
+  assert.equal(await service.call('readAttachmentImage', [ref, pageBytes + 5]), blob.toString('base64'), 'a blob of exactly the bound');
+  assert.equal(await service.call('readAttachmentImage', [ref, pageBytes + 4]), null, 'one byte over the bound');
+  assert.equal(await service.call('readAttachmentImage', ['b'.repeat(64)]), null, 'the store has no such blob');
+  reads.length = 0;
+  assert.equal(await service.call('readAttachmentImage', ['not-a-ref']), null);
+  assert.deepEqual(reads, [], 'a name that is no reference is not asked for');
 });
 
 test('a method with no request op is refused before anything is sent, with no fallback', async () => {

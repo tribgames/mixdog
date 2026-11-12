@@ -21,6 +21,7 @@ import { createCapabilityLane } from '../protocol/capability-route';
 import { withSectionCapabilities } from '../protocol/section-capability-lane';
 import { createOperationLane, watchAnnouncements } from '../protocol/desktop-operation-route';
 import { createServiceLane } from '../protocol/service-route';
+import { createSessionLane } from '../protocol/session-lane';
 import type { OperationHost } from '../protocol/section-reads';
 import type { ProtocolConnection } from '../protocol/connection';
 import { createCoreModelProxy, type ModelProxyHost } from '../protocol/model-proxy-relay';
@@ -337,6 +338,7 @@ function createServiceClient({
     // desktop-operation-route.ts); the capabilities the sections replaced are answered from the connection's sections
     // (section-capability-lane.ts).
     serviceLane: createServiceLane({ protocol, snapshot: () => client.getSnapshot() }),
+    sessionLane: createSessionLane({ protocol }),
     capabilityLane: withSectionCapabilities({
       lane: createCapabilityLane({ protocol }),
       protocol,

@@ -27,6 +27,7 @@ import type { DesktopService, DesktopServiceMethod } from './desktop-service-con
 import type { CapabilityLane } from './protocol/capability-route';
 import type { OperationLane } from './protocol/desktop-operation-route';
 import type { ServiceLane } from './protocol/service-route';
+import type { SessionLane } from './protocol/session-lane';
 import { filterSessionIds } from './desktop-state';
 import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import type { SessionFinalAnswer } from './session-final-answer';
@@ -37,6 +38,9 @@ interface DesktopServiceClientOptions {
   capabilityLane: CapabilityLane;
   operationLane: OperationLane;
   serviceLane: ServiceLane;
+  /** The connection's sessions: the catalog and the followed threads' states it pushes, and the chat calls whose answer is
+   *  made from more than one reply (protocol/session-lane.ts). */
+  sessionLane: SessionLane;
   onDiagnostic?(event: string, data: Record<string, unknown>): void;
 }
 
@@ -56,13 +60,11 @@ export function displayExitCode(code: number): string {
 
 export class DesktopServiceClient implements DesktopService {
   private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
-  private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
   private readonly desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
   private readonly noticeListeners = new Set<(notice: DesktopNotice) => void>();
   /** Notices that arrived while no window listened (one per key, bounded). */
   private heldNotices: DesktopNotice[] = [];
-  private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private cachedSnapshot: SessionSnapshot;
   private visibleSessionIds: string[] = [];
   private visibleSessionVersion = 0;
@@ -92,8 +94,7 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
-    this.sessionListeners.add(listener);
-    return () => this.sessionListeners.delete(listener);
+    return this.options.sessionLane.subscribeSessions(listener);
   }
 
   subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void {
@@ -102,12 +103,19 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
-    this.sessionStateListeners.add(listener);
-    return () => this.sessionStateListeners.delete(listener);
+    return this.options.sessionLane.subscribeSessionStates(listener);
   }
 
-  requestSessionStateResync(_sessionId: string): void {
-    // The core pushes session state as feed deltas; there is no per-session resync to ask for.
+  requestSessionStateResync(sessionId: string): void {
+    this.options.sessionLane.requestSessionStateResync(sessionId);
+  }
+
+  /** Node's host published a start call's blank snapshot as its shell snapshot (session-host-lifecycle.ts `publishShell`). */
+  private async startShell(method: 'startProject' | 'startProjectTask' | 'startTask', args: unknown[]): Promise<SessionSnapshot> {
+    const snapshot = await this.invoke<SessionSnapshot>(method, args);
+    this.cachedSnapshot = snapshot;
+    for (const listener of [...this.listeners]) listener(snapshot);
+    return snapshot;
   }
 
   subscribeDesktopEvents(listener: (event: { name: string; value: unknown }) => void): () => void {
@@ -146,13 +154,13 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   startProject(projectPath: string): Promise<SessionSnapshot> {
-    return this.invoke<SessionSnapshot>('startProject', [projectPath]);
+    return this.startShell('startProject', [projectPath]);
   }
   startProjectTask(projectPath: string): Promise<SessionSnapshot> {
-    return this.invoke<SessionSnapshot>('startProjectTask', [projectPath]);
+    return this.startShell('startProjectTask', [projectPath]);
   }
   startTask(): Promise<SessionSnapshot> {
-    return this.invoke<SessionSnapshot>('startTask');
+    return this.startShell('startTask', []);
   }
   listProjects(): Promise<DesktopProjectSummary[]> {
     return this.invokeRead('listProjects');
@@ -210,7 +218,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
   }
   listSessions(): Promise<DesktopSessionSummary[]> {
-    return this.invoke('listSessions');
+    return this.options.sessionLane.listSessions();
   }
   markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     return this.invoke('markSessionRead', [sessionId, messageCount, consumedUnread]);
@@ -254,11 +262,11 @@ export class DesktopServiceClient implements DesktopService {
   /** The provenance behind attachment opens and file grants: main's IPC
    *  checks a request against the transcript the service holds. */
   readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
-    return this.invokeRead('readSessionTranscript', [sessionId]);
+    return this.options.sessionLane.readSessionTranscript(sessionId);
   }
   /** The whole stored conversation, compaction-archived rows included. */
   readSessionHistory(sessionId: string): Promise<SessionSnapshot | null> {
-    return this.invokeRead('readSessionHistory', [sessionId]);
+    return this.options.sessionLane.readSessionHistory(sessionId);
   }
 
   readSessionFinalAnswer(
@@ -298,13 +306,13 @@ export class DesktopServiceClient implements DesktopService {
     return this.options.capabilityLane.deleteSession(sessionId);
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
-    return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]);
+    return this.options.sessionLane.prefetchSession(sessionId, transcriptItemLimit, readTraceId);
   }
-  readTranscriptHistory(
+  async readTranscriptHistory(
     sessionId: string,
     request: DesktopTranscriptHistoryRequest
   ): Promise<DesktopTranscriptHistoryPage> {
-    return this.invokeRead('readTranscriptHistory', [sessionId, request]);
+    return (await this.options.sessionLane.chat()).readTranscriptHistory(sessionId, request);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = filterSessionIds(sessionIds);
@@ -327,19 +335,19 @@ export class DesktopServiceClient implements DesktopService {
       consumer,
     ]);
   }
-  submitNewTask(
+  async submitNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {},
     draft: DesktopNewTaskDraft = {}
   ): Promise<DesktopNewTaskSubmitResult> {
-    return this.invoke<DesktopNewTaskSubmitResult>('submitNewTask', [prompt, options, draft]);
+    return (await this.options.sessionLane.chat()).submitNewTask(prompt, options, draft);
   }
-  inheritSession(
+  async inheritSession(
     sourceSessionId: string,
     route?: DesktopModelSelection | null,
     options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke('inheritSession', [sourceSessionId, route ?? null, options ?? null]);
+    return (await this.options.sessionLane.chat()).inheritSession(sourceSessionId, route ?? null, options ?? null);
   }
   submitToSession(
     sessionId: string,
@@ -359,8 +367,8 @@ export class DesktopServiceClient implements DesktopService {
     // A core connection answers the server request the card shows (capability-route.ts `resolveToolApproval`).
     return this.options.capabilityLane.resolveToolApproval(sessionId, id, decision as unknown as Record<string, unknown>);
   }
-  listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
-    return this.invokeRead('listProviderModels', [options]);
+  async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
+    return (await this.options.sessionLane.chat()).listProviderModels(options);
   }
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
     return this.invoke('setModelRoute', [selection, sessionId]);
@@ -403,11 +411,10 @@ export class DesktopServiceClient implements DesktopService {
     if (this.disposed) return;
     this.disposed = true;
     this.listeners.clear();
-    this.sessionListeners.clear();
+    this.options.sessionLane.dispose();
     this.agentPoolListeners.clear();
     this.desktopEventListeners.clear();
     this.noticeListeners.clear();
-    this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
   }
 }

@@ -5,7 +5,7 @@ import { DesktopServiceClient, displayExitCode } from './desktop-service-client.
 
 const notice = (key, name = 'Gmail') => ({ key, code: 'connector-sign-in-expired', params: { name } });
 const clientWith = (lanes = {}) =>
-  new DesktopServiceClient({ serviceLane: { call: async () => null }, capabilityLane: {}, operationLane: {}, ...lanes });
+  new DesktopServiceClient({ serviceLane: { call: async () => null }, capabilityLane: {}, operationLane: {}, sessionLane: { dispose() {} }, ...lanes });
 
 test('service notices that arrive before any window wait for it, one per condition', async (t) => {
   const client = clientWith();
@@ -47,12 +47,12 @@ test('a client calls its capability, operation and service lanes and never a tra
     },
     operationLane: { invoke: async (method, args) => (seen.push(['operation', method, args]), 'op') },
   });
-  assert.equal(await client.listSessions(), 'svc');
+  assert.equal(await client.listAgentPool(), 'svc');
   await client.invokeCapability('setModel', ['m'], 's1');
   await client.readCapabilities([{ capability: 'listPresets' }]);
   assert.equal(await client.invokeDesktopOperation('gitStatus', ['/r']), 'op');
   assert.deepEqual(seen, [
-    ['service', 'listSessions', []],
+    ['service', 'listAgentPool', []],
     ['capability', 'setModel', ['m'], 's1'],
     ['read', [{ capability: 'listPresets' }]],
     ['operation', 'gitStatus', ['/r']],

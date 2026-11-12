@@ -37,6 +37,10 @@ export interface ConnectionClient {
   call(method: string, params: unknown): Promise<unknown>;
   notify(method: string, params: unknown): void;
   subscribeApp(): Promise<void>;
+  /** `thread/resume` as the library sends it: the thread is folded from then on and resumed again after a reconnect. */
+  resumeThread(threadId: string, window: unknown): Promise<unknown>;
+  /** `thread/unsubscribe`; the library drops the thread's fold. */
+  unsubscribeThread(threadId: string): Promise<void>;
   respond(id: string | number, answer: ServerRequestAnswer): void;
   /** The server requests this client's core is waiting on: added when it asks, removed when it resolves the ask, all
    *  dropped with the socket. */
@@ -60,6 +64,17 @@ export type ConnectionClientEvent =
   | { readonly type: 'serverRequest'; readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown } }
   | { readonly type: 'serverRequestResolved'; readonly params: { readonly requestId?: string | number } }
   | { readonly type: string };
+
+/** A change of the open client's store (the library's `StoreChange`): a folded thread, a section, the app snapshot, a
+ *  subscription restored or lost. */
+export interface ConnectionStoreChange {
+  readonly type: string;
+  readonly threadId?: string;
+  readonly section?: string;
+  readonly key?: string | null;
+  readonly feedId?: string;
+  readonly state?: string;
+}
 
 export interface ProtocolConnectionOptions {
   /** Opens the transport and performs `initialize`; the library's `connect` bound to this target. */
@@ -108,6 +123,16 @@ export interface ProtocolConnection {
   /** Registers a window; returns its removal. A window attached after `start` is told the current status. */
   attach(window: ProtocolWindow): () => void;
   call(method: string, params: unknown): Promise<unknown>;
+  /** The client that is open now: what folds the threads this connection follows (the session lane reads a thread's
+   *  state from it). Null while none is open. */
+  client(): ConnectionClient | null;
+  /** Follows a thread through the library (`ConnectionClient.resumeThread`). A `thread/resume` sent with `call` is not
+   *  folded: the library drops the feed of a thread it was not asked to follow. */
+  resumeThread(threadId: string, window: unknown): Promise<unknown>;
+  unsubscribeThread(threadId: string): Promise<void>;
+  /** Every change of the open client's store, whichever client that is: the listeners stay across a reopen. Returns
+   *  the removal. */
+  onStoreChange(listener: (change: ConnectionStoreChange) => void): () => void;
   /** The core samples listening ports only while someone views them (U-DS4): the first viewer subscribes, the last
    *  one leaving unsubscribes. After a reconnect the subscription is sent again while viewers remain. */
   viewPorts(window: ProtocolWindow, viewing: boolean): Promise<void>;
@@ -157,6 +182,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   const windows = new Set<ProtocolWindow>();
   const portViewers = new Set<ProtocolWindow>();
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
+  const storeListeners = new Set<(change: ConnectionStoreChange) => void>();
   const sectionWatchers = new Map<string, Set<(entry: DesktopSectionEntry | undefined) => void>>();
   const fsWatches = new Map<string, { window: ProtocolWindow; params: { watchId: string } & Record<string, unknown> }>();
   // Scoped feeds that carry sections, by feed id: who watches them and the sections each holds.
@@ -370,6 +396,9 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     });
     unsubscribeStore = opened.store.subscribe((change) => {
       if (!owns()) return;
+      for (const listener of [...storeListeners]) listener(change);
+      // A listener may have reopened: this client is superseded then.
+      if (!owns()) return;
       if (change.type === 'appSnapshot' && awaitingAppSnapshot) {
         awaitingAppSnapshot = false;
         relay?.reconnected();
@@ -526,6 +555,17 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       }
       return reply;
     },
+    client: () => client,
+    async resumeThread(threadId, window) {
+      return (client ?? (await connectedAfterFirstOpen())).resumeThread(threadId, window);
+    },
+    async unsubscribeThread(threadId) {
+      return (client ?? (await connectedAfterFirstOpen())).unsubscribeThread(threadId);
+    },
+    onStoreChange(listener) {
+      storeListeners.add(listener);
+      return () => void storeListeners.delete(listener);
+    },
     loginFeed: (flowId) => {
       const feed = loginFeeds.get(flowId);
       return feed ? { ...feed } : { state: null, lost: true };
@@ -563,6 +603,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       loginFeeds.clear();
       feedWatches.clear();
       replacedListeners.clear();
+      storeListeners.clear();
       closedByOwner = true;
       epoch += 1;
       newest = null;

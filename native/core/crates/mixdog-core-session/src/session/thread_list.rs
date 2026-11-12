@@ -52,6 +52,10 @@ const DOMAIN: &str = "thread list";
 /// `DEFAULT_PAGE_LIMIT` and `MAX_PAGE_LIMIT` (`store-summary-reader.mjs`).
 const DEFAULT_PAGE_LIMIT: usize = 50;
 const MAX_PAGE_LIMIT: usize = 1000;
+/// The most bytes of rows one page answers. Node's listing answered inside its own process; here a page is one frame of a
+/// connection, and an answer past the connection's control reserve (`Limits::control_reserve_bytes`, 512 KiB) ends that
+/// connection as a slow consumer: 1,000 rows of a real profile are about 900 KiB.
+const PAGE_BYTES: usize = 256 * 1024;
 
 /// What the running daemon knows of a listed session that storage does not: the fields
 /// `withRuntimeActivity` (`working`, `agentWorking`) and `withApprovalWaits` (`awaitingApproval`,
@@ -368,7 +372,7 @@ impl ThreadListService {
     /// Marked loaded only once it is in hand, as Node marks it after its listing answered (`:807`).
     async fn whole_listing(&self) -> Result<Vec<ThreadSummary>, CoreError> {
         let whole = ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None };
-        let rows = self.page_of(whole, usize::MAX).await?.data;
+        let rows = self.page_of(whole, usize::MAX, usize::MAX).await?.data;
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         self.published(&rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(rows)
@@ -446,11 +450,12 @@ impl ThreadListService {
             Some(requested) if requested > 0 => requested.min(MAX_PAGE_LIMIT),
             _ => DEFAULT_PAGE_LIMIT,
         };
-        self.page_of(params, limit).await
+        self.page_of(params, limit, PAGE_BYTES).await
     }
 
-    /// At most `limit` rows of the listing after `params.cursor`, read from the index in one read.
-    async fn page_of(&self, params: ThreadListParams, limit: usize) -> Result<ThreadListResponse, CoreError> {
+    /// At most `limit` rows of the listing after `params.cursor`, read from the index in one read, ended where its rows have
+    /// filled `budget` bytes (the cursor then names the last row kept, so the next page begins at the first row left out).
+    async fn page_of(&self, params: ThreadListParams, limit: usize, budget: usize) -> Result<ThreadListResponse, CoreError> {
         if params.search_term.as_deref().is_some_and(|term| !term.is_empty()) {
             return Err(invalid("searchTerm", "absent: the listing has no text search (`thread/search` is the search)"));
         }
@@ -468,8 +473,8 @@ impl ThreadListService {
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
         self.caught_up().await;
         let page = self.store.lead_page(after, filter, limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
-        let next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
-        let rows = page
+        let mut next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
+        let mut rows: Vec<ThreadSummary> = page
             .rows
             .iter()
             .map(|listed| {
@@ -477,6 +482,19 @@ impl ThreadListService {
                 self.row_of(&id, listed, &workspace)
             })
             .collect();
+        let mut held = 0;
+        let kept = rows
+            .iter()
+            .position(|row| {
+                held += serde_json::to_vec(row).map_or(0, |bytes| bytes.len());
+                held > budget
+            })
+            // A page always carries a row: one row larger than the budget is sent alone.
+            .map_or(rows.len(), |over| over.max(1));
+        if kept < rows.len() {
+            rows.truncate(kept);
+            next_cursor = Some(encode_catalog_cursor(&page.rows[kept - 1].row));
+        }
         let mut data = self.with_rooms(rows).await?;
         if whole {
             let mut missing = Vec::new();
@@ -1217,6 +1235,45 @@ mod tests {
         let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
         assert!(listed(&answer), "the rule is the emptiness rule, not the id");
         assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
+    }
+
+    /// A listing larger than one frame of a connection comes in pages that each end at the byte budget, however many rows were
+    /// asked for: every row once, in the listing's order, each page continuing after the last row of the one before.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_page_ends_at_its_byte_budget_and_the_next_begins_after_it() {
+        let golden = golden();
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
+        let folder = format!("C:\\{}", "d".repeat(1_000));
+        for at in 0..400_i64 {
+            let id = format!("sess_wide_{at:03}");
+            let header = json!({ "id": id, "title": "Wide", "cwd": folder, "createdAt": 9_000_000_000_000_i64 + at, "updatedAt": 9_000_000_000_000_i64 + at });
+            let head = CatalogHead { session: id, log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+            service.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
+        }
+        let whole: Vec<String> = service.whole_listing().await.expect("whole").iter().map(|row| row.id.as_str().to_owned()).collect();
+        let mut listed = Vec::new();
+        let mut pages = 0;
+        let mut cursor: Option<String> = None;
+        loop {
+            let params = match &cursor {
+                Some(cursor) => json!({ "limit": 1000, "cursor": cursor }),
+                None => json!({ "limit": 1000 }),
+            };
+            let answer = value(&service, request(LIST, params, None)).await.expect("list");
+            let rows = answer["data"].as_array().expect("data");
+            assert!(!rows.is_empty(), "a page carries a row");
+            let bytes: usize = rows.iter().map(|row| serde_json::to_vec(row).expect("row json").len()).sum();
+            assert!(bytes <= PAGE_BYTES, "page {pages} carries {bytes} bytes of rows");
+            listed.extend(rows.iter().map(|row| row["id"].as_str().expect("id").to_owned()));
+            pages += 1;
+            match answer["nextCursor"].as_str() {
+                Some(next) => cursor = Some(next.to_owned()),
+                None => break,
+            }
+        }
+        assert!(pages > 1, "about 800 KiB of rows came in one page");
+        assert_eq!(listed, whole);
     }
 
     /// A stored `desktopSession` classifies the listed row as `_desktopSessionSummary` does, in the page and in the row the

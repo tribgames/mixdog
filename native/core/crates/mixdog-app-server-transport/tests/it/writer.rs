@@ -197,6 +197,31 @@ async fn control_reserve_exhaustion_closes_with_slow_consumer() {
     );
 }
 
+/// One answer larger than the whole control reserve, to a connection that holds nothing of it, is written and the
+/// connection stays open: a list or a transcript read of a large profile is one such answer (1,000 thread rows of a
+/// real profile are about 900 KiB against the 512 KiB reserve). A second one behind it, unread, still closes.
+#[tokio::test]
+async fn one_answer_larger_than_the_control_reserve_is_written_and_the_connection_stays_open() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let mut peer = connect(&hub, ConnectionOrigin::Loopback, true);
+    let sink = peer.connection.sink.clone();
+    let answer = Bytes::from(vec![b'a'; limits.control_reserve_bytes as usize + 1]);
+    assert!(sink.send_control(answer.clone()).is_ok(), "an empty reserve admits the answer");
+    let wire = peer.take_text(1).await;
+    assert!(wire[0].as_bytes() == &answer[..], "the answer is written whole");
+    assert_eq!(sink.close_code(), None, "the connection stays open");
+
+    let mut stalled = connect(&hub, ConnectionOrigin::Loopback, false);
+    let sink = stalled.connection.sink.clone();
+    assert!(sink.send_control(answer.clone()).is_ok());
+    assert!(sink.send_control(answer).is_err(), "nothing of the first was taken");
+    assert_eq!(sink.close_code(), Some(CloseCode::SlowConsumer));
+    stalled.allow(usize::MAX >> 4);
+    assert_eq!(stalled.until_closed().await.last(), Some(&Wire::Close(CloseCode::SlowConsumer)));
+}
+
 #[tokio::test]
 async fn slow_consumer_lags_only_its_own_lanes_and_recovers_one_snapshot_each() {
     install_rt();
