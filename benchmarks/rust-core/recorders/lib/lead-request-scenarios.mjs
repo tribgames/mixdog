@@ -10,12 +10,12 @@ export const ROUTES = {
 
 // A stdio MCP server of one tool: what a user's connected server is, without a network or a package. `{DATA}` in a setting is the data
 // directory of the side that reads it.
-export const MCP_STUB = `import { createInterface } from 'node:readline';
-const tools = [{ name: 'echo', description: 'Echo the text back.', inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to echo.' } }, required: ['text'] } }];
+export const mcpStub = ({ instructions, description = 'Echo the text back.' } = {}) => `import { createInterface } from 'node:readline';
+const tools = [{ name: 'echo', description: ${JSON.stringify(description)}, inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to echo.' } }, required: ['text'] } }];
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\\n');
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
-  if (message.method === 'initialize') reply(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'stub', version: '1.0.0' } });
+  if (message.method === 'initialize') reply(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'stub', version: '1.0.0' }, ...(${JSON.stringify(instructions ?? null)} === null ? {} : { instructions: ${JSON.stringify(instructions ?? null)} }) });
   else if (message.method === 'tools/list') reply(message.id, { tools });
   else if (message.method === 'tools/call') reply(message.id, { content: [{ type: 'text', text: message.params.arguments.text }] });
   else if (message.id !== undefined) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'unknown' } }) + '\\n');
@@ -82,8 +82,42 @@ export const LEAD_SCENARIOS = [
     mcp: true,
     path: ['node'],
     config: withAgent({ mcpServers: { stub: { command: 'node', args: ['{DATA}/mcp-stub.mjs'] } } }),
-    data: { 'mcp-stub.mjs': MCP_STUB },
+    data: { 'mcp-stub.mjs': mcpStub() },
   },
+  // The one-line entry of a connected server in the deferred listing: the first sentence of its MCP instructions (without an account sentence, `<`/`>`
+  // and the closing stop), else its first tool's description; and the line is cut at 98 characters.
+  {
+    name: 'mcp-server-instructions',
+    route: 'anthropic',
+    mcp: true,
+    path: ['node'],
+    config: withAgent({ mcpServers: { stub: { command: 'node', args: ['{DATA}/mcp-stub.mjs'] } } }),
+    data: { 'mcp-stub.mjs': mcpStub({ instructions: 'Echo text back to the user. Use it only when asked to repeat something.' }) },
+  },
+  {
+    name: 'mcp-servers-instructions-account-and-long',
+    route: 'openai',
+    mcp: true,
+    path: ['node'],
+    config: withAgent({
+      mcpServers: {
+        alpha: { command: 'node', args: ['{DATA}/mcp-alpha.mjs'] },
+        beta: { command: 'node', args: ['{DATA}/mcp-beta.mjs'] },
+        gamma: { command: 'node', args: ['{DATA}/mcp-gamma.mjs'] },
+      },
+    }),
+    data: {
+      'mcp-alpha.mjs': mcpStub({ instructions: 'Account: someone@example.com. Echo <b>any text</b> that the user wants repeated back to them exactly as written, in the same order, for any reason whatsoever. Second sentence.' }),
+      'mcp-beta.mjs': mcpStub({ description: 'Repeats the text it is given. Has no other use.' }),
+      'mcp-gamma.mjs': mcpStub({ instructions: '   ' }),
+    },
+  },
+  // The `visualize open` paragraph of the delivery rules is in the prompt only while the visualize tool is available (the desktop's bridge is up, or
+  // the feature switch is on), and the tool joins the lists with it.
+  { name: 'visualize-available', route: 'anthropic', env: { MIXDOG_FEATURE_VISUALIZE: '1' }, config: en },
+  { name: 'visualize-available-openai', route: 'openai', env: { MIXDOG_FEATURE_VISUALIZE: '1' }, config: en },
+  { name: 'visualize-available-headless', route: 'anthropic', env: { MIXDOG_FEATURE_VISUALIZE: '1' }, config: withAgent({ workflow: { active: 'headless' } }) },
+  { name: 'visualize-switched-off', route: 'anthropic', env: { MIXDOG_FEATURE_VISUALIZE: '0' }, config: en },
   {
     name: 'user-agents',
     route: 'anthropic',

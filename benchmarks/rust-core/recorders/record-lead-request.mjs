@@ -8,7 +8,9 @@
 // paths of the profile are the tokens `{DATA}` (the data directory), `{WS}` (the workspace) and `{HOME}` of the recording; a replay builds
 // its own folders and maps its own paths to the same tokens, so the text compared is the text of both sides with only the folder named.
 //
-//   node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <export of b6f10295a with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch [--only <scenario>]
+//   node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <export of b6f10295a with node_modules> --patch <node-fix-spawn-model-settings.patch>,<node-fix-deferred-listing-trigger.patch> [--only <scenario>]
+//
+// Each scenario is run twice: the first run is the recording, the second a check that it is byte-identical (a difference fails the recorder and names where).
 //
 // Output: native/core/fixtures/lead-request/golden.json (+ MANIFEST.json). Each scenario holds the settings it was recorded under (`config`,
 // the files of the data directory and of the workspace), the route, and the recorded request.
@@ -46,6 +48,7 @@ const sse = (events) => events.map(([name, data]) => `${name ? `event: ${name}\n
 /** A loopback provider of one wire: every POST body is kept, and the answer is one short text. */
 async function provider(route) {
   const posts = [];
+  let waiting = null;
   const server = createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk) => {
@@ -57,7 +60,9 @@ async function provider(route) {
         res.end(JSON.stringify({ object: 'list', data: [{ id: route.model, object: 'model', type: 'model' }], has_more: false }));
         return;
       }
-      posts.push({ url: req.url, body: JSON.parse(raw || '{}') });
+      const post = { url: req.url, body: JSON.parse(raw || '{}') };
+      posts.push(post);
+      if (waiting?.match(post)) waiting.resolve(post);
       if (route.wire === 'anthropic') {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(
@@ -86,10 +91,18 @@ async function provider(route) {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    posts,
     baseURL: `http://127.0.0.1:${server.address().port}/v1`,
+    /** The first POST `match` accepts: the one that already arrived, else the one whose arrival the server signals. */
+    arrival: (match) => {
+      const early = posts.find(match);
+      if (early) return Promise.resolve(early);
+      return new Promise((resolve) => {
+        waiting = { match, resolve };
+      });
+    },
     close: () =>
       new Promise((resolve) => {
+        waiting = null;
         server.close(resolve);
         server.closeAllConnections();
       }),
@@ -172,6 +185,8 @@ async function oneScenario(scenario) {
   const server = await provider(route);
   let child = null;
   let doc = null;
+  let watcher = null;
+  let attached = null;
   let stderr = '';
   try {
     const { env, data, ws, home } = seed(sandbox, scenario, route, server.baseURL);
@@ -187,31 +202,22 @@ async function oneScenario(scenario) {
       return null;
     };
     const ready = new Promise((resolve, reject) => {
-      const watcher = watch(env.MIXDOG_RUNTIME_ROOT, () => {
+      watcher = watch(env.MIXDOG_RUNTIME_ROOT, () => {
         const found = read();
-        if (found) {
-          watcher.close();
-          resolve(found);
-        }
+        if (found) resolve(found);
       });
       child.once('exit', (code) => reject(new Error(`the daemon exited ${code} before it was ready: ${stderr}`)));
       const found = read();
-      if (found) {
-        watcher.close();
-        resolve(found);
-      }
+      if (found) resolve(found);
     });
     doc = await withDeadline(ready, 'the daemon to publish daemon.json');
+    watcher.close();
     const client = await imp('src/standalone/session-client.mjs');
-    const ended = new Map();
-    const attached = await withDeadline(
+    attached = await withDeadline(
       client.attachSession({
         discovery: { ...doc.endpoints.session, pid: doc.pid },
         cwd: ws,
         clientKind: 'desktop',
-        onFrame: (frame) => {
-          for (const row of JSON.stringify(frame).includes('"turndone"') ? [frame] : []) ended.set(frame.sessionId, (ended.get(frame.sessionId) ?? 0) + 1);
-        },
       }),
       'attachSession'
     );
@@ -223,23 +229,17 @@ async function oneScenario(scenario) {
     await withDeadline(attached.call('session.subscribe', { sessionId }), 'session.subscribe');
     const submitted = await withDeadline(attached.call('session.submit', { sessionId, prompt: `${PROMPT_TOKEN} ${scenario.prompt ?? 'hello'}` }), 'session.submit');
     if (submitted?.accepted !== true) throw new Error(`session.submit: ${JSON.stringify(submitted)}`);
-    await withDeadline(
-      new Promise((resolve) => {
-        const check = () => (server.posts.some((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN)) ? resolve() : setImmediate(check));
-        check();
-      }),
-      'the provider to receive the lead request'
-    );
-    const request = server.posts.find((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN));
-    await attached.close();
+    const request = await withDeadline(server.arrival((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN)), 'the provider to receive the lead request');
     return { request, paths: { data, ws, home }, sessionId };
   } catch (error) {
     console.error(`daemon stderr:\n${stderr}`);
     throw error;
   } finally {
+    // Every step below runs whatever the one before it did: a failed stop request or close never leaves the daemon, its watcher or the endpoint running.
+    watcher?.close();
+    await withDeadline(attached?.close() ?? Promise.resolve(), 'the client to close', 10_000).catch(() => {});
     if (doc) {
-      const stopped = await fetch(`http://127.0.0.1:${doc.endpoints.session.port}/stop`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mixdog-daemon-token': doc.endpoints.session.token }, body: JSON.stringify({ force: true }) }).catch(() => null);
-      void stopped;
+      await fetch(`http://127.0.0.1:${doc.endpoints.session.port}/stop`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mixdog-daemon-token': doc.endpoints.session.token }, body: JSON.stringify({ force: true }), signal: AbortSignal.timeout(10_000) }).catch(() => {});
     }
     if (child && child.exitCode === null) {
       const exited = new Promise((resolve) => child.once('exit', resolve));
@@ -266,26 +266,48 @@ async function recordOnce(scenario) {
   return tokenize(got.request);
 }
 
-/**
- * Node settles a new session's prompt at its first turn when the settings moved since it was created (`reconcileSession`: a rebuild whose manifest
- * lines and startup facts differ from the creation's), and whether they moved is decided by work running beside the recorder. A recording is taken
- * when two runs of the scenario agree whole; a third decides between two that disagree, and a scenario whose three runs all differ fails.
- */
-async function recordAgreed(scenario) {
-  const runs = [await recordOnce(scenario), await recordOnce(scenario)];
-  if (JSON.stringify(runs[0]) === JSON.stringify(runs[1])) return runs[0];
-  console.error(`${scenario.name}: two runs differ; a third decides`);
-  runs.push(await recordOnce(scenario));
-  const agreed = runs.find((run, at) => runs.some((other, to) => to !== at && JSON.stringify(other) === JSON.stringify(run)));
-  if (!agreed) throw new Error(`${scenario.name}: three runs gave three different requests`);
-  return agreed;
+/** Where two recorded values differ, as `path: first | second` lines (at most 10), so a failed check names its cause. */
+function differences(path, first, second, out = []) {
+  if (out.length >= 10 || JSON.stringify(first) === JSON.stringify(second)) return out;
+  if (first && second && typeof first === 'object' && typeof second === 'object') {
+    for (const key of new Set([...Object.keys(first), ...Object.keys(second)])) differences(`${path}.${key}`, first[key], second[key], out);
+  } else if (typeof first === 'string' && typeof second === 'string') {
+    const [a, b] = [first.split('\n'), second.split('\n')];
+    for (let at = 0; at < Math.max(a.length, b.length) && out.length < 10; at += 1) if (a[at] !== b[at]) out.push(`${path} line ${at}: ${JSON.stringify(a[at])} | ${JSON.stringify(b[at])}`);
+  } else out.push(`${path}: ${JSON.stringify(first)} | ${JSON.stringify(second)}`);
+  return out;
 }
+
+/** The recording of a scenario is its one run; a second run is the check that the world the recorder builds is deterministic, and it must be byte-identical. */
+async function recordChecked(scenario) {
+  const recording = await recordOnce(scenario);
+  const check = await recordOnce(scenario);
+  if (JSON.stringify(recording) !== JSON.stringify(check)) throw new Error(`${scenario.name}: a second run differs from the first:\n${differences('request', recording, check).join('\n')}`);
+  return recording;
+}
+
+const PATCHES = ['spawn-model-settings', 'deferred-listing-trigger'].map((topic) => `benchmarks/rust-core/recorders/node-patches/node-fix-${topic}.patch`).join(',');
+
+/** Every text of the recorded request that is replaced, and why: each side builds its own folders and its own thread id, and nothing else is replaced. */
+const MAPPINGS = {
+  '{DATA}': 'the profile\'s data directory (the recorder\'s throwaway folder, the replay\'s own), in its backslash and forward-slash spellings',
+  '{WS}': 'the workspace folder of the thread, in both spellings',
+  '{HOME}': 'the profile\'s home folder (HOME, USERPROFILE, APPDATA, LOCALAPPDATA live in it), in both spellings; the data folder is inside it, so it is replaced after {DATA}',
+  '{SESSION}': 'the id of the thread: each side creates its own (Node a session id, the core a thread id)',
+  's.{SCRATCH}': 'the name of the session scratch folder, a digest of the thread id (session-scratch.mjs scratchName), so it differs with the id',
+};
+
+/** What the matrix does not cover. */
+const SCOPE = {
+  covered: 'the desktop lead thread (session.create with a desktopSession, then submit)',
+  notCovered: ['agent-mode threads (a separate task)', 'phone threads (out of scope)'],
+};
 
 const only = args.get('only');
 const recorded = [];
 for (const scenario of LEAD_SCENARIOS.filter((s) => !only || s.name === only)) {
-  const request = await recordAgreed(scenario);
-  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, request });
+  const request = await recordChecked(scenario);
+  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, env: scenario.env ?? {}, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, request });
   console.log(`${scenario.name}: ${JSON.stringify(request.body).length} bytes`);
 }
 if (only) {
@@ -294,5 +316,5 @@ if (only) {
   const setDir = join(FIXTURES_ROOT, 'lead-request');
   mkdirSync(setDir, { recursive: true });
   writeJson(join(setDir, 'golden.json'), { scenarios: recorded });
-  writeSetManifest(setDir, { set: 'lead-request', recorder: RECORDER, command: `node ${RECORDER} --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch`, identity, extra: recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/offline-network.mjs']) });
+  writeSetManifest(setDir, { set: 'lead-request', recorder: RECORDER, command: `node ${RECORDER} --tree <b6f10295a export with node_modules> --patch ${PATCHES}`, identity, extra: { ...recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/offline-network.mjs']), mappings: MAPPINGS, scope: SCOPE } });
 }
