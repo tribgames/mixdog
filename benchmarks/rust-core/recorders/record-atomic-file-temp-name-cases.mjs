@@ -13,8 +13,8 @@ import { openSet } from './lib/case-set.mjs';
 import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 
 REPLAY_TARGETS['atomic-file-temp-name-cases'] = {
-  notPublic: ['the Rust writer\'s temp name `<target>.mixdog-tmp-<16 hex>` (mixdog-statefile/src/publish.rs:164 temp_path, private) and the migration\'s recogniser of the 1.4.5 name (mixdog-migrate/src/temp_files.rs atomic_publish_base, pub)'],
-  missing: ['the code-graph cache and summary-index stale-temp sweeps of Node have no Rust counterpart under those names: the Rust caches are not written by the Node writer'],
+  notPublic: ['the Rust writer\'s temp name `<target>.mixdog-tmp-<16 hex>` (mixdog-statefile/src/publish.rs:164 temp_path, private) and the migration\'s recogniser of the 1.4.5 name (mixdog-migrate/src/temp_files.rs atomic_publish_base, pub)', 'the core\'s start-up reclamation of those temps: mixdog-app-server-daemon/src/stale_temps.rs (dead-writer crash-capture temps, ten-minute session-summary temps, called by crash_record::install_for_process) and the code-graph cache\'s own aged-temp sweep (mixdog-tools/src/code_graph/cache.rs is_tmp_name), compared by tests/it/temp_names_replay.rs'],
+  missing: [],
 };
 const set = openSet('atomic-file-temp-name-cases', import.meta.url);
 const { RE_CACHE_TMP, RE_CALLS_CACHE_TMP, RE_MANIFEST_TMP } = await set.load('src/runtime/agent/orchestrator/tools/code-graph/constants.mjs');

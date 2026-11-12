@@ -269,7 +269,9 @@ pub fn install(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
 /// even a start whose runtime cannot be resolved leaves its record. No data folder, no record.
 pub fn install_for_process() {
     let Some(paths) = mixdog_store::paths::Paths::from_process(Path::new("")) else { return };
-    install(&paths.data_dir, &|pid| crate::verdict::ProcessTable::query(&crate::verdict::OsProcessTable, u64::from(pid)).is_ok_and(|info| info.is_some()));
+    let alive = |pid: u32| crate::verdict::ProcessTable::query(&crate::verdict::OsProcessTable, u64::from(pid)).is_ok_and(|info| info.is_some());
+    install(&paths.data_dir, &alive);
+    crate::stale_temps::reclaim_at_start(&paths.data_dir, &alive);
 }
 
 /// `uncaughtExceptionMonitor(error, 'uncaughtException')`: the panic is the pending reason and is written at once.
