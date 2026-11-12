@@ -62,6 +62,8 @@ import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
 import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
+import type { BridgeServerHost } from './bridge-server-contract';
+import { answerPublicCommand, type BridgeAnswer } from './bridge-server-request';
 import { type ComputerExecutionPolicy, loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
 import { createSavedLoginVault } from './saved-login-vault';
@@ -90,6 +92,8 @@ export interface PowerShellComputerHost {
   stopAllSessions(turnsStopped?: Promise<void>): Promise<void>;
   /** Run one command through the session queue (the saved-login worker steps the core runs). */
   executeSerialized(command: ComputerCommand): Promise<ComputerCommandResult>;
+  /** Run one accepted command to the answer the loopback bridge puts on the wire (the host protocol's `host/computer/capture`). */
+  answerBridgeCommand(command: ComputerCommand, signal: AbortSignal): Promise<BridgeAnswer>;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -349,7 +353,7 @@ export function createPowerShellComputerHost(
     enabled: () => bridgeWanted && !disposed && !observeOnly,
   });
 
-  const bridge = createBridgeServer({
+  const bridgeHost: BridgeServerHost = {
     ...workerPool,
     ...lifecycle,
     waitForUser: userWait.command,
@@ -367,7 +371,8 @@ export function createPowerShellComputerHost(
     isDisposed: () => disposed,
     diagnose,
     processFate,
-  });
+  };
+  const bridge = createBridgeServer(bridgeHost);
 
   if (bridgeWanted) bridge.startBridge();
   const unbindEnvironment = bindComputerEnvironmentGuard(powerMonitor, screen, (reason) => {
@@ -376,6 +381,7 @@ export function createPowerShellComputerHost(
 
   return {
     readAuthorization: authorization.read,
+    answerBridgeCommand: (command, signal) => answerPublicCommand(bridgeHost, command, signal),
     updateAuthorization: authorization.update,
     authorizationWindows: authorization.windows,
     readFailureDiagnostics: failureDiagnostics.read,

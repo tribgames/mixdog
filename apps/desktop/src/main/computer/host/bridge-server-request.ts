@@ -125,6 +125,27 @@ function sealReply(command: ComputerCommand, value: ComputerCommandResult): void
   }
 }
 
+/** What the bridge answers for one accepted command: the sealed reply value, or the redacted message of why it failed. */
+export type BridgeAnswer = { ok: true; value: ComputerCommandResult } | { ok: false; error: string };
+
+/** Runs one accepted command to the answer the bridge puts on the wire (the HTTP bridge and the host protocol's
+ *  `host/computer/capture` share it). */
+export async function answerPublicCommand(
+  host: Parameters<typeof dispatchBridgeCommand>[0],
+  command: ComputerCommand,
+  signal: AbortSignal
+): Promise<BridgeAnswer> {
+  try {
+    const value = await dispatchBridgeCommand(host, command, signal);
+    sealReply(command, value);
+    return { ok: true, value };
+  } catch (error) {
+    // Errors are model-bound too: a remembered secret never comes back in one.
+    const message = (error as Error).message || String(error);
+    return { ok: false, error: secretInputs.redact(String(command.session_id || ''), message) };
+  }
+}
+
 async function handleCommand(
   context: BridgeRequestContext,
   request: IncomingMessage,
@@ -154,15 +175,8 @@ async function handleCommand(
   host.reapIdleSessionWorkers();
   const disconnect = watchDisconnect(request, response, command, host.abortComputerSession);
   try {
-    const value = await dispatchBridgeCommand(host, command, disconnect.signal);
-    sealReply(command, value);
-    if (!disconnect.clientGone()) respond(response, 200, { ok: true, value });
-  } catch (error) {
-    if (!disconnect.clientGone()) {
-      // Errors are model-bound too: a remembered secret never comes back in one.
-      const message = (error as Error).message || String(error);
-      respond(response, 200, { ok: false, error: secretInputs.redact(String(command.session_id || ''), message) });
-    }
+    const answer = await answerPublicCommand(host, command, disconnect.signal);
+    if (!disconnect.clientGone()) respond(response, 200, answer);
   } finally {
     state.activeRequests--;
     disconnect.release();
