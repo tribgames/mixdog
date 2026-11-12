@@ -177,7 +177,7 @@ impl CompactionWorld for ProcessCompactionWorld {
             media: media.clone(),
             tool_media: media.clone(),
             native_pdf: s.routes.native_pdf(provider),
-            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media)),
+            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media).with_reader(s.reader.clone())),
             redactor: Arc::new(SensitiveRedactor::new(s.sensitive.clone(), thread.as_str())),
             cache: Arc::new(RequestCacheTail::new(s.requests.request_tail(thread, header, prior).await)),
             summary: s.summaries.host(thread, header),
@@ -426,12 +426,25 @@ pub(crate) mod tests {
         ledger: WarmLedger,
         saved: Arc<SideQuestionStore>,
     ) -> CompactionServices {
+        services_over(dir, agent, sensitive, ledger, saved, registry().await, Map::new()).await
+    }
+
+    /// [`services_with`] over the providers `registry` holds, with `snapshot` as the configuration
+    /// the summary reads.
+    pub(crate) async fn services_over(
+        dir: &std::path::Path,
+        agent: Value,
+        sensitive: Arc<SensitiveStore>,
+        ledger: WarmLedger,
+        saved: Arc<SideQuestionStore>,
+        registry: Arc<ProviderRegistry>,
+        snapshot: Map<String, Value>,
+    ) -> CompactionServices {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.join("mixdog-config.json");
         crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let registry = registry().await;
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let rotation = Arc::new(AccountRotation::new(AccountStore::new(dir.join("accounts"), io), Arc::new(NoProbe), Arc::new(SystemPace)));
@@ -440,7 +453,7 @@ pub(crate) mod tests {
         let summaries = SummaryServices::new(SummaryDeps {
             registry: registry.clone(),
             catalog,
-            config: Arc::new(Map::new),
+            config: Arc::new(move || snapshot.clone()),
             env: Arc::new(|_| None),
             clock: clock.clone(),
             data_dir: AbsPath::new(dir).unwrap(),
@@ -617,6 +630,319 @@ pub(crate) mod tests {
         assert_eq!(lead.last_provider_send_at(), 0, "never sent");
         // anthropic-oauth keeps a roster, and this install has no account on it.
         assert_eq!(world.facts(&thread(), &header("anthropic-oauth"), &[]).await.cache.route_use_at(), None);
+    }
+
+    /// Node's attachment preflight (`runPreSendCompactPass` at `agentLoop`'s request boundary;
+    /// `fixtures/session-gaps/attachment-preflight.json`, `record-session-gaps.mjs`): real PDFs and a PNG in the real
+    /// attachment store, priced by the counts Node's intake recorded for the same bytes (the extension host's inspector
+    /// is Node's), referenced through the real store files. Each turn is the run loop's (`Run::run`) over the session's
+    /// real compactor, started with the continuation the previous turn's reply left: the provider is sent Node's
+    /// messages and Node's continuation (none after a rewrite), the run ends with Node's continuation and leaves
+    /// Node's transcript.
+    #[tokio::test]
+    async fn the_attachment_preflight_rewrites_each_turn_as_nodes_pre_send_pass() {
+        use base64::Engine as _;
+        use mixdog_agent::env::{AllowAll, CommitError, DrainRequest, NoGuards, NullObserver, Rewrite, SteerEntry, SteerSource, Ticket, TranscriptSink};
+        use mixdog_agent::run::{Run, RunCarry, RunConfig};
+        use mixdog_agent::tools::{ToolEnv, ToolSet};
+        use mixdog_core_api::domain::ext::PdfCounts;
+        use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockRetryDecider};
+        use mixdog_core_api::domain::provider::{Message, ProviderState, StopReason, StreamEvent};
+        use mixdog_core_api::domain::tool::SurfaceKind;
+        use mixdog_core_api::ids::TurnId;
+        use mixdog_testkit::exact::Exact;
+        use crate::run_host::attachment_store::{StoreFacts, StoreFiles};
+        use crate::run_host::message_row::{message_of, row_of};
+
+        struct NoSteer;
+        #[async_trait]
+        impl SteerSource for NoSteer {
+            async fn drain(&self, _: DrainRequest) -> Vec<SteerEntry> {
+                Vec::new()
+            }
+        }
+        struct Kept(std::sync::atomic::AtomicU64);
+        #[async_trait]
+        impl TranscriptSink for Kept {
+            async fn commit(&self, _: &AgentMessage) -> Result<Ticket, CommitError> {
+                Ok(Ticket(self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst)))
+            }
+            fn replace(&self, _: &[AgentMessage], _: &Rewrite) {}
+            fn message_id(&self) -> String {
+                format!("m{}", self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+            }
+            async fn durable(&self, _: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
+        Ok(())
+    }
+        }
+        struct Steps(std::collections::VecDeque<StreamEvent>);
+        #[async_trait]
+        impl ModelStream for Steps {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+                self.0.pop_front().map(Ok)
+            }
+            fn delivery(&self) -> DeliveryState {
+                DeliveryState::Accepted
+            }
+            fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        /// Answers `ok` with the continuation the recording's provider answered, recording each request.
+        struct Responses {
+            id: ProviderId,
+            policy: RetryPolicy,
+            keepalive: KeepaliveSchedule,
+            codec: MockCodec,
+            reply: ProviderState,
+            native_pdf: bool,
+            requests: std::sync::Mutex<Vec<Arc<ModelRequest>>>,
+        }
+        #[async_trait]
+        impl ProviderAdapter for Responses {
+            fn release_send(&self, _group: &str) {}
+            fn id(&self) -> &ProviderId {
+                &self.id
+            }
+            fn native_pdf(&self) -> bool {
+                self.native_pdf
+            }
+            fn codec(&self) -> &dyn WireCodec {
+                &self.codec
+            }
+            fn retry_policy(&self) -> &RetryPolicy {
+                &self.policy
+            }
+            fn keepalive(&self) -> &KeepaliveSchedule {
+                &self.keepalive
+            }
+            async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+                self.requests.lock().unwrap().push(request);
+                Ok(Box::new(Steps(
+                    [
+                        StreamEvent::TextDelta("ok".into()),
+                        StreamEvent::ProviderState(self.reply.clone()),
+                        StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                    ]
+                    .into(),
+                )))
+            }
+        }
+        let state_of = |v: &Value| -> Option<ProviderState> { (!v.is_null()).then(|| serde_json::from_value(v.clone()).unwrap()) };
+
+        /// The page and text-layer counts Node's intake recorded on each PDF, by its bytes.
+        struct Counted(std::collections::HashMap<String, PdfCounts>);
+        #[async_trait]
+        impl DocumentText for Counted {
+            async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
+                unreachable!("no office file")
+            }
+            async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+                unreachable!("the preflight extracts no text")
+            }
+            async fn pdf_counts(&self, _: &ThreadId, data: &str) -> Result<PdfIntake, ExtError> {
+                Ok(PdfIntake::Counts(*self.0.get(data).expect("a recorded PDF")))
+            }
+        }
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/attachment-preflight.json");
+        // Whole recorded values (`lib/exact.mjs`). A property whose value is `undefined` is a property the object does
+        // not have, as for every reader of Node's request (an absent `Option` here); `undefined` anywhere else fails.
+        // A JS number with no fraction is the integer the Rust side writes.
+        fn plain(e: &Exact) -> Value {
+            match e {
+                Exact::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => json!(*n as i64),
+                Exact::Array(items) => Value::Array(items.iter().map(plain).collect()),
+                Exact::Object(entries) => Value::Object(entries.iter().filter(|(_, v)| *v != Exact::Undefined).map(|(k, v)| (k.clone(), plain(v))).collect()),
+                other => other.to_plain().unwrap(),
+            }
+        }
+        let recorded = plain(&Exact::load(path));
+        let mut counts = std::collections::HashMap::new();
+        for case in recorded["cases"].as_array().unwrap() {
+            for turn in case["turns"].as_array().unwrap() {
+                for message in turn["messages"].as_array().unwrap() {
+                    for part in message["content"].as_array().into_iter().flatten().filter(|p| p.get("pageCount").is_some()) {
+                        let data = recorded["blobs"][part["attachmentRef"].as_str().unwrap()].as_str().unwrap().to_owned();
+                        let n = |k: &str| part[k].as_u64().unwrap();
+                        counts.insert(data, PdfCounts { page_count: n("pageCount"), text_pages: n("textPages"), text_chars: n("textChars") });
+                    }
+                }
+            }
+        }
+        let counted: Arc<dyn DocumentText> = Arc::new(Counted(counts));
+        let cases = recorded["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
+            for data in recorded["blobs"].as_object().unwrap().values() {
+                let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_str().unwrap()).unwrap();
+                crate::run_host::fixture_fs::write(blobs.path(&mixdog_store::blobs::digest_of(&bytes)), bytes);
+            }
+            let mut services = services(dir.path(), json!({}), Arc::default()).await;
+            services.docs = counted.clone();
+            services.attachment_facts = Arc::new(StoreFacts::new(blobs.clone(), &tokens).with_documents(counted.clone()));
+            services.files = Arc::new(StoreFiles::new(blobs.clone(), dir.path(), &tokens));
+            let compactors = SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), Arc::new(Fixed));
+            // `groq` declares it reads a PDF as text, as Node's recorded provider did.
+            let provider = if case["nativePdf"] == true { "openai" } else { "groq" };
+            let input = CompactorInput {
+                settings: CompactSettings { context_window: case["contextWindow"].as_u64(), ..CompactSettings::default() },
+                rows: Arc::new(StoredRows::new()),
+                archive: Arc::new(Archive),
+                blobs: Arc::new(NoBlobs),
+            };
+            let compactor = compactors.compactor(&thread(), &header(provider), &[], input).await.expect("a compactor");
+            let native = case["nativePdf"] == true;
+            let reader = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io });
+            struct Ctx;
+            impl mixdog_ai::providers::openai::config::WireContext for Ctx {
+                fn request_id(&self) -> String {
+                    "0".repeat(32)
+                }
+                fn now_unix_ms(&self) -> u64 {
+                    0
+                }
+                fn turn_state(&self, _: &str, _: &str) -> Option<String> {
+                    None
+                }
+            }
+            let wire_config = mixdog_ai::providers::openai::config::OpenAiConfig::api_key(false, Arc::new(mixdog_ai::providers::openai::config::NoFacts), Arc::new(Ctx));
+            let data = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
+            let shown = |messages: &[AgentMessage]| -> Value {
+                let rows = serde_json::to_string(&messages.iter().map(row_of).collect::<Vec<_>>()).unwrap();
+                serde_json::from_str(&rows.replace(&data[1..data.len() - 1], "<data>")).unwrap()
+            };
+            // The request as the core sent it, untouched: each message's own row.
+            let sent_rows = |messages: &[Message]| shown(&messages.iter().map(|m| AgentMessage::new(m.clone())).collect::<Vec<_>>());
+            // The one declared difference: Node's file part carries its measured facts on the message object it hands
+            // the provider (media-normalization.mjs `pdfDescriptor` prices from them); the core's request part has no
+            // such field and its pricing reads the same facts from the part's stored row. So Node's sent file part is
+            // compared without them, and they are compared, whole, with the core's stored row for the same part.
+            const FACTS: [&str; 4] = ["sizeBytes", "pageCount", "textPages", "textChars"];
+            let without_facts = |sends: &Value, stored: &Value| -> Value {
+                let mut sends = sends.clone();
+                for send in sends.as_array_mut().unwrap() {
+                    for message in send["messages"].as_array_mut().unwrap() {
+                        for part in message["content"].as_array_mut().into_iter().flatten().filter(|p| p["type"] == "file") {
+                            let facts: serde_json::Map<String, Value> = FACTS.iter().filter_map(|k| part.as_object_mut().unwrap().remove(*k).map(|v| ((*k).to_owned(), v))).collect();
+                            let held = stored.as_array().unwrap().iter().flat_map(|m| m["content"].as_array().into_iter().flatten()).find(|p| p["filename"] == part["filename"] && p["attachmentRef"] == part["attachmentRef"]).expect("the part's stored row");
+                            let held: serde_json::Map<String, Value> = FACTS.iter().filter_map(|k| held.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect();
+                            assert_eq!(held, facts, "the facts Node sent are the ones the core stored");
+                        }
+                    }
+                }
+                sends
+            };
+            let mut transcript: Vec<AgentMessage> = Vec::new();
+            let mut continuation = Some(ProviderState { gemini: None, rest: [("responseId".to_owned(), json!("resp_0"))].into_iter().collect() });
+            for (n, turn) in case["turns"].as_array().unwrap().iter().enumerate() {
+                // The turn's new messages, after the transcript the previous turn left.
+                let sent = turn["messages"].as_array().unwrap();
+                transcript.extend(sent[transcript.len()..].iter().map(|row| message_of(row).unwrap()));
+                let provider = Arc::new(Responses {
+                    id: ProviderId::from(provider),
+                    policy: RetryPolicy::codex_default(),
+                    keepalive: KeepaliveSchedule::SPEC,
+                    codec: MockCodec,
+                    reply: state_of(&turn["providerState"]).expect("the reply's continuation"),
+                    native_pdf: native,
+                    requests: std::sync::Mutex::new(Vec::new()),
+                });
+                let io = mixdog_rt::testing::tokens();
+                let env = mixdog_agent::env::RunEnv {
+                    clock: Arc::new(Fixed),
+                    jitter: Arc::new(crate::run_host::retry::RandomJitter),
+                    waiter: Arc::new(crate::run_host::retry::TimerWait),
+                    decider: Arc::new(MockRetryDecider),
+                    steer: Arc::new(NoSteer),
+                    observer: Arc::new(NullObserver),
+                    sink: Arc::new(Kept(std::sync::atomic::AtomicU64::new(0))),
+                    gate: Arc::new(AllowAll),
+                    guards: Arc::new(NoGuards),
+                    compactor: Some(compactor.clone()),
+                    route: None,
+                    skills: None,
+                    hooks: None,
+                    reuse: None,
+                    reactions: None,
+                    tail: None,
+                    mcp: None,
+                    side: None,
+                    step_judge: None,
+                    artifacts: None,
+                    images: None,
+                    failures: None,
+                };
+                let tool_env = ToolEnv {
+                    thread_id: thread(),
+                    turn_id: TurnId::from("r"),
+                    cwd: AbsPath::new(dir.path().to_path_buf()).unwrap(),
+                    surface: SurfaceKind::Lead,
+                    io: ToolIo { interactive: io.interactive_io, durability: io.durability_io, maintenance: io.maintenance_io },
+                    approvals: Arc::new(MockApprovalGate::default()),
+                    files: Arc::new(MockFileService::default()),
+                    processes: Arc::new(MockProcessManager::default()),
+                    progress: Arc::new(MockProgress::default()),
+                    deadline_of: None,
+                    notify: None,
+                    review: None,
+                };
+                let mut config = RunConfig::new(thread(), TurnId::from("r"), "gpt-test");
+                config.compact = None;
+                config.attachments = Some(reader.clone());
+                config.options.provider_state = continuation.clone();
+                let output = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript.clone(), RunCarry::default())
+                    .run()
+                    .await
+                    .unwrap_or_else(|f| panic!("{name} turn {n}: {:?}", f.error));
+                let requests = provider.requests.lock().unwrap().clone();
+                let mut sends: Vec<Value> = Vec::new();
+                for r in &requests {
+                    let mut send = json!({});
+                    if native {
+                        // The request body the Responses route sends for this request (`wire`: Node's `buildRequestBody`),
+                        // from the real body builder over the request the run handed the provider: the run itself read
+                        // the stored files before it (`attachments` of the run's config).
+                        let body = serde_json::to_string(&Value::Object(mixdog_ai::providers::openai::body::build(&wire_config, r).map)).unwrap();
+                        send["wire"] = serde_json::from_str(&body.replace(&data[1..data.len() - 1], "<data>")).unwrap();
+                    } else {
+                        send["messages"] = sent_rows(&r.messages);
+                    }
+                    if let Some(state) = &r.options.provider_state {
+                        send["providerState"] = state.to_json();
+                    }
+                    sends.push(send);
+                }
+                let expected = if native {
+                    Value::Array(turn["sends"].as_array().unwrap().iter().map(|s| {
+                        let mut s = s.clone();
+                        s.as_object_mut().unwrap().remove("messages");
+                        s
+                    }).collect())
+                } else {
+                    without_facts(&turn["sends"], &shown(&output.transcript))
+                };
+                fn first_difference(a: &Value, b: &Value, at: String) -> Option<String> {
+                    match (a, b) {
+                        (Value::Object(x), Value::Object(y)) => x.keys().chain(y.keys()).find_map(|k| match (x.get(k), y.get(k)) {
+                            (Some(p), Some(q)) => first_difference(p, q, format!("{at}/{k}")),
+                            (p, q) => Some(format!("{at}/{k}: core {p:?} node {q:?}")),
+                        }),
+                        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => x.iter().zip(y).enumerate().find_map(|(i, (p, q))| first_difference(p, q, format!("{at}/{i}"))),
+                        _ => (a != b).then(|| format!("{at}: core {a} node {b}")),
+                    }
+                }
+                let sends = Value::Array(sends);
+                assert!(sends == expected, "{name} turn {n}: what the provider was sent: first difference {:?}", first_difference(&sends, &expected, String::new()));
+                assert_eq!(output.provider_state.as_ref().map(ProviderState::to_json), turn.get("providerState").cloned(), "{name} turn {n}: the continuation");
+                // Neither loop appends its final reply (the ask wrapper does); the recording's next turn adds it.
+                transcript = output.transcript;
+                assert_eq!(shown(&transcript), turn["after"], "{name} turn {n}: the transcript");
+                continuation = output.provider_state;
+            }
+        }
     }
 
     /// `SessionCompactors` builds a real compactor over the real world: the session's threshold of

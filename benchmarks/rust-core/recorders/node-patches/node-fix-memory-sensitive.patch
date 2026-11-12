@@ -1,0 +1,269 @@
+diff --git a/src/runtime/shared/buffered-appender.mjs b/src/runtime/shared/buffered-appender.mjs
+index 6774aeb..e89c247 100644
+--- a/src/runtime/shared/buffered-appender.mjs
++++ b/src/runtime/shared/buffered-appender.mjs
+@@ -123,7 +123,7 @@ function _flush(path, q) {
+   // drain must not miss data that was dequeued but not yet persisted).
+   q.inFlight = data;
+   q.flushing = true;
+-  appendFile(path, data, 'utf8')
++  q.settled = appendFile(path, data, 'utf8')
+     .then(() => {
+       q.failCount = 0;
+     })
+@@ -261,6 +261,16 @@ export function hasInFlightWrite(path) {
+   return Boolean(q?.inFlight);
+ }
+ 
++/**
++ * Resolves once the async write in flight for `path` has settled (at once when
++ * none is). A caller that must read or rewrite the file as a whole waits for
++ * this, then checks `hasInFlightWrite` again: a flush may have started since.
++ */
++export function whenWriteSettled(path) {
++  const q = queues.get(path);
++  return q?.inFlight ? q.settled : Promise.resolve();
++}
++
+ try {
+   process.on('exit', drainAllSync);
+ } catch {
+diff --git a/src/runtime/shared/transcript-writer-sensitive.test.mjs b/src/runtime/shared/transcript-writer-sensitive.test.mjs
+new file mode 100644
+index 0000000..467cefe
+--- /dev/null
++++ b/src/runtime/shared/transcript-writer-sensitive.test.mjs
+@@ -0,0 +1,105 @@
++import assert from 'node:assert/strict';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { drainPathSync, hasInFlightWrite, whenWriteSettled } from './buffered-appender.mjs';
++import { createTranscriptWriter } from './transcript-writer.mjs';
++import { redactSensitiveMessages } from '../agent/orchestrator/session/sensitive-projection.mjs';
++import { redactSensitiveText, redactSettledText, rememberSensitiveValues } from '../agent/orchestrator/session/sensitive-values.mjs';
++import { createMemoryIngest } from '../../session-runtime/lifecycle/memory-ingest.mjs';
++
++const mark = (session, value) =>
++  rememberSensitiveValues(session, [{ name: 'browser', arguments: { action: 'fill', input: { text: value, sensitive: true } } }]);
++
++function withWriter(session, run) {
++  const home = mkdtempSync(join(tmpdir(), 'mixdog-transcript-sensitive-'));
++  try {
++    const writer = createTranscriptWriter({ mixdogHome: home, sessionId: session, cwd: join(home, 'work'), pid: 42 });
++    const texts = () => {
++      drainPathSync(writer.transcriptPath);
++      return readFileSync(writer.transcriptPath, 'utf8')
++        .split('\n')
++        .filter(Boolean)
++        .map((line) => JSON.parse(line).message.content[0].text);
++    };
++    return run(writer, texts);
++  } finally {
++    rmSync(home, { recursive: true, force: true });
++  }
++}
++
++test('a marked value is redacted in an appended line and in the conversation backfill', () => {
++  withWriter('sess_sensitive_lines', (writer, texts) => {
++    mark('sess_sensitive_lines', 'hunter2');
++    writer.ensureConversationBackfill([{ role: 'user', content: 'earlier hunter2' }]);
++    writer.appendUser('the password is hunter2');
++    writer.appendAssistant('typed hunter2');
++    assert.deepEqual(texts(), ['earlier [redacted]', 'the password is [redacted]', 'typed [redacted]']);
++  });
++});
++
++test('a value marked after its lines were written is redacted in those lines, the rest kept', () => {
++  withWriter('sess_sensitive_later', (writer, texts) => {
++    writer.appendUser('my pin is 4711');
++    writer.appendAssistant('noted');
++    mark('sess_sensitive_later', '4711');
++    assert.deepEqual(texts(), ['my pin is [redacted]', 'noted']);
++  });
++});
++
++test('a value marked while an append is in flight is redacted in that line, and no line is lost', async () => {
++  const session = 'sess_sensitive_inflight';
++  const home = mkdtempSync(join(tmpdir(), 'mixdog-transcript-sensitive-'));
++  try {
++    const writer = createTranscriptWriter({ mixdogHome: home, sessionId: session, cwd: join(home, 'work'), pid: 42 });
++    writer.appendUser('first line');
++    // Past the flush size, so the append is handed to the OS at once and is in flight when the value is marked.
++    writer.appendUser(`the pin is 4711 ${'x'.repeat(40_000)}`);
++    assert.equal(hasInFlightWrite(writer.transcriptPath), true);
++    mark(session, '4711');
++    writer.appendUser('and again 4711');
++    await whenWriteSettled(writer.transcriptPath);
++    await new Promise((resolve) => setImmediate(resolve));
++    drainPathSync(writer.transcriptPath);
++    const lines = readFileSync(writer.transcriptPath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line).message.content[0].text);
++    assert.deepEqual(lines.map((text) => text.slice(0, 20)), ['first line', 'the pin is [redacted', 'and again [redacted]']);
++    assert.equal(lines.some((text) => text.includes('4711')), false);
++  } finally {
++    rmSync(home, { recursive: true, force: true });
++  }
++});
++
++test('a value split across three streamed deltas is held back until it is whole, then replaced', () => {
++  const session = 'sess_sensitive_deltas';
++  mark(session, 'hunter2');
++  let text = '';
++  const settled = ['say hu', 'nte', 'r2 ok'].map((delta) => redactSettledText(session, (text += delta)));
++  assert.deepEqual(settled, ['say ', 'say ', 'say [redacted] ok']);
++  assert.equal(redactSensitiveText(session, text), 'say [redacted] ok');
++});
++
++test('a value in a file path is redacted as spelled: either separator, not another case', () => {
++  const session = 'sess_sensitive_paths';
++  mark(session, 'hunter2');
++  const stored = (path) =>
++    redactSensitiveMessages(session, [
++      { role: 'user', content: [{ type: 'text', text: 'x', attachmentReference: { kind: 'files', files: [{ attachmentRef: 'a'.repeat(64), name: 'n', path }] } }] },
++    ])[0].content[0].attachmentReference.files[0].path;
++  assert.equal(stored('C:\\attachments\\ab\\hunter2-notes.pdf'), 'C:\\attachments\\ab\\[redacted]-notes.pdf');
++  assert.equal(stored('C:/attachments/ab/hunter2-notes.pdf'), 'C:/attachments/ab/[redacted]-notes.pdf');
++  // 1.4.5 matches the exact substring: a value in another case is not the value.
++  assert.equal(stored('C:\\attachments\\ab\\HUNTER2-notes.pdf'), 'C:\\attachments\\ab\\HUNTER2-notes.pdf');
++});
++
++test("a closing session's conversation reaches memory with its marked values redacted", async () => {
++  mark('sess_sensitive_ingest', 's3cret');
++  const calls = [];
++  const ingest = createMemoryIngest({
++    getMemoryModPromise: () => Promise.resolve({ handleToolCall: async (_tool, args) => calls.push(args) }),
++    getCurrentCwd: () => '/work',
++    withTeardownDeadline: (promise) => promise,
++  });
++  await ingest({ id: 'sess_sensitive_ingest', cwd: '/work', messages: [{ role: 'user', content: 'use s3cret' }] });
++  assert.deepEqual(calls[0].messages, [{ role: 'user', content: 'use [redacted]' }]);
++});
+diff --git a/src/runtime/shared/transcript-writer.mjs b/src/runtime/shared/transcript-writer.mjs
+index 57a8a76..edbb1b4 100644
+--- a/src/runtime/shared/transcript-writer.mjs
++++ b/src/runtime/shared/transcript-writer.mjs
+@@ -15,13 +15,16 @@
+  * transcript-writer/: rotation (size-based generations), transcript-file
+  * (directory, exclusive create, conversation backfill), session-record.
+  */
++import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+ import { join, resolve } from 'node:path';
+-import { appendBuffered } from './buffered-appender.mjs';
++import { appendBuffered, drainPathSync, hasInFlightWrite, whenWriteSettled } from './buffered-appender.mjs';
+ import { formatUtcTimestamp } from './time-format.mjs';
+ import { createRotationTracker } from './transcript-writer/rotation.mjs';
+ import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
+ import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
+ import { isSessionTranscriptPurged, noteSessionTranscript } from './transcript-writer/purge.mjs';
++import { redactSensitiveContent, redactSensitiveMessage } from '../agent/orchestrator/session/sensitive-projection.mjs';
++import { onSensitiveValuesMarked } from '../agent/orchestrator/session/sensitive-values.mjs';
+ 
+ // A user prompt with pasted images arrives as a content block array; only its
+ // text reaches the transcript (String(array) would store "[object Object]").
+@@ -55,6 +58,51 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
+ 
+   noteSessionTranscript(sessionId, transcriptPath);
+ 
++  // A value marked after lines holding it were written: the transcript (and its rotated
++  // generation) is rewritten with each line's message redacted, every other line as it was.
++  // An async append already handed to the OS would land in the file after the rewrite read it (the
++  // line unredacted, or lost to the rename), so the rewrite waits until none is in flight, as
++  // rotation.mjs does before it renames; from there it runs synchronously, so no append lands between
++  // its read and its rename. A line appended meanwhile is redacted as it is written.
++  function redactWrittenLines() {
++    if (isSessionTranscriptPurged(sessionId)) return;
++    if (hasInFlightWrite(transcriptPath)) {
++      whenWriteSettled(transcriptPath).then(redactWrittenLines);
++      return;
++    }
++    drainPathSync(transcriptPath);
++    for (const path of [transcriptPath, `${transcriptPath}.1`]) {
++      let text;
++      try {
++        text = readFileSync(path, 'utf8');
++      } catch {
++        continue;
++      }
++      const next = text
++        .split('\n')
++        .map((line) => {
++          let entry;
++          try {
++            entry = JSON.parse(line);
++          } catch {
++            return line;
++          }
++          if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !('message' in entry)) return line;
++          const message = redactSensitiveMessage(sessionId, entry.message);
++          return message === entry.message ? line : JSON.stringify({ ...entry, message });
++        })
++        .join('\n');
++      if (next === text) continue;
++      try {
++        writeFileSync(`${path}.redact`, next);
++        renameSync(`${path}.redact`, path);
++      } catch (err) {
++        logOnce(err);
++      }
++    }
++  }
++  onSensitiveValuesMarked(sessionId, redactWrittenLines);
++
+   function appendLine(entry) {
+     // A deleted session's own writer must not bring its transcript back.
+     if (isSessionTranscriptPurged(sessionId)) return;
+@@ -77,7 +125,8 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
+   }
+ 
+   function appendText(type, text) {
+-    const value = textOrEmpty(text);
++    // The session's sensitive values never reach the transcript (and so memory) in plain text.
++    const value = redactSensitiveContent(sessionId, textOrEmpty(text));
+     if (!value.trim()) return;
+     appendLine({ type, sessionId, message: { content: [{ type: 'text', text: value }] } });
+   }
+diff --git a/src/runtime/shared/transcript-writer/transcript-file.mjs b/src/runtime/shared/transcript-writer/transcript-file.mjs
+index 1d51186..1ecd7a1 100644
+--- a/src/runtime/shared/transcript-writer/transcript-file.mjs
++++ b/src/runtime/shared/transcript-writer/transcript-file.mjs
+@@ -5,6 +5,7 @@
+  */
+ import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+ import { resolve } from 'node:path';
++import { redactSensitiveContent } from '../../agent/orchestrator/session/sensitive-projection.mjs';
+ 
+ // Canonical project-slug mapping for `<mixdogHome>/projects/<slug>` transcript dirs.
+ export function cwdToProjectSlug(cwd) {
+@@ -86,7 +87,8 @@ export function createTranscriptFile({
+       for (const message of Array.isArray(messages) ? messages : []) {
+         const role = message?.role;
+         if (role !== 'user' && role !== 'assistant') continue;
+-        const text = conversationText(message?.content);
++        // The session's sensitive values never reach the transcript (and so memory) in plain text.
++        const text = redactSensitiveContent(sessionId, conversationText(message?.content));
+         if (!text.trim()) continue;
+         const entry = { type: role, sessionId, cwd: resolvedCwd };
+         if (!memoryEligible) entry.memoryEligible = false;
+diff --git a/src/session-runtime/lifecycle/memory-ingest.mjs b/src/session-runtime/lifecycle/memory-ingest.mjs
+index 7ff8432..1e06a96 100644
+--- a/src/session-runtime/lifecycle/memory-ingest.mjs
++++ b/src/session-runtime/lifecycle/memory-ingest.mjs
+@@ -2,6 +2,8 @@
+  * src/session-runtime/lifecycle/memory-ingest.mjs - best-effort persist of a
+  * closing session's conversation into the memory DB.
+  */
++import { redactSensitiveMessages } from '../../runtime/agent/orchestrator/session/sensitive-projection.mjs';
++
+ const INGEST_DEADLINE_MS = 2500;
+ 
+ // Sessions that never compacted have no session-sourced rows unless ingested
+@@ -27,7 +29,7 @@ export function createMemoryIngest({ getMemoryModPromise, getCurrentCwd, withTea
+                   action: 'ingest_session',
+                   sessionId: session.id,
+                   cwd: session.cwd || getCurrentCwd(),
+-                  messages,
++                  messages: redactSensitiveMessages(session.id, messages),
+                 })
+               : null
+           )

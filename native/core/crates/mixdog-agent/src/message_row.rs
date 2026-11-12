@@ -215,7 +215,7 @@ fn content_of(content: Option<&Value>) -> Result<Content, String> {
     }
 }
 
-fn part_row(part: &ContentPart) -> Value {
+pub fn part_row(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, reference) => {
             let mut row = json!({ "type": "text", "text": text });

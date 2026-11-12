@@ -12,6 +12,7 @@ pub mod cursor;
 pub mod devin;
 pub mod first_byte;
 pub(crate) mod flat_schema;
+pub mod file_text;
 pub mod custom;
 pub mod google;
 pub mod grok;

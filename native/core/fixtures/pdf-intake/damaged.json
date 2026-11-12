@@ -1,0 +1,12 @@
+{
+  "scenario": "damaged",
+  "nativePdf": true,
+  "pdfBase64": "JVBERi0xLjcKdGhpcyBpcyBub3QgYSBkb2N1bWVudAo=",
+  "sizeBytes": 32,
+  "padFrom": null,
+  "error": {
+    "name": "InvalidPDFException",
+    "message": "Invalid PDF structure.",
+    "code": null
+  }
+}

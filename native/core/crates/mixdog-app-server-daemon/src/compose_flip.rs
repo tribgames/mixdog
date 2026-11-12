@@ -524,7 +524,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let attachments: Arc<dyn mixdog_ai::service::model_proxy_inline::AttachmentReader> = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: b.tokens.interactive_io });
     let store_blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads> = Arc::new(mixdog_core::run_host::attachment_store::StoreBlobs::new(blobs.clone(), &b.tokens));
     let attachment_files = Arc::new(mixdog_core::run_host::attachment_store::StoreFiles::new(blobs.clone(), &b.data_dir, &b.tokens));
-    let attachment_facts: Arc<dyn mixdog_core::run_host::media::AttachmentFacts> = Arc::new(mixdog_core::run_host::attachment_store::StoreFacts::new(blobs.clone(), &b.tokens));
+    let attachment_facts: Arc<dyn mixdog_core::run_host::media::AttachmentFacts> = Arc::new(mixdog_core::run_host::attachment_store::StoreFacts::new(blobs.clone(), &b.tokens).with_documents(documents.clone()));
     // The one observed-file / read-cache state of the read, edit and apply_patch tools (and the purge hooks, the workspace host): persisted under
     // `<data>/read-snapshots`. NOT here: `FileSnapshotPersist::sweep_stale` (30-day sweep, blocking `std::fs`): it must run once at boot as a lane job.
     let snapshot_persist = Arc::new(mixdog_core::run_host::read_snapshots::FileSnapshotPersist::new(&b.data_dir));
@@ -555,7 +555,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let (builder_env, builder_shared) = mixdog_core::run_host::builder_env::builder_env_shared(&process);
     // Read from the builder inputs before the registry takes them: the media lanes' key store and the provider gate switch.
     let (media_keys, gated_off) = (builder_env.keys.clone(), builder_env.gated_off.clone());
-    let (registry, default_builder) = compose_parts::provider_registry(&process, builder_env); // run-host-26
+    let (registry, default_builder) = compose_parts::provider_registry(&process, builder_env, Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone()))); // run-host-26
     // The registry's own routed link, `ClientVersions` and client identity (`builder_env.http`, per wp-ai-svc), not a second set.
     let (http_send, client_versions, client_ids) = (builder_shared.http.clone(), builder_shared.versions.clone(), builder_shared.identity.clone());
     let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), b.catalog.clone());
@@ -1777,6 +1777,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         clock_agent.clone(),
         { let activity = activity.clone(); Arc::new(move || activity.everyone()) },
     );
+    // The conversation transcripts' writers, one per process: the sessions append through them, a delete stops them, and a marked
+    // value is redacted in their files through memory's ingest (its read position kept on the same line).
+    let transcript_files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(&mixdog_home, b.tokens.durability_io, clock.clone(), sensitive.clone());
+    transcript_files.attach_ingest(memory.transcripts() as Arc<dyn mixdog_core_session::session::purge::IngestOffsets>);
     let purge = mixdog_core_session::session::delete::PurgeHooks::new(mixdog_core_session::session::purge::PurgeOwners {
         data_dir: b.data_dir.clone(),
         mixdog_home: mixdog_home.clone(),
@@ -1784,6 +1788,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         read_state: read_state.clone(),
         warm: warmer.clone(),
         ingest_offsets: Some(memory.transcripts() as Arc<dyn mixdog_core_session::session::purge::IngestOffsets>), // accessor in HEAD (hang-lanes)
+        transcripts: Some(transcript_files.clone()),
         providers: registry.clone(),
         worker_turns: worker_turns.clone(),
         retention: archive_retention.clone(), // wp-session-40: the SAME Arc as `ThreadSettingsParts.retention`
@@ -1951,7 +1956,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             threads: Arc::new(mixdog_core::run_host::compose_parts::LateThreads(late.clone())),
             config: config_seams.clone(),
             compactors: compactors.clone(),
-            next: side_wiring.next(),
+            directory: late.clone(),
             hooks: Arc::new(mixdog_core::run_host::compact_hooks::BusCompactHooks::new(hook_bus.clone(), {
                         // `session.cwd` and `hookCommonPayload` of the loaded session (`common_of_header`); a session that is not loaded runs hooks in the startup folder with Node's defaults.
                         let (late, startup_cwd) = (late.clone(), startup_cwd.clone());
@@ -2111,9 +2116,21 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let session_surface = surface_generation.clone();
             let store_threads = store_threads.clone();
             let thread_deletions = thread_deletions.clone();
+            let transcript_files = transcript_files.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
+            let mixdog_home = mixdog_home.clone();
+            let sensitive = sensitive.clone();
+            // A turn's PDFs meet Node's intake limits before the message is accepted (`preparePromptSubmissionForProvider`).
+            let prompt_intake: Arc<dyn mixdog_core_session::session::PromptIntake> = Arc::new(mixdog_core::run_host::prompt_intake::PdfPromptIntake {
+                reader: attachments.clone(),
+                docs: documents.clone(),
+                native_pdf: {
+                    let routes = route_traits.clone();
+                    Arc::new(move |provider: &str| routes.native_pdf(provider))
+                },
+            });
             let live_workspace: Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace> = late_live_workspace.clone();
             let context_status: Arc<dyn mixdog_core_session::session::thread_context::ContextStatusHost> = Arc::new(mixdog_core_session::session::thread_context::LiveContextStatus::new(context_world.clone()));
             let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
@@ -2134,12 +2151,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     hop_codex_declared.clone(),
                 )),
                 search: session_search,
-                memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new((!skip_memory).then(|| memory_module.clone()))),
+                memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new((!skip_memory).then(|| memory_module.clone()), sensitive.clone())),
+                transcripts: Some(transcript_files.clone()),
                 sensitive: sensitive_marks.clone(),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
                 session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),
+                prompt_intake,
                 feeds: Arc::new(mixdog_core_session::session::CoreThreadFeeds::new(&Default::default(), tokens.cpu_interactive)),
                 server_requests: features.0,
                 approval_ids,

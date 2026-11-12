@@ -1334,6 +1334,9 @@ mod tests {
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
             self.inner.purge_deleted()
         }
+        fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+            self.inner.archived_agent_parents(child)
+        }
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<crate::session::seams::OffloadCopies, CoreError>> {
             self.inner.copies_of(id)
         }

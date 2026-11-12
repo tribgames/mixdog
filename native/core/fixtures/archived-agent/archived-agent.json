@@ -1,0 +1,449 @@
+{
+  "scenario": "archived-agent",
+  "files": {
+    "sessions/sess_parent_a.json": "{\"id\":\"sess_parent_a\",\"owner\":\"user\",\"agent\":\"lead\",\"closed\":false,\"generation\":1,\"createdAt\":1700000000000,\"updatedAt\":1772000000000,\"cwd\":\"C:/work/project\",\"title\":\"parent sess_parent_a\",\"messages\":[{\"role\":\"user\",\"content\":\"start the agents\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_link (failed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_link\\n> surface: agent\\n> status: failed\\n> tag: w1\\n> agent: worker\\n> provider: openai\\n> model: gpt-5\\n> effort: high\\n> fast: true\\n> finished: 2026-03-01T10:00:00.000Z\\n> \\n> older failed body\"},{\"role\":\"assistant\",\"content\":\"waiting\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_link (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_link\\n> surface: agent\\n> status: completed\\n> tag: w1\\n> agent: worker\\n> provider: openai\\n> model: gpt-5\\n> effort: high\\n> fast: true\\n> finished: 2026-03-01T10:00:00.000Z\\n> \\n> linked body\\n> second line\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_two (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_two\\n> surface: agent\\n> status: completed\\n> agent: worker\\n> \\n> two parents: a\",\"meta\":{\"transcript\":{\"at\":1772000000500}}},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_tie (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_tie\\n> surface: agent\\n> status: completed\\n> agent: worker\\n> finished: 2026-03-02T00:00:00.000Z\\n> \\n> tie: a\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_logrow (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_logrow\\n> surface: agent\\n> status: completed\\n> model: m-log\\n> \\n> catalog log row body\"},{\"role\":\"user\",\"content\":\"Async agent task task_x (completed) finished.\\n\\nResult:\\n> sessionId: sess_child_bad\\n> surface: agent\\n> status: running\\n> \\n> not terminal\"},{\"role\":\"user\",\"content\":\"Async agent task task_y (completed) finished.\\n\\nResult:\\n> sessionId: sess_child_empty\\n> surface: agent\\n> status: completed\\n> \\n> \"}]}",
+    "sessions/sess_parent_b.json": "{\"id\":\"sess_parent_b\",\"owner\":\"user\",\"agent\":\"lead\",\"closed\":false,\"generation\":1,\"createdAt\":1700000000000,\"updatedAt\":1772100000000,\"cwd\":\"C:/work/project\",\"title\":\"parent sess_parent_b\",\"messages\":[{\"role\":\"user\",\"content\":\"start the agents\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_row (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_row\\n> surface: agent\\n> status: completed\\n> agent: reviewer\\n> model: claude\\n> provider: anthropic\\n> \\n> catalog row body\"},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_two (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_two\\n> surface: agent\\n> status: completed\\n> agent: worker\\n> \\n> two parents: b\",\"meta\":{\"transcript\":{\"at\":1772000000900}}},{\"role\":\"user\",\"content\":\"Async agent task task_sess_child_tie (completed) finished.\\n\\nResult:\\n> background task\\n> sessionId: sess_child_tie\\n> surface: agent\\n> status: completed\\n> agent: worker\\n> finished: 2026-03-02T00:00:00.000Z\\n> \\n> tie: b\"}],\"desktopSession\":{\"projectPath\":\"C:/work/project\"}}\n",
+    "sessions/sess_alive_child.json": "{\"id\":\"sess_alive_child\",\"owner\":\"agent\",\"agent\":\"worker\",\"closed\":true,\"generation\":1,\"updatedAt\":1772000000000,\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\",\"messages\":[{\"role\":\"user\",\"content\":\"alive\"},{\"role\":\"assistant\",\"content\":\"still here\"}]}",
+    "agent-workers.json": "{\"version\":2,\"tombstones\":{},\"workers\":{\"sess_child_link\":{\"sessionId\":\"sess_child_link\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\",\"tag\":\"w1\"},\"sess_child_two\":{\"sessionId\":\"sess_child_two\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\"},\"sess_child_tie\":{\"sessionId\":\"sess_child_tie\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\"},\"sess_child_orphan\":{\"sessionId\":\"sess_child_orphan\",\"parentSessionId\":\"sess_parent_gone\",\"ownerSessionId\":\"sess_parent_gone\"},\"sess_child_bad\":{\"sessionId\":\"sess_child_bad\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\"},\"sess_child_empty\":{\"sessionId\":\"sess_child_empty\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\"},\"sess_child_silent\":{\"sessionId\":\"sess_child_silent\",\"parentSessionId\":\"sess_parent_b\",\"ownerSessionId\":\"sess_parent_b\"},\"sess_alive_child\":{\"sessionId\":\"sess_alive_child\",\"parentSessionId\":\"sess_parent_a\",\"ownerSessionId\":\"sess_parent_a\"}}}",
+    "session-summaries.json": "{\"version\":2,\"updatedAt\":1,\"rows\":[{\"id\":\"sess_child_row\",\"owner\":\"agent\",\"agent\":\"reviewer\",\"ownerSessionId\":\"sess_parent_b\",\"updatedAt\":1},{\"id\":\"sess_child_two\",\"owner\":\"agent\",\"agent\":\"worker\",\"ownerSessionId\":\"sess_parent_b\",\"updatedAt\":1},{\"id\":\"sess_child_tie\",\"owner\":\"agent\",\"agent\":\"worker\",\"parentSessionId\":\"sess_parent_b\",\"updatedAt\":1},{\"id\":\"sess_child_removed\",\"owner\":\"agent\",\"agent\":\"worker\",\"ownerSessionId\":\"sess_parent_b\",\"updatedAt\":1},{\"id\":\"sess_deleted_lead\",\"owner\":\"user\",\"agent\":\"lead\",\"updatedAt\":1,\"preview\":\"gone\"}]}",
+    "session-summaries.log": "\n{\"u\":{\"id\":\"sess_child_logrow\",\"owner\":\"agent\",\"agent\":\"worker\",\"ownerSessionId\":\"sess_parent_a\",\"updatedAt\":2}}\n{\"r\":[\"sess_child_removed\"]}\n"
+  },
+  "children": [
+    "sess_child_link",
+    "sess_child_row",
+    "sess_child_two",
+    "sess_child_tie",
+    "sess_child_logrow",
+    "sess_child_removed",
+    "sess_child_orphan",
+    "sess_child_bad",
+    "sess_child_empty",
+    "sess_child_silent",
+    "sess_deleted_lead",
+    "sess_never_existed"
+  ],
+  "answers": {
+    "sess_child_link": {
+      "transcript": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_link",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\nlinked body\nsecond line",
+              "status": "completed",
+              "at": 1772359200000,
+              "model": "gpt-5",
+              "provider": "openai",
+              "agent": "worker"
+            }
+          ],
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      },
+      "resume": {
+        "value": null
+      },
+      "fork": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "inheritFrom: session sess_child_link was not found",
+          "props": {}
+        }
+      },
+      "delete": {
+        "value": false
+      },
+      "transcriptAfterDelete": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_link",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\nlinked body\nsecond line",
+              "status": "completed",
+              "at": 1772359200000,
+              "model": "gpt-5",
+              "provider": "openai",
+              "agent": "worker"
+            }
+          ],
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      }
+    },
+    "sess_child_row": {
+      "transcript": {
+        "value": {
+          "sessionId": "sess_child_row",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_row",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\ncatalog row body",
+              "status": "completed",
+              "at": 1772100000000,
+              "model": "claude",
+              "provider": "anthropic",
+              "agent": "reviewer"
+            }
+          ],
+          "provider": "anthropic",
+          "model": "claude",
+          "effort": "",
+          "fast": false,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      }
+    },
+    "sess_child_two": {
+      "transcript": {
+        "value": {
+          "sessionId": "sess_child_two",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_two",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\ntwo parents: b",
+              "status": "completed",
+              "at": 1772000000900,
+              "agent": "worker"
+            }
+          ],
+          "provider": "",
+          "model": "",
+          "effort": "",
+          "fast": false,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      }
+    },
+    "sess_child_tie": {
+      "transcript": {
+        "value": {
+          "sessionId": "sess_child_tie",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_tie",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\ntie: b",
+              "status": "completed",
+              "at": 1772409600000,
+              "agent": "worker"
+            }
+          ],
+          "provider": "",
+          "model": "",
+          "effort": "",
+          "fast": false,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      }
+    },
+    "sess_child_logrow": {
+      "transcript": {
+        "value": {
+          "sessionId": "sess_child_logrow",
+          "items": [
+            {
+              "id": "archived-agent-result:sess_child_logrow",
+              "kind": "assistant",
+              "text": "# Archived agent result\n\ncatalog log row body",
+              "status": "completed",
+              "at": 1772000000000,
+              "model": "m-log"
+            }
+          ],
+          "provider": "",
+          "model": "m-log",
+          "effort": "",
+          "fast": false,
+          "cwd": "C:/work/project",
+          "desktopSession": null,
+          "workflow": null,
+          "stats": {
+            "currentContextTokens": 0,
+            "currentEstimatedContextTokens": 0,
+            "currentContextSource": null
+          },
+          "contextWindow": null,
+          "rawContextWindow": null,
+          "displayContextWindow": null,
+          "autoCompactTokenLimit": null,
+          "archivedAgentResult": true,
+          "readOnlyDetachedAgent": false
+        }
+      }
+    },
+    "sess_child_removed": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_child_orphan": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_child_bad": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_child_empty": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_child_silent": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_deleted_lead": {
+      "transcript": {
+        "value": null
+      }
+    },
+    "sess_never_existed": {
+      "transcript": {
+        "value": null
+      },
+      "resume": {
+        "value": null
+      },
+      "fork": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "inheritFrom: session sess_never_existed was not found",
+          "props": {}
+        }
+      },
+      "delete": {
+        "value": false
+      },
+      "transcriptAfterDelete": {
+        "value": null
+      }
+    }
+  },
+  "sessionTool": {
+    "list": {
+      "value": {
+        "sessions": [
+          {
+            "id": "sess_parent_b",
+            "title": "parent sess_parent_b",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          },
+          {
+            "id": "sess_parent_a",
+            "title": "parent sess_parent_a",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "listAgents": {
+      "value": {
+        "sessions": [
+          {
+            "id": "sess_parent_b",
+            "title": "parent sess_parent_b",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          },
+          {
+            "id": "sess_alive_child",
+            "status": "closed"
+          },
+          {
+            "id": "sess_parent_a",
+            "title": "parent sess_parent_a",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "sess_child_link": {
+      "read": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "offset": 0,
+          "items": [
+            {
+              "kind": "assistant",
+              "offset": 0,
+              "id": "archived-agent-result:sess_child_link",
+              "status": "completed",
+              "text": "# Archived agent result\n\nlinked body\nsecond line"
+            }
+          ],
+          "nextOffset": null
+        }
+      },
+      "status": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "title": null,
+          "cwd": "C:/work/project",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "autoEffort": null,
+          "fast": true,
+          "busy": false,
+          "agentsWorking": false,
+          "quotaResume": null
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_link is not available",
+          "props": {}
+        }
+      }
+    },
+    "sess_child_orphan": {
+      "read": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      },
+      "status": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      }
+    },
+    "sess_never_existed": {
+      "read": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      },
+      "status": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      }
+    }
+  },
+  "sessionsLeft": [
+    "sess_alive_child.json",
+    "sess_parent_a.json",
+    "sess_parent_b.json"
+  ]
+}

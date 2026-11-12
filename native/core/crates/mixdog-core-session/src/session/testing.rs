@@ -90,6 +90,8 @@ pub struct TestCompaction {
     pub text_books: std::sync::atomic::AtomicBool,
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
+    /// The signal each compaction call was handed.
+    pub cancels: Mutex<Vec<mixdog_agent::cancel::Cancel>>,
     /// Wakes after a compaction call is recorded.
     pub called: tokio::sync::Notify,
     /// A compaction waits on it before answering, when set.
@@ -149,8 +151,9 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         Ok(lock(&self.heir_rows).clone())
     }
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        lock(&self.cancels).push(cancel.clone());
         self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
@@ -671,6 +674,10 @@ impl ThreadStore for MemStore {
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
 
+    fn archived_agent_parents(&self, _child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -1034,6 +1041,7 @@ impl ThreadStore for CallCounted {
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
+        fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
@@ -2258,11 +2266,13 @@ impl Rig {
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
+            transcripts: None,
             sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
+            prompt_intake: Arc::new(super::AdmitAll),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),
             server_requests: self.sink.clone(),

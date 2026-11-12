@@ -418,6 +418,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
+    /// The sessions, not deleted, whose header carries `child`'s archived agent result (one index range).
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
+
     /// Resolves once the index holds every write acknowledged so far (the exact class: an error when it is behind past
     /// the bound, or when a write of `id` failed to go in). A store without an index holds its writes at once.
     fn indexed(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
@@ -762,6 +765,8 @@ pub struct AgentTurn {
 
 /// What the actor hands a new run.
 pub struct RunStart {
+    /// The conversation transcripts the turn appends its prompt and assistant texts to.
+    pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
     /// A routine fire's trusted skill-selection text (`options.skillSelection`).

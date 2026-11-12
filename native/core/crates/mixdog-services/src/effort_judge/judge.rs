@@ -928,14 +928,42 @@ impl EffortJudgeModel {
     }
 }
 
+/// The model's calibrated distribution for one step (`judgeTurn` with `step`): the inference the judge resolves
+/// through its ladder. Public only to tests (feature `test-support`), which feed a recorded distribution; a shipped
+/// judge always asks the model.
+#[cfg(feature = "test-support")]
+#[async_trait]
+pub trait StepProbs: Send + Sync {
+    async fn probs(&self, input: StepInput) -> Result<Vec<f64>, JudgeError>;
+}
+
+#[cfg(not(feature = "test-support"))]
+#[async_trait]
+pub(crate) trait StepProbs: Send + Sync {
+    async fn probs(&self, input: StepInput) -> Result<Vec<f64>, JudgeError>;
+}
+
+#[async_trait]
+impl StepProbs for Arc<EffortJudgeModel> {
+    async fn probs(&self, input: StepInput) -> Result<Vec<f64>, JudgeError> {
+        EffortJudgeModel::probs(self, input).await
+    }
+}
+
 /// A run's judge: the shared model plus the ladder of the turn.
 pub struct EffortJudge {
-    model: Arc<EffortJudgeModel>,
+    model: Arc<dyn StepProbs>,
     ladder: Arc<dyn StepLadder>,
 }
 
 impl EffortJudge {
     pub fn new(model: Arc<EffortJudgeModel>, ladder: Arc<dyn StepLadder>) -> Self {
+        Self { model: Arc::new(model), ladder }
+    }
+
+    /// The judge over a recorded step distribution (tests only).
+    #[cfg(feature = "test-support")]
+    pub fn over(model: Arc<dyn StepProbs>, ladder: Arc<dyn StepLadder>) -> Self {
         Self { model, ladder }
     }
 }

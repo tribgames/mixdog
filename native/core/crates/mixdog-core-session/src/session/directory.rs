@@ -715,6 +715,11 @@ impl SessionDirectory {
         handles
     }
 
+    /// Whether the thread is loaded and not closing: a thread closed, deleted or shut down is refused work.
+    pub fn is_open(&self, id: &ThreadId) -> bool {
+        self.inner.loaded(id).is_some_and(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
     /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
     /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
@@ -1480,6 +1485,7 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            compaction_cancel: Default::default(),
             pending_compact: Default::default(),
             gated: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1998,6 +2004,10 @@ impl ThreadDirectory for SessionDirectory {
                 expected: "a session-directory method".into(),
             }),
         }
+    }
+
+    async fn read_vanished(&self, id: &ThreadId, _req: CoreRequest) -> Result<Reply, CoreError> {
+        self.inner.read_archived(id).await
     }
 }
 

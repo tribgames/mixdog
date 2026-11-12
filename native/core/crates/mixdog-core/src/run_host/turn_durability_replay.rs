@@ -215,7 +215,7 @@ fn stack(rig: &Rig, store: Arc<dyn mixdog_core_session::session::ThreadStore>, p
     deps.new_route = route.clone();
     deps.new_tools = Arc::new(LeadRecord(now));
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
-    let parts = Parts { provider, workspace: workspace.to_path_buf(), more: vec![read_tool()], settle: None };
+    let parts = Parts { provider, workspace: workspace.to_path_buf(), more: vec![read_tool()], settle: None, effort: None };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Timed(parts, now))));
     let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
     *route.directory.lock().unwrap() = Arc::downgrade(&directory);

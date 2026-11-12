@@ -1,0 +1,41 @@
+{
+  "scenario": "turn-lead",
+  "script": [
+    {
+      "text": "looking with swordfish42",
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ]
+      ]
+    },
+    {
+      "text": "all done"
+    }
+  ],
+  "secret": "swordfish42",
+  "sessionId": "sess_transcript_lead",
+  "name": "turn-lead",
+  "code": 0,
+  "memoryFeature": true,
+  "cwd": "<cwd>",
+  "provider": {
+    "sends": 2
+  },
+  "prompt": "go: the password is swordfish42",
+  "atClose": {
+    "homeIsTheUsers": false,
+    "memoryIngestDisabled": "1",
+    "daemonSkipMemory": "1",
+    "files": {
+      "<slug>/sess_transcript_lead.jsonl": "{\"type\":\"user\",\"sessionId\":\"sess_transcript_lead\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"go: the password is [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_transcript_lead\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"looking with [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_transcript_lead\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"all done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n"
+    }
+  },
+  "afterExec": {
+    "userProjects": [],
+    "pristineHomeLeft": false
+  }
+}

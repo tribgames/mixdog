@@ -23,6 +23,8 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
+
 use super::redirect::ignores_sampling;
 use super::tool_accept;
 use super::traits::ModelTraits;
@@ -74,6 +76,13 @@ fn text_of(content: &Content) -> String {
     }
 }
 
+fn file_part(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
+    match file_kind(mime_type, data, filename) {
+        FileKind::Pdf => json!({ "inlineData": { "mimeType": "application/pdf", "data": data } }),
+        _ => json!({ "text": file_fallback_text(filename, mime_type, data) }),
+    }
+}
+
 fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     Ok(Some(match part {
         ContentPart::Text(text, _) => json!({ "text": text }),
@@ -83,19 +92,19 @@ fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
         ContentPart::Image(ImageSource::Url(uri)) | ContentPart::Image(ImageSource::FileId(uri)) => {
             json!({ "fileData": { "fileUri": uri } })
         }
+        // Only a PDF rides as `inlineData`; any other file is its text or its description (`normalizeContentForGeminiParts`).
         ContentPart::File {
             source: mixdog_core_api::domain::provider::BinarySource::Base64(data),
             mime_type,
+            filename,
             ..
-        } => json!({ "inlineData": { "mimeType": mime_type, "data": data } }),
+        } => file_part(filename.as_deref(), mime_type, data),
         ContentPart::File {
             source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(_),
             ..
         } => return Err(invalid("an attachment reference must be resolved before the request is encoded")),
-        ContentPart::Document { source, .. } => match source {
-            DocumentSource::Base64 { media_type, data } => {
-                json!({ "inlineData": { "mimeType": media_type, "data": data } })
-            }
+        ContentPart::Document { source, title } => match source {
+            DocumentSource::Base64 { media_type, data } => file_part(title.as_deref(), media_type, data),
             DocumentSource::Text { data, .. } => json!({ "text": data }),
             DocumentSource::Content(value) => json!({ "text": value.to_string() }),
         },

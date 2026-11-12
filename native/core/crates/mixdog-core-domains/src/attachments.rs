@@ -17,6 +17,10 @@ use crate::domains::ai_admin::model_proxy::StoreAttachments;
 
 #[async_trait]
 impl AttachmentText for StoreAttachments {
+    async fn media_of(&self, part: &ContentPart, native_pdf: bool) -> Result<Option<ContentPart>, Box<ProviderError>> {
+        self.media_part(part, native_pdf).await
+    }
+
     async fn text_of(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>> {
         let ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename, text: Some(text) } = part
         else {
@@ -37,9 +41,50 @@ impl AttachmentText for StoreAttachments {
 }
 
 fn unavailable(filename: Option<&str>, mime_type: &str) -> String {
+    unavailable_of(filename, mime_type, "text")
+}
+
+fn unavailable_of(filename: Option<&str>, mime_type: &str, kind: &str) -> String {
     let name = filename.and_then(|f| f.rsplit(['/', '\\']).next()).unwrap_or("");
-    let label = [name, mime_type, "text"].into_iter().find(|v| !v.is_empty()).unwrap_or("text");
+    let label = [name, mime_type, kind].into_iter().find(|v| !v.is_empty()).unwrap_or(kind);
     format!("[attachment unavailable: {label}]")
+}
+
+impl StoreAttachments {
+    /// `readAttachmentBase64` and the lowering of a part whose blob it cannot read
+    /// (media-normalization.mjs `imageInfo`, `fileInfo`, `unavailableAttachmentText`).
+    async fn media_part(&self, part: &ContentPart, native_pdf: bool) -> Result<Option<ContentPart>, Box<ProviderError>> {
+        use base64::Engine;
+        use mixdog_core_api::domain::provider::ImageSource;
+        let ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename, text: None } = part else {
+            return Ok(None);
+        };
+        let label = mime_type.trim().to_lowercase();
+        let image = label.starts_with("image/");
+        let bytes = match self.read(reference).await {
+            Ok(bytes) => bytes,
+            Err(ReadError::Permanent) => {
+                return Ok(Some(ContentPart::Text(unavailable_of(filename.as_deref(), mime_type, if image { "image" } else { "file" }), None)));
+            }
+            Err(ReadError::Other(message)) => {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = message;
+                return Err(Box::new(error));
+            }
+        };
+        if image {
+            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+            return Ok(Some(ContentPart::Image(ImageSource::Base64 { data, mime_type: label })));
+        }
+        // The bytes decide a PDF before the label does (`bytesDecideMime`); a file without a type is a PDF.
+        let pdf = bytes.starts_with(b"%PDF-");
+        let mime = if pdf || label.is_empty() { "application/pdf".to_owned() } else { label };
+        if mime == "application/pdf" && !native_pdf {
+            return Ok(None);
+        }
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Ok(Some(ContentPart::File { source: BinarySource::Base64(data), mime_type: mime, filename: filename.clone(), text: None }))
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +130,32 @@ mod tests {
             let got = store.text_of(&part(reference, case["textKind"].as_str(), case["filename"].as_str())).await.unwrap();
             assert_eq!(got.as_deref(), case["value"].as_str(), "{case}");
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stored_media_reads_as_the_bytes_every_provider_is_sent() {
+        use base64::Engine;
+        use mixdog_core_api::domain::provider::ImageSource;
+        let b64 = |t: &str| base64::engine::general_purpose::STANDARD.encode(t);
+        let file = |reference: String, mime: &str, name: &str| ContentPart::File {
+            source: BinarySource::AttachmentRef(reference),
+            mime_type: mime.to_owned(),
+            filename: Some(name.to_owned()),
+            text: None,
+        };
+        let (_dir, store, png) = stored("png-bytes").await;
+        let image = store.media_of(&file(png.clone(), "IMAGE/PNG", "a.png"), true).await.unwrap();
+        assert_eq!(image, Some(ContentPart::Image(ImageSource::Base64 { data: b64("png-bytes"), mime_type: "image/png".into() })));
+        let (_dir, store, pdf) = stored("%PDF-1.4 x").await;
+        let mislabelled = store.media_of(&file(pdf.clone(), "application/octet-stream", "a.pdf"), true).await.unwrap();
+        assert_eq!(
+            mislabelled,
+            Some(ContentPart::File { source: BinarySource::Base64(b64("%PDF-1.4 x")), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None })
+        );
+        assert_eq!(store.media_of(&file(pdf, "application/pdf", "a.pdf"), false).await.unwrap(), None, "a PDF for a text provider is left to its text step");
+        let gone = store.media_of(&file("0".repeat(64), "image/png", "C:\\d\\gone.png"), true).await.unwrap();
+        assert_eq!(gone, Some(ContentPart::Text("[attachment unavailable: gone.png]".into(), None)));
+        assert!(store.media_of(&file("bad".into(), "image/png", "x"), true).await.is_err(), "a transient failure is an error");
     }
 
     #[tokio::test(flavor = "current_thread")]
