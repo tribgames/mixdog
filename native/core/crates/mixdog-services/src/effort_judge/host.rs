@@ -13,9 +13,12 @@ use std::ffi::OsString;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
+use mixdog_exthost::Containment;
 use mixdog_agent::step_effort::{StepCall, StepInput};
 use mixdog_rt::{JudgeThread, TaskClass};
 use serde::{Deserialize, Serialize};
@@ -26,7 +29,7 @@ use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::input::TurnInput;
 use crate::effort_judge::judge::Resident;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, OrtRuntime};
-use crate::effort_judge::worker::Stopper;
+use crate::effort_judge::worker::{Alarm, Stopper};
 
 /// The subcommand of `mixdogd` that serves as the host.
 pub const HOST_COMMAND: &str = "effort-judge-host";
@@ -109,9 +112,56 @@ pub(crate) fn serve_resident(
     0
 }
 
+/// The core's process id, handed to the host so it can watch for the core's exit.
+const PARENT_ENV: &str = "MIXDOG_EFFORT_JUDGE_PARENT";
+
+/// How long a host may take to say it is ready (the model's load included), on the judge's clock.
+/// Node's load has no bound; a host that hangs here would hold the judge's gate and its thread for
+/// ever, so it is killed and the next judgment starts a new one.
+pub(crate) const START_LIMIT: Duration = Duration::from_secs(60);
+
+/// The host's end of "the host ends when the core ends". Windows and Linux enforce it from the
+/// core's side when the host is started (a kill-on-close job object; the parent-death signal); macOS
+/// has neither, so the host watches its parent on a thread of its own, which does not wait on the
+/// inference thread and ends the process with no unwinding the moment the parent exits.
+pub fn end_with_parent() {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(parent) = std::env::var(PARENT_ENV).ok().and_then(|pid| pid.parse::<libc::pid_t>().ok()) else { return };
+        drop(std::thread::Builder::new().name("effort-judge-parent-watch".into()).spawn(move || {
+            // SAFETY: kqueue and kevent on a descriptor and structures owned by this thread; `_exit`
+            // runs no destructor, which a load blocked in the runtime could never finish.
+            unsafe {
+                let queue = libc::kqueue();
+                if queue < 0 {
+                    return;
+                }
+                let watch = libc::kevent {
+                    ident: parent as usize,
+                    filter: libc::EVFILT_PROC,
+                    flags: libc::EV_ADD | libc::EV_ONESHOT,
+                    fflags: libc::NOTE_EXIT,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                };
+                let mut seen: libc::kevent = std::mem::zeroed();
+                let count = libc::kevent(queue, &watch, 1, &mut seen, 1, std::ptr::null());
+                // A parent that is already gone answers ESRCH, as an error event or as the call's error.
+                let gone = (count > 0 && (seen.flags & libc::EV_ERROR == 0 || seen.data == libc::ESRCH as isize))
+                    || (count < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH))
+                    || libc::getppid() != parent;
+                if gone {
+                    libc::_exit(1);
+                }
+            }
+        }));
+    }
+}
+
 /// `mixdogd effort-judge-host`: the real model over the process's stdin and stdout. `threads` starts
 /// the session's intra-op threads.
 pub fn serve(config: &ModelConfig, threads: JudgeThread, input: impl BufRead, output: impl Write) -> i32 {
+    end_with_parent();
     serve_resident(|| JudgeModel::load(config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>), input, output)
 }
 
@@ -146,6 +196,9 @@ pub(crate) struct HostClient {
     to_host: tokio::sync::mpsc::UnboundedSender<String>,
     replies: Mutex<mpsc::Receiver<Reply>>,
     kill: CancellationToken,
+    /// Windows: the job the host runs in, which ends it whenever this process does (and when this
+    /// client is dropped).
+    _contained: Containment,
 }
 
 impl Drop for HostClient {
@@ -157,15 +210,64 @@ impl Drop for HostClient {
 impl HostClient {
     /// Starts the host and waits for its model to load. Runs on the judge's thread, which is no
     /// async context: `runtime` carries the host's pipes.
-    pub(crate) fn start(launch: &HostLaunch, runtime: &tokio::runtime::Handle) -> Result<Self, JudgeError> {
+    ///
+    /// The host is killed when it is not ready [`START_LIMIT`] after this starts, on `alarm`.
+    pub(crate) fn start(launch: &HostLaunch, runtime: &tokio::runtime::Handle, alarm: &dyn Alarm) -> Result<Self, JudgeError> {
         let _context = runtime.enter();
         let mut command = tokio::process::Command::new(&launch.program);
-        command.args(&launch.args).envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+        command
+            .args(&launch.args)
+            .envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .env(PARENT_ENV, std::process::id().to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        // CREATE_NO_WINDOW | CREATE_SUSPENDED: the host joins its job before it runs an instruction.
         #[cfg(windows)]
-        command.creation_flags(0x0800_0000);
+        command.creation_flags(0x0800_0000 | 0x0000_0004);
+        #[cfg(target_os = "linux")]
+        {
+            let parent = std::process::id() as libc::pid_t;
+            // SAFETY: between fork and exec only async-signal-safe calls run (prctl, getppid). The
+            // signal follows the thread that started the host; a parent that died before the signal
+            // was set shows as a different parent, and the start fails.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent {
+                        return Err(std::io::Error::other("the effort judge host's parent exited"));
+                    }
+                    Ok(())
+                });
+            }
+        }
         let mut child = command.spawn().map_err(|error| JudgeError::Load(format!("effort judge host: {error}")))?;
+        let contained = match Containment::attach(&child) {
+            Ok(contained) => contained,
+            Err(error) => {
+                drop(child.start_kill());
+                return Err(JudgeError::Load(format!("effort judge host: {error}")));
+            }
+        };
         let (stdin, stdout) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"));
         let kill = CancellationToken::new();
+        let ready = Arc::new(AtomicBool::new(false));
+        let timed_out = Arc::new(AtomicBool::new(false));
+        {
+            let (kill, ready, timed_out) = (kill.clone(), ready.clone(), timed_out.clone());
+            alarm.after(
+                START_LIMIT,
+                Box::new(move || {
+                    if !ready.load(Ordering::Acquire) {
+                        timed_out.store(true, Ordering::Release);
+                        kill.cancel();
+                    }
+                }),
+            );
+        }
         let (to_host, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
         let (replies_tx, replies) = mpsc::channel();
         drop(mixdog_rt::spawn("services.effort-judge.host-write", TaskClass::Work, async move {
@@ -193,9 +295,14 @@ impl HostClient {
                 () = reaper.cancelled() => drop(child.kill().await),
             }
         }));
-        let client = Self { to_host, replies: Mutex::new(replies), kill };
-        match client.replies.lock().unwrap_or_else(PoisonError::into_inner).recv() {
-            Ok(Reply::Ready) => {}
+        let client = Self { to_host, replies: Mutex::new(replies), kill, _contained: contained };
+        let first = client.replies.lock().unwrap_or_else(PoisonError::into_inner).recv();
+        if timed_out.load(Ordering::Acquire) {
+            // Not a load failure: nothing is remembered, and the next judgment starts a new host.
+            return Err(JudgeError::Worker("the effort judge host did not become ready in time".to_owned()));
+        }
+        match first {
+            Ok(Reply::Ready) => ready.store(true, Ordering::Release),
             Ok(Reply::LoadFailed { kind, message }) => {
                 return Err(match kind.as_str() {
                     "notInstalled" => JudgeError::NotInstalled(message),

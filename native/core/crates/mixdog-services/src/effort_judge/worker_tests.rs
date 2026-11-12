@@ -174,8 +174,10 @@ async fn two_sessions_judgments_run_one_at_a_time_in_arrival_order() {
 
 /// The watchdog's clock: time moves only by [`Clock::advance`], which rings every deadline it reaches.
 #[derive(Default)]
-struct Clock {
+pub(crate) struct Clock {
     state: Mutex<(Duration, Vec<(Duration, Box<dyn FnOnce() + Send>)>)>,
+    /// Told whenever a deadline is armed.
+    armed: std::sync::Condvar,
     /// When set, the next watchdog to ring says so and waits here before it decides.
     gate: Mutex<Option<(tokio::sync::oneshot::Sender<()>, mpsc::Receiver<()>)>>,
 }
@@ -185,6 +187,7 @@ impl Alarm for Clock {
         let mut state = self.state.lock().unwrap();
         let at = state.0 + delay;
         state.1.push((at, ring));
+        self.armed.notify_all();
     }
 
     fn watchdog_rang(&self) {
@@ -197,7 +200,15 @@ impl Alarm for Clock {
 }
 
 impl Clock {
-    fn advance(&self, by: Duration) {
+    /// Blocks until a deadline `delay` after the clock's start is armed, or `within` of real time
+    /// has passed (the answer says which).
+    pub(crate) fn wait_armed(&self, delay: Duration, within: Duration) -> bool {
+        let state = self.state.lock().unwrap();
+        let (_state, result) = self.armed.wait_timeout_while(state, within, |state| !state.1.iter().any(|(at, _)| *at == delay)).unwrap();
+        !result.timed_out()
+    }
+
+    pub(crate) fn advance(&self, by: Duration) {
         let due: Vec<_> = {
             let mut state = self.state.lock().unwrap();
             state.0 += by;

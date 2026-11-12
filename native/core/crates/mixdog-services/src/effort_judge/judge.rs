@@ -107,12 +107,12 @@ impl From<JudgeError> for Stop {
 }
 
 /// The model's host process, started and loaded.
-fn start_host(config: &ModelConfig, launch: Option<&HostLaunch>, runtime: &tokio::runtime::Handle) -> Result<Arc<dyn Resident>, JudgeError> {
+fn start_host(config: &ModelConfig, launch: Option<&HostLaunch>, runtime: &tokio::runtime::Handle, alarm: &dyn Alarm) -> Result<Arc<dyn Resident>, JudgeError> {
     let launch = match launch {
         Some(launch) => launch.clone(),
         None => HostLaunch::of(config)?,
     };
-    HostClient::start(&launch, runtime).map(|client| Arc::new(client) as Arc<dyn Resident>)
+    HostClient::start(&launch, runtime, alarm).map(|client| Arc::new(client) as Arc<dyn Resident>)
 }
 
 /// The model's load: the generation of the judge thread holding it, or the remembered failure.
@@ -312,8 +312,14 @@ impl EffortJudgeModel {
     /// A judge whose model loads in a real host process started as `launch`.
     #[cfg(test)]
     pub(crate) fn hosted(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch) -> Arc<Self> {
+        Self::hosted_on(config, lanes, launch, Arc::new(TickerAlarm))
+    }
+
+    /// [`Self::hosted`] with every wait on `alarm`.
+    #[cfg(test)]
+    pub(crate) fn hosted_on(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>) -> Arc<Self> {
         let options = JudgeOptions { host: Some(launch), ..JudgeOptions::default() };
-        Arc::new(Self::create(config, lanes, options, Arc::new(TickerAlarm)).expect("the bundled manifest"))
+        Arc::new(Self::create(config, lanes, options, alarm).expect("the bundled manifest"))
     }
 
     /// The latest use the idle ring goes by, for tests.
@@ -531,16 +537,17 @@ impl EffortJudgeModel {
     fn load_job(&self) -> impl FnOnce(&mut Seat) -> Result<u64, JudgeError> + Send + 'static {
         let config = self.config.clone();
         let runtime = tokio::runtime::Handle::current();
+        let alarm = self.alarm.clone();
         #[cfg(test)]
         let (script, host) = (self.script.clone(), self.host.clone());
         move |seat| {
             #[cfg(test)]
             let loaded = match script {
                 Some(script) => script(),
-                None => start_host(&config, host.as_ref(), &runtime),
+                None => start_host(&config, host.as_ref(), &runtime, &*alarm),
             };
             #[cfg(not(test))]
-            let loaded = start_host(&config, None, &runtime);
+            let loaded = start_host(&config, None, &runtime, &*alarm);
             seat.model = Some(loaded?);
             Ok(seat.generation)
         }
@@ -561,7 +568,9 @@ impl EffortJudgeModel {
             Err(error @ JudgeError::Load(_)) => Err(error),
             Err(error) => return Err(error),
         };
-        if matches!(outcome, Err(JudgeError::NotInstalled(_))) {
+        // A host that never became ready was killed at its limit: no failure to back off from, the
+        // next judgment starts a new one.
+        if matches!(outcome, Err(JudgeError::NotInstalled(_) | JudgeError::Worker(_))) {
             return outcome;
         }
         let mut state = self.model_state();
