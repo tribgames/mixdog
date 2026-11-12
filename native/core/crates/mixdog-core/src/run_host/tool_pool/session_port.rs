@@ -12,6 +12,7 @@ use mixdog_agent::agent_tool::scope::resolve_path;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
@@ -32,6 +33,7 @@ use mixdog_core_ports::ports::threads::port_error;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::session_title::AiTitle;
 use mixdog_core_session::session::session_title::StoredTitles;
+use mixdog_core_session::session::thread_settings::ThreadSettings;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_services::bots::beat::Change;
@@ -57,24 +59,49 @@ use super::callers::ThreadCallers;
 #[async_trait]
 pub trait ThreadRequests: Send + Sync {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError>;
+    /// The Lead's own `session set-project` call (`setCallerCwd`) on `thread`, at the resolved folder `path`: the folder the
+    /// session runs in afterwards.
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError>;
     /// The user's interrupt of the turn running in `thread` (`abortSession`): whether one was.
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError>;
 }
 
+/// The product's route of the tools' thread requests: the thread settings service answers its own methods (`thread/setCwd`,
+/// `thread/metadata/update`, `thread/archive`, `thread/unarchive`, which are not the thread actor's), the directory every other.
+pub struct SettingsRequests {
+    directory: Arc<SessionDirectory>,
+    settings: Arc<ThreadSettings>,
+}
+
+impl SettingsRequests {
+    pub fn new(directory: Arc<SessionDirectory>, settings: Arc<ThreadSettings>) -> Self {
+        Self { directory, settings }
+    }
+}
+
 #[async_trait]
-impl ThreadRequests for SessionDirectory {
+impl ThreadRequests for SettingsRequests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         let ctx = CallContext::internal("session-tool");
-        let handle = self.open_handle(thread, &ctx).await?;
-        let op = OpId::from(uuid::Uuid::now_v7().to_string());
-        match handle.request(CoreRequest { method: Method(method), params, op: Some(op), ctx }).await? {
+        let op = OpId::from(params.get("opId").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
+        let request = CoreRequest { method: Method(method), params, op: Some(op), ctx: ctx.clone() };
+        let reply = if mixdog_core_session::session::thread_settings::METHODS.contains(&method) {
+            self.settings.call(request).await?
+        } else {
+            self.directory.open_handle(thread, &ctx).await?.request(request).await?
+        };
+        match reply {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => Ok(Value::Null),
         }
     }
 
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError> {
+        self.settings.set_caller_cwd(thread, path).await
+    }
+
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
-        self.interrupt_running_turn(thread)
+        self.directory.interrupt_running_turn(thread)
     }
 }
 
@@ -310,10 +337,8 @@ impl SessionPort for DirectorySessionPort {
         if !metadata.is_dir() {
             return Err(PortError::Invalid { field: "path".to_owned(), reason: format!("session: not a directory: {next}") });
         }
-        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "path": next });
-        self.parts.requests.request(thread, "thread/setCwd", params).await.map_err(core)?;
-        let header = self.header(thread).await?;
-        Ok(field(&header, "cwd").map(|c| mixdog_js::js_trim(&c).to_owned()).filter(|c| !c.is_empty()).unwrap_or(next))
+        let cwd = self.parts.requests.set_caller_cwd(thread, &next).await.map_err(core)?;
+        Ok(Some(mixdog_js::js_trim(&cwd)).filter(|c| !c.is_empty()).map_or(next, str::to_owned))
     }
 
     async fn rename(&self, thread: &ThreadId, title: &str) -> Result<String, RenameError> {
