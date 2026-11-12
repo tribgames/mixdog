@@ -215,6 +215,10 @@ try {
           patchBinary: { givenAs: 'MIXDOG_PATCH_NATIVE_BIN (the engine apply_patch runs on)', sha256: createHash('sha256').update(readFileSync(patchBin)).digest('hex') },
           betweenTurns: 'write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id; direct: setReadCached / tryReadCached / setScopedToolCached / tryScopedToolCached / clearReadDedupSession called in the recorded order under one session id',
         },
+        exclusions: {
+          'replay-read-cache.mjs (the replay through a mixdogd process)':
+            "skips two scenarios it cannot drive through a daemon, and each is replayed whole in-process by mixdog-core run_host/session_read_cache_replay.rs instead: 'the session closed and resumed between the turns' (a_closed_and_resumed_session_reads_like_nodes) and every scenario with a `direct` phase, cache calls in a recorded order with no turn between them ('a turn still reading after its session was closed': a_turn_still_reading_after_its_close_fills_the_cache_the_reopened_session_finds, which compares every recorded lookup)",
+        },
         node: process.version,
       },
     });
