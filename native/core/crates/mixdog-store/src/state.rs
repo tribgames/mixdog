@@ -234,6 +234,8 @@ type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 struct Shared {
     path: PathBuf,
     pool: Arc<ReadPool>,
+    #[cfg(any(test, feature = "test-support"))]
+    commit_fault: std::sync::atomic::AtomicBool,
 }
 
 /// Brings a `user_version` 1 file to 2 in one transaction. Any other file is left to `open_schema`'s checks.
@@ -324,6 +326,8 @@ impl CoreState {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
+                #[cfg(any(test, feature = "test-support"))]
+                commit_fault: std::sync::atomic::AtomicBool::new(false),
             }),
             sender,
         };
@@ -334,6 +338,11 @@ impl CoreState {
     /// empty database) and the read pool's idle connections close, so the files can be removed while other handles still exist
     /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer has done it.
     pub fn close(&self) {
+        self.replace_writer();
+        self.shared.pool.close();
+    }
+
+    fn replace_writer(&self) {
         let (done, closed) = mpsc::channel::<()>();
         let job: Job = Box::new(move |conn| {
             *conn = Connection::open_in_memory().expect("an in-memory database opens");
@@ -342,7 +351,13 @@ impl CoreState {
         if self.sender.send(job).is_ok() {
             let _ = closed.recv();
         }
-        self.shared.pool.close();
+    }
+
+    /// Test support: every later write fails with an I/O error at the step that makes it durable (its commit), as a failing
+    /// rename publishing a registry file does: the transaction is rolled back and the file stays as it was.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fail_commits(&self) {
+        self.shared.commit_fault.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it
@@ -353,10 +368,16 @@ impl CoreState {
         R: Send + 'static,
     {
         let (ack, rx) = oneshot::channel();
+        #[cfg(any(test, feature = "test-support"))]
+        let shared = self.shared.clone();
         let job: Job = Box::new(move |conn| {
             let result = (|| {
                 let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 let out = f(&StateTx { tx: &tx })?;
+                #[cfg(any(test, feature = "test-support"))]
+                if shared.commit_fault.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(DbError::Write(std::io::Error::other("injected EIO at the commit").to_string()));
+                }
                 tx.commit()?;
                 Ok(out)
             })();
