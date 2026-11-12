@@ -147,6 +147,7 @@ pub struct Behind {
     stopped: Arc<AtomicBool>,
     /// What the earlier version listed of its sessions (`mixdog_migrate::session::listed`), read before the core composed.
     listed: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
+    data: std::path::PathBuf,
 }
 
 /// The pending row of a session the earlier version listed by `row`: its message fields are the row's own, the rest is the header the row is built from.
@@ -169,6 +170,16 @@ fn pending_row(session: String, mut row: serde_json::Map<String, serde_json::Val
     (mixdog_store::summary::CatalogHead { session, log_id: mixdog_store::sqlite::PENDING_LOG_ID.to_owned(), base_session: None, header: row }, stats)
 }
 
+/// Withdraws the rows of sessions listed as still to convert that the migration, now complete, did not convert (it set them aside): such a row lists a session there is
+/// none of. Run when the conversion completes and at every start that finds the migration complete, so a process that ended between the two leaves none behind.
+pub async fn withdraw_pending(index: &mixdog_store::sqlite::SqliteStore, data: &Path) -> Result<usize, mixdog_store::sqlite::DbError> {
+    let left = index.pending_sessions(data).await?;
+    for session in &left {
+        index.mark_deleted(session).await?;
+    }
+    Ok(left.len())
+}
+
 /// The sessions still to convert, as the directory asks for one that is opened.
 struct Converting(Arc<mixdog_migrate::run::Waiting>);
 
@@ -189,14 +200,20 @@ impl Behind {
     /// no row of appears when it is converted.
     pub async fn list(&mut self, index: &mixdog_store::sqlite::SqliteStore) {
         let waiting: std::collections::BTreeSet<String> = self.back.waiting().pending().into_iter().collect();
-        let rows = std::mem::take(&mut self.listed).into_iter().filter(|(session, _)| waiting.contains(session));
-        let written = futures::future::join_all(rows.map(|(session, row)| {
-            let (head, stats) = pending_row(session, row);
-            index.list_pending(head, stats)
-        }))
-        .await;
-        if let Some(error) = written.into_iter().find_map(Result::err) {
-            tracing::warn!(%error, "a session of the earlier version could not be listed before it is converted");
+        let rows: Vec<_> = std::mem::take(&mut self.listed).into_iter().filter(|(session, _)| waiting.contains(session)).collect();
+        let ids: Vec<String> = rows.iter().map(|(session, _)| session.clone()).collect();
+        // What the desktop kept of a session (the name a person gave it, its archive mark) is what its converted header will carry.
+        let kept = self.back.listed_meta(&ids);
+        let sessions = rows
+            .into_iter()
+            .zip(kept)
+            .map(|((session, mut row), kept)| {
+                row.extend(kept);
+                pending_row(session, row)
+            })
+            .collect();
+        if let Err(error) = index.list_pending(sessions).await {
+            tracing::warn!(%error, "the sessions of the earlier version could not be listed before they are converted");
         }
     }
 
@@ -208,7 +225,7 @@ impl Behind {
     /// Converts the rest on a thread of its own, taking each session into `index`; returns at once. `stop` is the core's run token.
     #[allow(clippy::disallowed_methods, reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take")]
     pub fn run(self, index: Arc<mixdog_store::sqlite::SqliteStore>, stop: mixdog_rt::CancellationToken, report: impl Fn(&str) + Send + 'static) -> std::io::Result<()> {
-        let Behind { back, pool, runtime, projector, stopped, .. } = self;
+        let Behind { back, pool, runtime, projector, stopped, data, .. } = self;
         let _ = projector.index.set(index.clone());
         drop(mixdog_rt::spawn("migration-stop", mixdog_rt::TaskClass::Work, async move {
             stop.cancelled().await;
@@ -224,14 +241,7 @@ impl Behind {
             let seconds = began.elapsed().as_secs();
             match outcome {
                 Ok(_) => {
-                    // A session listed by its pending row that the migration set aside is no session: its row goes.
-                    let unlisted = runtime.block_on(async {
-                        let left = index.pending_sessions().await?;
-                        for session in &left {
-                            index.mark_deleted(session).await?;
-                        }
-                        Ok::<_, mixdog_store::sqlite::DbError>(left.len())
-                    });
+                    let unlisted = runtime.block_on(withdraw_pending(&index, &data));
                     report(&format!("migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?})"));
                 }
                 Err(blocked) => report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}")),
@@ -275,7 +285,7 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, runtime: &tokio::runtime::
                 match mixdog_migrate::run::cli::front(roots, projector.clone(), office, options) {
                     Ok(Front::Pending(back)) => {
                         let listed = mixdog_migrate::session::listed::rows(&data);
-                        Ok(Some(Behind { back, pool, runtime: runtime.clone(), projector, stopped, listed }))
+                        Ok(Some(Behind { back, pool, runtime: runtime.clone(), projector, stopped, listed, data }))
                     }
                     Ok(Front::Complete(_)) => {
                         runtime.block_on(pool.close());

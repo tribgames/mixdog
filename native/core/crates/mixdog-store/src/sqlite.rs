@@ -632,8 +632,10 @@ enum Command {
     Project { projection: Projection, ack: Option<Ack> },
     Labels { labels: PlaceholderLabels, ack: Ack },
     OffloadScan { session: String, ordinal: i64, sources: Vec<String>, ack: Ack },
-    /// The list row of a session still to be converted ([`SqliteStore::list_pending`]).
-    Pending { head: Box<CatalogHead>, stats: Box<crate::summary::MessageStats>, ack: Ack },
+    /// A pending row takes the identity of the log that is there now ([`Adopting::arrived`]).
+    Arrived { session: String, log_id: String, base_session: Option<String>, ack: Ack },
+    /// The list rows of the sessions still to be converted ([`SqliteStore::list_pending`]).
+    Pending { sessions: Vec<(CatalogHead, crate::summary::MessageStats)>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
@@ -1072,10 +1074,18 @@ impl Writer {
                         record_offload_scan(&tx, &session, ordinal, &sources)?;
                         acks.push(ack);
                     }
-                    Command::Pending { head, stats, ack } => {
-                        // A row there is (taken in already, or listed by an earlier start) is left as it is.
-                        if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
-                            write_row(&tx, &crate::summary::catalog_row(&head, &stats, now_ms()), DirtyMark::Clear, &self.labels)?;
+                    Command::Arrived { session, log_id, base_session, ack } => {
+                        tx.prepare_cached("UPDATE sessions SET log_id = ?2, base_session = ?3, dirty = 1 WHERE id = ?1 AND log_id = ?4")?
+                            .execute(params![session, log_id, base_session, PENDING_LOG_ID])?;
+                        acks.push(ack);
+                    }
+                    Command::Pending { sessions, ack } => {
+                        // One transaction for them all: they are listed once, before the first client reads the list.
+                        for (head, stats) in &sessions {
+                            // A row there is (taken in already, or listed by an earlier start) is left as it is.
+                            if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
+                                write_row(&tx, &crate::summary::catalog_row(head, stats, now_ms()), DirtyMark::Clear, &self.labels)?;
+                            }
                         }
                         acks.push(ack);
                     }
@@ -2491,23 +2501,37 @@ impl ProjectTo for ToWriter<'_> {
 
 /// The way into the open index of a session it holds no row of ([`SqliteStore::adopt`]): the row is written first, marked
 /// dirty, as a rebuild writes it before the frames; then each message is applied by the writer thread while the caller waits.
-struct Adopting<'a>(&'a mpsc::Sender<Command>);
+struct Adopting<'a> {
+    sender: &'a mpsc::Sender<Command>,
+    /// The session is listed by a pending row ([`PENDING_LOG_ID`]), which holds no frame yet.
+    pending: bool,
+}
 
 impl Adopting<'_> {
     fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), String> {
         let stopped = || "the index writer stopped".to_owned();
         let (ack, done) = oneshot::channel();
-        self.0.send(make(ack)).map_err(|_| stopped())?;
+        self.sender.send(make(ack)).map_err(|_| stopped())?;
         done.blocking_recv().map_err(|_| stopped())?.map_err(|e| e.to_string())
     }
 
     fn row(&self, head: &CatalogHead, dirty: DirtyMark) -> Result<(), String> {
         self.ask(|ack| Command::Upsert { head: Box::new(head.clone()), dirty, ack: Some(ack) })
     }
+
+    /// The pending row becomes the row of the log that is there now: its identity, marked dirty until the folded row is
+    /// written. What it lists stays as it was meanwhile.
+    fn arrived(&self, session: &str, log_id: &str, base_session: Option<&str>) -> Result<(), String> {
+        let (session, log_id, base_session) = (session.to_owned(), log_id.to_owned(), base_session.map(str::to_owned));
+        self.ask(|ack| Command::Arrived { session, log_id, base_session, ack })
+    }
 }
 
 impl ProjectTo for Adopting<'_> {
     fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        if self.pending {
+            return self.arrived(&head.session, &head.log_id, head.base_session.as_deref());
+        }
         self.row(head, DirtyMark::Set)
     }
 
@@ -2515,7 +2539,7 @@ impl ProjectTo for Adopting<'_> {
         if frames.is_empty() {
             return Ok(());
         }
-        ToWriter(self.0).send(session, frames, None)
+        ToWriter(self.sender).send(session, frames, None)
     }
 }
 
@@ -2524,21 +2548,25 @@ impl ProjectTo for Adopting<'_> {
 pub const PENDING_LOG_ID: &str = "migration-pending";
 
 impl SqliteStore {
-    /// Lists a session the migration has still to convert, by the row the earlier version kept of it: `head.header` and
-    /// `stats` are that row's fields, and `head.log_id` is [`PENDING_LOG_ID`]. A session the index holds a row of is left
-    /// as it is.
-    pub async fn list_pending(&self, head: CatalogHead, stats: crate::summary::MessageStats) -> Result<(), DbError> {
-        self.ask(|ack| Command::Pending { head: Box::new(head), stats: Box::new(stats), ack }).await
+    /// Lists the sessions the migration has still to convert, each by the row the earlier version kept of it: a head's
+    /// `header` and its stats are that row's fields, and its `log_id` is [`PENDING_LOG_ID`]. A session the index holds a
+    /// row of is left as it is. All of them are written in one transaction.
+    pub async fn list_pending(&self, sessions: Vec<(CatalogHead, crate::summary::MessageStats)>) -> Result<(), DbError> {
+        self.ask(|ack| Command::Pending { sessions, ack }).await
     }
 
-    /// The sessions still listed by a pending row.
-    pub async fn pending_sessions(&self) -> Result<Vec<String>, DbError> {
-        self.read(|c| {
-            let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE log_id = ?1 AND deleted = 0")?;
-            let rows = stmt.query_map([PENDING_LOG_ID], |r| r.get(0))?.collect::<Result<_, _>>()?;
-            Ok(rows)
-        })
-        .await
+    /// The sessions still listed by a pending row that have no log under `<data>/sessions`: listed, and not there.
+    #[allow(clippy::disallowed_methods, reason = "runs on the read lane job (lane proof argument)")]
+    pub async fn pending_sessions(&self, data: &Path) -> Result<Vec<String>, DbError> {
+        let sessions = data.join("sessions");
+        self.shared
+            .gate
+            .read_in_lane(move |_, c| {
+                let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE log_id = ?1 AND deleted = 0")?;
+                let listed: Vec<String> = stmt.query_map([PENDING_LOG_ID], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                Ok(listed.into_iter().filter(|id| !sessions.join(id).join(crate::log::log_name(0)).is_file()).collect())
+            })
+            .await
     }
 
     /// Brings a session whose folder another writer published under `<data>/sessions` while the index is open (the
@@ -2553,19 +2581,25 @@ impl SqliteStore {
     pub fn adopt(&self, data: &Path, session: &str) -> Result<(), DbError> {
         let held: Option<String> =
             self.shared.gate.with(|c| Ok(c.prepare_cached("SELECT log_id FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?))?;
-        let from = match held.as_deref() {
-            None => None,
-            Some(PENDING_LOG_ID) => self.shared.gate.with(|c| projected_on(c, session))?,
+        // A pending row holds no frame: the row takes the log's identity at its first frame, dirty from there on, so a process
+        // that ends after it leaves a session the boot reconcile finishes (and this, on the next run, leaves alone).
+        let pending = match held.as_deref() {
+            None => false,
+            Some(PENDING_LOG_ID) => true,
             Some(_) => return Ok(()),
         };
-        let mut to = Adopting(self.shared.gate.feed()?);
+        let mut to = Adopting { sender: self.shared.gate.feed()?, pending };
         let dir = data.join("sessions").join(session);
         let mut fold = None;
-        let damage = project_session(&mut to, &dir, &crate::blobs::BlobStore::new(data), &mut fold, from)
+        let damage = project_session(&mut to, &dir, &crate::blobs::BlobStore::new(data), &mut fold, None)
             .map_err(DbError::Write)?
             .err()
             .map(|(error, at)| damage_text(&dir, at, &error));
         let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
+        if pending && fold.is_none() {
+            // A log with no readable first frame: the row is that of an unreadable session, which is never listed.
+            to.arrived(session, &head.log_id, None).map_err(DbError::Write)?;
+        }
         to.row(&head, DirtyMark::Clear).map_err(DbError::Write)?;
         if let Some(damage) = damage {
             let session = session.to_owned();

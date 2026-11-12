@@ -214,10 +214,18 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     // The sessions of the earlier version still to convert are listed before the first client can read the list, by the rows that version kept; an open of one waits for
     // its conversion, which the open asks for ahead of the rest.
     let mut behind = behind;
-    if let Some(behind) = behind.as_mut() {
-        behind.list(&core.catalog_index()).await;
-        if let Err(error) = core.set_arriving(behind.arriving()) {
-            tracing::error!(error, "the sessions still to convert could not be bound to the directory");
+    match behind.as_mut() {
+        Some(behind) => {
+            behind.list(&core.catalog_index()).await;
+            if let Err(error) = core.set_arriving(behind.arriving()) {
+                tracing::error!(error, "the sessions still to convert could not be bound to the directory");
+            }
+        }
+        // The migration is complete: a row still listing a session to convert lists none.
+        None => {
+            if let Err(error) = boot::withdraw_pending(&core.catalog_index(), &sweep_dir).await {
+                tracing::warn!(%error, "the rows of sessions the migration set aside could not be withdrawn");
+            }
         }
     }
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
