@@ -22,8 +22,9 @@ use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake, ProfiledIm
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockFileService, MockProcessManager, MockProgress, MockRetryDecider};
 use mixdog_core_api::domain::provider::{
-    DeliveryState, MediaSupport, ModelRequest, ModelStream, ProviderAdapter, ProviderError, StopReason, StreamEvent, WireCodec,
+    DeliveryState, MediaSupport, ModelRequest, ModelStream, ProviderAdapter, ProviderError, StopReason, StreamEvent, WireCodec, WireRequest,
 };
+use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::tool::{SurfaceKind, ToolIo};
 use mixdog_core_api::ids::{ThreadId, TurnId};
@@ -152,17 +153,24 @@ impl ProviderAdapter for Family {
         self.vision
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = match &self.images {
-            Some(fitter) => match mixdog_ai::providers::anthropic::images::prepare_request(request, fitter).await {
-                Ok(prepared) => prepared,
+        let mut wire = WireRequest {
+            transport: TransportKind::Http1,
+            method: "POST".into(),
+            url: String::new(),
+            headers: Vec::new(),
+            body: serde_json::to_vec(&(self.encode)(&request)).expect("a JSON body"),
+        };
+        // The Messages wire fits the images of the body its codec built.
+        if let Some(fitter) = &self.images {
+            wire = match fitter.fit_wire(&request, wire).await {
+                Ok(fitted) => fitted,
                 Err(refusal) => {
                     self.refusals.lock().unwrap().push(refusal.message.clone());
                     return Err(refusal);
                 }
-            },
-            None => request,
-        };
-        self.bodies.lock().unwrap().push((self.encode)(&request));
+            };
+        }
+        self.bodies.lock().unwrap().push(serde_json::from_slice(&wire.body).expect("a JSON body"));
         Ok(Box::new(Reply(
             [
                 StreamEvent::TextDelta("ok".into()),
@@ -320,7 +328,7 @@ async fn every_row_of_nodes_media_table_replays_equal() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
     let rows = table["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 172, "12 provider rows × 10 attachment kinds, and 10 image kinds on 5 Messages providers, 2 on one");
+    assert_eq!(rows.len(), 177, "12 provider rows × 10 attachment kinds, 10 image kinds on 5 Messages providers, 2 on one, and 5 tool-image kinds on one");
     // The Messages wire's images are fitted by the extension host's `sharp`: Node's own `resizeImageBuffer`, run by the real worker.
     let tokens = mixdog_rt::testing::tokens();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();

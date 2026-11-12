@@ -116,9 +116,25 @@ pub async fn run_attempt(
     request: &ModelRequest,
     resend: Option<&Resend>,
 ) -> Result<Box<dyn ModelStream>, ProviderError> {
+    run_fitted_attempt(codec, http, credential, request, resend, None).await
+}
+
+/// [`run_attempt`] for a Messages engine: each encoding of the request has its images fitted
+/// ([`crate::providers::anthropic::images::ImageFitter::fit_wire`]) before it is sent.
+pub async fn run_fitted_attempt(
+    codec: &dyn WireCodec,
+    http: &dyn HttpSend,
+    credential: &dyn Credential,
+    request: &ModelRequest,
+    resend: Option<&Resend>,
+    images: Option<&crate::providers::anthropic::images::ImageFitter>,
+) -> Result<Box<dyn ModelStream>, ProviderError> {
     // The credential first: a rewriter may read identity it loads.
     let mut header = credential.header(false).await?;
     let mut wire = codec.encode(request)?;
+    if let Some(fitter) = images {
+        wire = fitter.fit_wire(request, wire).await?;
+    }
     let mut again = false;
     let mut refreshed = false;
     // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
@@ -162,6 +178,9 @@ pub async fn run_attempt(
             again = true;
             held = Some(body);
             wire = codec.encode(request)?;
+            if let Some(fitter) = images {
+                wire = fitter.fit_wire(request, wire).await?;
+            }
             continue;
         }
         return Err(error);
@@ -253,11 +272,7 @@ impl ProviderAdapter for HttpAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = match &self.images {
-            Some(fitter) => crate::providers::anthropic::images::prepare_request(request, fitter).await?,
-            None => request,
-        };
-        run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref()).await
+        run_fitted_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref(), self.images.as_ref()).await
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {

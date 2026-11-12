@@ -107,6 +107,24 @@ const imageKinds = [
   imageKind('image-over-byte-cap', await noise(1090, 1090).png({ compressionLevel: 0 }).toBuffer(), 'image/png', { providers: ['anthropic'] }),
 ];
 
+// Images the lowering puts somewhere other than a user message of their own, which pin where `prepareAnthropicImages` finds
+// them in the lowered request (`messages.N.content.M[.content.K]`): a tool's image inside its `tool_result`, a tool result
+// merged into the user message ahead of it, two tool results merged into one user message, a system message in front.
+// Inline bytes, as a tool's result carries them. The wire's `messages` are the recorded ones; Node's refusal names the place.
+const inline = (bytes, mimeType) => ({ type: 'image', data: bytes.toString('base64'), mimeType });
+const wideBytes = await flat(2000, 300).png().toBuffer();
+const badBytes = Buffer.from('this is not an image at all');
+const toolCall = (id) => ({ id, name: 'read', arguments: { file_path: `${id}.png` } });
+const toolResult = (id, ...content) => ({ role: 'tool', toolCallId: id, content: { content } });
+const text = (value) => ({ type: 'text', text: value });
+const wireKinds = [
+  { name: 'tool-image-wide', messages: [{ role: 'user', content: 'look at this' }, { role: 'assistant', content: '', toolCalls: [toolCall('a')] }, toolResult('a', text('Read a.png'), inline(wideBytes, 'image/png'))] },
+  { name: 'tool-image-undecodable', messages: [{ role: 'user', content: 'look at this' }, { role: 'assistant', content: '', toolCalls: [toolCall('a')] }, toolResult('a', text('Read a.png'), inline(badBytes, 'image/png'))] },
+  { name: 'tool-results-merged-wide', messages: [{ role: 'user', content: 'look at these' }, { role: 'assistant', content: '', toolCalls: [toolCall('a'), toolCall('b')] }, toolResult('a', inline(wideBytes, 'image/png')), toolResult('b', text('Read b.png'), inline(wideBytes, 'image/png'))] },
+  { name: 'tool-results-merged-undecodable', messages: [{ role: 'user', content: 'look at these' }, { role: 'assistant', content: '', toolCalls: [toolCall('a'), toolCall('b')] }, toolResult('a', text('Read a.png')), toolResult('b', text('Read b.png'), inline(badBytes, 'image/png'))] },
+  { name: 'tool-image-undecodable-after-system', messages: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'look at this' }, { role: 'assistant', content: '', toolCalls: [toolCall('a')] }, toolResult('a', inline(badBytes, 'image/png'))] },
+].map((kind) => ({ ...kind, families: MESSAGES_ONLY, providers: ['anthropic'] }));
+
 // `gone`: a reference whose blob this store never held.
 const GONE = 'c'.repeat(64);
 const kinds = [
@@ -135,12 +153,16 @@ const partOf = (kind) => {
 };
 const parts = Object.fromEntries(kinds.map((kind) => [kind.name, partOf(kind)]));
 // A turn with the attachment, its answer and the turn after it: the attachment is history for the request.
-const messagesOf = (name) => [
-  ...(kinds.find((k) => k.name === name).system ? [{ role: 'system', content: kinds.find((k) => k.name === name).system }] : []),
-  { role: 'user', content: [{ type: 'text', text: 'look at this' }, structuredClone(parts[name])] },
-  { role: 'assistant', content: 'seen' },
-  { role: 'user', content: 'and now?' },
-];
+const messagesOf = (name) => {
+  const wired = wireKinds.find((k) => k.name === name);
+  if (wired) return wired.messages;
+  return [
+    ...(kinds.find((k) => k.name === name).system ? [{ role: 'system', content: kinds.find((k) => k.name === name).system }] : []),
+    { role: 'user', content: [{ type: 'text', text: 'look at this' }, structuredClone(parts[name])] },
+    { role: 'assistant', content: 'seen' },
+    { role: 'user', content: 'and now?' },
+  ];
+};
 
 // What the extension host's extraction gave for the same bytes (the core replays these through its DocumentText seam):
 // the text after the label line of Node's own lowering of the file as text.
@@ -297,7 +319,7 @@ const rows = [];
 for (const spec of families) {
   const instance = await spec.make();
   const capabilities = { nativePdf: instance.nativePdf ?? null, nativeDocuments: instance.nativeDocuments ?? null, vision: spec.vision ?? true };
-  for (const kind of kinds.filter((k) => (k.families ?? [spec.family]).includes(spec.family) && (k.providers ?? [spec.provider]).includes(spec.provider))) {
+  for (const kind of [...kinds, ...wireKinds].filter((k) => (k.families ?? [spec.family]).includes(spec.family) && (k.providers ?? [spec.provider]).includes(spec.provider))) {
     const messages = messagesOf(kind.name);
     let body;
     let error = null;
@@ -331,6 +353,7 @@ writeSetManifest(outDir, {
       'cursor row, side node: the model catalog (`getCursorModels`, which asks the network) is the runtime\'s fallback list; every other part of Cursor\'s send runs, the HTTP/2 session being the captured transport. Side core: the replay builds the frame with `build_run` and the connect envelope `CursorCodec::encode` writes, on the model Node\'s send resolved the same name to (no catalog entry: the name itself, no parameters)',
       'anthropic-messages rows, side core: the images are fitted by the extension host\'s `sharp` (Node\'s own `resizeImageBuffer` run by the real worker, the same code that produced the recorded bytes), so no encoder differs and the bytes are compared as they are; the replay starts that worker (node and `sharp` from the repository\'s node_modules)',
       'anthropic-messages rows, kinds image-below-minimum .. image-over-byte-cap: recorded for the five Messages providers (the over-byte-cap image and the undecodable one behind a system message for the built-in API only, the first recording being 6 MB); the other families lower an image to the provider\'s own block and carry the stored bytes, which the table\'s one image row pins',
+      'anthropic-messages rows, kinds tool-image-* and tool-results-merged-*: recorded for the built-in API only; the lowered request holds the images inside a tool_result, merged into the user message ahead of it, or with a system message in front, and a refusal names the place in that request (`messages.N.content.M.content.K`); the replay builds the same body with the core\'s codec and prepares that body',
       'families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows\' lowering with nativePdf false; opencode-go\'s and command-code\'s Gemini and Responses engines take the rows of their families',
       'refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core\'s refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here',
       'anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded',

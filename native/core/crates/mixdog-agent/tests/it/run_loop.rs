@@ -2441,7 +2441,16 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
             error.status = e.get("status").and_then(JsonValue::as_u64).map(|s| s as u16);
             error.code = e.get("code").and_then(JsonValue::as_str).map(str::to_owned);
             // The image a preparation refusal names (Node's non-enumerable `failingImageData`).
-            error.failing_image = e.get("failingImageData").and_then(JsonValue::as_str).map(Box::from);
+            // The provider's preparation decoded and hashed it where it refused it.
+            error.failing_image = e.get("failingImageData").and_then(JsonValue::as_str).map(|data| {
+                use base64::Engine as _;
+                use sha2::Digest as _;
+                let sha256 = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .ok()
+                    .map(|bytes| sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect::<String>().into());
+                Box::new(mixdog_core_api::domain::provider::FailingImage { data: data.into(), sha256 })
+            });
             error.message = e["message"].as_str().expect("message").into();
             match step.get("partial") {
                 // The stream gives its text and completes its calls, then fails.
