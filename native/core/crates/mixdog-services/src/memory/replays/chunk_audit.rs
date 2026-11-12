@@ -77,14 +77,14 @@ fn legacy_reuse_still_rejects_mixed_sessions_and_expanded_summaries() {
 
 mod pg {
     use super::*;
-    use crate::memory::replays::pg::{insert_entries, memory_db, recall};
+    use crate::memory::replays::pg::{ReplayPg, insert_entries, memory_db, recall};
 
-    async fn session(what: &str, session: &Exact, now_ms: i64) {
+    /// One session over `pg`, whose memory schema is as a new cluster has it.
+    async fn session(pg: &ReplayPg, what: &str, session: &Exact, now_ms: i64) {
         let root = session.get("root");
         let source = session.get("dbEntries").as_array();
         assert_eq!(source[0].get("id"), root.get("id"), "{what}: the root stands in for the source's first row");
         let held: Vec<&Exact> = vec![root, &source[1]];
-        let pg = memory_db().await;
         insert_entries(&pg.db, &held).await;
         let args = session.get("options").to_plain().expect("JSON options");
         let outcome = recall(&pg.db, now_ms).search_memories(&args, &tokio_util::sync::CancellationToken::new()).await;
@@ -99,7 +99,7 @@ mod pg {
     async fn compact_session_retrieval_includes_the_original_root_as_a_member_without_requiring_include_members() {
         let g = golden(SET);
         let name = "compact session retrieval includes the original root as a member without requiring includeMembers (test line 81)";
-        session(name, case(&g, 4, name).get("session"), now_ms(&g)).await;
+        session(&memory_db().await, name, case(&g, 4, name).get("session"), now_ms(&g)).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -107,8 +107,13 @@ mod pg {
         let g = golden(SET);
         let name = "further shapes (beyond the test file)";
         let sessions = case(&g, 5, name).get("sessions").as_array();
-        for s in sessions {
-            session(&format!("{name}: {}", s.get("label").as_str()), s, now_ms(&g)).await;
+        // One cluster for every session; each starts from the memory schema a new cluster has.
+        let mut pg = memory_db().await;
+        for (at, s) in sessions.iter().enumerate() {
+            if at > 0 {
+                pg.reset().await;
+            }
+            session(&pg, &format!("{name}: {}", s.get("label").as_str()), s, now_ms(&g)).await;
         }
     }
 }

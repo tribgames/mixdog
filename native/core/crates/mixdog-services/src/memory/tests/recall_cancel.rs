@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::memory::pg::db::Schema;
+use crate::memory::pg::db::{Db, Schema};
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{AFTER_READ, QueryEmbedder, Recall, RecallDeps};
 use crate::memory::schema::ensure_memory_schema;
@@ -25,12 +25,9 @@ impl QueryEmbedder for NoVector {
 }
 
 /// Runs `args` with the request's cancel fired the moment `point`'s read has finished.
-async fn cancelled_after(point: &'static str, args: Value) {
-    let pg = TestPg::start().await;
-    let db = pg.db(Schema::Memory).await;
-    ensure_memory_schema(&db, 384, &json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
+async fn cancelled_after(db: &Db, point: &'static str, args: Value) {
     let recall = Recall::new(RecallDeps {
-        db,
+        db: db.clone(),
         clock: Arc::new(|| Clock { now_ms: 1_700_000_000_000, zone: chrono_tz::UTC }),
         embedder: Some(Arc::new(NoVector)),
         session_cwd: None,
@@ -55,25 +52,26 @@ async fn cancelled_after(point: &'static str, args: Value) {
     assert!(outcome.cancelled, "a recall cancelled during `{point}` answered a reply: {}", outcome.text);
 }
 
-macro_rules! cancelled_during {
-    ($($name:ident: $point:literal, $args:expr;)*) => {$(
-        #[tokio::test]
-        async fn $name() {
-            cancelled_after($point, $args).await;
-        }
-    )*};
-}
-
-cancelled_during! {
-    a_recall_cancelled_during_the_session_read_is_cancelled: "session_rows", json!({ "sessionId": "s1" });
-    a_recall_cancelled_during_the_project_scope_read_is_cancelled: "project_scope", json!({});
-    a_recall_cancelled_during_the_id_lookup_is_cancelled: "ids", json!({ "id": 1 });
-    a_recall_cancelled_during_the_last_browse_is_cancelled: "last", json!({ "period": "last" });
-    a_recall_cancelled_during_the_browse_is_cancelled: "browse", json!({});
-    a_recall_cancelled_during_the_query_embedding_is_cancelled: "embed", json!({ "query": "restart" });
-    a_recall_cancelled_during_the_candidate_search_is_cancelled: "candidates", json!({ "query": "restart" });
-    a_recall_cancelled_during_the_window_roots_read_is_cancelled: "window_roots", json!({ "query": "restart", "period": "yesterday" });
-    a_recall_cancelled_during_the_raw_window_read_is_cancelled: "raw_window", json!({ "query": "restart", "includeRaw": true });
-    a_recall_cancelled_during_the_core_rows_read_is_cancelled: "core_rows", json!({ "query": "restart" });
-    a_recall_cancelled_during_the_context_expansion_is_cancelled: "expand", json!({ "query": "restart", "includeRaw": true });
+/// Every await of the recall path in turn, over one cluster: the recalls only read, so a cluster per await (initdb and a
+/// postmaster, about five seconds each) bought nothing.
+#[tokio::test]
+async fn a_recall_cancelled_during_any_of_its_store_reads_is_cancelled() {
+    let pg = TestPg::start().await;
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
+    for (point, args) in [
+        ("session_rows", json!({ "sessionId": "s1" })),
+        ("project_scope", json!({})),
+        ("ids", json!({ "id": 1 })),
+        ("last", json!({ "period": "last" })),
+        ("browse", json!({})),
+        ("embed", json!({ "query": "restart" })),
+        ("candidates", json!({ "query": "restart" })),
+        ("window_roots", json!({ "query": "restart", "period": "yesterday" })),
+        ("raw_window", json!({ "query": "restart", "includeRaw": true })),
+        ("core_rows", json!({ "query": "restart" })),
+        ("expand", json!({ "query": "restart", "includeRaw": true })),
+    ] {
+        cancelled_after(&db, point, args).await;
+    }
 }

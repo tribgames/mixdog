@@ -29,19 +29,28 @@ pub(crate) async fn memory_db() -> ReplayPg {
         std::env::var_os("MIXDOG_PG_RUNTIME").is_some(),
         "MIXDOG_PG_RUNTIME is unset: it names the bundled PostgreSQL runtime the database replays start"
     );
-    let pg = tokio::time::timeout(START_DEADLINE, TestPg::start())
-        .await
-        .unwrap_or_else(|_| panic!("the private PostgreSQL cluster did not start within {START_DEADLINE:?}"));
-    let db = tokio::time::timeout(START_DEADLINE, async {
-        let db = pg.db(Schema::Memory).await;
-        ensure_memory_schema(&db, 384, &serde_json::json!({ "model": crate::memory::embed::config::DEFAULT_MODEL_ID }))
-            .await
-            .expect("memory schema");
-        db
-    })
-    .await
-    .unwrap_or_else(|_| panic!("the memory schema was not ready within {START_DEADLINE:?}"));
+    // No real-time bound of its own: how long a start takes depends on the load of the machine, and the runner's limit ends a hang.
+    let pg = TestPg::start().await;
+    let db = memory_schema(&pg).await;
     ReplayPg { db, _pg: pg }
+}
+
+async fn memory_schema(pg: &TestPg) -> Db {
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &serde_json::json!({ "model": crate::memory::embed::config::DEFAULT_MODEL_ID }))
+        .await
+        .expect("memory schema");
+    db
+}
+
+impl ReplayPg {
+    /// The memory schema as a new cluster has it: dropped with everything a case added to it (tables, triggers, rows) and
+    /// built again over the same cluster, with a new `Db`. A test that replays several cases starts one cluster (initdb and a
+    /// postmaster, about five seconds) and resets it between them, instead of starting one per case.
+    pub(crate) async fn reset(&mut self) {
+        self.db.batch("DROP SCHEMA memory CASCADE; CREATE SCHEMA memory").await.unwrap_or_else(|e| panic!("reset: {}", e.message()));
+        self.db = memory_schema(&self._pg).await;
+    }
 }
 
 /// A statement as PostgreSQL received it: its text and its parameters as the server renders them (`NULL` is `None`).

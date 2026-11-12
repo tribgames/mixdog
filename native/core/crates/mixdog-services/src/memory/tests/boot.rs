@@ -757,3 +757,29 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
     awaiting("the stop", stack.stop()).await.expect("stops");
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }
+
+/// A port that was free when the start looked for one and is taken before the postmaster binds it (another cluster starting on the
+/// machine: `at_quit_the_last_client_leaves…` failed on it) moves the start to the next port instead of failing it. The port is taken in
+/// the gap the start leaves between its choice and the spawn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_next_port() {
+    use crate::memory::pg::cluster::{PgCluster, PgRuntime, Start};
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("dir");
+    let preferred = 57_000 + (std::process::id() % 800) as u16 * 8 + 5;
+    let taken = Arc::new(std::sync::Mutex::new(None));
+    let holder = taken.clone();
+    let mut start = Start::node();
+    start.before_spawn = Some(Arc::new(move || {
+        let mut holder = holder.lock().expect("holder");
+        if holder.is_none() {
+            *holder = Some(std::net::TcpListener::bind(("127.0.0.1", preferred)).expect("the chosen port is still free"));
+        }
+        Box::pin(async {})
+    }));
+    let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &start, &|| true)
+        .await
+        .expect("the start moves on to the next port");
+    assert!(cluster.port() > preferred, "the start used the port that was taken: {}", cluster.port());
+    cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
+}
