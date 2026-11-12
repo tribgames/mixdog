@@ -10,7 +10,7 @@
     "others (node only): graph binary download": "Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here",
     "others (node only): patch binary download": "Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here",
     "others (node only): spawn binary download": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
-    "others: memory runtime download": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz is not kept: Node's exec ingests its session in the background and asks to download the memory runtime into its cold throwaway data folder, but its own shutdown aborts the ingest, so whether the ask is sent first is a race inside the process that no recorded world decides; the core keeps no such runtime",
+    "others: memory runtime download": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz is not kept: Node's exec ingests its closing session into memory, which starts a download of the memory runtime into its cold throwaway data folder; the close waits for that ingest for at most 2.5 s (lifecycle/memory-ingest.mjs INGEST_DEADLINE_MS) and then goes on to stop memory and exit without cancelling it, so whether the ask is sent before the process ends depends on how far the ingest got in that time, which no recorded world decides; the core keeps no such runtime",
     "stderr (core only): goal recovery line": "the core logs its boot-time goal recovery summary to the exec's stderr; Node's exec keeps its daemon log in a file",
     "stderr (core only): model catalog fetch failure (GitHub)": "the core fetches the GitHub model catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
     "stderr (core only): model catalog fetch failure (models.dev)": "the core fetches the models.dev catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
@@ -181,7 +181,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "c82bc4da8e166fdcf87b26d6b57b70478e3fef2df32c08c1ee4a39594c289e7c",
+  "recorderSha256": "e5c7f77298af5a1d07ea1b54ad808bf73113703fa1f4e24389b25cfb2b8d316f",
   "set": "exec-cli",
   "stderrNotCompared": [
     {

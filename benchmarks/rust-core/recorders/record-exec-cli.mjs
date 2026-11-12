@@ -135,7 +135,7 @@ const OTHERS_NOT_COMPARED = [
   { side: 'core', name: 'provider cost report', request: 'GET https://api.anthropic.com/v1/organizations/cost_report', reason: 'the core reads the provider\'s cost report at start; Node\'s exec does not' },
 ];// What the recording leaves out of what the process did, each with its reason (the replay compares everything else whole).
 const EXCLUSIONS = {
-  'others: memory runtime download': `${RUNTIME_REQUEST} is not kept: Node's exec ingests its session in the background and asks to download the memory runtime into its cold throwaway data folder, but its own shutdown aborts the ingest, so whether the ask is sent first is a race inside the process that no recorded world decides; the core keeps no such runtime`,
+  'others: memory runtime download': `${RUNTIME_REQUEST} is not kept: Node's exec ingests its closing session into memory, which starts a download of the memory runtime into its cold throwaway data folder; the close waits for that ingest for at most 2.5 s (lifecycle/memory-ingest.mjs INGEST_DEADLINE_MS) and then goes on to stop memory and exit without cancelling it, so whether the ask is sent before the process ends depends on how far the ingest got in that time, which no recorded world decides; the core keeps no such runtime`,
   'stderr: atomic-file lock diagnostics': 'Node logs a lock it waited for or held longer than a threshold (`[atomic-file] async lock wait`, `sync lock held`, `async lock held`); whether the OS was slow is the machine\'s timing, so the recording does not keep those lines (a replay leaves the one it names out of the Node side)',
   chunking: 'consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process',
   ...Object.fromEntries(STDERR_NOT_COMPARED.map(({ name, side, reason }) => [`stderr (${side} only): ${name}`, reason])),
@@ -172,7 +172,9 @@ function ordered(chunks, sandbox) {
   // The `[atomic-file]` diagnostics (a lock waited for or held longer than a threshold) are the machine's timing: a recording that kept
   // them would differ between two runs of the same code, so they are not kept (declared in EXCLUSIONS).
   const lockWait = /^\[atomic-file\] [^\n]*\n/gm;
-  return joined.map(({ stream: name, text }) => ({ stream: name, text: normalize(text, sandbox).replace(lockWait, '') })).filter(({ text }) => text);
+  // Only stderr carries them: a stdout line that happens to start the same way is the exec's answer and is kept.
+  const kept = (name, text) => (name === 'stderr' ? text.replace(lockWait, '') : text);
+  return joined.map(({ stream: name, text }) => ({ stream: name, text: kept(name, normalize(text, sandbox)) })).filter(({ text }) => text);
 }
 
 /** What one provider request carried, in the recording's shape. */
