@@ -1,0 +1,112 @@
+{
+  "cases": [
+    {
+      "case": "glob orders failed-stat matches last in walk order",
+      "entries": [
+        {
+          "path": "a-tie.txt",
+          "mtimeMs": 9,
+          "failed": false
+        },
+        {
+          "path": "b-tie.txt",
+          "mtimeMs": 9,
+          "failed": false
+        },
+        {
+          "path": "failed-first.txt",
+          "mtimeMs": 0,
+          "failed": true
+        },
+        {
+          "path": "failed-second.txt",
+          "mtimeMs": 0,
+          "failed": true
+        },
+        {
+          "path": "middle.txt",
+          "mtimeMs": 5,
+          "failed": false
+        },
+        {
+          "path": "newest.txt",
+          "mtimeMs": 12,
+          "failed": false
+        },
+        {
+          "path": "z-epoch.txt",
+          "mtimeMs": 0,
+          "failed": false
+        }
+      ],
+      "completion": [
+        5,
+        1,
+        6,
+        2,
+        4,
+        0,
+        3
+      ],
+      "bounded": [
+        {
+          "bound": 7,
+          "values": [
+            "newest.txt",
+            "a-tie.txt",
+            "b-tie.txt",
+            "middle.txt",
+            "z-epoch.txt",
+            "failed-first.txt",
+            "failed-second.txt"
+          ]
+        },
+        {
+          "bound": 6,
+          "values": [
+            "newest.txt",
+            "a-tie.txt",
+            "b-tie.txt",
+            "middle.txt",
+            "z-epoch.txt",
+            "failed-first.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "root-anchored kernel-tree prunes apply only to a posix filesystem-root scan",
+      "answers": [
+        {
+          "root": "/",
+          "platform": "linux",
+          "globs": [
+            "!proc/**",
+            "!sys/**",
+            "!dev/**"
+          ]
+        },
+        {
+          "root": "/proc",
+          "platform": "linux",
+          "globs": []
+        },
+        {
+          "root": "/home/user/project",
+          "platform": "linux",
+          "globs": []
+        },
+        {
+          "root": "",
+          "platform": "linux",
+          "globs": []
+        },
+        {
+          "root": "/",
+          "platform": "win32",
+          "globs": []
+        }
+      ]
+    }
+  ]
+}
