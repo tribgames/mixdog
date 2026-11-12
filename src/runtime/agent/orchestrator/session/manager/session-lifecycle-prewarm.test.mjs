@@ -1,5 +1,5 @@
-// Creating or opening a session starts the effort judge's worker (a spawn
-// request only: the session does not wait for the load).
+// Creating or opening a session does not start the effort judge's worker: it
+// loads on a judged turn and unloads when idle, as the embedding model does.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,27 +16,31 @@ test.after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test('createSession and resumeSession request a judge pre-warm for their session', async (t) => {
-  const original = await import('./ask-turn-auto-effort.mjs');
-  const calls = [];
-  t.mock.module('./ask-turn-auto-effort.mjs', {
+test('createSession and resumeSession start no effort judge on a route Auto effort can judge', async (t) => {
+  const original = await import('../../../../effort-judge/judge-client.mjs');
+  let starts = 0;
+  t.mock.module('../../../../effort-judge/judge-client.mjs', {
     namedExports: {
       ...original,
-      prewarmSessionAutoEffort: (session, provider) => {
-        calls.push({ id: session.id, provider: provider?.name });
+      prewarmEffortJudge: () => {
+        starts += 1;
         return true;
       },
     },
   });
+  const savedMode = process.env.MIXDOG_AUTO_EFFORT;
+  process.env.MIXDOG_AUTO_EFFORT = 'on';
+  t.after(() => {
+    if (savedMode === undefined) delete process.env.MIXDOG_AUTO_EFFORT;
+    else process.env.MIXDOG_AUTO_EFFORT = savedMode;
+  });
   const { createSession, resumeSession } = await import(`./session-lifecycle.mjs?prewarm=${Date.now()}`);
   const { deleteSession } = await import('../store.mjs');
   const { _withRegisteredProviderForTest } = await import('../../providers/registry.mjs');
-  const session = _withRegisteredProviderForTest('prewarm-test', { name: 'prewarm-test', contextWindow: 128000 }, () =>
-    createSession({ provider: 'prewarm-test', model: 'fixture-model', cwd: root })
+  const session = _withRegisteredProviderForTest('anthropic-oauth', { name: 'anthropic-oauth', contextWindow: 200000 }, () =>
+    createSession({ provider: 'anthropic-oauth', model: 'claude-opus-5-5', cwd: root })
   );
   t.after(() => deleteSession(session.id, { deferSummaryUpdate: true }));
-  assert.deepEqual(calls, [{ id: session.id, provider: 'prewarm-test' }], 'creating a session requests it');
   await resumeSession(session.id, null);
-  assert.equal(calls.length, 2, 'opening a session requests it');
-  assert.equal(calls[1].id, session.id);
+  assert.equal(starts, 0, 'neither creating nor opening the session starts the judge');
 });

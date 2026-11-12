@@ -53,7 +53,6 @@ import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './pro
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 import { applyAgentToolExposure, markToolSurfaceMigrated } from '../loop/tool-exposure-migration.mjs';
 import { useOwnScratchEnvironment } from './session-scratch-environment.mjs';
-import { prewarmSessionAutoEffort } from './ask-turn-auto-effort.mjs';
 import { cancelCacheWarm } from '../cache-warm.mjs';
 
 // Durable turn-checkpoint recovery; re-exported so prior importers of this
@@ -315,7 +314,6 @@ export function createSession(createOpts) {
   // reads live memory; disk flush is for cross-process / restart durability.
   setLiveSession(session);
   saveSession(session);
-  prewarmSessionAutoEffort(session, provider);
   return session;
 }
 
@@ -663,6 +661,5 @@ async function _resumeClaimedSession(sessionId, preset, options) {
       process.stderr.write(`[session] resume save failed: ${err?.message || err}\n`);
     } catch {}
   });
-  prewarmSessionAutoEffort(session, session.provider ? getProvider(session.provider) : null);
   return session;
 }

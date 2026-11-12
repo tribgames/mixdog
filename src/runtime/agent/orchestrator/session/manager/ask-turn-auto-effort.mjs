@@ -21,7 +21,6 @@ import {
   effortJudgeSupportsSteps,
   holdEffortJudgeWarm,
   judgeTurn,
-  prewarmEffortJudge,
   recordEffortDecision,
 } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
@@ -68,21 +67,6 @@ export function autoEffortBaseSetting(config = null) {
     return autoEffortBase((config || readSection('agent'))?.autoEffortBase);
   } catch {
     return autoEffortBase(undefined);
-  }
-}
-
-/**
- * Starts the judge worker when a session is created or opened on a route that
- * Auto effort can judge, so the first judged turn does not wait for the cold
- * load. Fire-and-forget: it never throws and never waits on the load.
- */
-export function prewarmSessionAutoEffort(session, provider) {
-  try {
-    if (autoEffortMode() === 'off' || session?.autoEffort === false) return false;
-    if (!turnEffortConfigurationMode(session, provider)) return false;
-    return prewarmEffortJudge();
-  } catch {
-    return false;
   }
 }
 
