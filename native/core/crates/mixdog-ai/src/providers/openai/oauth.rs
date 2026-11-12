@@ -93,7 +93,11 @@ fn login_required(message: &str) -> ProviderError {
     err
 }
 
-type Refreshing = Shared<BoxFuture<'static, Result<Credential, ProviderError>>>;
+fn refresh_failed(cause: &str) -> String {
+    format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login.")
+}
+
+type Refreshing =Shared<BoxFuture<'static, Result<Credential, ProviderError>>>;
 
 struct Inner {
     file: CredentialFile,
@@ -171,7 +175,7 @@ impl Inner {
             .filter(|_| status.is_some_and(|s| (200..300).contains(&s)))
             .and_then(|v| v.get("access_token")?.as_str().map(|a| (v, a.to_owned())))
         else {
-            return self.failed(&stored, status, &body, unanswered.as_ref());
+            return self.failed(&stored, rejected.is_some(), status, &body, unanswered.as_ref());
         };
         let (json, access_token) = tokens;
         let expires_at = json
@@ -208,18 +212,25 @@ impl Inner {
     }
 
     /// A refresh that did not produce tokens. A dead grant needs a new login;
-    /// anything else coasts on the current token while it still has life.
+    /// anything else coasts on the current token while it still has life, unless `force` (the token was just rejected:
+    /// `reusableCurrentTokens`, `openai-oauth-tokens.mjs:306`).
     fn failed(
         &self,
         stored: &Stored,
+        force: bool,
         status: Option<u16>,
         body: &[u8],
         unanswered: Option<&ProviderError>,
     ) -> Result<Credential, ProviderError> {
         match classify_refresh_failure(status, body) {
-            RefreshFailure::Definitive => Err(login_required("the ChatGPT login was revoked or expired")),
+            RefreshFailure::Definitive => {
+                // Node's confirmed refusal (`openai-oauth-tokens.mjs:252`), wrapped as it wraps every failure (`:354`).
+                let mut err = login_required(&refresh_failed(&format!("OpenAI OAuth token refresh {} (invalid_grant)", status.unwrap_or_default())));
+                err.status = status;
+                Err(err)
+            }
             verdict => {
-                if stored.usable_at(now_ms(), 0) {
+                if !force && stored.usable_at(now_ms(), 0) {
                     return Ok(stored.credential());
                 }
                 let kind = if verdict == RefreshFailure::Transient {
@@ -228,20 +239,17 @@ impl Inner {
                     ErrorKind::Auth
                 };
                 let mut err = ProviderError::new(kind, DeliveryState::NotSent);
-                err.status = status;
-                // A request that got no answer is worded by Node's wrapper (`openai-oauth-tokens.mjs:354`), over the
-                // timer's own text (`:276`, the bare-`setTimeout` abort) or the fetch's.
-                err.message = match unanswered {
-                    Some(fault) => {
-                        let cause = if fault.timed_out {
-                            format!("OpenAI OAuth token refresh timed out after {}ms", TOKEN_OPENAI.liveness.head_deadline().map_or(0, |wait| wait.as_millis()))
-                        } else {
-                            fault.message.clone()
-                        };
-                        format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login.")
+                // Node's wrapper (`openai-oauth-tokens.mjs:354`) words every failure; its cause is the timer's own
+                // text (`:276`, the bare-`setTimeout` abort) or the fetch's for a request that got no answer, and
+                // `refresh returned null` (`:258`, `:262`) for an answer that is no token: no status travels with it.
+                let cause = match unanswered {
+                    Some(fault) if fault.timed_out => {
+                        format!("OpenAI OAuth token refresh timed out after {}ms", TOKEN_OPENAI.liveness.head_deadline().map_or(0, |wait| wait.as_millis()))
                     }
-                    None => "the ChatGPT token refresh failed".into(),
+                    Some(fault) => fault.message.clone(),
+                    None => "refresh returned null".into(),
                 };
+                err.message = refresh_failed(&cause);
                 Err(err)
             }
         }
