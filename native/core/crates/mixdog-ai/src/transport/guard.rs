@@ -1,11 +1,25 @@
 //! The one place every provider exchange has its credentials redacted from what comes back.
 //!
-//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). It remembers what each request
-//! carries ([`carried::note_request`]) and redacts it, in every form a server repeats it in, from the response's headers
-//! (a `Location` that names the key in its query), from its body however the chunks cut it, from a WebSocket's
-//! frames and its closing, and from the text of a failure (a transport error names its URL). Every error, refusal,
-//! redirect, log line and event a provider builds is built from what passed through here, so none of them can hold a
-//! credential the request carried.
+//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). It takes the credentials the request
+//! carries ([`carried::of_request`], [`carried::of_upgrade`]: the exchange's own, nothing remembered across exchanges) and
+//! redacts them, however the text encodes them ([`carried::Matcher`]), from everything that leaves the transport on that
+//! exchange's behalf:
+//!
+//! - the response's headers, whatever its status (a redirect's `Location`, an echo header);
+//! - the body of a refusal, of a redirect and of an event stream, as it streams ([`carried::Stream`]), after the body was
+//!   decoded (the Node-equal client undoes `content-encoding` below this seam; the HTTP/2 clients ask for none);
+//! - the text of a transport failure (its message and code: a connect error names the URL, query string included);
+//! - a WebSocket upgrade's refusal (headers and body), its text frames, its close reason, its protocol violation and a
+//!   proxy's refusal of the tunnel.
+//!
+//! Every error, refusal, redirect, log line, trace and stage a provider builds from a response is built from these, so none
+//! of them holds a credential the request carried. Two bodies pass whole, by rule: a successful answer that is not an event
+//! stream is a document its caller parses (a token grant names the credentials it issues, often the very refresh token the
+//! request carried, and redacting it would break the sign-in), and a body of length-framed binary messages (Connect, gRPC,
+//! protobuf) cannot lose bytes without breaking its frames; the decoders of those frames scrub the error text they read
+//! with the credential their adapter attached (`scrub_oauth_secrets`, the same matcher). No provider reaches the network
+//! but through these seams: the only implementations of them outside tests are this guard and the links that wrap
+//! themselves in it (`every_seam_outside_tests_is_guarded`).
 
 use std::sync::Arc;
 
@@ -35,12 +49,11 @@ use crate::oauth::carried::Matcher;
 /// A seam whose every exchange is redacted of the credentials it carried.
 pub struct Guarded<T>(pub T);
 
-/// A body redacted as it streams: a form cut by a chunk boundary is held until the chunk that finishes it, and only a
-/// tail that is the beginning of a form waits at all.
+/// A body redacted as it streams: a credential cut by a chunk boundary is held until the chunk that finishes it, and only
+/// an end that may still become one waits at all.
 struct RedactedBody {
     inner: Box<dyn BodyStream>,
-    matcher: Arc<Matcher>,
-    held: Vec<u8>,
+    stream: carried::Stream,
     ended: bool,
     fault: Option<TransportFault>,
 }
@@ -54,9 +67,7 @@ impl BodyStream for RedactedBody {
             }
             match self.inner.next().await {
                 Some(Ok(chunk)) => {
-                    self.held.extend_from_slice(&chunk);
-                    let (out, from) = self.matcher.redact(&self.held, false);
-                    self.held.drain(..from);
+                    let out = self.stream.push(&chunk);
                     if !out.is_empty() {
                         return Some(Ok(Bytes::from(out)));
                     }
@@ -65,8 +76,7 @@ impl BodyStream for RedactedBody {
                     // The body is over (cleanly or by a fault): what was held is whole text now.
                     self.ended = true;
                     self.fault = end.and_then(Result::err);
-                    let (out, _) = self.matcher.redact(&self.held, true);
-                    self.held.clear();
+                    let out = self.stream.finish();
                     if !out.is_empty() {
                         return Some(Ok(Bytes::from(out)));
                     }
@@ -101,15 +111,19 @@ fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>) -> HttpRes
     if (response.is_success() && !event_stream) || framed_binary(&response.headers) {
         return response;
     }
-    response.body = Box::new(RedactedBody { inner: response.body, matcher: matcher.clone(), held: Vec::new(), ended: false, fault: None });
+    response.body = Box::new(RedactedBody { inner: response.body, stream: carried::Stream::new(matcher.clone()), ended: false, fault: None });
     response
+}
+
+/// The matcher of the credentials `request` carries.
+fn matcher_of(request: &WireRequest) -> Arc<Matcher> {
+    Arc::new(Matcher::new(&carried::of_request(request)))
 }
 
 #[async_trait]
 impl<T: HttpSend> HttpSend for Guarded<T> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-        carried::note_request(&request);
-        let matcher = carried::matcher();
+        let matcher = matcher_of(&request);
         match self.0.send(request, exchange).await {
             Ok(response) => Ok(clean_response(response, &matcher)),
             Err(error) => Err(matcher.redact_error(error)),
@@ -120,8 +134,7 @@ impl<T: HttpSend> HttpSend for Guarded<T> {
 #[async_trait]
 impl<T: BidiOpen> BidiOpen for Guarded<T> {
     async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
-        carried::note_request(&request);
-        let matcher = carried::matcher();
+        let matcher = matcher_of(&request);
         match self.0.open(request, first, exchange).await {
             Ok((response, sink)) => Ok((clean_response(response, &matcher), sink)),
             Err(error) => Err(matcher.redact_error(error)),
@@ -193,8 +206,7 @@ impl<T: WsDial> WsDial for Guarded<T> {
     async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let headers: Vec<(String, String)> =
             request.headers().iter().filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))).collect();
-        carried::note_upgrade(&request.uri().to_string(), &headers);
-        let matcher = carried::matcher();
+        let matcher = Arc::new(Matcher::new(&carried::of_upgrade(&request.uri().to_string(), &headers)));
         match self.0.dial(request).await {
             Ok((socket, mut response)) => {
                 clean_upgrade(&mut response, &matcher);
@@ -364,5 +376,150 @@ mod tests {
         let Err(ConnectError::Rejected(response)) = Guarded(Rejecting).dial(request).await else { panic!("the upgrade is refused") };
         assert_eq!(response.headers()["x-echo"], "token [REDACTED]");
         assert_eq!(response.body().as_deref(), Some(b"the credential [REDACTED] was refused".as_slice()));
+    }
+
+    /// A bearer shorter than eight bytes is redacted from an echoed header (item 2).
+    #[tokio::test]
+    async fn a_short_bearer_is_redacted_from_an_echoed_header() {
+        let link = Guarded(Echo { chunks: vec![b"bad Bearer abc1234"], location: "https://example.test/?token=abc1234", fail_with: None, content_type: "text/plain", status: 401 });
+        let response = link.send(request("https://example.test/v1", &[("authorization", "Bearer abc1234")]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(response.headers[0].1, "https://example.test/?token=[REDACTED]");
+        assert_eq!(body_of(response).await, "bad Bearer [REDACTED]");
+    }
+
+    /// A field named `code` in an ordinary request body is no credential, and what one exchange carried is nothing to
+    /// another (item 3): a later refusal that repeats the tool result arrives whole.
+    #[tokio::test]
+    async fn an_ordinary_body_field_named_code_is_never_redacted() {
+        let link = Guarded(Echo { chunks: vec![br#"{"error":"print(1) failed"}"#], location: "", fail_with: None, content_type: "application/json", status: 400 });
+        let with_code = WireRequest { body: br#"{"input":[{"type":"function_call_output","output":{"code":"print(1)"}}]}"#.to_vec(), ..request("https://example.test/v1", &[]) };
+        assert_eq!(body_of(link.send(with_code, TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
+        assert_eq!(body_of(link.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
+    }
+
+    /// A compressed refusal is decoded below the guard and redacted after: the real link, over TLS, with a gzip body.
+    #[tokio::test]
+    async fn a_compressed_refusal_is_redacted_after_it_is_decoded() {
+        use std::io::Write as _;
+
+        use crate::transport::loopback::Loopback;
+        use crate::transport::loopback::Script;
+
+        let loopback = Loopback::start(&["example.test"]).await;
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzip.write_all(br#"{"error":"the credential gzip-guard-key/5e71 was refused"}"#).unwrap();
+        let mut script = Script::default();
+        script.http.push_back(serde_json::json!({
+            "status": 401,
+            "headers": { "content-type": "application/json", "content-encoding": "gzip" },
+            "bodyBase64": base64::engine::general_purpose::STANDARD.encode(gzip.finish().unwrap()),
+        }));
+        loopback.begin(script);
+        let link = crate::transport::link::ReqwestLink::pinned(&mixdog_core_api::domain::keepalive::KeepaliveSchedule::SPEC, loopback.addr, loopback.tls.clone());
+        let sent = request("https://example.test/v1", &[("authorization", "Bearer gzip-guard-key/5e71")]);
+        let response = link.send(sent, TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(response).await, r#"{"error":"the credential [REDACTED] was refused"}"#);
+    }
+
+    /// The modules a test-gated module declaration (`#[cfg(test)] mod x;`, `#[cfg(any(test, …))]`) brings in: their files and
+    /// everything under their directories.
+    fn test_gated(src: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut gated = Vec::new();
+        let mut pending: Vec<std::path::PathBuf> = vec![src.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                let stem = path.file_stem().unwrap().to_str().unwrap().to_owned();
+                let base = if ["mod", "lib", "main"].contains(&stem.as_str()) { dir.clone() } else { dir.join(&stem) };
+                let (mut test_only, mut path_attr) = (false, None::<String>);
+                for line in text.lines().map(str::trim) {
+                    // An attribute may follow another item on its line (`pub use x;#[cfg(test)]`).
+                    if let Some(at) = line.find("#[cfg(")
+                        && line.ends_with(")]")
+                    {
+                        test_only |= line[at..].contains("test");
+                        continue;
+                    }
+                    if let Some(rest) = line.strip_prefix("#[path = \"") {
+                        path_attr = rest.strip_suffix("\"]").map(str::to_owned);
+                        continue;
+                    }
+                    if line.starts_with("#[") {
+                        continue;
+                    }
+                    let declared = line.trim_start_matches("pub(crate) ").trim_start_matches("pub(super) ").trim_start_matches("pub ");
+                    if test_only && let Some(name) = declared.strip_prefix("mod ").and_then(|rest| rest.strip_suffix(';')) {
+                        match &path_attr {
+                            Some(file) => gated.push(dir.join(file)),
+                            None => {
+                                gated.push(base.join(format!("{name}.rs")));
+                                gated.push(base.join(name));
+                            }
+                        }
+                    }
+                    test_only = false;
+                    path_attr = None;
+                }
+            }
+        }
+        gated
+    }
+
+    /// No provider reaches the network but through the guard: outside tests, the transport seams are implemented by the
+    /// guard and by the links that wrap themselves in it, and by the gateway's link, which adds headers before the link
+    /// it wraps (one of these). A new implementation fails here until it is guarded and listed.
+    #[test]
+    fn every_seam_outside_tests_is_guarded() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let gated = test_gated(&src);
+        let mut found = Vec::new();
+        let mut pending = vec![src.clone()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if gated.iter().any(|gate| path.starts_with(gate)) {
+                    continue;
+                }
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                if text.lines().any(|line| line.trim() == "#![cfg(test)]") {
+                    continue;
+                }
+                let file = path.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+                for line in text.lines().filter(|line| line.starts_with("impl")) {
+                    if [" HttpSend for ", " BidiOpen for ", " WsDial for "].iter().any(|seam| line.contains(seam)) {
+                        found.push(format!("{file}: {}", line.trim_end_matches(" {")));
+                    }
+                }
+            }
+        }
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "registry/gateway.rs: impl HttpSend for GatewayHttp",
+                "transport/guard.rs: impl<T: BidiOpen> BidiOpen for Guarded<T>",
+                "transport/guard.rs: impl<T: HttpSend> HttpSend for Guarded<T>",
+                "transport/guard.rs: impl<T: WsDial> WsDial for Guarded<T>",
+                "transport/link.rs: impl BidiOpen for Bare<'_, ReqwestLink>",
+                "transport/link.rs: impl BidiOpen for ReqwestLink",
+                "transport/link.rs: impl HttpSend for Bare<'_, ReqwestLink>",
+                "transport/link.rs: impl HttpSend for ReqwestLink",
+                "transport/link.rs: impl WsDial for Bare<'_, KeepaliveDialer>",
+                "transport/link.rs: impl WsDial for KeepaliveDialer",
+            ]
+        );
+        // Each public link hands its exchange to the guard, and the unguarded one is private to its module.
+        let link = std::fs::read_to_string(src.join("transport/link.rs")).unwrap();
+        assert_eq!(link.matches("Guarded(Bare(self))").count(), 3);
+        assert!(link.contains("\nstruct Bare<"));
     }
 }

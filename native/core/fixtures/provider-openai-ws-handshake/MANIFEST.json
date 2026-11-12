@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
+  "command": "node benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch",
   "compare": "mixdog-ai transport/ws.rs connect (:40 handshake failure): serve `input.refusal` (status, header pairs, body chunks) and compare the error whole (message, status, httpStatus, headers, code, retryAfterMs, resetAt, httpBody) and the ordered `events` (dial, upgrade request with every header, the refusal).",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 18229,
+      "bytes": 22824,
       "path": "cases.json",
-      "sha256": "1a96302ff51d432bbef827317ff4d21db75eb809988ae96565fd68cb0c7dc0dc"
+      "sha256": "934dbc323715bd7e8ddc68cd72db0e1a925330490530bb4806b50ee1cffe4cf2"
     }
   ],
   "inputs": [
@@ -68,6 +68,10 @@
     {
       "id": "unexpected-response-redacts-the-credential-in-each-spelling-it-echoes",
       "level": "wire"
+    },
+    {
+      "id": "unexpected-response-redacts-a-short-credential-as-a-whole-token",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -77,7 +81,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9140,
+    "files": 9142,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -117,23 +121,33 @@
           "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
         ],
         "sha256": "40ed377b904db9019af7cb040c9c5a3a0d5858a90d683f30ae5424b75df7b825"
+      },
+      {
+        "file": "node-fix-scrub-canonical-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs"
+        ],
+        "sha256": "9eb700733f801f3ed280e3c86f8c2f799bead0b5df9023c8a70f074c52acf6a1"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 18
+      "filesDifferingFromCommit": 20
     },
-    "srcSha256": "6bb4e47e91cd66bec2a3bc0cf1bfee6484806e47146f75a672a727cef04843ef",
+    "srcSha256": "6b10a4dd2eea980237299408a76c8a22da09508fb397793a0e33b1eb370ac91d",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs",
-  "recorderSha256": "c91c7d67b380184aa587d570dc87e5dbb7b02eb074d4ff6e4f2bff362d5a1ec6",
+  "recorderSha256": "f6670610a37254cf01fe7376d86e4c691134ac3b650e94f04cb3ba21945b9faf",
   "replay": "Rust entry (pub, on o1): mixdog_ai::transport::ws::connect (transport/ws.rs:237) and ConnectError (transport/ws.rs:70); the adapter above it is OpenAiAdapter (openai/adapter.rs:308).",
   "set": "provider-openai-ws-handshake",
-  "totalBytes": 18229,
+  "totalBytes": 22824,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

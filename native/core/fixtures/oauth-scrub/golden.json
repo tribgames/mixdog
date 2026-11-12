@@ -451,9 +451,9 @@
         "abc",
         "abc"
       ],
-      "scrubbed": "{\"a\":\"x[REDACTED]x\"}",
-      "muse": "{\"a\":\"x[REDACTED]x\"}",
-      "summary": "{\"a\":\"x[REDACTED]x\"}"
+      "scrubbed": "{\"a\":\"xabcx\"}",
+      "muse": "{\"a\":\"xabcx\"}",
+      "summary": "{\"a\":\"xabcx\"}"
     },
     {
       "text": "Bearer ",
@@ -526,6 +526,33 @@
       "scrubbed": "token=[REDACTED]  \n [REDACTED]",
       "muse": "token=[REDACTED]  \n [REDACTED]",
       "summary": "token=[REDACTED] [REDACTED]"
+    },
+    {
+      "text": "refused long%252Fkey%252Bvalue and long&#47;key&#x2B;value",
+      "secrets": [
+        "long/key+value"
+      ],
+      "scrubbed": "refused [REDACTED] and [REDACTED]",
+      "muse": "refused [REDACTED] and [REDACTED]",
+      "summary": "refused [REDACTED] and [REDACTED]"
+    },
+    {
+      "text": "{\"msg\":\"long\\u002fkey+value\"}",
+      "secrets": [
+        "long/key+value"
+      ],
+      "scrubbed": "{\"msg\":\"[REDACTED]\"}",
+      "muse": "{\"msg\":\"[REDACTED]\"}",
+      "summary": "{\"msg\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "Bearer-less abc1234, xabc1234 and abc12345",
+      "secrets": [
+        "abc1234"
+      ],
+      "scrubbed": "Bearer-less [REDACTED], xabc1234 and abc12345",
+      "muse": "Bearer-less [REDACTED], xabc1234 and abc12345",
+      "summary": "Bearer-less [REDACTED], xabc1234 and abc12345"
     }
   ]
 }

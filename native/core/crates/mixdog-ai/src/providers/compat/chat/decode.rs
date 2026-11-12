@@ -501,8 +501,6 @@ impl ChatDecoder {
         if self.profile.chat.in_band_invalid_request_retryable && err.kind == ErrorKind::InvalidRequest {
             err.kind = ErrorKind::Transient;
         }
-        // An in-band error repeats the key the request carried as often as a refusal does.
-        err.message = crate::oauth::carried::redact(&err.message);
         self.error(err)
     }
 
