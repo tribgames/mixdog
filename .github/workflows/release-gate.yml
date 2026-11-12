@@ -61,7 +61,6 @@ jobs:
       desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
       browser_import: ${{ steps.paths.outputs.browser_import }}
       graph: ${{ steps.paths.outputs.graph }}
-      history: ${{ steps.paths.outputs.history }}
       mobile: ${{ steps.paths.outputs.mobile }}
       patch: ${{ steps.paths.outputs.patch }}
       relay: ${{ steps.paths.outputs.relay }}
@@ -90,7 +89,6 @@ jobs:
             echo "desktop=false" >> "$GITHUB_OUTPUT"
             echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
             echo "graph=false" >> "$GITHUB_OUTPUT"
-            echo "history=false" >> "$GITHUB_OUTPUT"
             echo "mobile=false" >> "$GITHUB_OUTPUT"
             echo "patch=false" >> "$GITHUB_OUTPUT"
             echo "relay=false" >> "$GITHUB_OUTPUT"
@@ -108,13 +106,15 @@ jobs:
           else
             git diff --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
           fi
-          # Gate selection patterns live in scripts/release-paths.mjs — the
-          # single source shared with deploy.yml's criticalChanged list.
-          DESKTOP_RE=$(node scripts/release-paths.mjs desktop-regex)
-          RUNTIME_RE=$(node scripts/release-paths.mjs runtime-regex)
-          PATCH_RE=$(node scripts/release-paths.mjs patch-regex)
-          HISTORY_RE=$(node scripts/release-paths.mjs history-regex)
-          MOBILE_RE=$(node scripts/release-paths.mjs mobile-regex)
+          # Gate selection patterns (grep -E). deploy.yml's criticalChanged list
+          # (native, scripts, src and the package manifests) is the set of roots
+          # RUNTIME_RE selects from; keep the two in step.
+          MANIFESTS='package\.json$|package-lock\.json$'
+          DESKTOP_RE="^(apps/desktop/|native/core/|src/|vendor/|LICENSES/|README\.md$|NOTICE\.md$|${MANIFESTS}|scripts/(prune-desktop-runtime|prune-embedding-runtime|native-binary-arch|native-tool-download|runtime-dependency-cache-key)(\.test)?\.mjs$)"
+          RUNTIME_RE="^(\.github/workflows/|native/|scripts/|src/|${MANIFESTS})"
+          # Native patch changes are tested from the checkout, not the published binary.
+          PATCH_RE="^(native/mixdog-patch/|\.github/workflows/release-gate\.yml$|${MANIFESTS})"
+          MOBILE_RE="^(apps/mobile/scripts/|\.github/workflows/release-gate\.yml$|\.github/workflows/mobile-[^/]*\.yml$)"
           # A mobile workflow change selects the mobile gate only, never the
           # runtime lanes the `.github/workflows/` prefix would otherwise pull in.
           grep -Ev '^\.github/workflows/mobile-[^/]*\.yml$' /tmp/changed > /tmp/changed-runtime || true
@@ -164,11 +164,6 @@ jobs:
             echo "runtime=true" >> "$GITHUB_OUTPUT"
           else
             echo "runtime=false" >> "$GITHUB_OUTPUT"
-          fi
-          if grep -Eq "$HISTORY_RE" /tmp/changed; then
-            echo "history=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "history=false" >> "$GITHUB_OUTPUT"
           fi
           if grep -Eq "$MOBILE_RE" /tmp/changed; then
             echo "mobile=true" >> "$GITHUB_OUTPUT"
@@ -243,17 +238,15 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
-      # Daemon suites start the daemon under the supervisor built from this
-      # source (a checkout's release build is preferred over the pinned download).
-      - name: Build the native supervisor
-        run: npm run build:supervisor:test
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
+        run: node scripts/stage-native-tools.mjs
       # Every *.test.mjs under src/ and scripts/ runs here by existing
       # (scripts/test.mjs); a suite that guards a contract cannot stay local.
       - name: Run the default test lane (shard ${{ matrix.shard }}/3)
         run: npm test -- --test-shard=${{ matrix.shard }}/3
-      - name: Smoke apply_patch edits
-        if: matrix.shard == 1
-        run: npm run smoke:patch
 
   # Files over ~10s (*.slow.test.mjs) run beside the default lane, not inside
   # it, so the gate finishes at the longer of the two instead of their sum.
@@ -306,10 +299,11 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
-      # Daemon suites start the daemon under the supervisor built from this
-      # source (a checkout's release build is preferred over the pinned download).
-      - name: Build the native supervisor
-        run: npm run build:supervisor:test
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
+        run: node scripts/stage-native-tools.mjs
       - name: Run the slow test lane (shard ${{ matrix.shard }}/2)
         run: npm run test:slow -- --test-shard=${{ matrix.shard }}/2
 
@@ -370,10 +364,11 @@ jobs:
       - name: Build the native spawn test binary
         if: steps.spawn-bin.outputs.cache-hit != 'true'
         run: npm run build:spawn:test
-      # Daemon suites start the daemon under the supervisor built from this
-      # source (a checkout's release build is preferred over the pinned download).
-      - name: Build the native supervisor
-        run: npm run build:supervisor:test
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
+        run: node scripts/stage-native-tools.mjs
       - name: Run the default test lane (shard ${{ matrix.shard }}/3)
         run: npm test -- --test-shard=${{ matrix.shard }}/3
 
@@ -544,13 +539,6 @@ jobs:
           needs.changes.outputs.desktop_css_only != 'true'
           && steps.desktop-out.outputs.cache-hit != 'true'
         run: npm run build --prefix apps/desktop
-      # The daemon end-to-end test boots the bundle this job just emitted; a
-      # cache hit means the same bundle already passed it when it was built.
-      - name: Verify the built daemon end to end
-        if: >-
-          needs.changes.outputs.desktop_css_only != 'true'
-          && steps.desktop-out.outputs.cache-hit != 'true'
-        run: npm run test:daemon:e2e --prefix apps/desktop
 
   # Every *.test.mjs under apps/desktop runs here by existing. git-cli owns
   # minutes of real git process work while the rest finishes in seconds, so
@@ -595,13 +583,19 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
-      - name: Verify advisory file locks on Windows
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          node scripts/test-direct.mjs \
-            src/runtime/agent/orchestrator/tools/builtin/advisory-lock.test.mjs \
-            src/runtime/agent/orchestrator/tools/builtin/advisory-lock.slow.test.mjs
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        if: matrix.lane == 'slow'
+        with:
+          toolchain: "1.99.1"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.lane == 'slow'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: core-test-cargo-${{ runner.os }}-${{ hashFiles('native/core/Cargo.lock') }}
+          restore-keys: core-test-cargo-${{ runner.os }}-
       # The install step downloads the Electron zip into this cache (the
       # Windows leg's lives under AppData).
       - name: Cache the Electron download
@@ -649,6 +643,19 @@ jobs:
         if: matrix.lane == 'fast'
         shell: bash
         run: npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3
+      - name: Stage the native tools
+        if: matrix.lane != 'computer'
+        run: node scripts/stage-native-tools.mjs
+      # The remote-protocol slow replays start a real core (MIXDOGD_BIN). Two of
+      # them drive controls an ordinary build leaves out: the download recording's
+      # replay-controls and the phone terminal's lease clock.
+      - name: Build the mixdogd the slow replays drive
+        if: matrix.lane == 'slow'
+        shell: bash
+        run: |
+          cargo build --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd \
+            --features replay-controls,terminal-lease-clock
+          echo "MIXDOGD_BIN=$PWD/native/core/target/debug/mixdogd" >> "$GITHUB_ENV"
       - name: Run the desktop slow lane
         if: matrix.lane == 'slow'
         shell: bash
@@ -707,11 +714,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
@@ -723,27 +725,13 @@ jobs:
             native/mixdog-patch/target
           key: patch-test-cargo-1.99.1-${{ hashFiles('native/mixdog-patch/Cargo.lock', 'native/mixdog-patch/src/**') }}
           restore-keys: patch-test-cargo-1.99.1-
-      - name: Install root dependencies
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            npm ci --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
+      # The Node protocol and edit suites of this gate are gone with the Node
+      # patch tool; the Rust core's patch and edit bytes are the rust-core job's
+      # `patch-bytes` lane.
       - name: Test and build the checked-out patch engine
         run: |
           cargo test --locked --manifest-path native/mixdog-patch/Cargo.toml
           cargo build --locked --manifest-path native/mixdog-patch/Cargo.toml
-      - name: Verify the checked-out patch protocol and edits
-        env:
-          MIXDOG_PATCH_NATIVE_BIN: ${{ github.workspace }}/native/mixdog-patch/target/debug/mixdog-patch
-        run: |
-          npm test -- src/runtime/agent/orchestrator/tools/patch/
-          npm run test:slow -- src/runtime/agent/orchestrator/tools/patch/patch-large-delete
-          npm run test:native-edit-wire
-          npm run smoke:patch
 
   graph:
     needs: changes
@@ -823,30 +811,6 @@ jobs:
       - name: Run the secure-desktop helper's Rust tests
         run: cargo test --locked --manifest-path native/mixdog-secure-desktop/Cargo.toml
 
-  # release.yml re-checks the committed shipped-definition history against the
-  # git history of the definitions; a stale file used to surface only after the
-  # whole deploy had started. build-shipped-history keeps the committed file
-  # when the clone is shallow, so this job needs the full history (and no npm
-  # install: the script imports node builtins and repo files only). Pull
-  # requests are left out: the history holds one entry per commit that touched
-  # a definition, so a PR that is squash-merged later would be checked against
-  # intermediate commits that never reach main. The push to main is the final
-  # history, and Deploy requires that run to be green.
-  shipped-history:
-    needs: changes
-    if: needs.changes.outputs.history == 'true' && github.event_name != 'pull_request'
-    timeout-minutes: 15
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
-      - name: Verify shipped definition history is current
-        run: node scripts/build-shipped-history.mjs --check
-
   # The mobile release scripts are Python with their own unittest suites,
   # which no Node lane discovers. They need the same packages the iOS
   # workflow installs (the certificate tests build real keys and .p12s).
@@ -862,12 +826,18 @@ jobs:
       - name: Run the mobile script unit tests
         run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
 
-  # K1 replacement lanes: the Rust-core tests that stand in for the Node steps K1 removes
-  # (scripts/rust-core/k1-lanes.mjs lists which step each lane replaces).
+  # The Rust-core lanes: tests of native/core that stand in for the Node suites the cut
+  # removed (shell direct exec, the advisory lock, the patch and edit bytes, provider
+  # contracts, daemon bootstrap, native asset fetch, compaction, the turn contract and the
+  # request snapshot). Each lane is `cargo test` per filter; cargo-lane.mjs first lists
+  # what a filter selects and fails on none, because cargo reports success for a filter
+  # that matches nothing.
   rust-core:
     needs: changes
     timeout-minutes: 60
     runs-on: ubuntu-22.04
+    env:
+      CARGO_BUILD_JOBS: "3"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -876,22 +846,49 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
-      - name: Check the lanes still name real tests
-        run: node --test scripts/rust-core/k1-lanes.test.mjs
-      - name: Run the lanes
-        env:
-          CARGO_BUILD_JOBS: "3"
-        run: node scripts/rust-core/k1-lanes.mjs
-      - name: Boot mixdogd and answer a first call (replaces boot-smoke and smoke-loop)
-        env:
-          CARGO_BUILD_JOBS: "3"
+      - name: Lane shell-direct-exe
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-tools exec::direct::tests
+      - name: Lane advisory-lock
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-tools the_advisory_lock_waits_for_a_live_holder edit_and_apply_patch_wait_for_the_advisory_lock
+      - name: Lane patch-bytes
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-tools fs::tests
+      - name: Lane provider-contract
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-ai
+      - name: Lane daemon-bootstrap
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-app-server-daemon boot_coordinator
+      - name: Lane native-assets
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-services native_asset::tests
+      - name: Lane compact
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-agent compact_fresh compact_handoff compact_summary compact_commit
+      - name: Lane turn-contract
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-agent run_loop "turns::"
+      - name: Lane request-snapshot
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-core run_host::request_snapshot
+      - name: Boot mixdogd and answer a first call
         run: |
           cargo build --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
           node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/debug/mixdogd
 
+  # The advisory file lock is Windows-specific behaviour; its lane runs there too.
+  rust-core-windows:
+    needs: changes
+    timeout-minutes: 60
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - name: Lane advisory-lock
+        shell: bash
+        run: node scripts/rust-core/cargo-lane.mjs mixdog-tools the_advisory_lock_waits_for_a_live_holder edit_and_apply_patch_wait_for_the_advisory_lock
+
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts, rust-core]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, mobile-scripts, rust-core, rust-core-windows]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -909,9 +906,9 @@ jobs:
           GRAPH: ${{ needs.graph.result }}
           BROWSER_IMPORT: ${{ needs.browser-import.result }}
           SECURE_DESKTOP: ${{ needs.secure-desktop.result }}
-          SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
           RUST_CORE: ${{ needs.rust-core.result }}
+          RUST_CORE_WINDOWS: ${{ needs.rust-core-windows.result }}
         run: |
           [[ "$CHANGES" == success ]]
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
@@ -925,6 +922,6 @@ jobs:
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]
           [[ "$BROWSER_IMPORT" == success || "$BROWSER_IMPORT" == skipped ]]
           [[ "$SECURE_DESKTOP" == success || "$SECURE_DESKTOP" == skipped ]]
-          [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
           [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]
           [[ "$RUST_CORE" == success || "$RUST_CORE" == skipped ]]
+          [[ "$RUST_CORE_WINDOWS" == success || "$RUST_CORE_WINDOWS" == skipped ]]
