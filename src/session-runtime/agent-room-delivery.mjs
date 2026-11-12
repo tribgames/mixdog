@@ -17,6 +17,7 @@ import {
   roomRowMessage,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { redactSensitiveText } from '../runtime/agent/orchestrator/session/sensitive-values.mjs';
+import { SAVE_OUTCOME_DROPPED } from '../runtime/agent/orchestrator/session/store/live-state.mjs';
 import { reactInSession } from '../runtime/agent/orchestrator/session/message-reactions.mjs';
 import { artifactRecords } from '../runtime/shared/handoff-artifacts.mjs';
 import { collectTurnArtifacts, sessionRoots, turnSlice } from './handoff-attachments.mjs';
@@ -114,6 +115,13 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
     return run;
   }
 
+  /** `saveSession`, failing when the store dropped the save (its generation fence: the log was
+   *  detached or closed since this copy was loaded): the rows were not written, and the caller
+   *  is told as it is for a log that is not available. */
+  async function saved(session) {
+    if ((await saveSession(session)) === SAVE_OUTCOME_DROPPED) throw new Error(`session ${session.id} is not available`);
+  }
+
   /** Append the normalized rows `build(session)` gives to the stored log
    *  `sessionId`; runs inside `serialized`, so no other post overlaps it. */
   async function commit(sessionId, build) {
@@ -133,7 +141,7 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
     if (!fresh.length) return { added: 0, rows: kept };
     session.messages.push(...fresh);
     session.updatedAt = Date.now();
-    await saveSession(session);
+    await saved(session);
     for (const message of fresh) {
       const { text, tone, room, messageId, attachments, images } = roomRowItem(message);
       try {
@@ -173,7 +181,7 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
       if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
       const result = reactInSession(session, { ...change, othersKeep: true });
       if (!result.changed) return result;
-      await saveSession(session);
+      await saved(session);
       try {
         live()?.react?.(sessionId, result.messageId, result.reactions);
       } catch (error) {
