@@ -190,8 +190,9 @@ impl SessionDirectory {
         let (count, compacted) = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
             Ok(done) => done,
             Err(Carry { error, appended: false }) => {
-                // A mark left standing stops every reference query of the heir until the process restarts, so a failed
-                // removal is tried again (a failed write is not kept: the next one is a write of its own).
+                // The "being copied" mark is the core's own carry mark (Node's inheritance has no unmark operation). One left
+                // standing stops every reference query of the heir until the process restarts, so a failed removal is heard
+                // and tried again (a failed write is not kept: the next one is a write of its own).
                 for _ in 0..UNMARK_TRIES {
                     if patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT], "inheritance-unmark").await.is_ok() {
                         break;
