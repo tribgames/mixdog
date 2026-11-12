@@ -2369,19 +2369,37 @@ impl FileService for StatFails {
 
 /// Newest-first `glob`: files whose stat failed cannot be ordered by time, so they follow every
 /// stated file (one dated at the epoch included) in walk order, as Node's mtime top-K keeps them
-/// (`search-glob-tool.mjs` `_createGlobMtimeTopK`, `serve_search/mtime.rs`).
+/// (`search-glob-tool.mjs` `_createGlobMtimeTopK`, `serve_search/mtime.rs`; recording `tools-fs-glob-order`).
 #[tokio::test]
 async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-glob-order/golden.json")).unwrap();
+    let case = &doc["cases"][0];
+    assert_eq!(case["case"], "glob orders failed-stat matches last in walk order");
     let (_dir, root) = small_dir();
-    for name in ["a.txt", "C.txt", "b.txt", "d.txt"] {
+    let mut failed = Vec::new();
+    for entry in case["entries"].as_array().unwrap() {
+        let name = entry["path"].as_str().unwrap();
         std::fs::write(root.as_path().join(name), "x\n").unwrap();
+        set_mtime(&root.as_path().join(name), std::time::UNIX_EPOCH + std::time::Duration::from_millis(entry["mtimeMs"].as_u64().unwrap()));
+        if entry["failed"] == true {
+            // StatFails holds its names for the program's life.
+            failed.push(&*Box::leak(name.to_owned().into_boxed_str()));
+        }
     }
-    std::fs::OpenOptions::new().write(true).open(root.as_path().join("b.txt")).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
-    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"], &[], Default::default())), Vec::new()).await;
-    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt" })).await);
+    let failed: &'static [&'static str] = Box::leak(failed.into_boxed_slice());
+    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), failed, &[], Default::default())), Vec::new()).await;
+    let names = |value: &JsonValue| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    // The whole list, then a page of the recorded bound less one (Node's window holds the page and one more).
+    let all = &case["bounded"][0];
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": 0 })).await);
     assert!(!is_error, "{text}");
-    // The walk visits names in byte order: `C.txt` before `a.txt`.
-    assert_eq!(text.lines().collect::<Vec<_>>(), ["d.txt", "b.txt", "C.txt", "a.txt"]);
+    assert_eq!(text.lines().map(str::to_owned).collect::<Vec<_>>(), names(&all["values"]));
+    let bounded = &case["bounded"][1];
+    let page = bounded["bound"].as_u64().unwrap() - 1;
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": page })).await);
+    assert!(!is_error, "{text}");
+    let want = names(&bounded["values"]);
+    assert_eq!(text.lines().take(page as usize).map(str::to_owned).collect::<Vec<_>>(), want[..page as usize]);
 }
 
 /// A glob-shaped `list` path bounds each candidate's stat by 1 000 ms, 64 at a time (Node `collectFindMatches`,
@@ -2448,6 +2466,29 @@ async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
     let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None, None).await.unwrap();
     assert_eq!(walked.entries.len(), 1);
+}
+
+/// Node's `rootScanIgnoreGlobs` answers (recording `tools-fs-glob-order`), each root put under the host's filesystem root.
+#[test]
+fn root_scan_prunes_are_nodes_root_scan_ignore_globs() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-glob-order/golden.json")).unwrap();
+    let case = &doc["cases"][1];
+    assert_eq!(case["case"], "root-anchored kernel-tree prunes apply only to a posix filesystem-root scan");
+    let fs_root = std::path::PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" });
+    for answer in case["answers"].as_array().unwrap() {
+        let given = answer["root"].as_str().unwrap();
+        // No call reaches the scan without a root: a blank `path` is the cwd.
+        if given.is_empty() {
+            continue;
+        }
+        let root = AbsPath::new(given.split('/').filter(|s| !s.is_empty()).fold(fs_root.clone(), |p, s| p.join(s))).unwrap();
+        let got: Vec<String> = super::search::root_scan_prunes(&root, answer["platform"] == "linux")
+            .iter()
+            .map(|p| super::common::fwd(p.as_path().strip_prefix(root.as_path()).unwrap()))
+            .collect();
+        let want: Vec<String> = answer["globs"].as_array().unwrap().iter().map(|g| g.as_str().unwrap().trim_start_matches('!').trim_end_matches("/**").to_owned()).collect();
+        assert_eq!(got, want, "{answer}");
+    }
 }
 
 /// Past 50 000 files a bounded glob still ranks and counts every match (Node's windowed pass
