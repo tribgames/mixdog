@@ -104,7 +104,7 @@ pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Rep
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 4, "the recorded cases");
+    assert_eq!(set.cases.len(), 5, "the recorded cases");
     for case in &set.cases {
         replay(case).await;
     }

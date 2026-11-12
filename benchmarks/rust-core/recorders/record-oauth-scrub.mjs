@@ -5,12 +5,17 @@
 // keys, key order, number source text, nested JSON in strings), the text path (JSON-like and
 // form fields, Bearer, `sk-ant-`, JWT) and the given secret values.
 //
-//   node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <dir with node_modules> [--out <dir>]
+// The given values are found through the canonical view of node-patches/node-fix-scrub-canonical-credential.patch (whatever the
+// text's escapes, a short value as a whole token): the golden is recorded from b6f10295a with the four scrub patches applied.
+//
+//   node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <export of b6f10295a with the patches applied> --patch <patch>[,<patch>…] [--out <dir>]
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, importFrom, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const cli = parseArgs();
 const tree = resolveTree(cli);
+const identity = nodeTreeIdentity(cli, tree, NODE_COMMIT);
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'oauth-scrub');
 const { scrubOAuthSecrets, oauthBodySummary } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs');
 const { scrubMuseSecrets } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/muse-code-oauth-tokens.mjs');
@@ -90,13 +95,17 @@ const cases = [
   ['x'.repeat(600), []],
   ['{"error":"bad   request","detail":"line1\\nline2"}', []],
   ['token=abc  \n def', ['def']],
+  // An encoded value, found through the canonical view; a short value only as a whole token.
+  ['refused long%252Fkey%252Bvalue and long&#47;key&#x2B;value', ['long/key+value']],
+  ['{"msg":"long\\u002fkey+value"}', ['long/key+value']],
+  ['Bearer-less abc1234, xabc1234 and abc12345', ['abc1234']],
 ];
 const out = cases.map(([text, secrets]) => ({ text, secrets, scrubbed: scrubOAuthSecrets(text, secrets), muse: scrubMuseSecrets(text, secrets), summary: oauthBodySummary(text, secrets) }));
 writeJson(join(outDir, 'golden.json'), { domain: 'oauth-scrub', recorder: 'benchmarks/rust-core/recorders/record-oauth-scrub.mjs', cases: out });
 writeSetManifest(outDir, {
   set: 'oauth-scrub',
   recorder: 'benchmarks/rust-core/recorders/record-oauth-scrub.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <tree>',
-  identityTree: tree,
+  command: `node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <export of ${NODE_COMMIT}${cli.get('patch') ? ` with ${cli.get('patch')} applied` : ''}>${cli.get('patch') ? ` --patch ${cli.get('patch')}` : ''}`,
+  identity,
 });
 console.log(`recorded ${out.length} cases, ${out.filter((c) => c.scrubbed !== c.text).length} changed`);

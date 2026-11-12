@@ -50,4 +50,13 @@ const refusalForms = {
   bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: `the credential ${spellings} was refused for this account` } })],
 };
 await rec.run('unexpected-response-redacts-the-credential-in-each-spelling-it-echoes', `${SRC}:28`, { refusal: refusalForms, accessToken: ODD_TOKEN }, () => handshake(refusalForms, { ...AUTH, access_token: ODD_TOKEN }));
+// A token shorter than eight bytes (review 1122y, item 2), echoed in the refusal's headers and body: redacted as a whole token, never as a part
+// of a longer word (node-patches/node-fix-scrub-canonical-credential.patch).
+const SHORT_TOKEN = 'abc1234';
+const refusalShort = {
+  status: 401,
+  headers: [['x-request-id', 'req_4'], ['www-authenticate', `Bearer ${SHORT_TOKEN}`], ['x-echo', `token ${SHORT_TOKEN} for my-${SHORT_TOKEN}x`]],
+  bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: `the credential ${SHORT_TOKEN} was refused (${SHORT_TOKEN}5 is another)` } })],
+};
+await rec.run('unexpected-response-redacts-a-short-credential-as-a-whole-token', `${SRC}:28`, { refusal: refusalShort, accessToken: SHORT_TOKEN }, () => handshake(refusalShort, { ...AUTH, access_token: SHORT_TOKEN }));
 await rec.finish();

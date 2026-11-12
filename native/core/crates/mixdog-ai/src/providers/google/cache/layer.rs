@@ -33,7 +33,6 @@ use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
 use serde_json::Value;
 
-use crate::oauth::carried;
 use crate::retry::StandardRetryDecider;
 use crate::retry::random_samples;
 
@@ -262,7 +261,7 @@ fn create_retry_policy(tuning: &Tuning) -> RetryPolicy {
 
 /// The line `_createGeminiCache` writes to stderr when the create fails (`gemini.mjs:596`).
 fn log_create_failure(message: &str) {
-    mixdog_rt::node_stderr!("[gemini] cachedContents.create error: {}", crate::oauth::carried::redact(message));
+    mixdog_rt::node_stderr!("[gemini] cachedContents.create error: {message}");
 }
 
 struct CreateJob {
@@ -375,12 +374,7 @@ impl CreateJob {
     async fn post_once(&self) -> Result<(String, u64), ProviderError> {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {
-            let mut rejected = response.read_all().await?;
-            // The refusal is classified with the credentials this request carried redacted, whichever link answered.
-            carried::note_request(&self.post);
-            if let Some(clean) = carried::matcher().redacted(&rejected.body) {
-                rejected.body = clean;
-            }
+            let rejected = response.read_all().await?;
             // `geminiRestError(res, text, 'Gemini cachedContents.create')`, whose message the create's catch writes to
             // stderr.
             let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(self.runtime.now_ms());
