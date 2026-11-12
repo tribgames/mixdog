@@ -1,0 +1,169 @@
+{
+  "note": "when the agent index write queue retries a write its store refuses (ms from the write, on a clock that moves only to the next armed timer)",
+  "t0": 1793923200000,
+  "scenarios": [
+    {
+      "name": "recovers_on_the_second_attempt",
+      "failures": 1,
+      "attempts": [
+        0,
+        50
+      ],
+      "delays": [
+        50
+      ],
+      "flush": {
+        "at": 50,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 0,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false
+    },
+    {
+      "name": "recovers_on_the_last_attempt",
+      "failures": 3,
+      "attempts": [
+        0,
+        50,
+        300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 0,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false
+    },
+    {
+      "name": "fails_after_four_attempts",
+      "failures": "always",
+      "attempts": [
+        0,
+        50,
+        300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "failureReports": 1,
+      "indexed": [],
+      "unpersisted": true
+    },
+    {
+      "name": "a_later_flush_retries_the_kept_batch",
+      "failures": 4,
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "later": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false
+    },
+    {
+      "name": "the_retry_timer_retries_the_kept_batch",
+      "failures": 4,
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "retriedAt": 16300,
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false
+    },
+    {
+      "name": "the_stop_drain_with_a_batch_still_failing",
+      "failures": "always",
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "laterDrain": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false
+    }
+  ]
+}

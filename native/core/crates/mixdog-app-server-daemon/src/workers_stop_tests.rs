@@ -45,16 +45,17 @@ impl ThreadState for GatedHeaders {
     }
 }
 
-/// Headers that refuse every patch.
-struct FailingHeaders;
+/// Headers that refuse their first N patches (Node's queue retries a refused persist, so one row write is four patches).
+struct RefusingHeaders(std::sync::atomic::AtomicU32);
 
 #[async_trait::async_trait]
-impl ThreadState for FailingHeaders {
+impl ThreadState for RefusingHeaders {
     async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, PortError> {
         Ok(Map::new())
     }
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
-        Err(PortError::Invalid { field: "worker".into(), reason: "disk full".into() })
+        let refused = self.0.fetch_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
+        if refused { Err(PortError::Invalid { field: "worker".into(), reason: "disk full".into() }) } else { Ok(()) }
     }
     async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
         Ok(None)
@@ -64,8 +65,24 @@ impl ThreadState for FailingHeaders {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step() {
+/// A daemon log that keeps what is logged before its file takes over.
+fn capturing_log(dir: &std::path::Path, tokens: &mixdog_rt::LaneTokens) -> (crate::daemon_log::DaemonLog, Arc<Mutex<Vec<String>>>) {
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = lines.clone();
+    let log = crate::daemon_log::DaemonLog::with_parts(
+        Arc::new(crate::daemon_log::DiskLogFile::new(dir.join("daemon.log"))),
+        tokens.maintenance_io,
+        mixdog_rt::CancellationToken::new(),
+        Arc::new(|| 0),
+        Arc::new(move |text| sink.lock().unwrap().push(text.to_owned())),
+    );
+    (log, lines)
+}
+
+/// A write the headers refuse through every attempt is logged by the stop step, which then ends; a write that failed and was put by
+/// a later attempt is not (the step's drain is Node's `flushAllIndexWrites`, which rejects only while a batch still fails).
+#[tokio::test(start_paused = true)]
+async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step_until_it_recovers() {
     let dir = tempfile::tempdir().expect("temp dir");
     let tokens = mixdog_rt::testing::tokens();
     let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).expect("core state");
@@ -77,17 +94,28 @@ async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step() {
     .await
     .expect("job ran")
     .expect("index");
-    let workers = Arc::new(StoreWorkers::new(index, Arc::new(FailingHeaders), tokens.interactive_io, Arc::new(KeptRows::new(state))));
-    let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
+    // Refused by the first four patches: the write's four attempts, then the stop's drain succeeds on its first.
+    let workers = Arc::new(StoreWorkers::new(index, Arc::new(RefusingHeaders(4.into())), tokens.interactive_io, Arc::new(KeptRows::new(state))));
+    let (log, lines) = capturing_log(dir.path(), &tokens);
 
     let mut row = Map::new();
     row.insert("status".to_owned(), json!("running"));
     workers.write("sess_fail", Some(row));
-    let error = tokio::time::timeout(DEADLINE, workers.settled()).await.expect("settled did not end within 10 s").expect_err("a refused header write is reported");
-    assert!(error.contains("sess_fail") && error.contains("failed"), "{error}");
 
+    // The stop's drain with the batch still failing logs it (Node: `flushAllIndexWrites` rejects).
+    let (_, step) = crate::compose_flip::workers_step(workers.clone(), log.clone());
+    tokio::time::timeout(DEADLINE, step).await.expect("the step did not end within 10 s");
+    {
+        let logged = lines.lock().unwrap();
+        assert_eq!(logged.len(), 1, "{logged:?}");
+        assert!(logged[0].starts_with("[daemon] agent index drain failed: ") && logged[0].contains("sess_fail") && logged[0].contains("disk full"), "{logged:?}");
+    }
+    lines.lock().unwrap().clear();
+
+    // The headers recovered: the next drain puts the kept write and leaves no failure to log.
     let (_, step) = crate::compose_flip::workers_step(workers, log);
     tokio::time::timeout(DEADLINE, step).await.expect("the step did not end within 10 s");
+    assert!(lines.lock().unwrap().is_empty(), "{:?}", lines.lock().unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
