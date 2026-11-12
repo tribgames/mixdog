@@ -6709,10 +6709,6 @@ impl SessionActor {
         reply: Option<Effect>,
         prompt: Option<String>,
     ) {
-        // A kickoff (a runtime's own turn) reaches the model only: no user bubble (`submission.mjs:17-20`, `suppressDisplay`).
-        if input.options.as_ref().and_then(|options| options.kickoff) == Some(true) {
-            self.retry_hidden = true;
-        }
         let body = self.deps.transcript.user_message(&input);
         self.start_run_with(input, body, op_ref, reply, prompt, false);
     }
@@ -6747,6 +6743,11 @@ impl SessionActor {
         prompt: Option<String>,
         wake: bool,
     ) {
+        // A kickoff (a runtime's own turn) reaches the model only: no user bubble (`submission.mjs:17-20`, `suppressDisplay`), however
+        // it starts (a submit, or a Stop's requeue drained from the queue).
+        if input.options.as_ref().and_then(|options| options.kickoff) == Some(true) {
+            self.retry_hidden = true;
+        }
         // Every turn waits here for the previous turn to land: records a failed barrier left unsaved are written again
         // first (the fresh save), and the turn starts once they land and is refused if they do not.
         if self.starts_gated() {
