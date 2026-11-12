@@ -212,6 +212,10 @@ mod phone_chat_tests;
 #[cfg(test)]
 mod session_reentry_tests;
 #[cfg(test)]
+mod task_notification_envelope_tests;
+#[cfg(test)]
+mod message_attachments_tests;
+#[cfg(test)]
 mod new_task_tests;
 #[cfg(test)]
 mod store_burst_tests;
