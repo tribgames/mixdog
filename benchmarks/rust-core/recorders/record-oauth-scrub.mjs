@@ -11,6 +11,7 @@
 //   node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <export of b6f10295a with the patches applied> --patch <patch>[,<patch>…] [--out <dir>]
 import { join } from 'node:path';
 import { FIXTURES_ROOT, importFrom, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const cli = parseArgs();
@@ -104,7 +105,8 @@ const out = cases.map(([text, secrets]) => ({ text, secrets, scrubbed: scrubOAut
 writeJson(join(outDir, 'golden.json'), { domain: 'oauth-scrub', recorder: 'benchmarks/rust-core/recorders/record-oauth-scrub.mjs', cases: out });
 writeSetManifest(outDir, {
   set: 'oauth-scrub',
-  recorder: 'benchmarks/rust-core/recorders/record-oauth-scrub.mjs',
+  recorder: recorderProvenance(import.meta.url).recorder,
+  extra: recorderProvenance(import.meta.url),
   command: `node benchmarks/rust-core/recorders/record-oauth-scrub.mjs --tree <export of ${NODE_COMMIT}${cli.get('patch') ? ` with ${cli.get('patch')} applied` : ''}>${cli.get('patch') ? ` --patch ${cli.get('patch')}` : ''}`,
   identity,
 });
