@@ -340,8 +340,14 @@ impl McpHub {
         }
         for server in started {
             mixdog_rt::spawn("mcp.hub.connect", TaskClass::Work, async move {
-                if let Err(error) = server.connect().await {
-                    tracing::warn!(server = server.name(), %error, "mcp server did not start");
+                // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
+                match server.connect().await {
+                    Err(error) => tracing::warn!("[mcp-client] Failed to connect \"{}\": {error}", server.name()),
+                    Ok(()) => {
+                        let catalog = server.catalog();
+                        let names: Vec<&str> = catalog.iter().flat_map(|c| c.entries.iter().map(|e| e.qualified.as_str())).collect();
+                        tracing::info!("[mcp] connected: {} tools — {}", names.len(), names.join(", "));
+                    }
                 }
             });
         }

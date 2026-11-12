@@ -210,13 +210,56 @@ pub(crate) fn build_catalog(server: &str, tools: &[Value]) -> ToolCatalog {
     ToolCatalog { digest: digest.iter().map(|b| format!("{b:02x}")).collect(), entries }
 }
 
+/// Why a page of `tools/list` is no page.
+enum PageError {
+    Rpc(RpcError),
+    /// The result has no `tools` array: the text is the one Node's SDK throws for it.
+    Shape(String),
+}
+
+impl From<RpcError> for PageError {
+    fn from(error: RpcError) -> Self {
+        Self::Rpc(error)
+    }
+}
+
+impl From<PageError> for ConnectError {
+    fn from(error: PageError) -> Self {
+        match error {
+            PageError::Rpc(error) => Self::Rpc(error),
+            PageError::Shape(text) => Self::Failed(text),
+        }
+    }
+}
+
+/// The SDK's `Client.listTools` checks each result against `ListToolsResultSchema` before `listAllMcpTools` sees it, so
+/// a `tools` that is no array throws Zod's issue list, whichever page it is on (Node's own "invalid shape" checks
+/// never see such a result). Zod names the kind of what it received.
+fn tools_shape_error(page: &Value) -> Option<String> {
+    let received = match page.get("tools") {
+        Some(Value::Array(_)) => return None,
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::String(_)) => "string",
+        Some(Value::Object(_)) => "object",
+    };
+    Some(format!(
+        "[\n  {{\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received {received}\"\n  }}\n]"
+    ))
+}
+
 /// One page of `tools/list`, and the cursor of the next one when there is one.
-async fn list_page(client: &RpcClient, cursor: Option<&str>) -> Result<(Vec<Value>, Option<String>), RpcError> {
+async fn list_page(client: &RpcClient, cursor: Option<&str>) -> Result<(Vec<Value>, Option<String>), PageError> {
     let params = match cursor {
         Some(c) => json!({"cursor": c}),
         None => json!({}),
     };
     let page = client.request("tools/list", params, RequestOptions::default()).await?;
+    if let Some(text) = tools_shape_error(&page) {
+        return Err(PageError::Shape(text));
+    }
     let tools = page.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
     let next = page.get("nextCursor").and_then(Value::as_str).filter(|next| !next.is_empty()).map(str::to_owned);
     Ok((tools, next))
@@ -252,7 +295,7 @@ impl ToolPages {
 }
 
 /// Every tool of the server, page by page.
-async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, RpcError> {
+async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, ConnectError> {
     let mut walk = ToolPages::default();
     loop {
         let page = list_page(client, walk.cursor.as_deref()).await?;
@@ -494,7 +537,11 @@ impl McpServer {
                         break;
                     }
                 }
-                Err(error) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+                // `runToolRefresh` keeps the listing it had and logs this line.
+                Err(PageError::Shape(text)) => {
+                    return tracing::warn!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets));
+                }
+                Err(PageError::Rpc(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
             }
         }
         let tools = walk.tools;
