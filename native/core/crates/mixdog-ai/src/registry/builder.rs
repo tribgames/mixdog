@@ -341,8 +341,9 @@ impl FileKey {
     async fn read(&self) -> Result<String, ProviderError> {
         match self.file.load::<StoredKey>().await {
             Probe::Present(stored) => {
-                let key = stored.api_key.or(stored.access_token).filter(|k| !k.is_empty()).ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
-                self.file.keep(&[&key]);
+                let held: Vec<&str> = [stored.api_key.as_deref(), stored.access_token.as_deref()].into_iter().flatten().collect();
+                let key = stored.api_key.clone().or_else(|| stored.access_token.clone()).filter(|k| !k.is_empty()).ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
+                self.file.keep(&held);
                 Ok(key)
             }
             Probe::Absent => Err(reauth(&format!("not signed in to {}", self.provider))),

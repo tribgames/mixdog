@@ -225,7 +225,7 @@ impl AccessToken for ApiKeyAccess {
         let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
         // The exchanged token is a credential before any request carries it; the key's next one replaces it.
         crate::oauth::carried::keep(
-            &crate::oauth::carried::derived_source("cursor exchange", &self.api_key),
+            &crate::oauth::carried::derived_source("cursor exchange", "cursor-api"),
             &[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()],
         );
         let access = tokens.access_token.clone();
@@ -415,6 +415,40 @@ mod tests {
         // A cached, fresh token needs no exchange.
         access.access_token(false).await.unwrap();
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// Answers each exchange with a token of its own.
+    struct Rotating(AtomicUsize);
+
+    #[async_trait]
+    impl HttpSend for Rotating {
+        async fn send(
+            &self,
+            _request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
+            let n = self.0.fetch_add(1, Ordering::SeqCst) as u64;
+            let body = format!(r#"{{"accessToken":"{}","refreshToken":"rotating-refresh-{n:04}"}}"#, jwt(4_000_000_000 + n));
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
+        }
+    }
+
+    /// The exchange token of a key the user replaced is retired, not pinned for ever: after more retirements than the
+    /// registry keeps, it is forgotten while the current one stays.
+    #[tokio::test]
+    async fn an_exchange_token_of_a_replaced_key_retires_instead_of_staying_pinned() {
+        let http = std::sync::Arc::new(Rotating(AtomicUsize::new(0)));
+        let mut seen = Vec::new();
+        for n in 0..3 {
+            let access = ApiKeyAccess::new(http.clone(), format!("rotating-api-key-{n}"));
+            seen.push(access.access_token(false).await.unwrap());
+        }
+        for i in 0..=crate::oauth::carried::RETIRED_CAP {
+            crate::oauth::carried::keep("file the-unrelated-account-of-the-cursor-test.json", &[&format!("cursor-test-unrelated-{i:05}")]);
+        }
+        let registry = crate::oauth::carried::registry();
+        assert!(!registry.holds(&seen[0]) && !registry.holds(&seen[1]), "the replaced keys' exchange tokens were forgotten");
+        assert!(registry.holds(&seen[2]), "the current one stays");
     }
 
     #[tokio::test]

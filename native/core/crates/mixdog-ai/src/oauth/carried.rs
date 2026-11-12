@@ -1535,13 +1535,10 @@ pub fn keep(source: &str, values: &[&str]) {
 }
 
 /// The source of a token an exchange hands over for the account of credential `of` (a session JWT, an exchanged access
-/// token): named by a hash of that credential, never its text, so one account's next token replaces its last.
-pub fn derived_source(kind: &str, of: &str) -> String {
-    use std::hash::Hash as _;
-    use std::hash::Hasher as _;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    of.hash(&mut hasher);
-    format!("{kind} {:016x}", hasher.finish())
+/// token): named by what stays the same when the credential rotates (the provider, the service address), never by the
+/// credential, so one account's next token replaces its last.
+pub fn derived_source(kind: &str, account: &str) -> String {
+    format!("{kind} {account}")
 }
 
 /// The matcher of every credential this process read or attached, read as the registry is at each text: a response that
