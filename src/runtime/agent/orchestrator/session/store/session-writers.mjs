@@ -250,7 +250,14 @@ function retireRecorder(id, recorder) {
 // `copy` is bound to where `recorder` left the log: what it acknowledged.
 function bindToAckedEnd(copy, recorder) {
   const { logId, seq } = recorder.acked;
-  _bindings.set(copy, { log: { logId, seq }, messages: seq === recorder.seq ? recorder.recordedMessages() : null });
+  _bindings.set(copy, { log: { logId, seq }, messages: seq === recorder.seq ? heldMessages(recorder) : null });
+}
+
+// The messages a copy bound to `recorder`'s end is known to have recorded:
+// its references, while they are stored as they would be now; otherwise null,
+// and the next tenure compares the copy's messages with the log (adopt).
+function heldMessages(recorder) {
+  return recorder.projectionHeld ? recorder.recordedMessages() : null;
 }
 
 /**
@@ -434,9 +441,7 @@ export async function finishRecorder(id) {
   if (closed && copy) {
     _bindings.set(copy, {
       log: { logId: recorder.logId, seq: recorder.seq },
-      // Its messages are the recorded ones only while they are stored as they
-      // would be now: otherwise the next tenure compares them with the log.
-      messages: recorder.projectionHeld ? recorder.recordedMessages() : null,
+      messages: heldMessages(recorder),
       released: atBarrier,
     });
   }
