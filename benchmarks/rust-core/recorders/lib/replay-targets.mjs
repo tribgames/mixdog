@@ -88,6 +88,10 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs', 184, 'ModelProxyService::call', 'the `modelProxy/run` request: admission by payload size, then the run and its typed events')],
     missing: [],
   },
+  'project-registry-import-cases': {
+    rust: [r('mixdog-migrate/src/run.rs', 194, 'Migrator::run'), r('mixdog-workspace/src/catalog.rs', 150, 'Catalog::import_registry'), r('mixdog-workspace/src/catalog.rs', 174, 'Catalog::list')],
+    missing: [],
+  },
   'project-recency-failure-cases': {
     rust: [r('mixdog-store/src/registry.rs', 282, 'add'), r('mixdog-store/src/registry.rs', 309, 'touch_selected'), r('mixdog-store/src/registry.rs', 335, 'remove'), r('mixdog-store/src/registry.rs', 354, 'rename')],
     protocolMethods: ['startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222)'],
