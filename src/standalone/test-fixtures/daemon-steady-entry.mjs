@@ -29,6 +29,8 @@ let windowId = 0;
 let eluStart = null;
 let cpuStart = null;
 let syncFs = new Map();
+// Sync fs calls since the gap ticker last ran: what a long gap was spent on.
+const gapSites = new Map();
 let timerSites = new Map();
 let promiseTimers = new Map();
 // The timer callback running right now (callbacks do not nest).
@@ -63,7 +65,8 @@ function callSite() {
     const match = /^at (?:.*? \()?(.*?):(\d+):\d+\)?$/.exec(line.trim());
     if (!match || match[1].startsWith('node:')) continue;
     const file = match[1].startsWith('file://') ? fileURLToPath(match[1]) : match[1];
-    if (file !== SELF) return `${file}:${match[2]}`;
+    // The slow-disk mutation wraps the same calls; the caller is what matters.
+    if (file !== SELF && !file.endsWith('daemon-slow-disk.mjs')) return `${file}:${match[2]}`;
   }
   return 'node:internal';
 }
@@ -75,6 +78,7 @@ for (const name of Object.keys(realFs)) {
       noteStorageTouch(name, args);
       const key = `${name} ${callSite()}`;
       syncFs.set(key, (syncFs.get(key) ?? 0) + 1);
+      gapSites.set(key, (gapSites.get(key) ?? 0) + 1);
     }
     return realFs[name].apply(this, args);
   };
@@ -173,6 +177,8 @@ let ticker = null;
 function recordGap(state, endedAt) {
   const gap = endedAt - state.last;
   state.last = endedAt;
+  // Cleared after use below, so the counts are those of this gap only.
+  queueMicrotask(() => gapSites.clear());
   state.maxGapMs = Math.max(state.maxGapMs, gap);
   for (const threshold of GAP_THRESHOLDS_MS) {
     if (gap <= threshold) continue;
@@ -180,7 +186,8 @@ function recordGap(state, endedAt) {
     state.over[threshold].totalMs += gap;
   }
   if (gap > GAP_THRESHOLDS_MS[0]) {
-    state.top.push({ atMs: Math.round(endedAt - gap - state.startedAt), gapMs: Math.round(gap) });
+    const sites = [...gapSites].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key, count]) => `${count}x ${key}`);
+    state.top.push({ atMs: Math.round(endedAt - gap - state.startedAt), gapMs: Math.round(gap), syncFsDuringGap: sites });
     state.top.sort((a, b) => b.gapMs - a.gapMs);
     state.top.length = Math.min(state.top.length, TOP_GAPS);
   }
