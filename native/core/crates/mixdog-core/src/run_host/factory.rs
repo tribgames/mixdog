@@ -1466,6 +1466,7 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Scripted {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             &self.id
         }
@@ -1965,6 +1966,7 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Refusing {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             &self.id
         }
@@ -2248,8 +2250,10 @@ mod tests {
             eventually_on_awaiting(|| format!("{how}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
             let stages: Vec<Value> = frames("thread/stage/updated").into_iter().filter(|p| p["stage"] == "reconnecting").collect();
             assert_eq!(stages, [json!({ "threadId": id, "stage": "reconnecting", "detail": { "message": switching } })], "{how}: the switching status, once");
-            let changed: Vec<Value> = frames("thread/providerAccount/changed").into_iter().filter(|p| p.to_string().contains("\"k2\"")).collect();
+            let changed: Vec<Value> = frames("thread/providerAccount/changed").into_iter().filter(|p| p.to_string().contains("\"custom-x\"")).collect();
             assert_eq!(changed.len(), 1, "{how}: the account change, once: {changed:?}");
+            // The PC's account id never leaves the PC (Node's `scalarDetail`); a direct run names it.
+            assert_eq!(changed[0].to_string().contains("\"k2\""), how == "direct", "{how}: {changed:?}");
             let rows = serde_json::to_string(&rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m.starts_with("item/")).collect::<Vec<_>>()).unwrap();
             assert!(!rows.contains(switching), "{how}: the switching message is not a transcript row");
         }
@@ -3361,6 +3365,7 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Handing {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             &self.id
         }

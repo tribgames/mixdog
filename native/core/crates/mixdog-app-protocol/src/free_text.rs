@@ -260,7 +260,7 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Notification,
         "model/proxy/event",
-        &["/event/text", "/event/delta", "/event/message", "/event/stop/value", "/event/value/**", "/event/call/arguments/**", "/event/calls/*/arguments/**", "/event/replay/items/**"],
+        &["/event/text", "/event/delta", "/event/message", "/event/pointer", "/event/reason", "/event/stop/value", "/event/value/**", "/event/call/arguments/**", "/event/calls/*/arguments/**", "/event/replay/items/**"],
     ),
     (
         Kind::Answer,

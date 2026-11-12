@@ -123,6 +123,7 @@ impl ModelListing for Fake {
 
 #[async_trait]
 impl ProviderAdapter for Fake {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

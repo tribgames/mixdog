@@ -89,6 +89,21 @@ fn a_request_survives_the_wire() {
     assert_eq!(request_in(*request).unwrap(), sent);
 }
 
+/// The account that served an answer rides on the history the server sends back, so the PC's pool keeps the next turn on it
+/// (Node's `providerMetadata.accountRouting`, read by `sessionAccountId` and `customKeyServedBy`; the PC's pool reads it as
+/// `KeyPool`'s bound hint, replayed in mixdog-ai registry/gateway_replay.rs from the recorded gateway cases).
+#[test]
+fn the_account_that_served_an_answer_rides_on_the_history() {
+    let mut sent = request();
+    let mut served = p::Message::new(p::Role::Assistant, p::Content::Text("ok".into()));
+    served.account_routing = Some(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k1".into()) });
+    sent.messages.push(served);
+    let text = serde_json::to_string(&request_out(&sent)).unwrap();
+    assert!(text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#), "{text}");
+    let got = request_in(serde_json::from_str(&text).unwrap()).unwrap();
+    assert_eq!(got.messages.last().unwrap().account_routing, sent.messages.last().unwrap().account_routing);
+}
+
 #[test]
 fn the_senders_scope_and_unresolved_references_stay_home() {
     let mut sent = request();
@@ -273,7 +288,15 @@ fn every_stream_event_survives_the_wire() {
     assert_eq!(seen, all, "a sample for every StreamEvent variant");
     for event in events {
         let text = serde_json::to_string(&event_out(&event)).unwrap();
-        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(event), "{text}");
+        // The PC's account id stays on the PC: the server reads the change without it.
+        let arrives = match event {
+            p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, at, .. }) => {
+                assert!(!text.contains("k2"), "{text}");
+                p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, account_id: String::new(), at })
+            }
+            other => other,
+        };
+        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(arrives), "{text}");
     }
     let wire = |event: p::StreamEvent| serde_json::to_value(event_out(&event)).unwrap();
     assert_eq!(wire(p::StreamEvent::Progress(p::ProgressKind::Tool)), json!({ "type": "progress", "kind": "tool" }));
@@ -559,6 +582,7 @@ struct Hang(MockProvider);
 
 #[async_trait]
 impl p::ProviderAdapter for Hang {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.0.id()
     }

@@ -32,6 +32,8 @@ pub mod traits;
 #[cfg(test)]
 mod claude_replay_wire_tests;
 #[cfg(test)]
+mod first_response_budget_tests;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 pub(crate) mod wire_tests;

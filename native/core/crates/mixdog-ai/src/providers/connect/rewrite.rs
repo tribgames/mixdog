@@ -170,6 +170,7 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    input_excludes_cache: Option<bool>,
 }
 
 impl HttpAdapter {
@@ -191,7 +192,14 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            input_excludes_cache: None,
         }
+    }
+
+    /// The usage convention of an adapter whose class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
+    pub fn with_input_excludes_cache(mut self, excludes: bool) -> Self {
+        self.input_excludes_cache = Some(excludes);
+        self
     }
 
     /// The refusals the provider sends again at once ([`Resend`]).
@@ -209,6 +217,7 @@ impl HttpAdapter {
 
 #[async_trait]
 impl ProviderAdapter for HttpAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -231,6 +240,10 @@ impl ProviderAdapter for HttpAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         self.listing.as_deref()
+    }
+
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.input_excludes_cache
     }
 
     /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).
