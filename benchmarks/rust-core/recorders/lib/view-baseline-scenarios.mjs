@@ -142,8 +142,8 @@ export function viewBaselineScenarios({ createRemoteViewBaselineCache, readViewB
         decodedBaseline,
         patch,
         decodedPatchEqualsSnapshot: JSON.stringify(decodedPatch) === JSON.stringify(snapshot),
-        changedFrames: changed.frames.map((frame) => ({ event: frame.event, hasFrame: Object.hasOwn(frame.payload, 'frame'), innerEvent: frame.payload.frame?.event ?? null })),
-        legacyEvents: legacy.frames.map((frame) => frame.event),
+        changedFrames: changed.frames,
+        legacyFrames: legacy.frames,
         socketFailure,
         syncingAfterFailure: failed.syncing,
       };
