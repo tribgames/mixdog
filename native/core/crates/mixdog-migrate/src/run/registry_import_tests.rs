@@ -112,6 +112,38 @@ fn a_migrated_node_profile_lists_the_projects_the_desktop_lists() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A `projects.json` cut short is no empty registry: the step fails and stays open, the file and the rows are as they were (the
+/// file is the way back to Node), and the file is imported once it reads again.
+#[test]
+fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"].as_str().unwrap().starts_with("both files")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let roots = prepare(dir.path(), &case["observed"]["profile"]);
+    migrate(&roots);
+    let file = roots.home.join("projects.json");
+    let whole = std::fs::read(&file).unwrap();
+    let cut = whole[..whole.len() / 2].to_vec();
+    std::fs::write(&file, &cut).unwrap();
+    let beside = || {
+        let mut names: Vec<String> = std::fs::read_dir(&roots.home).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with("projects.json")).collect();
+        names.sort();
+        names
+    };
+    block_on(async {
+        let catalog = catalog(&roots);
+        let before = catalog.list().await.unwrap();
+        assert!(catalog.import_registry(&roots.home).await.is_err(), "a damaged registry is not an empty one");
+        assert_eq!(std::fs::read(&file).unwrap(), cut, "the file is left byte for byte");
+        assert_eq!(beside(), ["projects.json"], "nothing was moved aside or written beside it");
+        assert_eq!(catalog.list().await.unwrap(), before, "the rows are as they were");
+        std::fs::write(&file, &whole).unwrap();
+        assert!(catalog.import_registry(&roots.home).await.unwrap(), "the step was left open");
+        assert_eq!(listed(&catalog).await, with_root(&case["observed"]["listed"], &dir.path().to_string_lossy()));
+        assert_eq!(std::fs::read(&file).unwrap(), whole, "the imported file is left byte for byte");
+    });
+}
+
 #[test]
 fn a_profile_migrated_by_an_earlier_build_joins_the_registry_once_and_keeps_its_alias_and_touch() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -123,6 +155,8 @@ fn a_profile_migrated_by_an_earlier_build_joins_the_registry_once_and_keeps_its_
     let at = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
     block_on(async {
         let catalog = catalog(&roots);
+        // The earlier build listed `ghost` too (a preference row), so it could be selected there: that does not register it.
+        catalog.touch(&at("ghost"), None).await.unwrap();
         let touched = catalog.touch(&at("alpha"), None).await.unwrap()["lastUsedAt"].as_i64().unwrap();
         assert!(touched > 5000, "the touch is newer than every recorded recency");
         assert!(catalog.import_registry(&roots.home).await.unwrap(), "the step runs on this start");
