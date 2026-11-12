@@ -1,5 +1,8 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
+  "exclusions": {
+    "run events other than the text deltas (golden/*.json \"deltas\")": "the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run's RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario"
+  },
   "fileCount": 92,
   "files": [
     {
@@ -133,9 +136,9 @@
       "sha256": "aa000941a85ba2d4c750bfe0a823fa9f002bd00272cbd829cd317b1c9883f668"
     },
     {
-      "bytes": 248988,
+      "bytes": 286380,
       "path": "flows/spawn.json",
-      "sha256": "3e61d4ffebc878887ff351b7aa359de4a237c43de08c69c23526db8e5c74b52c"
+      "sha256": "c06c42c51c402f6ae47618662ddc455a9df6addb222732b7edef29ea273d8496"
     },
     {
       "bytes": 1549,
@@ -298,9 +301,9 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
-      "bytes": 54640,
+      "bytes": 57716,
       "path": "record-flows.mjs",
-      "sha256": "3184cd861ae119fd92be2685d8e745a580a6dec9547e4407e9ba3e53f71b27b5"
+      "sha256": "aa655d9439cb1d20ac9fbe64c9a2b1ea750b543fe15583fd62cf6ad75c1176ed"
     },
     {
       "bytes": 25624,
@@ -323,9 +326,9 @@
       "sha256": "3fd2167dd6f0eb3af7aaed49e2af9de6a3fd46033041e1597d7e8f1d2221fac6"
     },
     {
-      "bytes": 12208,
+      "bytes": 12756,
       "path": "record.mjs",
-      "sha256": "4301fdf6836751bc546ddd5195e597ad990945c334ead29c243c0fba1f0a9524"
+      "sha256": "d34246b87c9932944e1e3f2f825c00ff322307f347f100ed92cc84ea157f6f4c"
     },
     {
       "bytes": 311,
@@ -466,7 +469,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -489,5 +492,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4971905
+  "totalBytes": 5012921
 }

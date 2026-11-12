@@ -333,6 +333,10 @@ try {
 } finally {
   rmSync(dataRoot, { recursive: true, force: true });
 }
-refreshSetManifest(stage, nodeRoot);
+refreshSetManifest(stage, nodeRoot, 'HEAD', {
+  exclusions: {
+    'run events other than the text deltas (golden/*.json "deltas")': 'the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run\'s RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario',
+  },
+});
 commitStage(stage, here);
 process.exit(0);
