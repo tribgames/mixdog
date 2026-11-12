@@ -14,6 +14,7 @@ import { waitShellJobTerminated } from '../builtin/shell-jobs.mjs';
 import { TERMINATION_RECHECK_MS } from './shell-descendants.mjs';
 import {
   _assertNativeSpawnCapabilitiesForTest,
+  _nativeSpawnServerChildForTest,
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
   ensureNativeSpawnServer,
@@ -75,6 +76,31 @@ test('containment is asked only of a Windows server that advertises it, unless b
 // watch's first read may queue behind the pre-kill capture; a pass the read
 // outlasts is re-checked one cadence later with a fresh read.
 const TERMINATION_CONFIRM_BOUND_MS = 3 * ENUMERATION_DEADLINE_MS + TERMINATION_RECHECK_MS;
+
+// A server that was serving and then died is started again by the next request, not refused for the start backoff.
+test('a serving native spawn server that exits is restarted by the next request', {
+  skip: process.platform !== 'win32',
+  timeout: 30_000,
+}, async () => {
+  const binary = resolve('native/mixdog-spawn/target/debug', 'mixdog-spawn.exe');
+  _setNativeSpawnBinaryForTest(binary);
+  // The server child is unreferenced, so nothing else keeps the loop alive while its exit is awaited.
+  const alive = setInterval(() => {}, 1 << 30);
+  try {
+    await ensureNativeSpawnServer();
+    const first = _nativeSpawnServerChildForTest();
+    assert.ok(first, 'a server is running');
+    first.kill();
+    await once(first, 'exit');
+    assert.equal(await ensureNativeSpawnServer(), true, 'the next request starts a new server');
+    const second = _nativeSpawnServerChildForTest();
+    assert.ok(second && second.pid !== first.pid, 'a new server process');
+  } finally {
+    clearInterval(alive);
+    await shutdownNativeSpawnServer('test-finish').catch(() => {});
+    _resetNativeSpawnClientForTest();
+  }
+});
 
 // The server's FILETIME and the process table's creation token name the same
 // kernel instant; the table holds it to the microsecond (truncated or rounded).
