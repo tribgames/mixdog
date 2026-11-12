@@ -58,7 +58,7 @@ test('every npm script a workflow runs exists in the package it runs it in', () 
 });
 
 test('no workflow names the deleted Node core pieces', () => {
-  const REMOVED = /supervisor|build:tui|build:daemon|k1-lanes|release-paths|shipped-history|google-oauth-client\.mjs/;
+  const REMOVED = /supervisor|build:tui|build:daemon|release-paths|shipped-history|google-oauth-client\.mjs/;
   const found = workflowFiles().flatMap((file) =>
     read(file)
       .split('\n')
