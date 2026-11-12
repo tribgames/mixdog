@@ -2,9 +2,10 @@
 //! `src/runtime/shared/projects.mjs`. Shape `{projects:[{name, path, addedAt, lastSelectedAt?}]}`,
 //! listed most recently selected first (then by name, then by path).
 //!
-//! This is the list a user builds ("Add project"), not the desktop project preferences in
-//! `state/core.sqlite` (`SqliteStore::projects`: alias, hidden, last used). The file stays a file
-//! (`projectsRegistry`, preserve contract), so Node and the Rust core read the same bytes.
+//! This is Node's registry. The Rust core does not keep it: its registry is the `projects` rows of
+//! `state/core.sqlite` (`mixdog-workspace` `Catalog`), which read this file once, at the first start
+//! after the migration (`Catalog::import_registry`). The file stays on disk as a backup for the way back
+//! to Node (`projectsRegistry`, preserve contract); nothing in the core opens it afterwards.
 //!
 //! Reads, damage handling and writes are `mixdog-statefile`'s port of `atomic-file.mjs`: an
 //! unparsable file is moved aside to `<file>.corrupt-<ms>` and the last good `<file>.bak` is
