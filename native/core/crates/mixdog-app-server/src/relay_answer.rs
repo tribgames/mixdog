@@ -54,22 +54,33 @@ const PROVIDE_SECRET: &str = "approval/provideSecret";
 /// The answer of one request to a relay client, cleaned of what that client must not read.
 pub(crate) struct RelayAnswer {
     secrets: Vec<String>,
+    /// A failure told without the call that caused it (a stored rejection read back, a rejected answer of a server request): the
+    /// call's secrets are not at hand to remove, so its text is not told at all.
+    withhold_message: bool,
 }
 
 impl RelayAnswer {
     /// `Some` for a request of a relay connection; every other origin is told the failure as it is.
     pub(crate) fn of(origin: Origin, method: &str, params: Option<&Value>) -> Option<Self> {
-        (origin == Origin::Relay).then(|| Self { secrets: secret_strings(method, params) })
+        (origin == Origin::Relay).then(|| Self { secrets: secret_strings(method, params), withhold_message: false })
+    }
+
+    /// `Some` for a failure told to a relay connection without its call in hand (`origin` unknown counts as a relay: nothing
+    /// leaves to a connection that is not known to be a local one). Node's relay never tells one: it holds no outcome after the
+    /// frame that carried it, and a repeated call fails afresh through `executeRemoteFrame`.
+    pub(crate) fn stored(origin: Option<Origin>) -> Option<Self> {
+        origin.is_none_or(|origin| origin == Origin::Relay).then(|| Self { secrets: Vec::new(), withhold_message: true })
     }
 
     pub(crate) fn outcome(&self, outcome: Result<Reply, CoreError>) -> Result<Reply, CoreError> {
         outcome.map_err(|error| self.error(error))
     }
 
-    fn error(&self, error: CoreError) -> CoreError {
+    pub(crate) fn error(&self, error: CoreError) -> CoreError {
         let CoreError::DomainError { domain, code, message, detail } = error else { return error };
-        let detail = detail.and_then(|detail| self.public_detail(*detail)).map(Box::new);
-        let message = message.map(|message| self.redact(&message).into());
+        // A public param is redacted like the message, so without the call's secrets it goes the way of the message.
+        let detail = detail.filter(|_| !self.withhold_message).and_then(|detail| self.public_detail(*detail)).map(Box::new);
+        let message = message.filter(|_| !self.withhold_message).map(|message| self.redact(&message).into());
         CoreError::DomainError { domain, code, message, detail }
     }
 

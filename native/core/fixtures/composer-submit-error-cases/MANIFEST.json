@@ -1,5 +1,5 @@
 {
-  "cases": 3,
+  "cases": 4,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-composer-submit-error-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "The relay frame (the object executeRemoteFrame returns for a phone) is recorded whole; the phone's JSON text is its JSON.stringify.",
@@ -8,14 +8,15 @@
   },
   "exclusions": {
     "renderer": "namedTexts, bareTexts, otherMessage, proseWithoutCode, languages, ipcDetails, relayDetails, params: the composer text, the IPC envelope and the whitelist function are the desktop renderer's (apps/desktop/src/renderer/composer-submit-error.ts, shared/coded-error.ts) and stay there; the Rust whitelist is typed (a detail variant per public code) and its length rule is replayed through case 3",
-    "secretFrame": "the first recording of the secret refusal passes the Node capability argument {key}, which is no Rust method's params; case 3 records the same refusal with arguments that are a Rust method's params (\"the secret is removed from the params of a public code\")"
+    "secretFrame": "the first recording of the secret refusal passes the Node capability argument {key}, which is no Rust method's params; case 3 records the same refusal with arguments that are a Rust method's params (\"the secret is removed from the params of a public code\")",
+    "storedOutcome": "case 4 `status`: Node's relay has no method that reads an outcome back (the frame is `unknown method`), so the core's `op/status` and its rejected-answer notification to a relay connection have no frame to equal; they are replayed against the invariant Node's frames record (`secretInFrames`: no frame carries the call's secret) and against the same read by a local client, from which a relay's differs only by the message and the detail the relay is not told (the call's secrets are not stored with the rejection, so nothing is redacted by them: the text is withheld). The stored rejection is staged in the mock op index (the seam of the app-server tests), not through the core's op gate, which mixdog-core-base replays"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 17853,
+      "bytes": 19293,
       "path": "golden.json",
-      "sha256": "34b93e77535a53b0c8939c0439e2a40607ea4f206c8abcb9186d547a97d9efcd"
+      "sha256": "efd42aa420b741af8170c2ef95bb351cb0d01854943f5d51e595affa5b6c0dbb"
     }
   ],
   "inputs": [
@@ -29,7 +30,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/composer-error-scenarios.mjs",
-      "sha256": "7f438fdba41406a5952474d4652d0a1486c33795b1548f90dbf99b58f9adde82"
+      "sha256": "9538ed2b30a747c37b2e39e25927fb76ccd8c39f72770f143b5607d80f5f838c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -75,21 +76,27 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-composer-submit-error-cases.mjs",
-  "recorderSha256": "1153709bb3b4fa3db4b3f3bf62f81abff1540f43aa9a4ce3b48913520eae90a7",
+  "recorderSha256": "a65663f7f01f0dc7c3041eee8bd6a14a17b7c0e30c69f2baa1c279a8745a92b5",
   "replay": {
-    "compare": "the desktop relay's refusal frames and the composer's text on the product modules; compare each case whole. In Rust the frame is the server's error answer to a relay connection (error = data.message, errorCode = data.code, errorParams = data.detail): the refusal frames of case 1 and 2 and every answer of case 3 are replayed whole through the real server (mixdog-app-server tests/relay_answer.rs); the composer's text (namedTexts, bareTexts, otherMessage, proseWithoutCode) and the IPC leg (ipcDetails, relayDetails) are the renderer's and stay on the desktop",
-    "entry": "Drive these public items on o1: room/send (a refusal of a send to a switched-off member: mixdog-core-rooms/src/rooms/service.rs `failure`, written by mixdog-app-server/src/error.rs `error_data`); account/saveProviderApiKey, mcp/completeMcpOAuthLogin, connector/addConnectorAccount, mcp/saveMcpServer, approval/provideSecret (the secret-bearing calls whose refusals a phone is told with the call's own secrets removed: mixdog-app-server/src/relay_answer.rs `RelayAnswer`, applied in server.rs `admitted` to a relay connection's requests).",
+    "compare": "the desktop relay's refusal frames and the composer's text on the product modules; compare each case whole. In Rust the frame is the server's error answer to a relay connection (error = data.message, errorCode = data.code, errorParams = data.detail): the refusal frames of case 1 and 2 and every answer of case 3 are replayed whole through the real server (mixdog-app-server tests/relay_answer.rs); a failed call asked again (case 4, `first` and `again`) is replayed whole from a second relay connection; the composer's text (namedTexts, bareTexts, otherMessage, proseWithoutCode) and the IPC leg (ipcDetails, relayDetails) are the renderer's and stay on the desktop",
+    "entry": "Drive these public items on o1: room/send (a refusal of a send to a switched-off member: mixdog-core-rooms/src/rooms/service.rs `failure`, written by mixdog-app-server/src/error.rs `error_data`); op/status and the rejected-answer notification to a relay connection (mixdog-app-server/src/server.rs `op_status_reply`, outgoing.rs `response_rejected`, the refused-decision notification of `on_response`: a stored or forwarded failure is told to a relay without its text and its params, relay_answer.rs `RelayAnswer::stored`); account/saveProviderApiKey, mcp/completeMcpOAuthLogin, connector/addConnectorAccount, mcp/saveMcpServer, approval/provideSecret (the secret-bearing calls whose refusals a phone is told with the call's own secrets removed: mixdog-app-server/src/relay_answer.rs `RelayAnswer`, applied in server.rs `admitted` to a relay connection's requests).",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [],
-    "normalised": {},
+    "normalised": {
+      "error / errorCode / errorParams": "the members of the JSON-RPC error's `data`: message, code and detail (`name`)",
+      "error.code, error.message": "the JSON-RPC error body has no member in Node's frame: the domain error's request-error code and its reason text; they are checked as those constants",
+      "ok": "the JSON-RPC answer carries an `error` member and no `result` member exactly when Node's frame has ok:false",
+      "the frame id": "none: the replay sends each recorded frame's own id"
+    },
     "protocolMethods": [
       "room/send (a refusal of a send to a switched-off member: mixdog-core-rooms/src/rooms/service.rs `failure`, written by mixdog-app-server/src/error.rs `error_data`)",
+      "op/status and the rejected-answer notification to a relay connection (mixdog-app-server/src/server.rs `op_status_reply`, outgoing.rs `response_rejected`, the refused-decision notification of `on_response`: a stored or forwarded failure is told to a relay without its text and its params, relay_answer.rs `RelayAnswer::stored`)",
       "account/saveProviderApiKey, mcp/completeMcpOAuthLogin, connector/addConnectorAccount, mcp/saveMcpServer, approval/provideSecret (the secret-bearing calls whose refusals a phone is told with the call's own secrets removed: mixdog-app-server/src/relay_answer.rs `RelayAnswer`, applied in server.rs `admitted` to a relay connection's requests)"
     ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "composer-submit-error-cases",
-  "totalBytes": 17853,
+  "totalBytes": 19293,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
