@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 553594,
+      "bytes": 781408,
       "path": "golden.json",
-      "sha256": "6bd966fc2e93e994b6cab1dfec6313269a061ff3a36d6db024422163680d609a"
+      "sha256": "911a621a921d8f7519a6fa2cd8850fc8118335a637213ec7c4f05fe9bf6dcd3d"
     }
   ],
   "inputs": [
@@ -38,7 +38,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-trace-spool.mjs",
-  "recorderSha256": "5aa64bad3b2b46a875838c955137318f69949de9e9b35eab8a56bda126d0aed7",
+  "recorderSha256": "c36f48f4f1d4bcce2720cd0c803af211d833a1260a356952b028ed16248576bf",
   "set": "trace-spool",
-  "totalBytes": 553594
+  "totalBytes": 781408
 }

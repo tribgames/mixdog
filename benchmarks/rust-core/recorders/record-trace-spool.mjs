@@ -2,12 +2,14 @@
 // What the agent-trace spool leaves in its file when rows arrive faster than its writes finish (`_appendLocalTrace` /
 // `_flushLocalTrace`, src/runtime/agent/orchestrator/agent-trace-io.mjs): the REAL `appendAgentTrace` + `drainAgentTrace` writing an
 // explicit trace path. Two thousand rows are appended in one tick, so the 100-line flush starts while its predecessor is still being
-// written; a row queued during a write must reach the file once and after the rows before it. Recorded: the rows as given and the
-// file's text.
+// written; a row queued during a write must reach the file once and after the rows before it. Recorded: the rows as given, each chunk
+// Node appended (its boundaries) and the file's text.
 // Rust `mixdog_trace::AgentTrace` (append + flush, from threads) must leave the same text.
 //   node benchmarks/rust-core/recorders/record-trace-spool.mjs [--tree <dir>]
 // Output: native/core/fixtures/trace-spool/golden.json.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -30,6 +32,14 @@ process.env.MIXDOG_DIAGNOSTICS = '1';
 const tree = resolveTree(parseArgs());
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const recorder = 'benchmarks/rust-core/recorders/record-trace-spool.mjs';
+// The chunks Node hands to its one write at a time: the module reads `appendFile` through the builtin's live binding.
+const chunks = [];
+const realAppendFile = fsp.appendFile;
+fsp.appendFile = (path, chunk, options) => {
+  if (path === tracePath) chunks.push(chunk);
+  return realAppendFile(path, chunk, options);
+};
+syncBuiltinESMExports();
 const io = await importFrom(tree, 'src/runtime/agent/orchestrator/agent-trace-io.mjs');
 
 const rows = Array.from({ length: ROWS }, (_, i) => ({ kind: 'spool', ts: T0 + i, sessionId: 'spool', payload: { n: i, text: `row ${i}` } }));
@@ -40,7 +50,8 @@ if (jsonl.split('\n').length !== ROWS + 1) throw new Error('the trace file does 
 
 const finalDir = join(FIXTURES_ROOT, 'trace-spool');
 const stage = stageSet(finalDir);
-writeJson(join(stage, 'golden.json'), { rows, jsonl });
+if (chunks.join('') !== jsonl) throw new Error('the recorded chunks are not the file');
+writeJson(join(stage, 'golden.json'), { rows, chunks, jsonl });
 writeSetManifest(stage, {
   set: 'trace-spool',
   recorder,
