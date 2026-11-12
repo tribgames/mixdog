@@ -78,6 +78,30 @@ test('delayed session persistence retains the scope that scheduled it', () => {
   assert.equal(readCachedSessionCatalog()[0].title, 'A');
 });
 
+test('the cached session catalog keeps the mark the sidebar hides a worker session by', () => {
+  scheduleCachedSessionCatalogWrite([
+    { id: 'session_lead', title: 'Lead' },
+    { id: 'session_worker', title: 'Worker', agentSession: true },
+  ]);
+  flushCachedSessionCatalogWrite();
+  assert.deepEqual(
+    readCachedSessionCatalog().map((row) => [row.id, row.agentSession]),
+    [
+      ['session_lead', undefined],
+      ['session_worker', true],
+    ]
+  );
+});
+
+test('a cached session catalog written without that mark is not painted', () => {
+  route('/', 'file:');
+  scheduleCachedSessionCatalogWrite([{ id: 'session_worker', title: 'Worker', agentSession: true }]);
+  flushCachedSessionCatalogWrite();
+  const [key] = [...storage.keys()].filter((name) => name.includes('desktop-session-catalog'));
+  storage.set(key, JSON.stringify({ version: 1, updatedAt: 1, rows: [{ id: 'session_worker', title: 'Worker' }] }));
+  assert.deepEqual(readCachedSessionCatalog(), []);
+});
+
 test('bare remote routes use the remembered device, never the desktop namespace', () => {
   route('/');
   const unpaired = catalogStorageScope();
