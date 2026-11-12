@@ -1384,6 +1384,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The project registry file (`projects.json`): the code-graph trust reads it strictly, the `session` tool's project listing tolerantly (`crate::code_graph_trust::RegistryProjects`).
     let project_registry = Arc::new(mixdog_store::registry::Registry::new(mixdog_home.join("projects.json")));
     let project_list: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ProjectList> = Arc::new(crate::code_graph_trust::RegistryProjects { registry: project_registry.clone(), lane: b.tokens.maintenance_io });
+    let bot_ids: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds> = Arc::new(mixdog_core::run_host::tool_pool::session_port::ContactBotIds::new(mcp.agents.clone(), contacts.clone()));
+    // What `session bots` reads besides the catalog; its report watches are the home delivery's, bound once that exists (in `verify_bound`).
+    let bot_world = Arc::new(crate::late_session::DaemonBotWorld::new(bot_ids.clone(), config.clone(), channel_admin.clone(), held_requests.clone()));
     let mut tool_pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>> = mixdog_tools::orch::register::tools(mixdog_tools::orch::register::Services {
         facts: Arc::new(mixdog_core::run_host::tool_pool::callers::ThreadCallers::new(thread_state.clone(), heartbeats.clone(), unattended.clone())),
         sessions: Arc::new(mixdog_core::run_host::tool_pool::session_port::DirectorySessionPort::new(mixdog_core::run_host::tool_pool::session_port::SessionPortParts {
@@ -1393,7 +1396,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(thread_state.clone(), thread_state.clone(), clock_agent.clone())),
             ai_titles: Arc::new(config.clone()),
             projects: project_list.clone(),
-            bots: Arc::new(mixdog_core::run_host::tool_pool::session_port::ContactBotIds::new(mcp.agents.clone(), contacts.clone())),
+            bots: bot_ids.clone(),
+            world: bot_world.clone(),
+            quota: quota_store.clone(),
             suggestions: Arc::new(mixdog_core::run_host::tool_pool::session_port::HeartbeatSuggestions::new(heartbeat_store.clone(), now_ms.clone())),
             catalog: late_list_catalog.clone(),
             clock: clock_agent.clone(),
@@ -2248,6 +2253,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     );
     home_delivery.redact_with(sensitive.clone());
     held_home.bind_delivery(home_delivery.clone()).map_err(|_| ComposeError::AlreadyBound("held home delivery"))?;
+    bot_world.bind(home_delivery.clone()).map_err(|_| ComposeError::AlreadyBound("bot world delivery"))?;
     b.thread_gates.bind(directory.thread_ops()).map_err(|_| ComposeError::AlreadyBound("thread op gates"))?; // `thread_ops()` is called exactly once, here
     agent_evidence
         .bind(Arc::new(mixdog_core_session::session::agent_evidence::SessionAgentEvidence::new(
@@ -3096,7 +3102,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 

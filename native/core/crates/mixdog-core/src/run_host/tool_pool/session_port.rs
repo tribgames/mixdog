@@ -55,9 +55,12 @@ use super::session_output::ListPage;
 use super::session_output::range_of;
 use super::session_output::row_of;
 use super::session_output::session_read_output;
-use mixdog_js::js_trim;
 
 mod actions;
+mod bots;
+
+pub use bots::BotRow;
+pub use bots::BotWorld;
 
 /// The session catalog as the `session` tool's list reads it (`service.listThreadCatalog`, `readStoredThreadCatalogRow`,
 /// `storedLiveWork`): Node's catalog rows, newest activity first, with the live `working` and `agentWorking` laid over.
@@ -69,6 +72,16 @@ pub trait ThreadCatalog: Send + Sync {
     async fn row(&self, id: &str) -> Result<Option<Value>, CoreError>;
     /// The sessions with live work now.
     fn live(&self) -> LiveWork;
+    /// What the live overlay says of one session besides its turn: the bots whose sends run in it (`handedBy`) and whether it
+    /// shows an approval (`liveSessionAwaitingApproval`).
+    fn work_of(&self, id: &str) -> SessionWork;
+}
+
+/// [`ThreadCatalog::work_of`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionWork {
+    pub handed_by: Vec<String>,
+    pub awaiting_approval: bool,
 }
 
 /// `storedLiveWork`: `own`, the sessions with a turn in flight; `agents`, the Leads an Agent session in flight works for.
@@ -92,6 +105,11 @@ impl ThreadCatalog for mixdog_core_session::session::thread_list::ThreadListServ
     fn live(&self) -> LiveWork {
         let work = self.live_work();
         LiveWork { own: work.own.iter().map(|id| id.as_str().to_owned()).collect(), agents: work.agents.iter().map(|id| id.as_str().to_owned()).collect() }
+    }
+
+    fn work_of(&self, id: &str) -> SessionWork {
+        let overlay = self.overlay_of(&ThreadId::from(id));
+        SessionWork { handed_by: overlay.handed_by.unwrap_or_default(), awaiting_approval: overlay.awaiting_approval == Some(true) }
     }
 }
 
@@ -262,6 +280,10 @@ pub struct SessionPortParts {
     pub suggestions: Arc<dyn Suggestions>,
     /// What `list` reads: the catalog, bound once the thread list exists.
     pub catalog: Arc<dyn ThreadCatalog>,
+    /// The bots, routines, held requests and report watches `session bots` reads.
+    pub world: Arc<dyn BotWorld>,
+    /// The queue of turns waiting for their provider quota to reset: what a status reads as a session's `quotaResume`.
+    pub quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
     pub clock: Arc<dyn mixdog_agent::env::Clock>,
     pub io: InteractiveIo,
 }
@@ -379,11 +401,8 @@ impl SessionPort for DirectorySessionPort {
             "list" => self.list(&call).await,
             "send" => self.send(&call).await,
             "create" => self.create(&call).await,
-            // A target that is no session is the missing-session error the bot check reads; the status of one that is stays unanswered.
-            "status" => {
-                self.target_header(&ThreadId::from(actions::target_request(&call, "status")?.id)).await?;
-                Err(PortError::Unavailable { capability: "session-control".to_owned(), message: "session: action=status is not available in this runtime".to_owned() })
-            }
+            "bots" => self.bots(&call).await,
+            "status" => self.session_status(&call).await,
             other => Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={other} is not available in this runtime"),

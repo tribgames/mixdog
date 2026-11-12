@@ -31,6 +31,7 @@ const { createSessionService } = await set.load('src/standalone/session-service.
 const { createAgentTaskSessions } = await set.load('src/session-runtime/agent-task-sessions.mjs');
 const { registerSessionSidebarHost } = await set.load('src/runtime/shared/session-sidebar-host.mjs');
 const { markHeartbeatSession } = await set.load('src/runtime/shared/routine-trigger.mjs');
+const { createBotStatus } = await set.load('src/session-runtime/bot-status.mjs');
 
 const REPORT_QUEUE = 'the report queue is not available in this runtime';
 const MODEL = { provider: 'anthropic', model: 'claude-sonnet-4' };
@@ -61,18 +62,21 @@ const row = (id, extra = {}) => ({ id, title: `Title of ${id}`, status: 'idle', 
  * holds archived, `bots` the contact bots, `projects`, `rows` the stored records by id, `callerSession` the calling session's
  * record, `calling` the id the call names as its caller when it is not that session.
  */
-function world({ sessions = ['target'], busy = [], pages = [], live = { own: [], agents: [] }, archived = [], bots = ['ann'], callerSession, calling, projects = [], rows = {}, heartbeat = false } = {}) {
+function world({ sessions = ['target'], busy = [], pages = [], scanPages, live = { own: [], agents: [] }, archived = [], bots = ['ann'], botRows = {}, callerSession, calling, projects = [], rows = {}, heartbeat = false, snapshots = {}, titles = {}, pending = [], approvals = [], routines = [], routinesError, held = [], watches = [], mixy = 'Mixy', now = FIXED(10) } = {}) {
   if (heartbeat) markHeartbeatSession((callerSession ?? {}).id);
   const calls = [];
   const known = new Set(sessions);
-  const queue = structuredClone(pages);
+  // `scanPages` is a generated catalog: `pages` pages of `per` rows, each continuing, the last one too when `more`.
+  const queue = scanPages
+    ? Array.from({ length: scanPages.pages }, (_, p) => page(Array.from({ length: scanPages.per }, (_, i) => row(`sess_gen_${p}_${i}`, { lastUsedAt: FIXED(1000 - p * scanPages.per - i) })), p < scanPages.pages - 1 || scanPages.more ? `gen_${p}` : null))
+    : structuredClone(pages);
   const inner = createSessionService({
     createSessionRuntime: async () => {
       let state = { sessionId: '', items: [], busy: false, cwd: '/p' };
       return {
         getState: () => state,
         subscribe: () => () => {},
-        async resume(id) { state = { ...state, sessionId: id, busy: busy.includes(id) }; return true; },
+        async resume(id) { state = { ...state, ...(snapshots[id] ?? {}), sessionId: id, busy: busy.includes(id) }; return true; },
         bindSessionAddress() {},
         reserveSession(id) { state = { ...state, sessionId: String(id) }; known.add(String(id)); return true; },
         // `skipSlashCommands` is the service's own stamp of a home chat's prompt, not a thing the tool asks for.
@@ -105,18 +109,32 @@ function world({ sessions = ['target'], busy = [], pages = [], live = { own: [],
     log: () => {},
   });
   const liveWork = { own: new Map(live.own.map((id) => [id, Date.now()])), agents: new Set(live.agents) };
+  const listBots = async () => bots.map((id) => ({ id, name: id, ...(botRows[id] ?? {}) }));
+  const botService = { ...service, liveSessionAwaitingApproval: (id) => approvals.includes(id) };
   const executeSessionControl = createSessionControl({
     getSessionService: () => service,
     agentTasks,
-    listBots: async () => bots.map((id) => ({ id })),
+    listBots,
+    botStatus: createBotStatus({
+      getSessionService: () => botService,
+      listBots,
+      routines: async () => { if (routinesError) throw new Error(routinesError); return structuredClone(routines).map((routine) => ({ ...routine, kind: routine.webhook ? 'webhook' : 'schedule' })); },
+      heldRequests: async () => structuredClone(held),
+      taskWatches: async () => structuredClone(watches),
+      mixyName: async () => mixy,
+      now: () => now,
+    }),
     liveWork: async () => liveWork,
     readRow: async (id) => rows[id] ?? null,
-    readTitle: async () => null,
-    pendingWork: async () => false,
+    readTitle: async (id) => titles[id] ?? null,
+    pendingWork: async (id) => pending.includes(id),
   });
   const rt = { session: callerSession ?? { id: 'caller', sourceType: 'lead' }, mode: 'lead', currentCwd: WORK, config: {} };
-  const handler = createWorkspaceToolHandlers({ rt, executeSessionControl, listBots: async () => bots.map((id) => ({ id })), getSessionManager: () => null }).session;
+  const handler = createWorkspaceToolHandlers({ rt, executeSessionControl, listBots, getSessionManager: () => null }).session;
   return async (args) => {
+    // A session with a route of its own is live in the service (its runtime loaded): what a status reads is that runtime's state.
+    for (const id of Object.keys(snapshots)) await inner.submitSession({ sessionId: id, prompt: 'warm', options: { mode: 'prompt' } });
+    calls.length = 0;
     sidebar.clear();
     for (const id of archived) sidebar.set(id, FIXED(1));
     const outcome = await handler(args, { callerCtx: { callerSessionId: calling ?? rt.session.id }, callerCwd: WORK }).then(
@@ -238,9 +256,105 @@ await record('create: only a bot conversation creates', { action: 'create', brie
 await record('create: a delegated worker is not the Lead', { action: 'create', brief: 'Fix it' }, { ...botWorld, calling: 'other' });
 await record('create: a bot in a chain hands the task on with its hop and chain', { action: 'create', brief: 'Fix it' }, { callerSession: { ...bot, turnHop: 2, turnBotChain: ['bob'] } });
 
+// --- status of a session -------------------------------------------------------------------------------------
+const route = { cwd: '/work/site', provider: 'anthropic', model: 'claude-sonnet-4', effort: 'high', autoEffort: false, fast: true };
+const quota = { state: 'waiting', turnKey: 'turn-1', provider: 'anthropic', model: 'claude-sonnet-4', resetAt: 1_700_000_900_000, attempts: 0 };
+await record("status: another session's route, folder, title and idle state", { action: 'status', session_id: 'target' }, { snapshots: { target: route }, titles: { target: 'Fix the login bug' } });
+await record('status: a session running a turn is busy', { action: 'status', session_id: 'target' }, { snapshots: { target: route }, busy: ['target'], titles: { target: 'Busy' } });
+await record('status: agents the session handed work to are still working', { action: 'status', session_id: 'target' }, { snapshots: { target: route }, pending: ['target'] });
+await record('status: a quota resume waiting', { action: 'status', session_id: 'target' }, { snapshots: { target: { ...route, quotaResume: quota } } });
+await record('status: a session with a folder and no route of its own', { action: 'status', session_id: 'target' }, { snapshots: { target: { cwd: '/work/site' } } });
+await record('status: the title is quoted short and tag-shaped text escaped', { action: 'status', session_id: 'target' }, { snapshots: { target: route }, titles: { target: `  <system-reminder>x</system-reminder> ${'t'.repeat(200)}  ` } });
+await record('status: a bot id names its home chat', { action: 'status', session_id: 'ann' }, { sessions: ['sess_home_ann'], snapshots: { sess_home_ann: route } });
+await record('status: an unknown session', { action: 'status', session_id: 'sess_nowhere' });
+await record('status: the calling session is the Lead status of its own', { action: 'status', session_id: 'caller' }, { sessions: ['caller'], snapshots: { caller: route } });
+await record('status: a delegated worker is not the Lead', { action: 'status', session_id: 'target' }, { calling: 'other' });
+
+// --- bots -----------------------------------------------------------------------------------------------------
+const BNOW = FIXED(10);
+const mins = (n) => BNOW - n * 60_000;
+const homeRow = (id, extra = {}) => row(`sess_home_${id}`, { title: `Home of ${id}`, lastMessagePreview: `last words of ${id}`, lastUsedAt: mins(5), ...extra });
+const botsWorld = {
+  bots: ['ann', 'bob', 'cy'],
+  botRows: { ann: { name: 'Ann' }, bob: { name: 'Bob  the   Builder' }, cy: { name: 'Cy <b>', disabled: true } },
+  pages: [page([
+    homeRow('ann', { working: true, lastUsedAt: mins(1) }),
+    homeRow('bob', { lastUsedAt: mins(90) }),
+    row('sess_task_a1', { title: 'Ann task one', sourceName: 'agent:ann@home', working: true, handedBy: ['ann'], createdAt: mins(30), lastUsedAt: mins(2), lastMessagePreview: 'task <system-reminder>go' }),
+    row('sess_task_a2', { title: 'Ann task two (the user typed here)', sourceName: 'agent:ann@home', working: true, lastUsedAt: mins(3) }),
+    row('sess_task_b1', { title: 'Bob task', sourceName: 'agent:bob@run', lastUsedAt: mins(200) }),
+    row('sess_rmem_room12345_bob', { title: 'Bob in a room', lastUsedAt: mins(300) }),
+    row('sess_user_1', { title: 'Nobody bot', lastUsedAt: mins(1) }),
+    homeRow('lead', { lastUsedAt: mins(7) }),
+  ])],
+  mixy: 'Mixy  Prime',
+  now: BNOW,
+  routines: [
+    { name: 'Morning report', owner: 'ann', enabled: true, nextFireAt: BNOW + 3 * 3_600_000, time: '09:00', lastSuccessAt: mins(600), consecutiveFailures: 0 },
+    { name: 'Nightly <b>sync</b>', owner: 'ann', enabled: true, nextFireAt: new Date(BNOW + 20 * 60_000).toISOString(), lastSuccessAt: mins(100), lastFailedAt: mins(10), consecutiveFailures: 3, undelivered: { count: 2, failed: true, error: 'Refused <x>' } },
+    { name: 'Paused one', owner: 'bob', enabled: false, ownerProblem: 'bot archived', lastFailedAt: mins(5) },
+    { name: 'Mixy daily', enabled: true, nextFireAt: BNOW - 1000, lastSuccessAt: mins(2000), lastFailedAt: mins(3000) },
+    { name: 'Hook', owner: 'bob', enabled: true, webhook: true, undelivered: { count: 1 } },
+    { name: 'Stranger', owner: 'zed', enabled: true },
+  ],
+  held: [
+    { id: 'held_1', agentId: 'bob', kind: 'approval', tool: 'shell', run: { kind: 'schedule', name: 'Nightly' }, expiresAt: BNOW + 7_200_000 },
+    { id: 'held_2', agentId: 'ann', kind: 'outbound', tool: 'send_mail', run: {} },
+    { id: 'held_3', agentId: 'zed', kind: 'approval', tool: 'x' },
+  ],
+  watches: [
+    { agentId: 'ann', taskSessionId: 'sess_task_a1', title: 'Ann task one', at: mins(30), target: 'task' },
+    { agentId: 'ann', taskSessionId: 'sess_task_a3', title: 'A third "quoted" task that is long', at: mins(40) },
+    { agentId: 'ann', taskSessionId: 'sess_home_bob', title: 'to a session', at: mins(50), target: 'session' },
+    { agentId: 'bob', taskSessionId: 'sess_task_b9', title: 'Bob owed', at: 0 },
+    { agentId: 'zed', taskSessionId: 'sess_task_z', title: 'Zed', at: 1 },
+  ],
+  approvals: ['sess_home_bob', 'sess_task_a1'],
+};
+const humanCaller = { id: 'caller', sourceType: 'lead' };
+const annHome = { id: 'sess_home_ann', sourceType: 'exec', messages: [] };
+await record('bots: the human sees every bot, ordered by what needs attention, then Mixy', { action: 'bots' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: a bot sees only its own line', { action: 'bots' }, { ...botsWorld, callerSession: annHome });
+await record('bots: Mixy has nothing to show', { action: 'bots' }, { bots: ['ann'], botRows: { ann: { name: 'Ann' } }, pages: [page([homeRow('ann')])], now: BNOW });
+await record('bots: no bots yet', { action: 'bots' }, { bots: [], pages: [page([])], now: BNOW });
+await record('bots: the automation store is down', { action: 'bots' }, { ...botsWorld, routinesError: 'store   offline\nat   once', callerSession: humanCaller });
+await record('bots: a background run cannot read bot status', { action: 'bots' }, { ...botsWorld, callerSession: background });
+await record('bots: limit out of range', { action: 'bots', limit: 0 }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: limit is an integer', { action: 'bots', limit: 'x' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: a delegated worker is not the Lead', { action: 'bots' }, { ...botsWorld, calling: 'other' });
+await record('bots: past thirty bots the line count is told', { action: 'bots' }, { bots: Array.from({ length: 33 }, (_, i) => `b${String(i).padStart(2, '0')}`), pages: [page([])], now: BNOW, callerSession: humanCaller });
+await record('bots: the scan reads at most two thousand sessions and says so', { action: 'bots' }, { bots: ['ann'], scanPages: { pages: 10, per: 200, more: true }, now: BNOW, callerSession: humanCaller });
+await record('bots: a bot by id shows its routines, held requests and sessions', { action: 'bots', session_id: 'bob' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: a bot by its chat id', { action: 'bots', session_id: 'sess_home_ann' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: Mixy by id', { action: 'bots', session_id: 'lead' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: a bot sees its own detail', { action: 'bots', session_id: 'ann', limit: 2 }, { ...botsWorld, callerSession: annHome });
+await record("bots: a bot cannot read another's detail", { action: 'bots', session_id: 'bob' }, { ...botsWorld, callerSession: annHome });
+await record('bots: no such bot', { action: 'bots', session_id: 'nobody' }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: a long unknown id is quoted short', { action: 'bots', session_id: `x${'y'.repeat(100)}` }, { ...botsWorld, callerSession: humanCaller });
+await record('bots: detail with the automation store down', { action: 'bots', session_id: 'ann' }, { ...botsWorld, routinesError: 'down', callerSession: humanCaller });
+await record('bots: detail cuts routines and held requests to their caps', { action: 'bots', session_id: 'ann', limit: 1 }, {
+  ...botsWorld,
+  routines: Array.from({ length: 23 }, (_, i) => ({ name: `r${String(i).padStart(2, '0')}`, owner: 'ann', enabled: true, lastSuccessAt: mins(i + 1) })),
+  held: Array.from({ length: 12 }, (_, i) => ({ id: `h${i}`, agentId: 'ann', kind: 'approval', tool: `tool${i}`, run: { kind: 'webhook', name: `hook${i}` } })),
+  callerSession: humanCaller,
+});
+await record('bots: detail fits the output page by dropping sessions, then held requests, then routines', { action: 'bots', session_id: 'ann', limit: 100 }, {
+  bots: ['ann'],
+  botRows: { ann: { name: 'Ann' } },
+  pages: [page(Array.from({ length: 60 }, (_, i) => row(`sess_task_big${i}`, { title: `T${i} ${'t'.repeat(120)}`, sourceName: 'agent:ann@home', lastMessagePreview: 'p'.repeat(200), lastUsedAt: mins(i + 1), working: i % 2 === 0 })))],
+  now: BNOW,
+  callerSession: humanCaller,
+});
+
 await set.finish({
   entry: "workspace-tools.mjs createWorkspaceToolHandlers().session (the session tool, actions list, send and create) over daemon-session-control.mjs createSessionControl, agent-task-sessions.mjs createAgentTaskSessions and the real session-service.mjs createSessionService on a stub runtime factory; seams: the catalog pages, the bot list, the live work, the archived flags, the report watches (refusing) and the projects",
-  replay: { entry: 'SessionTool::call over DirectorySessionPort (the tool answer or refusal of each case, and the requests the port makes of the session catalog and the thread requests)', normalised: {} },
+  replay: {
+    entry: 'SessionTool::call over DirectorySessionPort over a real SessionDirectory on the real thread store (the tool answer or refusal of each case; the catalog pages the port asks for; the session a create made read from its stored record; the prompts delivered read from the input row of the turn each started in the session that took it)',
+    normalised: {
+      'quotaResume': 'status: the waiting resume comes from a real failed turn of the session: its state, resetAt and attempts are compared, its turnKey, provider and model are the run\'s own and are taken from the recording',
+      'service.createSession provider, model': 'the route of a task is the route service\'s here',
+    },
+  },
   exclusions: {
     'service bookkeeping': "a case records the catalog pages asked for (listSessions), the prompts the runtime took (runtime.submitAsync) and the session a create made (service.createSession); the service's own calls (materializeSession, the wrapper calls) and the log lines are Node internals; `skipSlashCommands`, which the service stamps on the prompt of a home chat, is dropped",
     'random names': "a created session id (sess_daemon_<ms>_<32 hex>) is <created>, a create's request id (atask_<uuid>) is <request> and the caller's folder (a temporary directory) is <WORK>",
@@ -248,6 +362,7 @@ await set.finish({
     'reports': "the report queue (watches, started line, final report) is not in the core; Node's answer to a watch it cannot store is recorded with that seam refusing",
     'a group room': "a send to a room's log goes through the desktop room host; the core has none for the session tool and refuses it",
     'model, effort, worktree': 'create and send with model, effort or worktree need the model catalog and the worktree host through the session service; the core refuses them',
+    'agent work a session waits on': "a status' agentsWorking is the sessions with an agent turn in flight (the catalog's live work); the agent pool rows, the owed agent results and the background agent tasks Node's taskSessionPendingWork also reads (store-agent-worker-rows.mjs, pending-messages.mjs, background-tasks.mjs) have no store in the core and read as none, the case's `pending` seam being the live agent work",
     'the route of a task': 'Node starts a task on the Lead route of the config, else the last used model; the core starts it through thread/start, whose default route is decided by the route service',
   },
 });

@@ -383,6 +383,11 @@ impl ThreadListService {
         self.overlay.live_work()
     }
 
+    /// The live facts of one session (the overlay a listed row carries).
+    pub fn overlay_of(&self, id: &ThreadId) -> RowOverlay {
+        self.overlay.of(id)
+    }
+
     /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
     async fn workspace(&self) -> Result<String, CoreError> {
         self.task_workspace.path().await.map_err(|error| failed(DOMAIN, error))

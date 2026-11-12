@@ -51,7 +51,7 @@ fn text_of<'a>(row: &'a Value, key: &str) -> &'a str {
 }
 
 /// `Number(value) || 0`.
-fn number_of(value: Option<&Value>) -> f64 {
+pub(super) fn number_of(value: Option<&Value>) -> f64 {
     let number = match value {
         Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
         Some(Value::String(s)) => string_to_number(s),
@@ -63,6 +63,11 @@ fn number_of(value: Option<&Value>) -> f64 {
 
 fn is_js_space(c: char) -> bool {
     matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// A stored session title as the tool quotes it (`escapeHarnessTags(truncateToolText(title, SESSION_TITLE_LIMIT))`).
+pub(super) fn quoted_title(title: &str) -> String {
+    escape_harness_tags(&truncate_tool_text(title, TITLE_LIMIT))
 }
 
 /// `truncateToolText(value, max)`: trimmed, and cut to `max` UTF-16 units with `...` after it.
