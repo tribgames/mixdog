@@ -33,6 +33,8 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
     ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
     ("random.rs", "SCOPES", NotState("the source of fresh scope ids: a replay's scope is a new one each run")),
+    ("registry/keys.rs", "NEXT", NotState("the source of fresh key-store ids: a store keeps its own, and what an id names (a slot in the credential registry) is reset with that registry")),
+    ("providers/devin/auth.rs", "NEXT", NotState("the source of fresh provider-instance ids: an instance keeps its own, and what an id names (a source in the credential registry) is reset with that registry")),
     ("random.rs", "SCOPE", NotState("the scope a thread draws in, entered and left by `run_scoped` around each replay")),
     ("wall.rs", "CLOCK", Reset("wall::set(None)")),
     ("pid.rs", "PID", Reset("pid::set(None)")),

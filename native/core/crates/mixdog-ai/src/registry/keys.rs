@@ -150,11 +150,15 @@ pub struct ApiKeyStore {
     env: Arc<dyn Environment>,
     /// A remote-mode server holds no model credentials.
     remote_client: bool,
+    /// Which store this is: two stores (configurations) can hold different accounts under one provider name, so a slot
+    /// that is not an environment variable carries it. Clones are the same store.
+    id: u64,
 }
 
 impl ApiKeyStore {
     pub fn new(vault: Arc<dyn SecretVault>, env: Arc<dyn Environment>, remote_client: bool) -> Self {
-        Self { vault, env, remote_client }
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self { vault, env, remote_client, id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
     }
 
     /// A key variable's value, as the environment holds it.
@@ -208,9 +212,14 @@ impl ApiKeyStore {
         }
     }
 
-    /// A configured key: its source is the provider's config entry.
-    fn configured(provider: &str, key: &str) -> String {
-        crate::oauth::carried::keep(&format!("config {provider}"), &[key]);
+    /// The source of a key in `provider`'s config entry of this store.
+    fn config_source(&self, provider: &str) -> String {
+        format!("config {provider} of store {}", self.id)
+    }
+
+    /// A configured key: its source is the provider's config entry in this store.
+    fn configured(&self, provider: &str, key: &str) -> String {
+        crate::oauth::carried::keep(&self.config_source(provider), &[key]);
         key.to_owned()
     }
 
@@ -242,23 +251,24 @@ impl ApiKeyStore {
             return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
-            return Ok(Self::configured(provider, key));
+            return Ok(self.configured(provider, key));
         }
         Ok(self.get(provider).await?.unwrap_or_default())
     }
 
-    /// The slot [`Self::resolve`] reads `provider`'s key from (a variable, the provider's config entry, a keychain
-    /// account): what stays the same when the key in it is replaced and differs between keys of different slots.
+    /// The slot [`Self::resolve`] reads `provider`'s key from (a variable, the provider's config entry in this store, a
+    /// keychain account of this store): what stays the same when the key in it is replaced and differs between keys of
+    /// different slots, and between stores.
     pub fn slot(&self, provider: &str, config: &KeyConfig) -> String {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
             return format!("env {env}");
         }
         if config.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
-            return format!("config {provider}");
+            return self.config_source(provider);
         }
         match self.environment_key_name(provider.trim()) {
             Some(name) => format!("env {name}"),
-            None => keychain_source(&api_key_account(provider.trim())),
+            None => format!("{} of store {}", keychain_source(&api_key_account(provider.trim())), self.id),
         }
     }
 
@@ -282,7 +292,7 @@ impl ApiKeyStore {
         if let Some(key) = self.get(provider).await? {
             return Ok(key);
         }
-        Ok(config.api_key.as_deref().filter(|k| !k.is_empty()).map(|key| Self::configured(provider, key)).unwrap_or_default())
+        Ok(config.api_key.as_deref().filter(|k| !k.is_empty()).map(|key| self.configured(provider, key)).unwrap_or_default())
     }
 
     /// Stores `provider`'s key in the keychain (`setSecret`).

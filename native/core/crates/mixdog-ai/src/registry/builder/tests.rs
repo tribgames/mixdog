@@ -46,10 +46,15 @@ fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
 }
 
 fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultProviderBuilder {
+    builder_over(dir, env, None, Arc::new(SessionContext::new()))
+}
+
+/// A builder whose requests go to `http` when given (else the real link), reading time off `context`.
+fn builder_over(dir: &tempfile::TempDir, env: Arc<dyn Environment>, http: Option<Arc<dyn HttpSend>>, context: Arc<SessionContext>) -> DefaultProviderBuilder {
     let tokens = mixdog_rt::testing::tokens();
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     DefaultProviderBuilder::new(BuilderEnv {
-        http: link.clone(),
+        http: http.unwrap_or_else(|| link.clone()),
         bidi: link,
         dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
         keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
@@ -61,7 +66,7 @@ fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultPr
         google_traits: Arc::new(Traits),
         route_traits: Arc::new(|_| None),
         openai_facts: Arc::new(NoFacts),
-        openai_context: Arc::new(SessionContext::new()),
+        openai_context: context,
         codex_identity: CodexIdentity {
             installation_id: "i".into(),
             user_agent: "ua".into(),
@@ -234,4 +239,180 @@ fn the_transport_setting_selects_the_websocket_mode() {
     assert_eq!(pick(Some("sse")).0, TransportKind::Http1);
     assert_eq!(pick(None), (TransportKind::WebSocket, TransportMode::Auto));
     assert_eq!(pick(Some("quantum")), (TransportKind::WebSocket, TransportMode::Auto));
+}
+/// Providers of one kind built through the registry as separate configurations would be (one store each), each over a
+/// network of its own that answers every token exchange with the next tokens of its account.
+mod account_keys {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    use super::*;
+    use crate::oauth::carried;
+    use crate::providers::listing_row::testing::Replay;
+
+    struct Vars(Mutex<HashMap<String, String>>);
+
+    impl Environment for Vars {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.lock().unwrap().get(name).cloned()
+        }
+    }
+
+    /// One configuration: its builder, the tokens its network issued, the variables it reads.
+    struct Config {
+        builder: DefaultProviderBuilder,
+        issued: Arc<Mutex<Vec<String>>>,
+        vars: Arc<Vars>,
+        _dir: tempfile::TempDir,
+    }
+
+    fn configuration(label: &'static str) -> Config {
+        let issued = Arc::new(Mutex::new(Vec::new()));
+        let record = issued.clone();
+        let n = std::sync::atomic::AtomicU64::new(0);
+        let net: Arc<dyn HttpSend> = Arc::new(Replay::new(move |request| {
+            if request.url != crate::providers::cursor::auth::EXCHANGE_URL {
+                return (404, Vec::new());
+            }
+            let n = n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let payload = URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{}}}", 4_000_000_000u64 + n));
+            let (access, refresh) = (format!("{label}-access-{n:04}.{payload}.s"), format!("{label}-refresh-{n:04}"));
+            record.lock().unwrap().extend([access.clone(), refresh.clone()]);
+            (200, format!(r#"{{"accessToken":"{access}","refreshToken":"{refresh}"}}"#).into_bytes())
+        }));
+        let dir = tempfile::tempdir().unwrap();
+        let vars = Arc::new(Vars(Mutex::default()));
+        let builder = builder_over(&dir, vars.clone(), Some(net), Arc::new(SessionContext::new()));
+        Config { builder, issued, vars, _dir: dir }
+    }
+
+    impl Config {
+        /// The user replaces the key in the configuration: the provider is rebuilt and lists its models, which exchanges.
+        async fn exchange(&self, cfg: Value) {
+            let adapter = self.builder.build("cursor-api", &cfg).await.unwrap();
+            let _ = adapter.models().unwrap().list_models().await;
+        }
+
+        fn issued(&self) -> Vec<String> {
+            self.issued.lock().unwrap().clone()
+        }
+    }
+
+    fn retire_unrelated(tag: &str) {
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file the-unrelated-account-of-the-cursor-test.json", &[&format!("{tag}-unrelated-{i:05}")]);
+        }
+    }
+
+    fn with_key(key: &str) -> Value {
+        json!({"enabled": true, "apiKey": key})
+    }
+
+    fn with_variable(name: &str) -> Value {
+        json!({"enabled": true, "apiKeyEnv": name})
+    }
+
+    /// Two configurations holding an explicit key and a third naming a variable: every one's tokens and keys stay redacted
+    /// through the others' rotations and unrelated retirements past the cap.
+    #[tokio::test]
+    async fn other_configurations_keep_their_tokens_through_each_others_rotations() {
+        carried::reset_registry();
+        let (a, b, c) = (configuration("a"), configuration("b"), configuration("c"));
+        a.exchange(with_key("explicit-key-of-a")).await;
+        c.vars.0.lock().unwrap().insert("CURSOR_KEY_C".into(), "variable-key-of-c".into());
+        c.exchange(with_variable("CURSOR_KEY_C")).await;
+        for n in 0..3 {
+            b.exchange(with_key(&format!("explicit-key-of-b-{n}"))).await;
+        }
+        retire_unrelated("cursor-accounts");
+        let registry = carried::registry();
+        for held in a.issued().iter().chain(&c.issued()).chain(&b.issued()[b.issued().len() - 2..]) {
+            assert!(registry.holds(held), "a live token went unredacted: {held}");
+        }
+        assert!(registry.holds("explicit-key-of-a") && registry.holds("variable-key-of-c") && registry.holds("explicit-key-of-b-2"));
+        assert!(!registry.holds(&b.issued()[0]) && !registry.holds("explicit-key-of-b-0"), "B's replaced credentials retired");
+    }
+
+    /// Ten rotations of each of two configurations' keys: each keeps its key and its pair of tokens pinned, the rest is
+    /// retired within the caps.
+    #[tokio::test]
+    async fn ten_rotations_of_each_configuration_stay_within_the_caps() {
+        carried::reset_registry();
+        let (a, b) = (configuration("a"), configuration("b"));
+        for n in 0..10 {
+            a.exchange(with_key(&format!("ten-key-of-a-{n}"))).await;
+            b.exchange(with_key(&format!("ten-key-of-b-{n}"))).await;
+        }
+        let counts = carried::registry().counts();
+        assert_eq!(counts.held, 6, "each configuration pins its key and its access and refresh token");
+        assert!(counts.retired <= carried::RETIRED_CAP && counts.carried <= carried::CARRIED_CAP);
+    }
+}
+
+/// A custom provider serving the Chat, Responses and Messages wires warms its endpoint as Node's does, on the process clock
+/// moved past the keep-alive window (`custom-warmups/golden.json`, `record-custom-warmups.mjs`): the provider's construction
+/// warms; a send inside the window does not; a send after it re-warms on the Chat and Responses wires and not on Messages,
+/// which Node hands straight to the Anthropic client. The sends that reached the endpoint show each took its wire.
+#[tokio::test]
+async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+
+    use crate::providers::listing_row::testing::Replay;
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::ModelRequest;
+    use mixdog_core_api::domain::provider::RequestOptions;
+    use mixdog_core_api::domain::provider::Role;
+
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/custom-warmups/golden.json")).unwrap();
+    let (start, lapsed) = (golden["clock"]["start"].as_u64().unwrap(), golden["clock"]["lapsed"].as_u64().unwrap());
+    for (wire, recorded) in golden["scenarios"].as_object().unwrap() {
+        let origin = format!("http://warm-{wire}.test");
+        let clock = Arc::new(AtomicU64::new(start));
+        let replay = Arc::new(Replay::new(|_| (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())));
+        let dir = tempfile::tempdir().unwrap();
+        let now = clock.clone();
+        let context = Arc::new(SessionContext::with_sources(move || now.load(Ordering::SeqCst), || "request".to_owned()));
+        let builder = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), context);
+        let models = [("chat", "model-chat"), ("responses", "model-responses"), ("messages", "model-messages")];
+        let cfg = json!({
+            "type": "custom", "protocol": "openai-chat", "baseURL": format!("{origin}/{wire}/v1"), "apiKey": "warm-up-key",
+            "wires": ["chat", "responses", "messages"],
+            "modelWires": models.iter().map(|(w, m)| ((*m).to_owned(), json!(w))).collect::<serde_json::Map<_, _>>(),
+        });
+        let heads = || replay.requests.lock().unwrap().iter().filter(|r| r.method == "HEAD").count();
+        let model = models.iter().find(|(w, _)| w == wire).unwrap().1;
+        let send = |provider: Arc<dyn ProviderAdapter>| async move {
+            let request = ModelRequest {
+                model: model.to_owned(),
+                messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+                tools: Vec::new(),
+                options: RequestOptions::default(),
+            };
+            let _ = provider.attempt(Arc::new(request)).await;
+        };
+        crate::transport::preconnect::reset();
+        let provider = builder.build(&format!("custom-warm-{wire}"), &cfg).await.unwrap();
+        let mut steps = vec![heads()];
+        send(provider.clone()).await;
+        steps.push(heads());
+        clock.store(lapsed, Ordering::SeqCst);
+        send(provider).await;
+        steps.push(heads());
+        let recorded_steps: Vec<usize> = recorded["steps"].as_array().unwrap().iter().map(|s| s[1].as_u64().unwrap() as usize).collect();
+        assert_eq!(steps, recorded_steps, "{wire}: warm-ups after the build, the send inside the window, the send after it");
+        let requests = replay.requests.lock().unwrap();
+        let warmups: Vec<(String, String)> = requests.iter().filter(|r| r.method == "HEAD").map(|r| ("HEAD".to_owned(), r.url.replace(&origin, ""))).collect();
+        let recorded_warmups: Vec<(String, String)> =
+            recorded["warmups"].as_array().unwrap().iter().map(|w| (w[0].as_str().unwrap().to_owned(), w[1].as_str().unwrap().to_owned())).collect();
+        assert_eq!(warmups, recorded_warmups, "{wire}: the warm-up requests");
+        let sent: Vec<(String, String)> = requests.iter().filter(|r| r.method != "HEAD").map(|r| (r.method.clone(), r.url.replace(&origin, ""))).collect();
+        let recorded_sent: Vec<(String, String)> =
+            recorded["sent"].as_array().unwrap().iter().map(|w| (w[0].as_str().unwrap().to_owned(), w[1].as_str().unwrap().to_owned())).collect();
+        assert_eq!(sent, recorded_sent, "{wire}: the requests the sends made");
+    }
 }

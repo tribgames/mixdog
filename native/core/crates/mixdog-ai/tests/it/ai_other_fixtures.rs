@@ -359,7 +359,7 @@ fn devin_adapter(replay: &Arc<Replay>) -> DevinAdapter {
         expires_at: None,
         identity: None,
     };
-    DevinAdapter::new(None, replay.clone(), Arc::new(StaticSessionToken(credentials)))
+    DevinAdapter::new(None, replay.clone(), Arc::new(StaticSessionToken::new(credentials)))
 }
 
 #[tokio::test]

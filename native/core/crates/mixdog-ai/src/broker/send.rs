@@ -251,10 +251,10 @@ impl ModelBroker {
                     match self.recovered(adapter, &send.request, sink, cancel, liveness.as_deref()).await {
                         Ok(()) => {
                             permit.finish(Outcome::Success);
-                            mixdog_rt::node_stderr!(
-                                "[gemini] stream failed ({}); recovered via non-streaming generateContent",
-                                failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message)
-                            );
+                            // The dead stream's text repeats what the endpoint answered, as the retry line's does.
+                            let cause = crate::oauth::carried::remembered()
+                                .redact_str(failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message));
+                            mixdog_rt::node_stderr!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent");
                             return Ok(attempts + 1);
                         }
                         Err(Stop::Cancelled) => {

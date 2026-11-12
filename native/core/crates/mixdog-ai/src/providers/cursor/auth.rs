@@ -454,40 +454,6 @@ mod tests {
         assert!(registry.holds(&seen[2]), "the current one stays");
     }
 
-    /// Two accounts live at once: the other's rotations and unrelated retirements past the cap never retire a live token.
-    #[tokio::test]
-    async fn two_accounts_stay_redacted_through_each_others_rotations() {
-        crate::oauth::carried::reset_registry();
-        let http = std::sync::Arc::new(Rotating(AtomicUsize::new(0)));
-        let a = ApiKeyAccess::new(http.clone(), "key-of-a".into(), "env CURSOR_KEY_A".into());
-        let a_access = a.access_token(false).await.unwrap();
-        let mut b_seen = Vec::new();
-        for n in 0..3 {
-            let b = ApiKeyAccess::new(http.clone(), format!("key-of-b-{n}"), "env CURSOR_KEY_B".into());
-            b_seen.push(b.access_token(false).await.unwrap());
-        }
-        for i in 0..=crate::oauth::carried::RETIRED_CAP {
-            crate::oauth::carried::keep("file the-unrelated-account-of-the-cursor-test.json", &[&format!("cursor-pair-unrelated-{i:05}")]);
-        }
-        let registry = crate::oauth::carried::registry();
-        assert!(registry.holds(&a_access), "account A's live token stays");
-        assert!(registry.holds(b_seen.last().unwrap()), "account B's live token stays");
-        assert!(!registry.holds(&b_seen[0]), "B's replaced token retired");
-    }
-
-    #[tokio::test]
-    async fn one_accounts_ten_rotations_stay_within_the_caps() {
-        crate::oauth::carried::reset_registry();
-        let http = std::sync::Arc::new(Rotating(AtomicUsize::new(0)));
-        for n in 0..10 {
-            let access = ApiKeyAccess::new(http.clone(), format!("ten-keys-{n}"), "env CURSOR_TEN".into());
-            access.access_token(false).await.unwrap();
-        }
-        let counts = crate::oauth::carried::registry().counts();
-        assert_eq!(counts.held, 2, "only the account's current access and refresh token are pinned");
-        assert!(counts.retired <= crate::oauth::carried::RETIRED_CAP && counts.carried <= crate::oauth::carried::CARRIED_CAP);
-    }
-
     #[tokio::test]
     async fn a_failed_exchange_surfaces_even_when_the_key_looks_valid() {
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 401 });
