@@ -44,6 +44,11 @@ impl SessionActor {
                 self.compact_start(req.op.clone(), tx, params.options);
                 return Ok(());
             }
+            // The session tool's `compact` (`pendingCompactSessionIds`): runs once the turn settles.
+            "thread/compact/schedule" => {
+                self.compact_scheduled = true;
+                Ok(json!({}))
+            }
             "turn/retryFailed" => {
                 let params: mixdog_app_protocol::v2::thread::TurnRetryFailedParams = match parse(&req.params, "TurnRetryFailedParams") {
                     Ok(params) => params,
@@ -114,18 +119,66 @@ impl SessionActor {
         });
     }
 
+    /// `settleTurn`'s `runPendingCompact` (`compaction-gate.mjs`): the scheduled compaction runs
+    /// now, as `session.compact()` does, and what follows the turn waits on it: the queued work
+    /// and the Goal continuation, and every turn, clear, rewind or compaction asked meanwhile
+    /// (`afterCompaction`). Its failure breaks nothing (`.catch(() => {})`).
+    pub(super) fn run_scheduled_compaction(&mut self, goal_active: bool) {
+        let (tx, rx) = oneshot::channel();
+        self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active });
+        self.compact_start(None, tx, None);
+        let jobs = self.jobs_tx.clone();
+        tokio::spawn(async move {
+            let _ = rx.await;
+            let _ = jobs.send(JobDone::ScheduledCompactionEnded);
+        });
+    }
+
+    /// The scheduled compaction ended: what waited on it runs, in arrival order, then the work
+    /// the settled turn left.
+    pub(super) fn scheduled_compaction_ended(&mut self) {
+        let Some(after) = self.after_compaction.take() else {
+            return;
+        };
+        for waiting in after.waiting {
+            match waiting {
+                super::Waiting::Request(req, tx) => {
+                    if let Err((error, tx)) = self.mutation(req, tx) {
+                        let _ = tx.send(Err(error));
+                    }
+                }
+                super::Waiting::Retry(retry) if self.deleting => drop(retry),
+                // A turn released ahead of it runs: the retry is the next turn.
+                super::Waiting::Retry(retry) if self.turn_busy() => self.pending_retry = Some(retry),
+                super::Waiting::Retry(retry) => self.begin_retry(retry),
+            }
+        }
+        if self.deleting {
+            return;
+        }
+        self.start_next_queued();
+        if after.goal_active {
+            self.schedule_goal_continuation();
+        }
+        self.try_unload();
+    }
+
     /// `retryBlocked()`: anything running, settling, closing or queued owns the session first.
     /// Node's flags map as: `disposed` and a closed `admission` to a deleted or unloaded thread,
     /// `settlement` to the quota settlement, `busy` to any turn state, `commandBusy` and
     /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
     /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
-    /// queue (`decisions.md`, "turn/retryFailed").
+    /// queue (`decisions.md`, "turn/retryFailed"). The model-scheduled compaction sets neither
+    /// flag (`compaction-gate.mjs` runs it in the runtime): a retry asked while it runs is admitted
+    /// and waits on its gate ([`Self::begin_retry`]); a retry it already holds is the queue.
     pub(super) fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
             || self.turn_busy()
-            || self.compactions > 0
+            || (self.compactions > 0 && !self.starts_gated())
+            || self.pending_retry.is_some()
+            || self.after_compaction.as_ref().is_some_and(|after| after.waiting.iter().any(|w| matches!(w, super::Waiting::Retry(_))))
             || !self.wake_tail.is_empty()
             || !self.projected.queue.is_empty()
     }
@@ -178,7 +231,15 @@ impl SessionActor {
         }))
     }
 
-    fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
+    /// The retry turn starts, unless the scheduled compaction holds the session: then it waits on
+    /// the gate (`ask: afterCompaction(runner.ask)`), in arrival order with the requests it holds.
+    pub(super) fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
+        if let Some(after) = &mut self.after_compaction {
+            after.waiting.push(super::Waiting::Retry(retry));
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.gate_holds.fetch_add(1, SeqCst);
+            return;
+        }
         self.retry_hidden = retry.hidden;
         self.retry_provenance = Some(retry.provenance);
         self.retry_prior = retry.prior;

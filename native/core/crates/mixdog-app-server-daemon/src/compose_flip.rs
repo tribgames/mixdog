@@ -1377,6 +1377,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let late_dispatcher = Arc::new(crate::late_session::LateDispatcher::default());
     let late_catalog = Arc::new(crate::late_session::LateCatalog::default());
     let late_list_catalog = Arc::new(crate::late_session::LateListCatalog::default()); // the `session` tool's list reads the thread list service, bound once it is built (below); in `verify_bound`
+    let late_listing = Arc::new(mixdog_core::run_host::tool_pool::session_control::LateListing::default());
+    let late_send = Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default());
+    let late_bot_sources = Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default());
     let late_skills = Arc::new(crate::late_session::LateSkills::default());
     let late_reactions = Arc::new(crate::late_session::LateReactions::default());
     let late_agent_port = Arc::new(mixdog_core::run_host::late_agent_port::LateAgentPort::default());
@@ -1435,6 +1438,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             suggestions: Arc::new(mixdog_core::run_host::tool_pool::session_port::HeartbeatSuggestions::new(heartbeat_store.clone(), now_ms.clone())),
             catalog: late_list_catalog.clone(),
             clock: clock_agent.clone(),
+            listing: late_listing.clone(),
+            send: late_send.clone(),
+            bot_sources: late_bot_sources.clone(),
             io: b.tokens.interactive_io,
         })),
         agents: late_agent_port.clone(),
@@ -2608,7 +2614,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node's one `lastArchiveStamp`, which the host's archive and the rooms' share (`ArchiveStamps`).
     let archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps> = Arc::default();
     let room_sessions = Arc::new(
-        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
+        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone())
+            .with_archive_stamps(archive_stamps.clone())
+            .with_routes(late_route_session.clone()),
     );
     // Node's supervisor step logs one line per step with `process.stderr.write` (`room-supervisor-completion.mjs` default `log`): the daemon's raw stderr.
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(
@@ -2667,8 +2675,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // `BotWork` (also the report host's bot-work registry): its `on_change` republishes the session's row (flip-agent-worlds-7), through a cell bound once the list service exists.
     let bot_summaries = mixdog_core::run_host::bot_work_summaries::BotWorkSummaries::new();
     let bot_work = Arc::new(mixdog_services::task_reports::host::BotWork::new({ let summaries = bot_summaries.clone(); Arc::new(move |session: &str| summaries.changed(session)) }));
-    let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
+    let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work.clone())); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
+    late_listing
+        .bind(Arc::new(mixdog_core::run_host::tool_pool::session_control::StoreListing::new(catalog_handle.clone(), list_overlay.clone(), directory.clone(), agent_pool.clone(), now_ms.clone())))
+        .map_err(ComposeError::AlreadyBound)?;
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows, agents.clone()));
     thread_list.fence(store_threads.clone()); // a list is never older than a write whose reply or notification has gone out
     late_list_catalog.bind(thread_list.clone()).map_err(|_| ComposeError::AlreadyBound("session list catalog"))?;
@@ -2737,7 +2748,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         room_log.clone(),
     ));
     // The core is the attached room host (`registerAgentRoomHost(host.agentRoomHost())`, desktop-service.ts:788).
-    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())));
+    let room_host_registration = room_hosts.register_host(
+        Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())),
+        // `member` / `ask`: a `session` send to a room log (agent-room-messages.ts `addressee`, `acceptAsk`).
+        Some(Arc::new(mixdog_core_rooms::rooms::room_ask::RoomAsks::new(live_rooms.clone(), Arc::new(room_calls.clone()), rooms_ready.clone()))),
+    );
     builder.register(Arc::new(mixdog_core_rooms::rooms::service::RoomService::new(
         rooms.clone(),
         room_host.clone(),
@@ -2825,7 +2840,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             })
         })),
         inbox: session_completions.clone(),
-        owner_notify: session_completions,
+        owner_notify: session_completions.clone(),
         admission: agent_admission.clone(),
         starts: Arc::new(mixdog_core_session::session::agent_registry::flow::AgentTaskStarts::default()),
         workers: Arc::new(mixdog_core_session::session::agent_registry::workers::AgentWorkers::new(directory.clone(), threads.clone(), agent_registry.clone(), shell_jobs.clone(), clock.clone())),
@@ -2916,6 +2931,94 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()));
     let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone(), models: model_list.clone(), controls: directory.clone() });
+    // The task-report host (`createAgentTaskSessions`): a bot's sends are watched durably in its home's queue, followed to the final answer and reported
+    // there; the watches an earlier process left are re-attached at start. The same `BotWork` the list overlay reads; the `session` tool's send reports through it.
+    {
+        let pending_queue = mixdog_core::run_host::compose_parts::pending_rows(&directory, clock.clone()).queue;
+        let report_host = mixdog_services::task_reports::host::TaskReportHost::new(
+            Arc::new(home_delivery.clone()),
+            Arc::new(mixdog_core::run_host::task_report_store::DirectoryReportSessions {
+                directory: directory.clone(),
+                queue: pending_queue.clone(),
+                completions: session_completions.clone(),
+                lane: b.tokens.durability_io,
+                data_dir: b.data_dir.clone(),
+                scopes: mixdog_services::task_reports::collect::sensitive_scopes(&[home.clone(), mixdog_home.clone(), b.data_dir.clone()]),
+            }),
+            Arc::new(mixdog_core::run_host::task_report_store::DaemonReportAgents {
+                directory: directory.clone(),
+                queue: pending_queue,
+                board: job_board.clone(),
+                pool: agent_pool.clone(),
+                workers: agent_registry.clone(),
+                now_ms: now_ms.clone(),
+            }),
+            bot_work.clone(),
+            Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
+        );
+        let process_token = uuid::Uuid::now_v7().to_string();
+        let tasks = mixdog_services::task_reports::send::TaskSends::new(
+            report_host.clone(),
+            Arc::new(mixdog_core::run_host::tool_pool::session_send::DirectorySubmit(directory.clone())),
+            process_token.clone(),
+            now_ms.clone(),
+        );
+        let (records, turns) = (agent_registry.clone(), directory.clone());
+        late_send
+            .bind(Arc::new(mixdog_core::run_host::tool_pool::session_send::SessionSend {
+                directory: directory.clone(),
+                tasks,
+                chains: mixdog_core::run_host::tool_pool::session_send::CallerChains {
+                    record: Arc::new(move |id: &str| records.session_row(id).map(serde_json::Value::Object)),
+                    turn: Arc::new(move |id: &str| {
+                        let thread = mixdog_core_api::ids::ThreadId::from(id);
+                        (turns.turn_hop(&thread), turns.turn_bot_chain(&thread))
+                    }),
+                },
+                names: Arc::new(mixdog_core::run_host::tool_pool::session_send::DefinitionNames { definitions: mcp.agents.clone(), data_dir: b.data_dir.clone(), io: b.tokens.interactive_io }),
+                catalog: Arc::new(mixdog_core::run_host::tool_pool::session_send::ModelListRows(model_list.clone())),
+                effort: Arc::new(mixdog_core::run_host::tool_pool::session_send::RouteEffort(route_service.clone())),
+                rebind: Arc::new(mixdog_core::run_host::tool_pool::session_send::SendWorldRebind(agent_send_world.clone())),
+                create: Arc::new(mixdog_core::run_host::tool_pool::session_create::DirectoryCreate {
+                    directory: directory.clone(),
+                    projects: project_list.clone(),
+                    config: config.clone(),
+                    routes: route_context.clone(),
+                    listing: late_listing.clone(),
+                    data_dir: b.data_dir.clone(),
+                    io: b.tokens.interactive_io,
+                }),
+                rooms: room_hosts.clone(),
+            }))
+            .map_err(ComposeError::AlreadyBound)?;
+        late_bot_sources
+            .bind(Arc::new(mixdog_core::run_host::tool_pool::session_bots::LiveBotSources {
+                definitions: mcp.agents.clone(),
+                config: config.clone(),
+                delivery: home_delivery.clone(),
+                held: {
+                    let held = held_requests.clone();
+                    Arc::new(move || held.pending().iter().filter_map(|row| serde_json::to_value(row).ok()).collect())
+                },
+                automation: channel_admin.clone(),
+                overlay: list_overlay.clone(),
+                data_dir: b.data_dir.clone(),
+                io: b.tokens.interactive_io,
+                now_ms: now_ms.clone(),
+            }))
+            .map_err(ComposeError::AlreadyBound)?;
+        // `recoverScheduleResults()` (`daemon.mjs:1221`): the results an earlier process left queued are posted now.
+        let queued_results = home_delivery.clone();
+        drop(mixdog_rt::spawn("routine-results-recover", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = queued_results.recover().await {
+                mixdog_rt::node_stderr!("routine results recovery failed: {error}");
+            }
+        }));
+        // `recover()`: every reporting turn an earlier process watched, and every quiet turn of a bot's it owned, re-attached.
+        drop(mixdog_rt::spawn("task-report-recover", mixdog_rt::TaskClass::Work, async move {
+            mixdog_services::task_reports::rearm::recover_task_watches(report_host, &process_token).await;
+        }));
+    }
     // The control thread's empty Main route follows the config as Node's `adoptFullConfig` does (`syncEmptyMainRoute`).
     let control_route_sync = route_service.follow_config();
     // The route a `thread/start` thread begins on is the route service's; the pick a turn start applies is the follow's (`SessionRoutes::apply_pending`).
@@ -3152,7 +3255,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 

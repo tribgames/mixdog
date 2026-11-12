@@ -774,11 +774,11 @@ fn drain(stage: DrainStage) -> DrainRequest {
     DrainRequest { stage, max_priority: Priority::Next }
 }
 
-/// `ask-turn-steering-drain.mjs:44-58`: a mid-chain boundary takes queued input only while the
-/// queue holds task notifications alone; the terminal boundary takes it all, the prompts merged
-/// into one input and each completion on its own, and none of it starts a turn of its own.
+/// `session-flow/steering.mjs:204` (`drainPendingSteering`, the desktop host's queue): every boundary takes each queued
+/// prompt within its priority as an input of its own, never merged (session-send-world `recipient-queued`); the completion
+/// then left alone in the queue is taken at the same boundary (`ask-turn-steering-drain.mjs:44-58`). None of it starts a turn.
 #[tokio::test(start_paused = true)]
-async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
+async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
     let gate = Arc::new(tokio::sync::Notify::new());

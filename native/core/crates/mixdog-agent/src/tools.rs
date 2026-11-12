@@ -735,7 +735,10 @@ async fn authorize(
                     // hook to work around, and the turn may now wait on them.
                     guards.note_user_wait();
                     let given = match &other {
-                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
+                        // A person's denial with no reason of its own is "denied by user" (`lifecycle.mjs:74`, `held-requests.mjs:198`).
+                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone().filter(|reason| !reason.is_empty()).or_else(|| Some("denied by user".to_owned())),
+                        // `finishToolApproval(entry.id, false, 'approval timed out')` (tool-approval.mjs:77).
+                        ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
                         _ => None,
                     };
                     let detail = given
@@ -1152,7 +1155,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
             }
         }
         Err(error) => {
-            let mut executed = Executed::error(&call.id, error.message_for_model);
+            // A tool that fails gives the model `Error: <message>` (`execute-call.mjs:69`), once.
+            let mut executed = Executed::error(&call.id, crate::agent_tool::dispatch::error_line(&error.message_for_model));
             executed.message.tool_timing = Some(timing(execution_completed_at));
             executed.arg_failure = matches!(error.code, ToolErrorCode::InvalidArgs { .. });
             executed.conflict = matches!(error.code, ToolErrorCode::Conflict { matches } if matches >= 2);

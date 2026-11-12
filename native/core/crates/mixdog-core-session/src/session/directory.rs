@@ -400,7 +400,7 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
     }
 
-    /// `turnHopOf(session)`: the bot-to-bot depth of the turn the loaded thread is in; 0 for a thread not loaded.
+    /// `turnHopOf(session)`: the hop of the turn the loaded thread is in; 0 for a thread not loaded.
     pub fn turn_hop(&self, id: &ThreadId) -> u32 {
         self.handle(id).map_or(0, |handle| handle.cell.turn_chain.hop())
     }
@@ -795,6 +795,33 @@ impl SessionDirectory {
                 method: Method("thread/start"),
                 params,
                 seed: None,
+                settings: None,
+                starting: None,
+            })
+            .await
+            .map(|_| ())
+    }
+
+    /// [`create_with_id`](Self::create_with_id) over a `header` carrying a session's options (`session_options::write_header`):
+    /// a home or room session is a Node `createSession` too, so it begins with its tool surface seeded, as `thread/start`'s.
+    pub async fn create_seeded_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
+        let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
+        let header = self
+            .inner
+            .deps
+            .new_tools
+            .seed(&id, &header)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
+        self.inner
+            .create(CreateSpec {
+                id: Some(id),
+                header,
+                base: None,
+                op: None,
+                method: Method("thread/start"),
+                params,
+                seed: Some(seeded),
                 settings: None,
                 starting: None,
             })
@@ -1434,6 +1461,7 @@ impl DirInner {
             queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),
             shown_approval: Default::default(),
+            shown_changed: tokio::sync::watch::Sender::new(0),
             takeover: Default::default(),
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
@@ -1453,6 +1481,7 @@ impl DirInner {
             ui_busy: Default::default(),
             compacting: Default::default(),
             pending_compact: Default::default(),
+            gated: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1471,6 +1500,7 @@ impl DirInner {
             recovered: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             drafts_settled: Default::default(),
+            gate_holds: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
             #[cfg(any(test, feature = "test-support"))]
@@ -1677,6 +1707,12 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     for (index, (ordinal, item)) in log.window.into_iter().enumerate() {
         show_dividers(&mut state, index);
         apply(&mut state, ordinal, Record::Item(item));
+        if log.archived.contains(&ordinal) {
+            // The rows the record just showed: `archived` in their `ext` is what a client shows as 1.4.5's archived row.
+            for row in state.window.iter_mut().rev().take_while(|row| row.ordinal == Some(ordinal)) {
+                super::view::meta_mut(Arc::make_mut(&mut row.item)).ext.insert("archived".into(), serde_json::Value::Bool(true));
+            }
+        }
     }
     show_dividers(&mut state, usize::MAX);
     state.prompt_session = prompts;

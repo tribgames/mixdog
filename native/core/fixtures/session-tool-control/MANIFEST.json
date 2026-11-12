@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-tool-control.mjs --tree <tree>",
+  "exclusions": [
+    "The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.",
+    "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
+    "A chain step (`derive`) does not run the turn an earlier step started: its caller's `turnHop` / `turnBotChain` are the real `stampTurnHop` over what starts that turn — the earlier step's recorded submission's transcript meta (`turn`), `{ hop: sendDepth(report) }` of its last recorded report when positive, as the home's wake submits it (`report`; the queued item `taskReportItem` keeps the report's `hop` and `target`), or none (`fresh`).",
+    "A send to a group room runs the real `createRoomMessages` (apps/desktop/src/main/agent-room-messages.ts, bundled by the tree's esbuild with no change) registered as the desktop room host (`registerAgentRoomHost`: its `addressee` as `member`, its `ask`), over a stand-in host: the room `room` (its record, `memberLabels` from `room.labels`, `names` from `room.names`, a clock fixed at `room.now` and ids `n1`, `n2`, ...), and `post`, `memberSession` (answering `roomMemberSessionId`), `persist` and `republishCatalog` kept as given; the scheduler's `intake` runs the request with no stop pending (the stop latch is not recorded) and its `route` is kept as given, each routed call's member turn ending done with `send.final` after the route returns (the member's exchange itself is the room's, not recorded here). `room.host: false` registers no host. A routed call's functions are recorded as `true`.",
+    "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run and recorded as `sess_<heir>`.",
+    "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. A refused submission is not recorded. The stand-in replaces the recipient session's intake (`submitSession`, `materializeSession`): what is recorded is what the send path gives the recipient (each submission whole) and what it does with the turn's end; the recipient's own handling of a submission (its queue, a busy or closed session) is the session runtime's, which the core's replay runs for real (its own intake over its session directory) and which this recording does not cover.",
+    "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above, with the real `listProjects` (`projects.mjs`) reading `create.projectsFile` from the sandbox's MIXDOG_HOME and the real `migrateCodexRoute` reading the saved openai-oauth catalog `create.codexCatalog` from its data dir (`Date.now()` past the catalog's retirement), plus: `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
+    "A bots call runs the real `createBotStatus` over the scenario's catalog (the session service's page read above, with `liveSessionAwaitingApproval` true for `bots.approvals`) and the scenario's `bots` sources in place of their process stores: `listBots` (`bots.list`), `taskWatches` (`bots.watches`), `heldRequests` (`bots.held`), `routines` (`bots.routines`, rows already of their kind, or a throw of `bots.routinesError`), `mixyName` (`bots.mixy`) and `now` (`bots.now`). A failing bot list, watch store, held requests or name read, and the over-budget refusal (no bot status a model can ask for reaches it), are not recorded.",
+    "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered."
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 14948778,
+      "path": "golden.json",
+      "sha256": "9aeba436d6cbd57cf2f992e283b3991965f7d1c47a33bba310d210c99d1f9537"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
+    "recorderSha256": "f7c9dbeccdd774681b2e779051bacdeecdfd66f4a52098d4c706833b0fdd3651"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
+  "scenarios": 204,
+  "set": "session-tool-control",
+  "totalBytes": 14948778
+}

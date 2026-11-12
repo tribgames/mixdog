@@ -298,6 +298,8 @@ pub struct OpenedLog {
     /// The newest visible, non-superseded rows before the checkpoint, oldest first, bounded
     /// by the UI window (≤ 200 rows, ≤ 2 MiB bodies).
     pub window: Vec<(u64, ItemRecord)>,
+    /// The ordinals of the `window` rows a compaction took out of the context: shown marked `archived`.
+    pub archived: Vec<u64>,
     /// The compaction dividers among the window's rows, in display order.
     pub dividers: Vec<WindowDivider>,
     /// Rows older than `window` exist.
