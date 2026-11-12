@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Recording of tui/app/slash-commands.test.mjs (b6f10295a): the slash command registry's alias resolution (normalizeSlashCommandName),
-// the argument hint of the resolved command (slashArgumentHint) and the /btw panel's scroll rules (overlayBlocksGlobalTranscriptScroll,
-// btwScrollMax, btwScrollOffset, btwContentRows, btwPanelRows).
+// Recording of tui/app/slash-commands.test.mjs (b6f10295a), the two cases whose behaviour stays in the product: the slash command
+// registry's alias resolution (normalizeSlashCommandName) and the argument hint of the resolved command (slashArgumentHint). The two
+// /btw panel cases (overlayBlocksGlobalTranscriptScroll, btwScroll*) are Node-TUI-only and are not recorded.
 //
 //   node benchmarks/rust-core/recorders/record-slash-commands-cases.mjs --tree <export of b6f10295a with node_modules>
 import { openSet } from './lib/case-set.mjs';
@@ -31,6 +31,5 @@ await set.run('the argument hint comes from the resolved command, only after a t
 await set.finish({
   entry: { runs: 'src/tui/app/slash-commands.mjs normalizeSlashCommandName and slashArgumentHint over the real command registry', notRun: 'the Node TUI is not rendered: the /btw panel cases record its pure scroll and row functions (overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows) as a client observes them' },
   replay: { entry: 'mixdog-core-session session/pending.rs (slash tokens): resolve each recorded name and compare; compare the argument hint of each recorded input', normalised: {} },
-  exclusions: { btwContentRows: "case 'btw scroll offsets…': `contentRows` (btwContentRows of a finished answer) is measureMarkdownRenderedRows, the Node TUI's markdown renderer; the core has none, so the replay takes the recorded number as the input of btw_panel_rows and compares panelRows, chromeRows, scrollMax and scrollOffset" },
 });
 process.exit(0);
