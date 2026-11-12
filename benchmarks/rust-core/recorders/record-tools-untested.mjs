@@ -386,6 +386,29 @@ const notes = {};
   notes['scm-locks'] = 'the realpath spelling of the Node key test is textually the directory itself on the recording machine; the key of a path is compared by spelling equality only';
 }
 
+// ---- fs: the default page of `list` (builtin/list-tool-integrity.test.mjs :33) ----
+{
+  const { executeBuiltinTool } = await load(`${bt}.mjs`);
+  const { normalizeToolEnvelope } = await load(`${orch}/session/tool-envelope.mjs`);
+  const root = join(sandbox, 'list-page');
+  mkdirSync(root, { recursive: true });
+  for (let index = 0; index < 101; index += 1) writeFileSync(join(root, `entry-${String(index).padStart(3, '0')}.txt`), 'ok');
+  const fwd = root.replace(/\\/g, '/');
+  const scrub = (text) => String(text).replaceAll(root, '<ROOT>').replaceAll(fwd, '<ROOT>');
+  const inputs = [
+    { path: '<ROOT>', hidden: true }, { path: '<ROOT>', hidden: true, head_limit: 200 }, { path: '<ROOT>', hidden: true, head_limit: 100 },
+    { path: '<ROOT>', hidden: true, head_limit: 10, offset: 95 }, { path: '<ROOT>', hidden: true, offset: 100 }, { path: '<ROOT>', hidden: true, offset: 101 }, { path: '<ROOT>', hidden: true, head_limit: 0 },
+    { path: '<ROOT>' },
+  ];
+  const calls = [];
+  for (const input of inputs) {
+    const given = { ...input, path: input.path.replace('<ROOT>', root) };
+    const envelope = normalizeToolEnvelope(await executeBuiltinTool('list', given, root));
+    calls.push({ input, text: scrub(envelope.result ?? ''), isError: envelope.isError === true || /^Error[\s:[]/.test(String(envelope.result ?? '')) });
+  }
+  sets['fs-list-page'] = { count: 101, calls };
+}
+
 // ---- web: documents (web-search/lib/document-content.test.mjs) ----
 {
   const { extractDocument } = await load('src/runtime/web-search/lib/document-content.mjs');
