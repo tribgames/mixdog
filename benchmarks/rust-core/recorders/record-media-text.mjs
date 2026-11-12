@@ -139,10 +139,26 @@ async function officeInputs() {
 }
 
 async function pdfInputs() {
+  // 100 pages of 3000 characters on a line, on pages wide enough to hold the line (text off the page is not read).
+  const wide = async () => {
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let i = 1; i <= 100; i += 1) {
+      doc.addPage([10000, 200]).drawText(`p${i} ${'x'.repeat(2994)}`, { x: 20, y: 100, size: 4, font });
+    }
+    return Buffer.from(await doc.save());
+  };
   return {
-    'two-pages': await pdfBytes(['Hello media text', 'Second page']),
-    'not-a-pdf': Buffer.from('this is not a pdf'),
-    'truncated-pdf': (await pdfBytes(['Cut short'])).subarray(0, 120),
+    'two-pages': { bytes: await pdfBytes(['Hello media text', 'Second page']) },
+    'not-a-pdf': { bytes: Buffer.from('this is not a pdf') },
+    'truncated-pdf': { bytes: (await pdfBytes(['Cut short'])).subarray(0, 120) },
+    // The page limit: a PDF of 105 pages is read for its first 100 (a longer one is not refused).
+    'pages-over-the-100-page-limit': {
+      bytes: await pdfBytes(Array.from({ length: 105 }, (_, i) => `Body of page ${i + 1}`)),
+    },
+    // The output cap: 100 pages of 3000 characters are 300 KB of text, cut at 256 KiB and marked. The text
+    // is too large to keep; its size, hash and end are.
+    'output-over-256kib-is-cut-and-marked': { bytes: await wide(), digest: true },
   };
 }
 
@@ -162,9 +178,21 @@ async function build() {
     };
   });
   const pdf = [];
-  for (const [name, bytes] of Object.entries(await pdfInputs())) {
+  for (const [name, { bytes, digest }] of Object.entries(await pdfInputs())) {
     const dataBase64 = bytes.toString('base64');
-    pdf.push({ name, dataBase64, text: await extractPdfText(dataBase64) });
+    const text = await extractPdfText(dataBase64);
+    if (!digest) {
+      pdf.push({ name, dataBase64, text });
+      continue;
+    }
+    const utf8 = Buffer.from(text, 'utf8');
+    pdf.push({
+      name,
+      dataBase64,
+      textBytes: utf8.length,
+      textSha256: createHash('sha256').update(utf8).digest('hex'),
+      textTail: text.slice(-80),
+    });
   }
   // The intake's text-layer counts, as `preparePromptSubmissionForProvider` takes them; bytes the
   // parser rejects record the message Node's intake throws (`rejected`).
@@ -227,6 +255,11 @@ if (!capped.textTail.endsWith('[office text truncated at 262144 bytes]')) throw 
 if (office.find((c) => c.name === 'container-over-the-inflated-cap').text !== null) {
   throw new Error('the container cap did not apply');
 }
+
+const pdfCapped = pdf.find((c) => c.name === 'output-over-256kib-is-cut-and-marked');
+if (!pdfCapped.textTail.endsWith('[PDF text truncated to the prompt input budget]')) throw new Error('the PDF output cap did not apply');
+const pdfPaged = pdf.find((c) => c.name === 'pages-over-the-100-page-limit').text;
+if (!pdfPaged.includes('Body of page 100') || pdfPaged.includes('page 101')) throw new Error('the PDF page limit did not apply');
 
 writeJson(join(outDir, 'office.json'), office);
 writeJson(join(outDir, 'pdf.json'), pdf);

@@ -537,10 +537,17 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
         }
     }
     let pdf = load("pdf.json");
-    assert_eq!(pdf.len(), 3);
+    assert_eq!(pdf.len(), 5);
     for case in &pdf {
         let got = within(media.pdf_text(&thread, case["dataBase64"].as_str().unwrap())).await.unwrap();
-        assert_eq!(Some(got.as_str()), case["text"].as_str(), "pdf case {}", case["name"]);
+        if let Some(bytes) = case["textBytes"].as_u64() {
+            // Too large to keep whole: the golden holds its size, hash and end.
+            assert_eq!(got.len() as u64, bytes, "pdf case {}", case["name"]);
+            assert_eq!(format!("{:x}", sha2::Sha256::digest(got.as_bytes())), case["textSha256"].as_str().unwrap());
+            assert!(got.ends_with(case["textTail"].as_str().unwrap()));
+        } else {
+            assert_eq!(Some(got.as_str()), case["text"].as_str(), "pdf case {}", case["name"]);
+        }
     }
     // The intake's counts: a text PDF, a scan, a mix (one text page, one stamped number only, one
     // image) and bytes the parser rejects.

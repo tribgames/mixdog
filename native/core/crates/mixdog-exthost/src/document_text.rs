@@ -18,6 +18,9 @@ use serde_json::json;
 /// `PDF_INTAKE_TIMEOUT_MS` (`attachments/pdf-extract.mjs:78`).
 pub const PDF_INTAKE_TIMEOUT_MS: u64 = 60_000;
 
+/// `PDF_UNREADABLE_TEXT` (`media-normalization.mjs:197`).
+const PDF_UNREADABLE_TEXT: &str = "[PDF text unavailable: this PDF could not be read]";
+
 pub struct ExtDocumentText {
     pool: Arc<dyn ExtPool>,
 }
@@ -65,7 +68,15 @@ impl DocumentText for ExtDocumentText {
     }
 
     async fn pdf_text(&self, thread: &ThreadId, data_base64: &str) -> Result<String, ExtError> {
-        let answer = self.ask(thread, "media.pdfText", json!({ "data": data_base64 })).await?;
+        // Node's text extraction has no deadline of its own (page and byte limits only, applied by the worker's
+        // `extractPdfText`), so a parser that never answers would hold the turn for ever. The bound is the intake's
+        // deadline; a document that has not been read by then is, as in Node's `extractPdfText` for any failure that is
+        // not the machine's (`PDF_INSPECTION_TIMEOUT` is one), the fixed unreadable text. Dropping the call cancels it.
+        let asked = self.ask(thread, "media.pdfText", json!({ "data": data_base64 }));
+        let answer = match mixdog_rt::scoped::Scope::new().within(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)).run(asked).await {
+            mixdog_rt::scoped::Scoped::Done(answer) => answer?,
+            _ => return Ok(PDF_UNREADABLE_TEXT.to_owned()),
+        };
         answer["text"].as_str().map(str::to_owned).ok_or_else(|| malformed("media.pdfText"))
     }
 
@@ -219,6 +230,33 @@ mod tests {
         fn stop_worker(&self, _: ExtWorkerId) -> Result<(), ExtError> {
             Err(ExtError::UnknownWorker)
         }
+    }
+
+    /// A parser that never answers gives the text Node gives a PDF it cannot read (the recorded `not-a-pdf` case), not a
+    /// moment before the bound; the clock moves only by the test's advances.
+    #[tokio::test(start_paused = true)]
+    async fn a_pdf_extraction_that_never_answers_is_the_recorded_unreadable_text_at_the_bound() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("fixtures/tools/media-text");
+        let recorded: Vec<JsonValue> = serde_json::from_slice(&std::fs::read(fixtures.join("pdf.json")).unwrap()).unwrap();
+        let want = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
+
+        let media = Arc::new(ExtDocumentText::new(Arc::new(Hung)));
+        let call = tokio::spawn(async move { media.pdf_text(&ThreadId::from("t"), "UERG").await });
+        // The call is asked (and its deadline set) before any advance.
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::advance(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS - 1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!call.is_finished(), "answered a millisecond before the bound");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(call.is_finished(), "the extraction was still waiting at the bound");
+        assert_eq!(call.await.unwrap(), Ok(want));
     }
 
     /// A parser that never answers fails the intake at Node's deadline with Node's error (`timeoutError`,
