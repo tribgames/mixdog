@@ -9,6 +9,7 @@
 //! concern here, since the catalog is the thing being refreshed.
 
 use async_trait::async_trait;
+use mixdog_ai::effort::coerce_effort_for;
 use serde_json::Value;
 
 use super::scope::clean;
@@ -22,6 +23,9 @@ pub struct ModelRow {
     pub display: String,
     /// A quick read answered from the loaded catalog marks every row complete.
     pub catalog_complete: bool,
+    /// The whole catalog row, as the model picker hydrates it: the effort ladder, the catalog's
+    /// default effort, the saved effort and the fast capability and preference of the model.
+    pub row: Value,
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -111,6 +115,49 @@ fn provider_scope(provider: &str) -> Option<String> {
     (!provider.is_empty()).then(|| provider.to_owned())
 }
 
+/// The efforts the model picker prefers, first offered wins (`EFFORT_PREFERENCE`).
+const EFFORT_PREFERENCE: [&str; 7] = ["high", "medium", "low", "none", "xhigh", "max", "ultra"];
+
+/// `catalogDefaultEffort` (the picker's `route-selection/effort.mjs`): the saved effort, else the
+/// catalog's default, else the preference order, each only while the model offers it.
+fn catalog_default_effort(row: &Value, values: &[&str]) -> Option<String> {
+    let offered = |key: &str| row.get(key).and_then(Value::as_str).filter(|e| !e.is_empty() && values.contains(e));
+    if let Some(effort) = offered("savedEffort").or_else(|| offered("defaultEffort")) {
+        return Some(effort.to_owned());
+    }
+    EFFORT_PREFERENCE.iter().find(|e| values.contains(e)).or_else(|| values.first()).map(|e| (*e).to_owned())
+}
+
+/// The route a pinned model runs on takes what the model picker would select for it:
+/// `modelDefaults` (its effort and fast), which the spawn's preset uses where the agent's own route
+/// is not on this model. An effort or fast the caller asked for is held to what the model offers.
+/// A row that carries no picker facts leaves the route as asked.
+fn with_model_settings(args: &Value, hit: &ModelRow) -> Value {
+    let mut out = args.clone();
+    out["provider"] = Value::String(hit.provider.clone());
+    out["model"] = Value::String(hit.id.clone());
+    let Some(options) = hit.row.get("effortOptions").and_then(Value::as_array) else { return out };
+    let values: Vec<&str> = options.iter().filter_map(|o| o.get("value").and_then(Value::as_str)).filter(|v| !v.is_empty()).collect();
+    let fast_capable = hit.row.get("fastCapable") == Some(&Value::Bool(true));
+    out["modelDefaults"] = serde_json::json!({
+        "effort": catalog_default_effort(&hit.row, &values),
+        "fast": fast_capable && hit.row.get("fastPreferred") == Some(&Value::Bool(true)),
+    });
+    let asked = clean(args.get("effort")).to_lowercase();
+    if !asked.is_empty() {
+        match coerce_effort_for(&hit.provider, &hit.row, &asked, None).filter(|e| values.contains(&e.as_str())) {
+            Some(effort) => out["effort"] = Value::String(effort),
+            None => {
+                out.as_object_mut().expect("args are an object").remove("effort");
+            }
+        }
+    }
+    if let Some(fast) = args.get("fast") {
+        out["fast"] = Value::Bool(fast == &Value::Bool(true) && fast_capable);
+    }
+    out
+}
+
 /// Resolves `args.provider`/`args.model` to one exact catalog route. Without a catalog
 /// (headless/daemon surfaces) exact provider + model pass through.
 pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCatalog>) -> Result<Value, String> {
@@ -149,10 +196,7 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         hits = match_models(&pool, &model);
     }
     if hits.len() == 1 {
-        let mut out = args.clone();
-        out["provider"] = Value::String(hits[0].provider.clone());
-        out["model"] = Value::String(hits[0].id.clone());
-        return Ok(out);
+        return Ok(with_model_settings(args, &hits[0]));
     }
     let scope = if provider.is_empty() { String::new() } else { format!(" for provider \"{provider}\"") };
     if hits.len() > 1 {

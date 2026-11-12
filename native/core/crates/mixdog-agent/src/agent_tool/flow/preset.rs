@@ -96,43 +96,38 @@ pub struct SpawnPreset {
 
 /// `resolveAgentSpawnPreset(config, args)`. `candidates` are the agent's configured routes
 /// (`configuredAgentRouteCandidates(config, agent)`), looked up by the host.
+///
+/// A spawn that pins a model (`provider` + `model`) runs on that model with what the model picker
+/// selects for it (`args.modelDefaults`: its effort and fast), the effort and fast the caller asked
+/// for over that, and the agent's own fallback chain. When the agent's route is already on that
+/// model, the agent's own settings are the ones that apply.
 pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Value]) -> Result<SpawnPreset, String> {
     let arg = |key: &str| args.get(key);
-    if truthy(arg("provider")) && truthy(arg("model")) {
-        let mut preset = Obj::new();
-        preset.insert("id".into(), "__direct__".into());
-        preset.insert("name".into(), "__DIRECT__".into());
-        preset.insert("type".into(), "agent".into());
-        preset.insert("provider".into(), clean(arg("provider")).into());
-        preset.insert("model".into(), clean(arg("model")).into());
-        let effort = clean(arg("effort"));
-        if !effort.is_empty() {
-            preset.insert("effort".into(), effort.into());
-        }
-        preset.insert("fast".into(), (arg("fast") == Some(&Value::Bool(true))).into());
-        if arg("autoEffort") == Some(&Value::Bool(false)) {
-            preset.insert("autoEffort".into(), false.into());
-        }
-        preset.insert("tools".into(), "full".into());
-        let name = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
-        return Ok(SpawnPreset { preset_name: name, preset: Value::Object(preset) });
-    }
-
     let agent = normalize_agent_name(&clean(arg("agent")));
     let named = clean(arg("preset"));
     let stored: Option<&Value> = if named.is_empty() { candidates.iter().find(|c| normalize_agent_route(Some(c)).is_some()) } else { None };
     let agent_route = stored.and_then(|c| normalize_agent_route(Some(c)));
+    let stored_chain = |route: &Value, candidate: &Value| {
+        let mut for_chain = route.clone();
+        if let Some(fallbacks) = candidate.get("fallbacks") {
+            for_chain["fallbacks"] = fallbacks.clone();
+        }
+        execution_fallbacks(&for_chain)
+    };
+    let fallbacks_of = |fallbacks: &[Value]| -> Vec<Value> {
+        fallbacks.iter().map(|f| normalize_agent_route(Some(f)).map_or(Value::Null, Value::Object)).collect()
+    };
+    // The agent's stored fallbacks, as they run behind the agent's own model.
+    let agent_chain = match (&agent_route, stored) {
+        (Some(route), Some(candidate)) => Some(stored_chain(&Value::Object(route.clone()), candidate)?),
+        _ => None,
+    };
     let fallback_source = || {
         let mut source = Obj::new();
         source.insert("agent".into(), agent.clone().into());
         Value::Object(source)
     };
-    if let (Some(route), Some(candidate)) = (&agent_route, stored) {
-        let mut for_chain = route.clone();
-        if let Some(fallbacks) = candidate.get("fallbacks") {
-            for_chain.insert("fallbacks".into(), fallbacks.clone());
-        }
-        let fallbacks = execution_fallbacks(&Value::Object(for_chain))?;
+    let agent_preset = |route: &Obj, fallbacks: &[Value], effort: Option<String>, fast: Option<bool>| {
         let name = agent_preset_name(&agent);
         let mut preset = Obj::new();
         preset.insert("id".into(), format!("agent-{agent}").into());
@@ -141,22 +136,65 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
         preset.insert("provider".into(), route["provider"].clone());
         preset.insert("model".into(), route["model"].clone());
         if !fallbacks.is_empty() {
-            let normalized: Vec<Value> =
-                fallbacks.iter().map(|f| normalize_agent_route(Some(f)).map_or(Value::Null, Value::Object)).collect();
-            preset.insert("fallbacks".into(), Value::Array(normalized));
+            preset.insert("fallbacks".into(), Value::Array(fallbacks_of(fallbacks)));
         }
         preset.insert("fallbackSource".into(), fallback_source());
-        if let Some(effort) = route.get("effort") {
-            preset.insert("effort".into(), effort.clone());
+        if let Some(effort) = effort.map(Value::from).or_else(|| route.get("effort").cloned()) {
+            preset.insert("effort".into(), effort);
         }
-        preset.insert("fast".into(), route["fast"].clone());
+        preset.insert("fast".into(), fast.map_or_else(|| route["fast"].clone(), Value::from));
         for key in ["autoEffort", "modelParameters", "contextPercent", "contextTokens"] {
             if let Some(v) = route.get(key) {
                 preset.insert(key.into(), v.clone());
             }
         }
         preset.insert("tools".into(), "full".into());
-        return Ok(SpawnPreset { preset_name: name.into(), preset: Value::Object(preset) });
+        SpawnPreset { preset_name: name.into(), preset: Value::Object(preset) }
+    };
+
+    if truthy(arg("provider")) && truthy(arg("model")) {
+        let (provider, model) = (clean(arg("provider")), clean(arg("model")));
+        let asked_effort = Some(clean(arg("effort"))).filter(|e| !e.is_empty());
+        let asked_fast = arg("fast").map(|f| f == &Value::Bool(true));
+        if let (Some(route), Some(chain)) = (&agent_route, &agent_chain)
+            && route["provider"] == provider.as_str()
+            && route["model"] == model.as_str()
+        {
+            return Ok(agent_preset(route, chain, asked_effort, asked_fast));
+        }
+        let defaults = arg("modelDefaults");
+        let default_effort = clean(defaults.and_then(|d| d.get("effort")));
+        let mut preset = Obj::new();
+        preset.insert("id".into(), "__direct__".into());
+        preset.insert("name".into(), "__DIRECT__".into());
+        preset.insert("type".into(), "agent".into());
+        preset.insert("provider".into(), provider.clone().into());
+        preset.insert("model".into(), model.clone().into());
+        // The agent's chain behind the pinned model, as it runs behind the agent's own.
+        if let (Some(route), Some(candidate)) = (&agent_route, stored) {
+            let mut pinned = route.clone();
+            pinned.insert("provider".into(), provider.into());
+            pinned.insert("model".into(), model.into());
+            let chain = stored_chain(&Value::Object(pinned), candidate)?;
+            if !chain.is_empty() {
+                preset.insert("fallbacks".into(), Value::Array(fallbacks_of(&chain)));
+            }
+        }
+        if let Some(effort) = asked_effort.or(Some(default_effort).filter(|e| !e.is_empty())) {
+            preset.insert("effort".into(), effort.into());
+        }
+        let fast = asked_fast.unwrap_or_else(|| defaults.and_then(|d| d.get("fast")) == Some(&Value::Bool(true)));
+        preset.insert("fast".into(), fast.into());
+        if arg("autoEffort") == Some(&Value::Bool(false)) {
+            preset.insert("autoEffort".into(), false.into());
+        }
+        preset.insert("tools".into(), "full".into());
+        let name = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
+        return Ok(SpawnPreset { preset_name: name, preset: Value::Object(preset) });
+    }
+
+    if let (Some(route), Some(chain)) = (&agent_route, &agent_chain) {
+        return Ok(agent_preset(route, chain, None, None));
     }
 
     let main = if named.is_empty() { preset_in(config, config.get("default")) } else { None };
