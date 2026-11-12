@@ -285,7 +285,7 @@ async fn a_webhook_selects_from_the_endpoint_instructions_only_as_in_node() {
     let golden = golden();
     let case = case(&golden, "a webhook body or header naming a skill loads nothing; the endpoint instructions select");
     let world = World::new(&golden["skills"]).await;
-    let headers = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect::<std::collections::BTreeMap<_, _>>();
+    let headers = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect::<mixdog_services::webhooks::signature::Headers>();
     let mut runs = [
         mixdog_services::webhooks::prompt::webhook_run_prompt(
             "Triage the event.",
