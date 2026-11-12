@@ -66,6 +66,9 @@ pub struct RunConfig {
     /// its durability ack (while selecting on the token), so memory never runs
     /// ahead of disk.
     pub first_request_after: Option<Ticket>,
+    /// The turn's own prompt selects skills (`runAskAgentLoop`: not an injected prompt, not a retry): the last
+    /// message is the prompt, prepared before the first request.
+    pub select_input_skills: bool,
     /// The route's provider needs the source of a read, not a receipt.
     pub read_body_required: bool,
     /// Mid-conversation effort: the route's inputs and the adapter that sets
@@ -91,6 +94,9 @@ pub struct RunConfig {
     /// provider-excluded tools there (`beginProviderToolExclusions`, `send-phase.mjs`). Whatever
     /// provider the attempt goes to (a route hop included) is covered, because the loop calls it.
     pub request_begin: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// `opts.cacheBreakIntent` at the turn's start: the session's one-shot `pendingCacheBreakIntent` (a compaction that ran
+    /// between turns), which tags the first send's expected cache break.
+    pub cache_break_intent: Option<String>,
 }
 
 impl RunConfig {
@@ -108,6 +114,7 @@ impl RunConfig {
             escalated_max_output_tokens: None,
             continuation_no_tool_limit: 8,
             first_request_after: None,
+            select_input_skills: false,
             read_body_required: false,
             effort: None,
             step_auto_effort: None,
@@ -117,6 +124,7 @@ impl RunConfig {
             signal: None,
             retry_529: true,
             request_begin: None,
+            cache_break_intent: None,
         }
     }
 }
@@ -128,12 +136,47 @@ pub struct RunCarry {
     /// The session's `wireRoute` after a send was rerouted (`sendOnRoute` sets `session.wireRoute`); `None` when
     /// no send of the run changed it.
     pub wire_route: Option<serde_json::Value>,
+    /// `session._providerPrefixGuardState`: the fingerprint of the request the session last settled on. In memory only
+    /// (a transient session key Node never stores); the host keeps it between turns.
+    pub prefix_guard: Option<crate::prefix_guard::Snapshot>,
+    /// What the usage-based cache-miss check reads and updates on the session record.
+    pub cache: CacheReadings,
+}
+
+/// The record fields `traceActualCacheMiss` reads (`send-phase.mjs`): the previous request's cache read plus write
+/// (`lastProviderCachedPrefixTokens`), when it was sent (`lastProviderSendAt`), the messages cache tier
+/// (`providerCacheOpts.cacheStrategy.messages`) and the last request's prefix fingerprint (`providerPrefixBaseline`).
+#[derive(Clone, Default, Debug)]
+pub struct CacheReadings {
+    pub cached_prefix_tokens: Option<f64>,
+    pub last_send_at: Option<f64>,
+    pub messages_ttl_ms: Option<i64>,
+    pub prefix_baseline: Option<serde_json::Value>,
+    /// Set once a send of the run changed `cached_prefix_tokens` / `prefix_baseline`: they are saved with the carry.
+    pub changed: bool,
+}
+
+impl CacheReadings {
+    fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let ttl = saved.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(serde_json::Value::as_str);
+        Self {
+            cached_prefix_tokens: saved.get("lastProviderCachedPrefixTokens").map(|v| mixdog_js::to_number_of(Some(v))),
+            last_send_at: saved.get("lastProviderSendAt").map(|v| mixdog_js::to_number_of(Some(v))),
+            messages_ttl_ms: match ttl {
+                Some("5m") => Some(5 * 60 * 1000),
+                Some("1h") => Some(60 * 60 * 1000),
+                _ => None,
+            },
+            prefix_baseline: saved.get("providerPrefixBaseline").filter(|v| v.is_object()).cloned(),
+            changed: false,
+        }
+    }
 }
 
 impl RunCarry {
     /// The carry a session record holds.
     pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
-        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None }
+        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None, prefix_guard: None, cache: CacheReadings::from_saved(saved) }
     }
 
     /// The record fields the carry is saved under.
@@ -141,6 +184,14 @@ impl RunCarry {
         let mut saved = self.repeat.to_saved();
         if let Some(route) = &self.wire_route {
             saved.insert("wireRoute".into(), route.clone());
+        }
+        if self.cache.changed {
+            if let Some(tokens) = self.cache.cached_prefix_tokens {
+                saved.insert("lastProviderCachedPrefixTokens".into(), mixdog_js::json_number(tokens));
+            }
+            if let Some(baseline) = &self.cache.prefix_baseline {
+                saved.insert("providerPrefixBaseline".into(), baseline.clone());
+            }
         }
         saved
     }
@@ -211,6 +262,10 @@ pub enum AgentError {
     Admission(String),
     /// A message could not be committed to the transcript.
     Commit(crate::env::CommitError),
+    /// `ProviderPrefixMutationError` (provider-prefix-guard.mjs:231-238): a request whose earlier messages are not the ones
+    /// the session last sent, outside a compaction. Node refuses the send; the text is the error's `message`, and the
+    /// turn shows `Session state changed unexpectedly.` (`err-text.mjs:274`).
+    PrefixMutation(String),
 }
 
 #[derive(Debug)]
@@ -256,7 +311,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
-            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) => f.write_str(message),
+            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,
@@ -345,7 +400,9 @@ pub struct Run {
     pub(crate) max_output_override: Option<u32>,
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
-    pub(crate) pending_skill_prompts: Vec<Content>,
+    /// The prompts whose skills are prepared before the next request: the content, whether it is the turn's own
+    /// prompt, the message it is and the ticket of its commit (the stamp lands on a durable row).
+    pub(crate) pending_skill_prompts: Vec<(Content, bool, AgentMessage, Option<Ticket>)>,
     /// The latest message pushed since the last send: the next request waits until it is durable, so a
     /// request never leaves before the rows it carries (a restart resends what the store holds).
     pub(crate) unsaved: Option<Ticket>,
@@ -357,6 +414,12 @@ pub struct Run {
     pub(crate) send_group: Option<crate::send::SendGroup>,
     /// The send's capture, opened by its first attempt and ended by the send.
     pub(crate) side_ticket: Option<Box<dyn crate::env::SendTicket>>,
+    /// `opts.cacheBreakIntent`: the one-shot tag of the next completed send's expected cache break.
+    pub(crate) cache_break_intent: Option<String>,
+    /// `prefixGuardCandidate`: the fingerprint of the request in flight, the session's once it completes.
+    pub(crate) guard_candidate: Option<crate::prefix_guard::Snapshot>,
+    /// `cacheBreakTraceKeys`: the breaks this turn already traced.
+    pub(crate) cache_break_keys: std::collections::HashSet<String>,
     /// The provider's last measured context footprint (`session.lastContextTokens`).
     pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
@@ -458,6 +521,7 @@ impl Run {
         let model = config.model.clone();
         let retry = RetryStates::new(&model);
         let provider_state = config.options.provider_state.clone();
+        let cache_break_intent = config.cache_break_intent.clone();
         let context = crate::boundary::ContextReading {
             tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens),
             stale_after_compact: false,
@@ -495,6 +559,9 @@ impl Run {
             request_started_ms: 0,
             send_group: None,
             side_ticket: None,
+            cache_break_intent,
+            guard_candidate: None,
+            cache_break_keys: std::collections::HashSet::new(),
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,
@@ -590,9 +657,10 @@ impl Run {
             let sink = Arc::clone(&self.env.sink);
             let prompt = (!entry.task_notification).then(|| entry.content.clone());
             let (message, event) = steer::inject(entry, stage, now, move || sink.message_id());
-            self.push(message).await?;
+            let queued = message.clone();
+            let ticket = self.push(message).await?;
             if let Some(content) = prompt {
-                self.pending_skill_prompts.push(content);
+                self.pending_skill_prompts.push((content, false, queued, Some(ticket)));
             }
             self.emit(RunEvent::SteerInjected(event));
         }
@@ -671,9 +739,27 @@ impl Run {
             self.tool_batch_just_completed = false;
             self.last_batch_later = false;
         }
+        if std::mem::take(&mut self.config.select_input_skills)
+            && let Some(input) = self.messages.last()
+        {
+            self.pending_skill_prompts.insert(0, (input.message.content.clone(), true, input.clone(), None));
+        }
         if let Some(skills) = self.env.skills.clone() {
-            for content in std::mem::take(&mut self.pending_skill_prompts) {
-                skills.select(&content, &mut self.messages).await;
+            for (content, initial, message, ticket) in std::mem::take(&mut self.pending_skill_prompts) {
+                let before = self.messages.len();
+                let applied = skills.select(&content, initial, &mut self.messages).await;
+                // The selection's records join the stored conversation (`session.messages = outgoing`).
+                let added: Vec<AgentMessage> = self.messages[before..].to_vec();
+                for added in &added {
+                    self.env.sink.commit(added).await.map_err(AgentError::Commit)?;
+                }
+                if !applied.is_empty() {
+                    if let Some(ticket) = ticket {
+                        self.until_durable(ticket).await?;
+                    }
+                    self.env.sink.skills_applied(&message, &applied).await;
+                }
+                self.throw_if_aborted()?;
             }
         } else {
             self.pending_skill_prompts.clear();

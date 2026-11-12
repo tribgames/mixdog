@@ -1,178 +1,81 @@
 {
-  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir>",
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-room-post-behind-detach.patch --harness <real-turn-harness dir>",
   "coreDifferences": {
     "differences": [
       {
-        "scenario": "loaded",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
+        "compareWith": "loaded-reset-refresh-in-io",
         "node": [
+          "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "reset",
-        "part": "after the answer",
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node's store refresh, held until after the answer, lists the reset log's row read after the reset's later writes and publishes it then; the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "part": "before the answer",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces. Node does not guarantee this order: the reset's own publication is not awaited (`void this.owner.publishCatalogs()`, session-host-lifecycle.ts:401, after `await readSession`, :398), while the room call publishes after its own `await persist()` (agent-rooms.ts:388) and answers regardless of the reset's listing, so which of the two reads the room log first, and whether the reset's listing lands before or after the answer, depends on the daemon read.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        ],
+        "scenario": "loaded-reset-listing-first",
+        "step": "reset"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
+        "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces. Node does not guarantee this order: the reset's own publication is not awaited (`void this.owner.publishCatalogs()`, session-host-lifecycle.ts:401, after `await readSession`, :398), while the room call publishes after its own `await persist()` (agent-rooms.ts:388) and answers regardless of the reset's listing, so which of the two reads the room log first, and whether the reset's listing lands before or after the answer, depends on the daemon read.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        ],
+        "scenario": "loaded-reset-listing-first",
+        "step": "forget-member"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "after the answer",
+        "reason": "Read order (MANIFEST resetReadRace.cases.loaded-read-after-answer): the daemon's read of the reset room's log (store-summary-catalog.mjs:623-625, from reconcileSessionFile :377) ends after the reset answered, so the reset's own listing (session-host-lifecycle.ts:401) publishes the cleared row after the answer, behind the room call's publication (agent-rooms.ts:388); the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces. Node does not guarantee this order: the reset's own publication is not awaited (`void this.owner.publishCatalogs()`, session-host-lifecycle.ts:401, after `await readSession`, :398), while the room call publishes after its own `await persist()` (agent-rooms.ts:388) and answers regardless of the reset's listing, so which of the two reads the room log first, and whether the reset's listing lands before or after the answer, depends on the daemon read.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
         ],
+        "scenario": "loaded-read-after-answer",
+        "step": "reset"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
         "node": [
           "catalog [<room log 0>]"
         ],
-        "compareWith": "loaded-reset-refresh-in-io"
-      },
-      {
-        "scenario": "loaded-reconnect",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "not-loaded",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "not-loaded",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "not-loaded-large",
-        "step": "update-rounds",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
         "part": "after the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog of the 51 room logs; the core sends one frame per row of the listing.",
+        "reason": "Read order (MANIFEST resetReadRace.cases.loaded-reset-refresh-in-io-read-after-answer): the daemon's read of the reset room's log (store-summary-catalog.mjs:623-625, from reconcileSessionFile :377) ends after the reset answered, so the reset's own listing (session-host-lifecycle.ts:401) publishes the cleared row after the answer, behind the room call's publication (agent-rooms.ts:388); the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces. Node does not guarantee this order: the reset's own publication is not awaited (`void this.owner.publishCatalogs()`, session-host-lifecycle.ts:401, after `await readSession`, :398), while the room call publishes after its own `await persist()` (agent-rooms.ts:388) and answers regardless of the reset's listing, so which of the two reads the room log first, and whether the reset's listing lands before or after the answer, depends on the daemon read.",
         "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
         ],
+        "scenario": "loaded-reset-refresh-in-io-read-after-answer",
+        "step": "reset"
+      },
+      {
+        "compareWith": "startup-update-before-recovery",
         "node": [
-          "catalog [<room log 0>, <room log 1>, <room log 2>, <room log 3>, <room log 4>, <room log 5>, <room log 6>, <room log 7>, <room log 8>, <room log 9>, <room log 10>, <room log 11>, <room log 12>, <room log 13>, <room log 14>, <room log 15>, <room log 16>, <room log 17>, <room log 18>, <room log 19>, <room log 20>, <room log 21>, <room log 22>, <room log 23>, <room log 24>, <room log 25>, <room log 26>, <room log 27>, <room log 28>, <room log 29>, <room log 30>, <room log 31>, <room log 32>, <room log 33>, <room log 34>, <room log 35>, <room log 36>, <room log 37>, <room log 38>, <room log 39>, <room log 40>, <room log 41>, <room log 42>, <room log 43>, <room log 44>, <room log 45>, <room log 46>, <room log 47>, <room log 48>, <room log 49>, <room log 50>]"
+          "catalog [<room log 0>]"
         ],
+        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
+        "reason": "Start-up order (MANIFEST startupRace.cases.startup-update-before-recovery-update-first): the start-up recovery's listing (agent-rooms.ts:479, not loaded: session-host.ts:355) reads its rows after the update's change (agent-rooms.ts:308-309), so it publishes the updated room and the update's own publication (agent-rooms.ts:312) is the same catalog, not handed again. The core's recovery runs before any caller of the first load goes on (ready.rs RoomsReady::ready), so its republish has the room before the update. The core's part is compared whole with Node's startup-update-before-recovery part (the same step and part), the order it produces. Node does not guarantee this order: `recover()` reads the room records (`await loadRecords()`, agent-rooms.ts:466) before it calls `ready()` (:469), while every room call starts the first load itself with `ready()` (`prepared ??= recordsReady()`, :354-355; update :295), so a call that arrives during that read gets there first; and recover's post (:474) and its `deps.republishCatalog()` (:479, `void`, not awaited) run outside the room writer (:485-487), so they interleave with a call's own publication (:312).",
+        "rust": [
+          "native/core/crates/mixdog-core-rooms/src/rooms/ready.rs (RoomsReady::ready: the start-up's recovery before the first load's callers)"
+        ],
+        "scenario": "startup-update-before-recovery-update-first",
+        "step": "restart-and-update"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -378,46 +281,35 @@
             "frame": "thread/summary/updated <room log 50>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "pruned-at-load",
-        "step": "restart-after-agent-deletion",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
+        ],
+        "node": [
+          "catalog [<room log 0>, <room log 1>, <room log 2>, <room log 3>, <room log 4>, <room log 5>, <room log 6>, <room log 7>, <room log 8>, <room log 9>, <room log 10>, <room log 11>, <room log 12>, <room log 13>, <room log 14>, <room log 15>, <room log 16>, <room log 17>, <room log 18>, <room log 19>, <room log 20>, <room log 21>, <room log 22>, <room log 23>, <room log 24>, <room log 25>, <room log 26>, <room log 27>, <room log 28>, <room log 29>, <room log 30>, <room log 31>, <room log 32>, <room log 33>, <room log 34>, <room log 35>, <room log 36>, <room log 37>, <room log 38>, <room log 39>, <room log 40>, <room log 41>, <room log 42>, <room log 43>, <room log 44>, <room log 45>, <room log 46>, <room log 47>, <room log 48>, <room log 49>, <room log 50>]"
+        ],
+        "owner": "room-catalog-rework (pool w29): the app feed has one frame per row",
+        "part": "after the answer",
+        "reason": "The first listing of a catalog that holds 51 room logs: Node hands its listener the catalog as one delivery (CatalogChannel.publish, session-host-publication.ts:141-149, a single listener call with all 51 rows); the core's feed has no catalog frame, a `thread/summary/updated` carries one row (thread/summary/updated, ThreadSummaryUpdatedParams.thread), so the 51 rows (each new to the client) are 51 frames. Nothing is sent twice: after the last frame the client holds exactly Node's catalog.",
         "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
         ],
+        "scenario": "not-loaded-large",
+        "step": "update-rounds"
+      },
+      {
+        "compareWith": "startup-recovery-joins",
         "node": [
           "catalog [<room log 0>]"
         ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
+        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
+        "reason": "Start-up order (MANIFEST startupRace.cases.startup-recovery-joins-update-first): the start-up recovery's listing (agent-rooms.ts:479, not loaded: session-host.ts:355) reads its rows after the update's change (agent-rooms.ts:308-309), so it publishes the updated room and the update's own publication (agent-rooms.ts:312) is the same catalog, not handed again. The core's recovery runs before any caller of the first load goes on, whoever started it (ready.rs RoomsReady::ready). The core's part is compared whole with Node's startup-recovery-joins part (the same step and part), the order it produces. Node does not guarantee this order: `recover()` reads the room records (`await loadRecords()`, agent-rooms.ts:466) before it calls `ready()` (:469), while every room call starts the first load itself with `ready()` (`prepared ??= recordsReady()`, :354-355; update :295), so a call that arrives during that read gets there first; and recover's post (:474) and its `deps.republishCatalog()` (:479, `void`, not awaited) run outside the room writer (:485-487), so they interleave with a call's own publication (:312).",
+        "rust": [
+          "native/core/crates/mixdog-core-rooms/src/rooms/ready.rs (RoomsReady::ready: the start-up's recovery before the first load's callers)"
+        ],
+        "scenario": "startup-recovery-joins-update-first",
+        "step": "restart-and-update"
       },
       {
-        "scenario": "prune-held",
-        "step": "update-rounds-and-list-while-held",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]",
-          "catalog [<room log 0>]"
-        ],
+        "compareWith": "startup-interrupted",
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -426,295 +318,400 @@
           {
             "frame": "thread/summary/updated <room log 0>",
             "publication": 1
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 1
           }
-        ]
+        ],
+        "node": [],
+        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
+        "reason": "Start-up order (MANIFEST startupRace.cases.startup-interrupted-update-first): the start-up recovery's post of the interrupted row (agent-rooms.ts:474) is still in flight when the update answers, so nothing is published before the answer; the update's own listing (agent-rooms.ts:312, not loaded) and then the store refresh of the posted row publish after it. The core's recovery (the room marked interrupted, its row posted, the catalog republished) runs before any caller of the first load goes on (ready.rs RoomsReady::ready). The core's part is paired with Node's startup-interrupted part (the same step and part), the order it produces, its frames paired with that part's publications as in that scenario's entry (one frame per changed row). Node does not guarantee this order: `recover()` reads the room records (`await loadRecords()`, agent-rooms.ts:466) before it calls `ready()` (:469), while every room call starts the first load itself with `ready()` (`prepared ??= recordsReady()`, :354-355; update :295), so a call that arrives during that read gets there first; and recover's post (:474) and its `deps.republishCatalog()` (:479, `void`, not awaited) run outside the room writer (:485-487), so they interleave with a call's own publication (:312).",
+        "rust": [
+          "native/core/crates/mixdog-core-rooms/src/rooms/ready.rs (RoomsReady::ready: the start-up's recovery before the first load's callers)"
+        ],
+        "scenario": "startup-interrupted-update-first",
+        "step": "restart-and-update"
       },
       {
-        "scenario": "prune-failed",
-        "step": "restart-and-list",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-refresh-in-io",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-refresh-in-io",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded",
-        "step": "reset",
-        "part": "before the answer",
-        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), Node's last of them is the stored row the client then holds, which the core's one publication also leaves held. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
-        ],
+        "compareWith": "startup-interrupted",
         "node": [
           "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "compareWith": "loaded-reset-refresh-in-io"
+        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
+        "part": "after the answer",
+        "reason": "Start-up order (MANIFEST startupRace.cases.startup-interrupted-update-first): after the update's answer its own listing (agent-rooms.ts:312, the catalog not loaded) publishes the updated room without the interrupted row, and the store refresh (session-host-catalog.ts:170-180) of the recovery's post (agent-rooms.ts:474) publishes the room log with it. The core's recovery is done before the update goes on, so it publishes nothing after the answer. The core's part is compared whole with Node's startup-interrupted part (the same step and part), the order it produces. Node does not guarantee this order: `recover()` reads the room records (`await loadRecords()`, agent-rooms.ts:466) before it calls `ready()` (:469), while every room call starts the first load itself with `ready()` (`prepared ??= recordsReady()`, :354-355; update :295), so a call that arrives during that read gets there first; and recover's post (:474) and its `deps.republishCatalog()` (:479, `void`, not awaited) run outside the room writer (:485-487), so they interleave with a call's own publication (:312).",
+        "rust": [
+          "native/core/crates/mixdog-core-rooms/src/rooms/ready.rs (RoomsReady::ready: the start-up's recovery before the first load's callers)"
+        ],
+        "scenario": "startup-interrupted-update-first",
+        "step": "restart-and-update"
+      }
+    ],
+    "rowFields": [
+      {
+        "field": "compactCount",
+        "reason": "A stored row always carries `compactCount` (the stored summary, store-summary-index.mjs:350, `compactCountField` store-summary-catalog.mjs:274) and the core's row is always the stored summary's; Node's daemon lists a session it still holds live from the session object, a row without it (store-summary-real-turns.test.mjs:115-118). Taken off the core's row only where Node's row of the same publication lacks it."
       },
       {
-        "scenario": "loaded-reset-listing-first",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "reset",
-        "part": "before the answer",
-        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
-        ],
-        "node": [
-          "catalog [<room log 0>]",
-          "catalog [<room log 0>]"
-        ],
-        "compareWith": "loaded-reset-refresh-in-io"
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "forget-member",
-        "part": "before the answer",
-        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "compareWith": "loaded-reset-refresh-in-io"
+        "field": "incomingTail",
+        "reason": "Present on a stored row only when the summary has one (store-summary-catalog.mjs:271); Node's live-session row (store-summary-real-turns.test.mjs:115-118) has none while the core's row is the stored summary's. Taken off the core's row only where Node's row of the same publication lacks it."
       }
     ]
   },
+  "envFolder": {
+    "reason": "a machine path in a golden; the replay compares the task workspace and the rows' cwd with each other, not with a real folder",
+    "replaced": "the scenario's environment folder (room-catalog-<scenario> under the scratch root) in every string, by <env>, in the spelling the recorder names it and in its resolved spelling (the scratch root may be a link)"
+  },
   "exact": true,
-  "fileCount": 12,
+  "fileCount": 22,
   "files": [
     {
-      "bytes": 4841,
+      "bytes": 4816,
       "path": "loaded-failing.json",
-      "sha256": "8654112a9b603e6fb42a66605bbacddccf18079f52b3b026190eba1eb358da18"
+      "sha256": "66ab20c95b09a91994e3e63c2e9b0638cede42342b6c7842425c52241c1e8107"
     },
     {
-      "bytes": 2288,
+      "bytes": 8428,
+      "path": "loaded-read-after-answer.json",
+      "sha256": "9069cf571df132cd96d25e727a3398b26a7e6f9f9b318257e556cc016c23aa90"
+    },
+    {
+      "bytes": 2180,
       "path": "loaded-reconnect.json",
-      "sha256": "9c9927559e7a86dd71938eacf3ea506f730fef5d4cd6f5792c99a869cd88705b"
+      "sha256": "942db0199b80ac762d8fb13f8ea6da565f5b3b08215d14d25c4a7c4466b12157"
     },
     {
-      "bytes": 10065,
+      "bytes": 3931,
+      "path": "loaded-refresh-before-answer.json",
+      "sha256": "f693c50ade92b33821492efebb74dc7e52e00445f065138891bccffb6d7a5878"
+    },
+    {
+      "bytes": 8301,
       "path": "loaded-reset-listing-first.json",
-      "sha256": "e806880385972a19413d7c89a79508e02a6a5465c66b8e77ca57f50d1445f079"
+      "sha256": "7c2491faeb757a06cc6acfd7e791d5adc7cd1767d58134af6218ba0f361ca8b9"
     },
     {
-      "bytes": 7440,
+      "bytes": 8441,
+      "path": "loaded-reset-refresh-in-io-read-after-answer.json",
+      "sha256": "86314298cb6aaa0fe3faf309419d14cde2f298c5a6710677e1dde27399395c74"
+    },
+    {
+      "bytes": 7251,
       "path": "loaded-reset-refresh-in-io.json",
-      "sha256": "60a2583f93f8a11d3243861f7ea512486a8afb8b0c7901a023b38b2dda03c391"
+      "sha256": "b71c0ff04ce9d89c2a1b49a7123ee131c9226be3f86b64ac44460739c6841a7a"
     },
     {
-      "bytes": 8681,
+      "bytes": 7238,
       "path": "loaded.json",
-      "sha256": "0bef847ac3734a61c5fac01ab21c28890db9135e69a58197cadab1ade7642197"
+      "sha256": "973e80a217ce15ad082420c2f7dc7c12173d848cec73ed04cd16cb70f969691a"
     },
     {
-      "bytes": 1593,
+      "bytes": 1537,
       "path": "not-loaded-failing.json",
-      "sha256": "4004c39c25bd3d105cd4107dfe003e866cd99657428ec7d2cdfa2f1bf8af82c1"
+      "sha256": "01df28ce58f5e3e03b980238bbd4d9bc9601ef29ab9c26c966c93ed7ca47aed8"
     },
     {
-      "bytes": 78492,
+      "bytes": 75684,
       "path": "not-loaded-large.json",
-      "sha256": "fd57c9781ae040b76ce429af0faeecf58dea816e7298719b146471a84754dd0d"
+      "sha256": "026660089de0568276b1002304809c2a6049dd9534b4f7a9fafcd41f4725ad87"
     },
     {
-      "bytes": 3888,
+      "bytes": 3744,
       "path": "not-loaded.json",
-      "sha256": "04d57f0d11362783399b02a8b1244f8bf9160a5e801637cf79a5c321c4aaa53d"
+      "sha256": "68cba8b45cab46e1c94334fa7a69ca0429a901dcb580d57e9055eb1afa449f92"
     },
     {
-      "bytes": 6211,
+      "bytes": 5963,
       "path": "prune-failed-then-update.json",
-      "sha256": "836b134abc044fc378799a41aa5672ec3f031ceaa8db5f1328f1f66aa17ed1f9"
+      "sha256": "2d67765db17541e314f6fd2f3334d0efdfd62d5856e66d26b4e3dfa92158fe6e"
     },
     {
-      "bytes": 5488,
+      "bytes": 5288,
       "path": "prune-failed.json",
-      "sha256": "cf69528cb65c5fce53917b9f76767c270506a18cfb8f2c178be46697265a7494"
+      "sha256": "44d08980bed6d4f8f215fd14c594fd687e322f8a17e3930adc4101dfffd83c8a"
     },
     {
-      "bytes": 5648,
+      "bytes": 5456,
       "path": "prune-held.json",
-      "sha256": "00bfb0dd939b5d4e9ea719755f8b8c7ddec9296a42d638e3703c3c82fef5f359"
+      "sha256": "f240292dfb67250ff32703e2c20f04e07f7f3039844a0dc188a877d23e38088b"
     },
     {
-      "bytes": 6979,
+      "bytes": 6719,
       "path": "pruned-at-load.json",
-      "sha256": "3996defe7bdab88fe3fd132ae96103ae3d35860345620ba333fbbb56b1c61d59"
+      "sha256": "86ab6c4f831a92220fa2d55079dcdac78d109a1ddc17769670d0feddb24efe08"
+    },
+    {
+      "bytes": 5994,
+      "path": "startup-interrupted-post-behind-detach.json",
+      "sha256": "0970997d33396a75de6b64755d04bacf42dd45ff27b9a72ca984c0736a9804d7"
+    },
+    {
+      "bytes": 5774,
+      "path": "startup-interrupted-update-first.json",
+      "sha256": "0177db242aaef90e62e13369a55c2aa1757e36ceef0d91d876805e1e660f3916"
+    },
+    {
+      "bytes": 5759,
+      "path": "startup-interrupted.json",
+      "sha256": "e3d0a75f4bd8c89bba3cc1965a5a528febe909320a2fc441f82856be0e421ecb"
+    },
+    {
+      "bytes": 3038,
+      "path": "startup-recovery-joins-update-first.json",
+      "sha256": "112d06447228a649882ca4124dc77c2aa7f9c9de139560272b91459406b52f18"
+    },
+    {
+      "bytes": 4197,
+      "path": "startup-recovery-joins.json",
+      "sha256": "a5237d655265a6389e49129843f89aeba3827076755d9f286b85d665abf9d894"
+    },
+    {
+      "bytes": 2992,
+      "path": "startup-update-before-recovery-update-first.json",
+      "sha256": "00334578f20dda858ae749d1e20815a2ab9de15c0fadf5993e5dc9eb01aaf7fd"
+    },
+    {
+      "bytes": 4151,
+      "path": "startup-update-before-recovery.json",
+      "sha256": "8da438999d193a6f91a536852a86ab71b2cac3dafbc691ba32b79590b12f495e"
     }
   ],
+  "fixedAtSource": {
+    "clock": "the host is made while Date.now is 2026-06-07T08:09:10.000Z + one minute per step",
+    "envFolder": "room-catalog-<scenario> under the scratch root, emptied before the run",
+    "roomIds": "randomBytes(4) from agent-rooms.ts answers 1, 2, ... (big-endian), so a room's id is the clock's base 36 and the counter"
+  },
   "forcedOrders": {
     "loaded": {
-      "resetListings": {
-        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
-        "order": "room-call-first"
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication"
       },
       "resetRefresh": {
         "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
         "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-failing": {
+      "resetRefresh": {
+        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end (loaded-failing: the daemon's session.list fails, so the reset's own listing ends at once and only the store refresh is awaited)",
+        "order": "in-io"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-read-after-answer": {
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer"
+      },
+      "resetRefresh": {
+        "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
+        "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reconnect": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-refresh-before-answer": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the call's own listing is not started until the store refresh has fired and run to its end, so the refresh publishes inside the call (a call longer than the debounce)",
+        "order": "before-answer"
       }
     },
     "loaded-reset-listing-first": {
       "resetListings": {
-        "how": "the room records' save is held until the reset's own listing has ended; that listing is held at its daemon call until the store watcher has reported the cleared log",
+        "how": "the reset's read of the archived copy (agent-home-sessions.ts:73, startOver's last await before the room's record changes, agent-rooms.ts:379-385) is held until the reset's own listing has ended; that listing is held at its daemon call until the clear's summary flush has landed",
         "order": "listing-first"
       },
       "resetRefresh": {
         "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
         "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
       }
     },
     "loaded-reset-refresh-in-io": {
-      "resetListings": {
-        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
-        "order": "room-call-first"
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication"
       },
       "resetRefresh": {
-        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end",
+        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end (loaded-failing: the daemon's session.list fails, so the reset's own listing ends at once and only the store refresh is awaited)",
         "order": "in-io"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reset-refresh-in-io-read-after-answer": {
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer"
+      },
+      "resetRefresh": {
+        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end (loaded-failing: the daemon's session.list fails, so the reset's own listing ends at once and only the store refresh is awaited)",
+        "order": "in-io"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded-failing": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded-large": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-failed": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-failed-then-update": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-held": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "pruned-at-load": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-interrupted": {
+      "startupOrder": {
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-interrupted-post-behind-detach": {
+      "startupOrder": {
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst) and, with node-patches/node-fix-room-post-behind-detach.patch, the post fails with 'session <id> is not available' (agent-room-delivery.mjs saved): nothing is written, the recovery logs the failure (agent-rooms.ts:476)",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-interrupted-update-first": {
+      "startupOrder": {
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes; the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
+        "order": "update-first",
+        "waiters": "interrupted"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-recovery-joins": {
+      "startupOrder": {
+        "how": "the start-up's read of the room records is held; a bot in no room is forgotten (forgetMember, agent-rooms.ts:339-341, as the agent deletion calls it, session-host.ts:253): its ready() starts the first load; the read is released and the recovery joins it; the update is called while the first load is held at its member check (agentDefinitionPresence under pruneDeleted, agent-room-membership.ts:67) and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change",
+        "order": "recovery-first",
+        "waiters": "recovery-joins"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-recovery-joins-update-first": {
+      "startupOrder": {
+        "how": "the start-up's read of the room records is held; a bot in no room is forgotten (forgetMember, agent-rooms.ts:339-341, as the agent deletion calls it, session-host.ts:253): its ready() starts the first load; the read is released and the recovery joins it; the update is called while the first load is held at its member check (agentDefinitionPresence under pruneDeleted, agent-room-membership.ts:67) and registers after the recovery; update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes",
+        "order": "update-first",
+        "waiters": "recovery-joins"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-update-before-recovery": {
+      "startupOrder": {
+        "how": "the start-up's read of the room records (fs/promises.readFile of agent-rooms.json under loadRecords, agent-rooms.ts:466) is held; the update is called: its ready() starts the first load (agent-rooms.ts:355) and registers on it first; the read is released, and the recovery joins (agent-rooms.ts:469); the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change",
+        "order": "recovery-first",
+        "waiters": "update-before-recovery"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-update-before-recovery-update-first": {
+      "startupOrder": {
+        "how": "the start-up's read of the room records (fs/promises.readFile of agent-rooms.json under loadRecords, agent-rooms.ts:466) is held; the update is called: its ready() starts the first load (agent-rooms.ts:355) and registers on it first; the read is released, and the recovery joins (agent-rooms.ts:469); update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes",
+        "order": "update-first",
+        "waiters": "update-before-recovery"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
       }
     }
   },
@@ -726,37 +723,114 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs",
+      "sha256": "cfabb25eb3d774187cdbb3cb546480dcb1e71d8bdaa2baee988d40b1350ed03a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "c66f752de2228725574d3e3ca20254e3a4d457ff51ee6ff629b69825682ed8a1"
+      "sha256": "538b688e8c65a48583408733e5ecc94e4cd2f046a1ff48fae307636295417fb1"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalized": {
+    "how": "CLOCK_BASE_MS + 1000 * order of first appearance of the distinct value in the scenario",
+    "paths": "every object with messageCount and cwd (a session summary), keys createdAt, updatedAt, activityAt",
+    "reason": "stamped by the daemon process with its real clock, which nothing injects"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-room-post-behind-detach.patch",
+      "paths": [
+        "src/session-runtime/agent-room-delivery.mjs",
+        "src/session-runtime/agent-room-delivery.test.mjs"
+      ],
+      "sha256": "e83d270c28946205eeb5fcab22a261a6a6dc105e9dad2d6f0acc42fb7ee43595"
+    },
+    "patches": [
+      {
+        "file": "node-fix-room-post-behind-detach.patch",
+        "paths": [
+          "src/session-runtime/agent-room-delivery.mjs",
+          "src/session-runtime/agent-room-delivery.test.mjs"
+        ],
+        "sha256": "e83d270c28946205eeb5fcab22a261a6a6dc105e9dad2d6f0acc42fb7ee43595"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "139d50abdaed6f97756dd26911bfea3098a4f97fb204bf03a94f0be1839d5b66",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderSha256": "1477665925a836d5975ba12446a7f853cd5cd429c944a98be4384e5c7ecf61f7",
+  "recorderSha256": "3d834950f41b68185c7740108eac2eb40a4e5ffb5f6d72c79775dfaca22dd62f",
+  "resetReadRace": {
+    "cases": {
+      "loaded": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication",
+        "resetRefresh": "after-answer"
+      },
+      "loaded-read-after-answer": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer",
+        "resetRefresh": "after-answer"
+      },
+      "loaded-reset-refresh-in-io": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication",
+        "resetRefresh": "in-io"
+      },
+      "loaded-reset-refresh-in-io-read-after-answer": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer",
+        "resetRefresh": "in-io"
+      }
+    },
+    "core": "The core has no daemon read to race: a reset publishes its room's row in its room pass, at a fixed point before its answer (native/core/crates/mixdog-core-session/src/session/thread_list.rs:545), and its own listing reads the core's index, not a daemon. Its order is the read-before-publication one, with nothing published after the answer, which Node also produces: the reset's own listing (session-host-lifecycle.ts:401, its daemon read store-summary-catalog.mjs:623-625 from reconcileSessionFile :377) ending before the room call's publication (agent-rooms.ts:387-388), the store refresh inside the reset's I/O (loaded-reset-refresh-in-io). So for the two -read-after-answer cases the replay compares the core's reset, after the answer, whole with loaded-reset-refresh-in-io's same step and part (coreDifferences entries with compareWith), and every other part with the case's own recording.",
+    "daemonRead": "store-summary-reader.mjs:305 (listJsonSummariesAsync) → store-summary-catalog.mjs:918 (loadIndexAsync) → :650-653 (stamps of session-summaries.json/.log) → :672/:623-625 (readLogBytesStep of session-summaries.log), then :945 (refreshAsync) → :853 (reconcileSessionFileSteps) → store/session-log-reader.mjs:260 → :141 (readSessionLog of sessions/<room>.log.jsonl); the session.list of the reset's own listing (session-host-lifecycle.ts:401, session-host-catalog.ts:217-238)",
+    "holds": {
+      "clearFlush": "observed, not held: the daemon's fs/promises.appendFile of session-summaries.log carrying the room log's row stamped at or after the reset's start (store-summary-index.mjs:529, :619-622), reported over the same connection",
+      "daemonRead": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs, loaded by the daemon: the reset's own listing's first fs/promises.stat of session-summaries.json (the start of its index load) on a stack through listSessionCatalog, armed over the recorder's TCP connection before that listing's session.list is sent (once the session.list calls sent before it have answered)",
+      "hostPublication": "the room records' save (atomic-file.mjs temp open of agent-rooms.json), the last await before republishCatalog (agent-rooms.ts:387-388)",
+      "indexRebuild": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the summary index rebuild worker the reset's clear spawns (store/listing.mjs:378-380 → :111-142, summary-rebuild-worker.mjs) started on a bootstrap that runs it when the recorder releases it, once the clear has reached the summary index; its answer is awaited before the reset's own listing loads the index. Unheld, its base write (store-summary-index.mjs:382-404, which empties the delta log) lands before or after that listing: before, the listing's index rows describe the room log (rows carry incomingTail and compactCount, store-summary-index.mjs:288-290); after, the index has no base and no rows (store-summary-catalog.mjs:742-745), so the listing reads the log and its row has neither (store-summary-catalog.mjs:315-346 rowFromSession, :433-441)",
+      "summarySettle": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the reset's own listing is sent only once the daemon's settleSummaryIndexWrites (store-summary-index.mjs:495) has answered after the clear; while an op is queued or in flight the daemon answers a listing from its in-memory rows and reads no index (store/listing.mjs:276)"
+    },
+    "hostPublication": "agent-rooms.ts:387-388 (persist, then deps.republishCatalog) → session-host.ts:353-354 (publishSessionCatalog(sessionCatalog()))"
+  },
   "scenarios": [
     "loaded",
+    "loaded-read-after-answer",
     "loaded-reset-refresh-in-io",
+    "loaded-reset-refresh-in-io-read-after-answer",
     "loaded-reset-listing-first",
+    "loaded-refresh-before-answer",
     "loaded-reconnect",
     "not-loaded",
     "not-loaded-failing",
@@ -765,8 +839,65 @@
     "pruned-at-load",
     "prune-held",
     "prune-failed-then-update",
-    "prune-failed"
+    "prune-failed",
+    "startup-update-before-recovery",
+    "startup-update-before-recovery-update-first",
+    "startup-recovery-joins",
+    "startup-recovery-joins-update-first",
+    "startup-interrupted",
+    "startup-interrupted-update-first",
+    "startup-interrupted-post-behind-detach"
   ],
   "set": "room-catalog-states",
-  "totalBytes": 141614
+  "startupRace": {
+    "cases": {
+      "startup-interrupted": {
+        "claim": "released-first",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "startup-interrupted-post-behind-detach": {
+        "claim": "post-behind-detach",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "startup-interrupted-update-first": {
+        "claim": "released-first",
+        "order": "update-first",
+        "waiters": "interrupted"
+      },
+      "startup-recovery-joins": {
+        "order": "recovery-first",
+        "waiters": "recovery-joins"
+      },
+      "startup-recovery-joins-update-first": {
+        "order": "update-first",
+        "waiters": "recovery-joins"
+      },
+      "startup-update-before-recovery": {
+        "order": "recovery-first",
+        "waiters": "update-before-recovery"
+      },
+      "startup-update-before-recovery-update-first": {
+        "order": "update-first",
+        "waiters": "update-before-recovery"
+      }
+    },
+    "holds": {
+      "claimRelease": "observed: the room log's writer lock file (session-writer-locks/<room log>.lock) gone, on fs.watch events of its directory (session-writer-claim.mjs:_dropLock)",
+      "connectionClose": "the earlier host's session client close, kept and made by the step (post-behind-detach only)",
+      "detachWrite": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the daemon's first fs/promises.stat of the room log's json on a stack through _jsonDiverged (session-log-writer.mjs:926-929, called from the drain, :1198), armed before the earlier host's close is made: the detach's write (post-behind-detach only)",
+      "exchange": "the host's read of the room log's session (readItems, session-host.ts:325) from the exchange's rows (agent-room-exchange.ts:186)",
+      "memberCheck": "the host's control call agentDefinitionPresence on a stack through pruneDeleted (agent-room-membership.ts:67)",
+      "namesRefresh": "the host's control call listAgents on a stack through refreshNames (agent-room-records.ts:56-59), armed after the first load's own refresh",
+      "postAdmitted": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: observed, not held: the daemon's next live-session publication of the room log (subscribeLiveSessions, session-observers.mjs:27, published by the save's admission, store.mjs _admit) after the detach reached its hold (post-behind-detach only)",
+      "recordsRead": "fs/promises.readFile of agent-rooms.json (readJsonState, atomic-file.mjs:551-553, under loadRecords)",
+      "recoveryListing": "the daemon call session.list of the listing the recovery's republish starts (its publishCatalogs on a stack through recover)",
+      "recoveryPost": "the host's control call appendRoomRows on a stack through recover (agent-room-log.ts:61)",
+      "updateSave": "the room records' save (atomic-file.mjs temp open of agent-rooms.json), agent-rooms.ts:310"
+    },
+    "recovery": "agent-rooms.ts:465-480 (recover: loadRecords :466, ready :469, the interrupted rooms :470-478, deps.republishCatalog :479), started by session-host.ts:430-432; republishCatalog → session-host.ts:353-356 (not loaded: void publishCatalogs, session-host-catalog.ts:217-238, rows read at session-host.ts:806-809)",
+    "update": "agent-rooms.ts:293-320 (update: ready :294, refreshNames :302, the change :308-309, persist :310, deps.republishCatalog :312)"
+  },
+  "totalBytes": 186882
 }

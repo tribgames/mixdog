@@ -15,7 +15,7 @@ use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
 use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::process::Processes;
@@ -190,7 +190,7 @@ pub struct ComposedCore {
     local_processes: LocalProcessManager,
     /// The one shell registry and kill route of the process (exec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
-    stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    stop_steps: StopSteps,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
     /// The daemon log and the run token it holds: the stop procedure flushes the one, then cancels the other.
     log: crate::daemon_log::DaemonLog,
@@ -203,6 +203,46 @@ pub struct ComposedCore {
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// The ordered stop steps and the one run of them in progress. A stop that overlaps one in progress awaits that same run (Node's
+/// `SessionHost.dispose` hands every caller the one `disposePromise`, `apps/desktop/src/main/session-host.ts:1209-1210`): it never
+/// returns before the cleanup has ended, and nothing runs twice. Pinned by `tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded`
+/// (below, with the real core) and the desktop's `session-host-lifecycle-replay.test.mjs`. A call after a run has ended runs only the steps registered since.
+#[derive(Default)]
+pub(crate) struct StopSteps {
+    steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    running: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, ()>>>>,
+}
+
+impl StopSteps {
+    pub(crate) fn push(&self, name: &'static str, step: StopStep) {
+        self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, step));
+    }
+
+    pub(crate) async fn run(&self) {
+        use futures::FutureExt;
+        let run = {
+            let mut running = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match running.as_ref() {
+                Some(run) if run.peek().is_none() => run.clone(),
+                _ => {
+                    let steps = std::mem::take(&mut *self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+                    let run = async move {
+                        for (name, step) in steps {
+                            tracing::debug!(step = name, "stopping");
+                            step.await;
+                        }
+                    }
+                    .boxed()
+                    .shared();
+                    *running = Some(run.clone());
+                    run
+                }
+            }
+        };
+        run.await;
+    }
+}
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
@@ -237,20 +277,22 @@ pub struct Models {
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
+pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
+    let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
-            model_id: DEFAULT_MODEL_ID.into(),
+            model_id: embed_env.model_id(),
             cache_dir: data_dir.join("models"),
             ort_library: library.clone(),
-            dtype: None,
+            dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },
         tick.clone(),
-        ))),
+        )
+        .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
@@ -322,7 +364,7 @@ impl ComposedCore {
     /// directory shutdown, `GraphCache::drain`, ...). Steps run in registration order, after the
     /// extension host has closed.
     pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
-        self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, Box::pin(step)));
+        self.stop_steps.push(name, Box::pin(step));
     }
 
     /// Registers a barrier the release procedure runs before it closes connections: a session
@@ -384,11 +426,7 @@ impl ComposedCore {
     /// The registered stop steps alone, for the release procedure that closes the extension host
     /// at its own point (RuntimeCore::close_ext_host).
     pub async fn run_stop_steps(&self) {
-        let steps = std::mem::take(&mut *self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for (name, step) in steps {
-            tracing::debug!(step = name, "stopping");
-            step.await;
-        }
+        self.stop_steps.run().await;
         // Flushed after every other stop step, as Node does (daemon.mjs:411 awaits flushDaemonLogs after the discovery withdrawal and the
         // singleton release, just before the exit): Node flushes, it never closes a stream. Then the run token ends (the log's lane jobs hang
         // on it; Rust-only). A second call finds nothing to run and both are idempotent.
@@ -413,6 +451,16 @@ impl ComposedCore {
 
     pub fn open_memory_in_background(&self) {
         self.real.open_memory_in_background();
+    }
+
+    pub fn restore_remote_intent(&self) {
+        self.real.restore_remote_intent();
+    }
+
+    /// After the stop: closes the core's SQLite files, for a process that removes the data directory and lives on (`mixdogd exec`).
+    /// The daemon never calls it; its process exit closes them.
+    pub fn close_data_files(&self) {
+        self.real.close_data_files();
     }
 
     /// The memory database handle, for the readiness test that makes a first use.
@@ -575,6 +623,8 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
+    /// The runtime root (`discovery::runtime_root`): the channel remote intent lives there, as in Node.
+    pub runtime_root: PathBuf,
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
@@ -619,7 +669,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig { data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -648,7 +698,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
-    let models = build_models(tokens, data_dir, ort_library)?;
+    let models = build_models(tokens, data_dir, ort_library, &tidy_processes)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
@@ -696,6 +746,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
+        runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         #[cfg(test)]
@@ -775,7 +826,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tidy_processes,
         local_processes,
         shell_control,
-        stop_steps: std::sync::Mutex::new(Vec::new()),
+        stop_steps: StopSteps::default(),
         final_barriers: std::sync::Mutex::new(Vec::new()),
         #[cfg(feature = "replay-controls")]
         stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
@@ -824,6 +875,7 @@ mod tests {
         ComposeConfig {
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
+            runtime_root: dir.join("runtime"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),
@@ -878,6 +930,69 @@ mod tests {
             core.run_final_barriers();
             core.run_stop_steps().await;
             assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+        });
+    }
+
+    /// The recorded case "every overlapping host disposal waits for the same attachment cleanup" (`session-host-lifecycle-cases`, Node's
+    /// memoised `SessionHost.dispose`, `apps/desktop/src/main/session-host.ts:1209`) through the real core's stop steps
+    /// (`ComposedCore::run_stop_steps`: the steps the real composition registered, then the attachment cleanup held until released). The
+    /// first stop runs as the release runs it (`supervise_async("stopSteps", ..)`, server.rs:248); a second stop made while the cleanup is
+    /// held (one poll joins the run in progress) waits for that same cleanup, which runs once. The whole run has one bound, `BUDGET`.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
+        crate::compose_test_support::in_child(module_path!(), "overlapping_stops_wait_for_the_same_cleanup_as_node_recorded", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+            let text = mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json");
+            let golden = mixdog_testkit::exact::Exact::decode(&serde_json::from_str::<serde_json::Value>(text).expect("golden.json")).expect("exact");
+            let observed = golden
+                .get("cases")
+                .as_array()
+                .iter()
+                .find(|case| case.get("case").as_str() == "every overlapping host disposal waits for the same attachment cleanup")
+                .expect("the recorded case")
+                .get("observed")
+                .clone();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
+            let events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+            let closes = Arc::new(AtomicU64::new(0));
+            let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
+            let (release, released) = tokio::sync::oneshot::channel::<()>();
+            let (log_events, count) = (events.clone(), closes.clone());
+            core.on_stop("attachment cleanup", async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                log_events.lock().unwrap().push("cleanup entered");
+                let _ = entered_tx.send(());
+                let _ = released.await;
+                log_events.lock().unwrap().push("cleanup returned");
+            });
+            core.set_stop_reason("test");
+            let (first_core, log_events) = (core.clone(), events.clone());
+            let first = tokio::spawn(async move {
+                let end = crate::lifecycle::supervise_async("stopSteps", BUDGET, async move { first_core.run_stop_steps().await }).await;
+                log_events.lock().unwrap().push("first dispose finished");
+                end
+            });
+            tokio::time::timeout(BUDGET, entered).await.expect("the stop to start the attachment cleanup").expect("entered");
+            let log_events = events.clone();
+            let mut second = std::pin::pin!(async {
+                core.run_stop_steps().await;
+                log_events.lock().unwrap().push("second dispose finished");
+            });
+            // The one poll that joins the run in progress: the second stop is then held by the cleanup until it is released.
+            assert!(futures::poll!(&mut second).is_pending(), "the second stop waits for the cleanup in progress");
+            events.lock().unwrap().push("cleanup released");
+            release.send(()).expect("the cleanup waits");
+            tokio::time::timeout(BUDGET, async {
+                assert_eq!(first.await.expect("the first stop"), crate::lifecycle::StepEnd::Finished, "the first stop ended within its budget");
+                second.await;
+            })
+            .await
+            .expect("both overlapping stops to finish");
+            let rust = serde_json::json!({ "events": *events.lock().unwrap(), "closes": closes.load(Ordering::SeqCst) });
+            assert_eq!(mixdog_testkit::exact::Exact::plain(&rust), observed);
         });
     }
 
@@ -958,6 +1073,29 @@ mod tests {
             .await
             .unwrap();
             assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
+        });
+    }
+
+    /// A core composed for `mixdog exec` binds its in-process lifecycle before its first request: the request is counted and the daemon log
+    /// has no "admitted before the lifecycle was bound" line (Node's exec writes nothing of the kind). Unbound, the line is written.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
+    fn an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle() {
+        crate::compose_test_support::in_child(module_path!(), "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let stop = tokio_util::sync::CancellationToken::new();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+            log.enable_file_logging();
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
+            core.late_lifecycle().bind_in_process().unwrap();
+            let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
+            let guard = core.request_started("thread/list", &serde_json::json!({}));
+            assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
+            drop(guard);
+            core.flush_log().await;
+            // A log with no line in it was never created.
+            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+            assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
         });
     }
 

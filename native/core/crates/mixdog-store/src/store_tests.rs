@@ -627,6 +627,22 @@ async fn a_group_is_recovered_whole_or_not_at_all_however_it_is_damaged() {
     }
 }
 
+/// A room post writes its rows and the `updatedAt` it stamps (a `meta` record) as one batch: a kill at any offset of the write
+/// (cut there, or zeroed from there) before the sync leaves the log with neither the rows nor the stamp, never the rows alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_killed_before_its_sync_recovers_neither_its_rows_nor_its_stamp() {
+    let stamp = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":5000u64},"unset":[]}}}));
+    let (_env, w) = written(vec![vec![item("x")]], vec![item("row1"), item("row2"), stamp]).await;
+    assert_eq!(w.after.len(), w.before.len() + 3, "the rows and the stamp");
+    let len = w.bytes.len();
+    for kill in w.write_start..=len {
+        assert_eq!(w.before_or_after(&format!("killed after {kill} bytes"), &w.bytes[..kill]), kill == len, "cut at {kill}");
+        let mut zeroed = w.bytes.clone();
+        zeroed[kill..].fill(0);
+        assert_eq!(w.before_or_after(&format!("zeroed from {kill}"), &zeroed), kill == len, "zero from {kill}");
+    }
+}
+
 /// Stale bytes after a new marker (a longer earlier write whose truncation did not last): the members the marker names
 /// are not there, so none of the stale frames completes the group.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2554,237 +2570,6 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
-/// The worker index revision: a load from a revision reads every session whose worker map or listing was committed since,
-/// by this store's writer or another connection; a rolled-back write and a write that changes neither leave it as it was.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_worker_index_revision_follows_every_committed_write_of_any_connection() {
-    let env = Env::new();
-    let s = &env.store;
-    let upsert = |h: CatalogHead| async move { s.upsert(h, DirtyMark::Clear).await.unwrap() };
-    let generation = s.worker_index_since(None, Vec::new()).await.unwrap().generation;
-    let since = |rev: u64| async move {
-        let read = s.worker_index_since(Some((generation, rev)), Vec::new()).await.unwrap();
-        assert!(!read.full);
-        (read.revision, read.sessions.iter().map(|x| (x.session.clone(), x.worker.as_ref().map(|w| w["status"].clone()))).collect::<Vec<_>>())
-    };
-    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"idle"}))).await;
-    upsert(worker_head("w2", 20, json!({"tag":"b","parentSessionId":"p1","status":"idle"}))).await;
-    upsert(head("plain", "task", "t")).await;
-    let first = s.worker_index_since(None, Vec::new()).await.unwrap();
-    assert!(first.full);
-    let mut listed: Vec<&str> = first.sessions.iter().map(|x| x.session.as_str()).collect();
-    listed.sort_unstable();
-    assert_eq!(listed, ["w1", "w2"]);
-    let r1 = first.revision;
-    assert_eq!(since(r1).await, (r1, vec![]), "nothing written since");
-
-    // This store's writer; a header write that changes no worker map leaves the revision.
-    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"running"}))).await;
-    upsert(head("plain", "task", "t2")).await;
-    let (r2, changed) = since(r1).await;
-    assert_eq!(changed, [("w1".to_owned(), Some(json!("running")))]);
-
-    // Another connection's commit.
-    s.set_worker_elsewhere("w2", Some(json!({"tag":"b","parentSessionId":"p1","status":"failed"}).as_object().unwrap()));
-    let (r3, changed) = since(r2).await;
-    assert_eq!(changed, [("w2".to_owned(), Some(json!("failed")))]);
-
-    // A write rolled back changes nothing.
-    let other = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
-    other.execute_batch("BEGIN IMMEDIATE; UPDATE sessions SET worker = '{\"tag\":\"x\"}', worker_tag = 'x' WHERE id = 'w1'; ROLLBACK;").unwrap();
-    assert_eq!(since(r3).await, (r3, vec![]), "the rolled-back write left the revision");
-
-    // A delete unlists the row; an id asked for is read whatever its revision.
-    s.mark_deleted("w1").await.unwrap();
-    let (r4, changed) = since(r3).await;
-    assert_eq!(changed, [("w1".to_owned(), None)]);
-    let read = s.worker_index_since(Some((generation, r4)), vec!["w2".into(), "absent".into()]).await.unwrap();
-    let asked: Vec<(String, bool)> = read.sessions.iter().map(|x| (x.session.clone(), x.worker.is_some())).collect();
-    assert_eq!(asked, [("w2".to_owned(), true), ("absent".to_owned(), false)]);
-    // A revision the index never reached reads it whole.
-    assert!(s.worker_index_since(Some((generation, r4 + 1)), Vec::new()).await.unwrap().full);
-    // So does a revision of another generation.
-    assert!(s.worker_index_since(Some((generation ^ 1, r4)), Vec::new()).await.unwrap().full);
-}
-
-/// A registry's view of the worker index, fed the way the agent registry is: the listed ids of what it loaded, advanced by
-/// each read from the revision it holds.
-#[derive(Default)]
-struct IndexReader {
-    held: Option<(u64, u64)>,
-    listed: std::collections::BTreeSet<String>,
-    fulls: usize,
-}
-
-impl IndexReader {
-    async fn read(&mut self, s: &SqliteStore) {
-        let read = s.worker_index_since(self.held, Vec::new()).await.unwrap();
-        if read.full {
-            self.listed.clear();
-            self.fulls += 1;
-        }
-        for x in read.sessions {
-            if x.worker.is_some() || x.agent.is_some() {
-                self.listed.insert(x.session);
-            } else {
-                self.listed.remove(&x.session);
-            }
-        }
-        self.held = Some((read.generation, read.revision));
-    }
-
-    /// What a reload in full lists.
-    async fn whole(s: &SqliteStore) -> std::collections::BTreeSet<String> {
-        let read = s.worker_index_since(None, Vec::new()).await.unwrap();
-        read.sessions.into_iter().map(|x| x.session).collect()
-    }
-}
-
-fn agent_head(id: &str, title: &str) -> CatalogHead {
-    let mut h = head(id, "task", title);
-    h.header.insert("visibility".into(), json!("agent-only"));
-    h
-}
-
-async fn purge_all(env: &Env) {
-    std::fs::create_dir_all(env.data.join("sessions")).unwrap();
-    env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
-}
-
-/// A purge of a session already marked deleted is a removal: a reader from before both commits is told.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_purge_after_the_delete_mark_reaches_a_reader_from_before_both() {
-    let env = Env::new();
-    env.store.upsert(agent_head("a1", "t"), DirtyMark::Clear).await.unwrap();
-    let mut reader = IndexReader::default();
-    reader.read(&env.store).await;
-    assert_eq!(reader.listed.len(), 1);
-    env.store.mark_deleted("a1").await.unwrap();
-    purge_all(&env).await;
-    reader.read(&env.store).await;
-    assert_eq!(reader.listed, IndexReader::whole(&env.store).await);
-    assert!(reader.listed.is_empty());
-    assert_eq!(reader.fulls, 1, "the second read was a delta");
-}
-
-/// Writes that bring a rebuilt index's counter past the revision a reader holds do not make that revision current.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rebuilt_index_is_a_new_generation_whatever_its_counter() {
-    let tmp = tempfile::tempdir().unwrap();
-    let mut store = open_index(tmp.path()).unwrap();
-    for id in ["a1", "a2", "a3"] {
-        store.upsert(agent_head(id, "t"), DirtyMark::Clear).await.unwrap();
-    }
-    let mut reader = IndexReader::default();
-    reader.read(&store).await;
-    store.close();
-    let conn = rusqlite::Connection::open(tmp.path().join(INDEX_FILE)).unwrap();
-    conn.execute_batch("PRAGMA user_version = 1").unwrap();
-    drop(conn);
-    store = open_index(tmp.path()).unwrap();
-    for id in ["b1", "b2", "b3", "b4", "b5"] {
-        store.upsert(agent_head(id, "t"), DirtyMark::Clear).await.unwrap();
-    }
-    reader.read(&store).await;
-    assert_eq!(reader.listed, IndexReader::whole(&store).await);
-    assert_eq!(reader.fulls, 2, "the rebuilt index was read whole");
-    store.close();
-}
-
-/// Removal history is bounded to the last 4096 revisions; a reader older than that is handed the whole index, never a
-/// delta that lacks a removal.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_reader_older_than_the_removal_history_is_handed_the_whole_index() {
-    let env = Env::new();
-    env.store.upsert(agent_head("gone", "t"), DirtyMark::Clear).await.unwrap();
-    env.store.upsert(agent_head("busy", "t"), DirtyMark::Clear).await.unwrap();
-    env.store.upsert(agent_head("other", "t"), DirtyMark::Clear).await.unwrap();
-    let mut reader = IndexReader::default();
-    reader.read(&env.store).await;
-    env.store.mark_deleted("gone").await.unwrap();
-    purge_all(&env).await;
-    bump_elsewhere(&env.data, "busy", 4200);
-    env.store.mark_deleted("other").await.unwrap();
-    purge_all(&env).await;
-    let removals: i64 = rusqlite::Connection::open(env.data.join(INDEX_FILE))
-        .unwrap()
-        .query_row("SELECT count(*) FROM worker_removed", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(removals, 1, "the removal older than the bound was dropped");
-    reader.read(&env.store).await;
-    assert_eq!(reader.listed, IndexReader::whole(&env.store).await);
-    assert_eq!(reader.fulls, 2, "the old reader was handed the whole index");
-}
-
-/// `n` committed writes of `session`'s list row by a connection of its own.
-fn bump_elsewhere(data: &Path, session: &str, n: usize) {
-    let mut conn = rusqlite::Connection::open(data.join(INDEX_FILE)).unwrap();
-    let tx = conn.transaction().unwrap();
-    for i in 0..n {
-        tx.execute("UPDATE sessions SET summary = ?1 WHERE id = ?2", rusqlite::params![format!("s{i}"), session]).unwrap();
-    }
-    tx.commit().unwrap();
-}
-
-/// For every sequence of writes (this store's writer and another connection's: agent-only sessions and worker maps
-/// created, changed, marked deleted, purged and created again under the same id; bursts of writes that pass a held revision
-/// and prune the removal history; rebuilds of the index), a reader fed by changes lists what one that reloads in full lists.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn readers_fed_changes_list_what_a_full_reload_lists() {
-    let mut env = Env::new();
-    let mut readers: [(usize, IndexReader); 3] = [(1, IndexReader::default()), (4, IndexReader::default()), (23, IndexReader::default())];
-    let mut state = 0x5eed_u64;
-    let mut next = |n: usize| {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((state >> 33) as usize) % n
-    };
-    let mut ops = [0usize; 9];
-    for step in 0..400 {
-        let id = format!("s{}", next(6));
-        let op = next(9);
-        ops[op] += 1;
-        match op {
-            0 | 1 => env.store.upsert(agent_head(&id, &format!("t{step}")), DirtyMark::Clear).await.unwrap(),
-            2 => env
-                .store
-                .upsert(worker_head(&id, step as u64, json!({"tag": format!("g{step}"), "parentSessionId": "p1", "status": "idle"})), DirtyMark::Clear)
-                .await
-                .unwrap(),
-            3 => env.store.mark_deleted(&id).await.unwrap(),
-            4 => purge_all(&env).await,
-            5 => env.store.set_worker_elsewhere(&id, Some(json!({"tag": "e", "status": step}).as_object().unwrap())),
-            6 => {
-                env.store.mark_deleted(&id).await.unwrap();
-                purge_all(&env).await;
-                env.store.upsert(agent_head(&id, "again"), DirtyMark::Clear).await.unwrap();
-            }
-            7 if step % 5 == 0 => {
-                env.store.upsert(agent_head("bump", "t"), DirtyMark::Clear).await.unwrap();
-                bump_elsewhere(&env.data, "bump", 4100);
-            }
-            8 if step % 7 == 0 => {
-                env.store.close();
-                let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
-                conn.execute_batch("PRAGMA user_version = 1").unwrap();
-                drop(conn);
-                env.store = open_index(&env.data).unwrap();
-            }
-            _ => {}
-        }
-        let whole = IndexReader::whole(&env.store).await;
-        for (every, reader) in readers.iter_mut() {
-            if step % *every == 0 {
-                reader.read(&env.store).await;
-                assert_eq!(reader.listed, whole, "step {step}, op {op}, reader every {every}");
-            }
-        }
-    }
-    eprintln!("ops {ops:?}, full reads {:?}", readers.iter().map(|(_, r)| r.fulls).collect::<Vec<_>>());
-    assert!(ops.iter().all(|n| *n > 0));
-    assert!(readers[0].1.fulls < 50, "the reader every step was fed changes");
-    env.store.close();
-}
-
 fn worker_head(id: &str, created: u64, worker: serde_json::Value) -> CatalogHead {
     let mut h = head(id, "task", "t");
     h.header.insert("createdAt".into(), json!(created));
@@ -3127,11 +2912,6 @@ async fn an_index_of_the_previous_shape_is_rebuilt_from_the_logs() {
     assert!(rebuilt.iter().any(|(t, rows)| t == "sessions" && rows.len() == 2));
     let want = dump(&fresh);
     for ((table, got), (_, want)) in rebuilt.iter().zip(&want) {
-        if table == "worker_revision" {
-            // The generation is random per index built: it is what tells a rebuilt index from the one before.
-            assert_ne!(got, want, "{table}");
-            continue;
-        }
         assert_eq!(got, want, "{table}");
     }
     assert_eq!(rebuilt.len(), want.len());

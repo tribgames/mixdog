@@ -81,6 +81,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_IO",
+    "Win32_System_ProcessStatus",
     "Win32_System_Threading",
 ] }
 
@@ -109,7 +110,7 @@ tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
@@ -132,15 +133,15 @@ mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 # A ledger pricer for the replay barrier's test (`replay_stores_settled_tests`).
 mixdog-ledger = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
-# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
+mixdog-services = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

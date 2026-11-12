@@ -583,6 +583,20 @@ impl SessionDirectory {
         self.inner.try_stored_header(id).await
     }
 
+    /// What is known of a stored session (`storedSessionPresence`): `Some(true)` present, `Some(false)` known to be gone
+    /// (`threadNotFound`), `None` when its record could not be read or the read never ran — never proof it is gone.
+    pub async fn stored_presence(&self, id: &ThreadId) -> Option<bool> {
+        if self.inner.loaded(id).is_some() {
+            return Some(true);
+        }
+        let (store, thread) = (self.inner.deps.store.clone(), id.clone());
+        match mixdog_core_base::support::on_lane(self.inner.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await {
+            Ok(Ok(_)) => Some(true),
+            Ok(Err(CoreError::ThreadNotFound { .. })) => Some(false),
+            _ => None,
+        }
+    }
+
     /// `deleteSession(id, { isSessionLive: treeChanged })` for a session not open in this
     /// process: `true` once it is gone. The thread's own admission rechecks, before it closes
     /// anything, that nobody opened or used the session since the pass read `activity`, that
@@ -1346,6 +1360,12 @@ impl DirInner {
     ) -> (Arc<SessionHandle>, impl FnOnce() + use<>) {
         let deps = &self.deps;
         let limits = deps.limits;
+        // The strip is part of the state the first view and the feed's first snapshot are built from: a session shown on its open
+        // carries its shell pane at once.
+        let mut state = state;
+        if let Some(strip) = deps.shell_strips.strip(&id) {
+            state.sections.shell_jobs = Some(strip);
+        }
         let (ctl_tx, ctl_rx) = mpsc::channel(limits.control_lane);
         let (inbox_tx, inbox_rx) = mpsc::channel(limits.inbox);
         let (prod_tx, prod_rx) = mpsc::channel(limits.producer_lane);

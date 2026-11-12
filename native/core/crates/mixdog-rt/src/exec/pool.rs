@@ -991,6 +991,11 @@ fn run_job(stats: &LaneStats, job: QueuedJob) {
     stats.queue_wait.record(waited);
     let slow = if waited >= SLOW_WAIT { job.tool().map(|tool| (tool, job.lane())) } else { None };
     let started = Instant::now();
+    // Counted before the job is dropped: the drop resolves its handle, and whoever awaited it reads the count.
+    let cancelled = job.is_cancelled();
+    if cancelled {
+        stats.dropped_cancelled.fetch_add(1, Relaxed);
+    }
     let outcome = catch_unwind(AssertUnwindSafe(move || job.run()));
     if let Some((tool, lane)) = slow {
         crate::node_stderr!("{}", slow_wait_line(tool, lane, waited, started.elapsed()));
@@ -1000,9 +1005,11 @@ fn run_job(stats: &LaneStats, job: QueuedJob) {
             stats.service.record(started.elapsed());
             stats.completed.fetch_add(1, Relaxed);
         }
-        Ok(JobRun::DroppedCancelled) => {
+        // Cancelled between the check above and the run.
+        Ok(JobRun::DroppedCancelled) if !cancelled => {
             stats.dropped_cancelled.fetch_add(1, Relaxed);
         }
+        Ok(JobRun::DroppedCancelled) => {}
         Err(_) => {
             stats.panicked.fetch_add(1, Relaxed);
         }

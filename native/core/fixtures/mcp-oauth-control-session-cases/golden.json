@@ -115,7 +115,7 @@
           "threw": {
             "$exact": "error",
             "name": "Error",
-            "message": "The pasted sign-in URL is invalid.",
+            "message": "The pasted sign-in URL is invalid. Paste the full address the browser was redirected to after signing in.",
             "props": {}
           }
         },

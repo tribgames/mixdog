@@ -1,0 +1,59 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 27057,
+      "path": "golden.json",
+      "sha256": "f5de18995b0ae637ea9d3b6755d28e752fd2326be078f0ac1b3f483eb0f162db"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    }
+  ],
+  "keptWhole": "per step: the cwd, the call and its arguments, what executeTool returned, the server calls (name and arguments, in the one order every server received them), the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)",
+  "nodeVersion": "v22.20.0",
+  "normalisations": {
+    "sandboxPath": "the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs",
+  "recorderSha256": "1c8bbce5df206c473b79a27bb1624e363bc6bc6083d6bba3bb3b59d4b050eab4",
+  "set": "mcp-cwd-scope",
+  "syntheticInputs": [
+    "the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`",
+    "the scopes: `saveConfig({ extensionScopes })` into the sandbox profile",
+    "the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, mode, [], { provider })` (\"full\" for the sub-agent, which also carries owner \"agent\" and agent \"worker\"); its cwd is moved in place between steps",
+    "the call_tool case: each wire call `{ id, name: \"call_tool\", arguments: { name, arguments: {} } }` as the loop takes a streamed call: projected by `resolveExecutionToolCall` and run with `bridgeWireCall` at once (the eager dispatch), then projected again for the tool phase, whose `preDispatchDenyForSession` answers a projection error before the eager result is used",
+    "channelCall: `createToolDispatch({ isChannelsDegraded: () => false, lifecycle: {} }).handleToolCall(name, {})`",
+    "hook: `executeMcpTool(name, {}, { scopeId, ownerKey: \"hook:<name>\" })`, the call `boot/infrastructure.mjs` mcpToolRunner makes"
+  ],
+  "totalBytes": 27057
+}

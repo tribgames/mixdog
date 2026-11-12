@@ -28,6 +28,23 @@ macro_rules! lazy_re {
 pub const POWERSHELL_UTF8_PREFIX: &str =
     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;";
 
+/// What every PowerShell run executes as its `-Command` (Node's `STANDBY_BOOTSTRAP`,
+/// `shell-warm-standby.mjs`, as patched by `node-fix-partial-script.patch`); the script itself
+/// arrives on stdin, framed by [`frame_powershell_script`]. Input and output are UTF-8 before the
+/// script compiles, so a parse error is reported as `ParserError: <message>` in UTF-8 instead of
+/// PowerShell's own text in the console code page, and a script whose last command failed exits 1.
+/// An input that ends before the length its first line declares runs nothing and exits 1: the end
+/// of a part of the script is never taken for the end of all of it.
+pub const POWERSHELL_BOOTSTRAP: &str = r#"$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $__mixdogIn = [Console]::In.ReadToEnd(); $__mixdogAt = $__mixdogIn.IndexOf("`n"); if ($__mixdogAt -lt 1 -or "$($__mixdogIn.Length - $__mixdogAt - 1)" -cne $__mixdogIn.Substring(0, $__mixdogAt)) { [Console]::Error.WriteLine('the command arrived incomplete and was not run'); exit 1 }; try { $__mixdogScript = [scriptblock]::Create($__mixdogIn.Substring($__mixdogAt + 1) + "`nif (-not `$?) { exit 1 }") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; $__mixdogIn = $null; . $__mixdogScript"#;
+
+/// `script` as [`POWERSHELL_BOOTSTRAP`] takes it: its length in UTF-16 code units (what .NET counts
+/// once it has decoded the input, and JavaScript's `length`) on a line of its own, then the script.
+pub fn frame_powershell_script(script: &str) -> String {
+    let mut framed = format!("{}\n", script.encode_utf16().count());
+    framed.push_str(script);
+    framed
+}
+
 pub const SKILL_LAUNCHER_COMMAND: &str = "mixdog-skill-node";
 const SKILL_ARGV_ENV: &str = "MIXDOG_SKILL_ARGV";
 const SKILL_ARGV_TAG: &str = "mixdog1";

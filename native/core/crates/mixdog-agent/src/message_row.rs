@@ -86,7 +86,7 @@ fn role_of(name: &str) -> Option<Role> {
 }
 
 /// Node's `stopReason` spelling.
-fn stop_name(stop: &StopReason) -> String {
+pub fn stop_name(stop: &StopReason) -> String {
     match stop {
         StopReason::EndTurn => "end_turn".to_owned(),
         StopReason::ToolUse => "tool_use".to_owned(),

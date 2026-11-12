@@ -200,13 +200,14 @@ async fn browser_get(url: &Url) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn sign_in_connect_refresh_and_sign_out() {
+    let _seams = crate::oauth_seams().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let shared: Shared = Arc::default();
     tokio::spawn(serve(listener, Arc::clone(&shared)));
 
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());

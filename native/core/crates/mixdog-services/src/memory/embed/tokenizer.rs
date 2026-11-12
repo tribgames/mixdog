@@ -54,6 +54,17 @@ fn unsupported(what: String) -> MemoryError {
     MemoryError::Runtime(format!("unsupported tokenizer: {what}"))
 }
 
+/// Node's `UnsupportedTokenizerError` text (`unsupported model ${model?.type}`): a layout field as a JS
+/// template literal prints it.
+fn unsupported_layout(what: &str, field: Option<&Value>) -> MemoryError {
+    let text = match field {
+        None => "undefined".to_owned(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    };
+    MemoryError::Embedding(format!("unsupported {what} {text}"))
+}
+
 fn precompiled_normalize(text: &str) -> String {
     static CONTROL: LazyLock<JsRegex> =
         LazyLock::new(|| JsRegex::new_static("[\u{1}-\u{8}\u{B}\u{E}-\u{1F}\u{7F}\u{8F}\u{9F}]", "g"));
@@ -110,13 +121,13 @@ impl UnigramTokenizer {
         let pre = &json["pre_tokenizer"];
         let template = &json["post_processor"];
         if model["type"] != "Unigram" {
-            return Err(unsupported(format!("model {}", model["type"])));
+            return Err(unsupported_layout("model", model.get("type")));
         }
         if pre["type"] != "Metaspace" {
-            return Err(unsupported(format!("pre-tokenizer {}", pre["type"])));
+            return Err(unsupported_layout("pre-tokenizer", pre.get("type")));
         }
         if template["type"] != "TemplateProcessing" {
-            return Err(unsupported(format!("post-processor {}", template["type"])));
+            return Err(unsupported_layout("post-processor", template.get("type")));
         }
         let steps: Vec<&Value> = match &json["normalizer"] {
             Value::Null => Vec::new(),
@@ -136,7 +147,7 @@ impl UnigramTokenizer {
                 Some("Replace") if step["pattern"]["String"].is_string() => {
                     Normalizer::ReplaceString(step["pattern"]["String"].as_str().unwrap_or_default().to_owned(), content)
                 }
-                other => return Err(unsupported(format!("normalizer {other:?}"))),
+                _ => return Err(unsupported_layout("normalizer", step.get("type"))),
             });
         }
 

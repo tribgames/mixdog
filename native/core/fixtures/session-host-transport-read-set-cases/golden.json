@@ -321,7 +321,7 @@
             "inspectProjectBranch"
           ],
           [
-            "configure",
+            "read",
             "isSessionTerminal"
           ],
           [
@@ -329,7 +329,7 @@
             "contextStatus"
           ],
           [
-            "configure",
+            "read",
             "agentDefinitionPresence"
           ],
           [
@@ -401,7 +401,7 @@
             "getAutoClear"
           ],
           [
-            "configure",
+            "read",
             "getChannelSettings"
           ],
           [
@@ -409,7 +409,7 @@
             "getChannelSetup"
           ],
           [
-            "configure",
+            "read",
             "getChannelWorkerStatus"
           ],
           [
@@ -521,7 +521,7 @@
             "getWebSearchRoute"
           ],
           [
-            "configure",
+            "read",
             "getSettingsSnapshot"
           ],
           [
@@ -545,11 +545,11 @@
             "getToolModuleSettings"
           ],
           [
-            "configure",
+            "read",
             "searchLocalProviderModels"
           ],
           [
-            "configure",
+            "read",
             "inspectHuggingFaceModel"
           ],
           [
@@ -581,7 +581,7 @@
             "getTurnReviewFilePatch"
           ],
           [
-            "configure",
+            "read",
             "getTurnLiveness"
           ],
           [
@@ -645,11 +645,11 @@
             "previewWorktreeCleanup"
           ],
           [
-            "configure",
+            "read",
             "getSessionWorktreeWork"
           ],
           [
-            "configure",
+            "read",
             "hooksStatus"
           ],
           [
@@ -701,11 +701,11 @@
             "listThemes"
           ],
           [
-            "configure",
+            "read",
             "listShellJobs"
           ],
           [
-            "configure",
+            "read",
             "listStoppableShellJobs"
           ],
           [

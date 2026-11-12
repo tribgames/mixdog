@@ -403,7 +403,7 @@ impl Lifecycle {
         let flush = Arc::clone(core);
         supervise("flushLog", budgets.record_exit, move || flush.flush_log());
         self.apply(Machine::mark_stopped);
-        self.ports.exiter.exit(cause.exit_code());
+        self.ports.exiter.exit(crate::crash_record::settle_exit(&node_reason, cause.exit_code()));
     }
 
     fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {

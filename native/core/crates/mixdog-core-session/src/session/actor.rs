@@ -510,10 +510,18 @@ const SUBMISSION_MEMORY: usize = 256;
 struct Submissions {
     order: std::collections::VecDeque<String>,
     answers: std::collections::HashMap<String, Value>,
+    /// The submission whose start is reading its input row's facts (its answer is not known yet), and the retried sends of it
+    /// that joined meanwhile: they hear the original's answer, as Node's memory took the id when the send was admitted.
+    starting: Option<(String, Vec<Waiter>)>,
 }
 
 impl Submissions {
     fn remember(&mut self, id: &str, answer: Value) {
+        if let Some((_, joined)) = self.starting.take_if(|(starting, _)| starting == id) {
+            for waiter in joined {
+                let _ = waiter.send(Ok(Reply::Value(answer.clone())));
+            }
+        }
         if self.answers.insert(id.to_owned(), answer).is_none() {
             self.order.push_back(id.to_owned());
         }
@@ -528,6 +536,22 @@ impl Submissions {
         if self.answers.remove(id).is_some() {
             self.order.retain(|kept| kept != id);
         }
+    }
+
+    /// A send of the starting submission: it waits for the original's answer. Gives the waiter back when none is starting.
+    fn join(&mut self, id: &str, waiter: Waiter) -> Option<Waiter> {
+        match &mut self.starting {
+            Some((starting, joined)) if starting == id => {
+                joined.push(waiter);
+                None
+            }
+            _ => Some(waiter),
+        }
+    }
+
+    /// The start never happened: the joined sends hear the drop, as the original's waiter does.
+    fn unstarted(&mut self) {
+        self.starting = None;
     }
 }
 
@@ -731,6 +755,9 @@ pub(crate) struct SessionActor {
     settling: bool,
     /// A worker's settling turn: its outcome, told once the settlement is back.
     agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
+    /// The last completed run's id, stop reason and termination reason (`ask-turn-commit.mjs`): its `turn/completed`
+    /// carries the two, which the run record does not keep.
+    completed_reasons: Option<(String, Option<String>, Option<String>)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
     /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
@@ -1078,6 +1105,7 @@ impl SessionActor {
             goal_scheduled: false,
             settling: false,
             agent_done: None,
+            completed_reasons: None,
             starting: false,
             submitter: None,
             submissions: Submissions::default(),
@@ -2189,7 +2217,11 @@ impl SessionActor {
         match change {
             Change::Record { record, .. } => match &**record {
                 Record::Run(run) => {
-                    if let Some(turn) = turn_of(run) {
+                    if let Some(mut turn) = turn_of(run) {
+                        if let Some((_, stop, termination)) = self.completed_reasons.as_ref().filter(|(rid, ..)| run.phase == RunPhase::Completed && rid == run.rid.as_str()) {
+                            turn.stop_reason = stop.clone();
+                            turn.termination_reason = termination.clone();
+                        }
                         let method = if run.phase == RunPhase::Started {
                             "turn/started"
                         } else {
@@ -2869,6 +2901,14 @@ impl SessionActor {
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
         if !slot.start_failed {
+            if let RunOutcome::Completed(result) = &outcome {
+                let termination = result.termination.map(|termination| match termination {
+                    mixdog_agent::response::Termination::Refusal => "refusal",
+                    mixdog_agent::response::Termination::Truncated => "truncated",
+                    mixdog_agent::response::Termination::Empty => "empty",
+                });
+                self.completed_reasons = Some((turn.as_str().to_owned(), result.stop_reason.clone(), termination.map(str::to_owned)));
+            }
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
@@ -4039,6 +4079,31 @@ impl SessionActor {
                 let note = Note::new("thread/stage/updated", &mixdog_app_protocol::v2::thread::ThreadStageUpdatedParams { thread_id: self.id.clone(), stage, detail });
                 self.accept_view(Change::Barrier, vec![note]);
             }
+            RunShown::ModelRequest { request_index, phase, tool_calls } => {
+                let params = mixdog_app_protocol::v2::thread::ModelRequestUpdatedParams {
+                    thread_id: self.id.clone(),
+                    turn_id: turn.clone(),
+                    request_id: format!("model_request_{request_index}"),
+                    request_index,
+                    phase,
+                    duration_ms: None,
+                    usage: None,
+                    tool_calls,
+                };
+                self.accept_view(Change::Barrier, vec![Note::new("thread/modelRequest/updated", &params)]);
+            }
+            RunShown::ToolBatch { request_index, phase, iteration, calls, duration_ms } => {
+                let params = mixdog_app_protocol::v2::thread::ToolBatchUpdatedParams {
+                    thread_id: self.id.clone(),
+                    turn_id: turn.clone(),
+                    batch_id: format!("tool_batch_{request_index}"),
+                    phase,
+                    iteration,
+                    calls,
+                    duration_ms,
+                };
+                self.accept_view(Change::Barrier, vec![Note::new("thread/toolBatch/updated", &params)]);
+            }
             RunShown::ToolStream => self.stream_heartbeat(),
             RunShown::CompactUsage(report) => {
                 let now = self.deps.clock.now_ms();
@@ -4459,6 +4524,18 @@ impl SessionActor {
             let _ = tx.send(Ok(Reply::Value(answer.clone())));
             return Ok(());
         }
+        let tx = if req.method.as_str() == "turn/start"
+            && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
+            && display_text(&params.input) != ""
+            && let Some(id) = submission_id(&params.input)
+        {
+            match self.submissions.join(id, tx) {
+                Some(tx) => tx,
+                None => return Ok(()),
+            }
+        } else {
+            tx
+        };
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -4569,6 +4646,9 @@ impl SessionActor {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
+            if let Some(submission) = submission_id(&params.input) {
+                self.submissions.starting = Some((submission.to_owned(), Vec::new()));
+            }
             return Ok(Plan {
                 kind: PlanKind::StartRun(params.input, op_ref),
                 value,
@@ -5516,8 +5596,9 @@ impl SessionActor {
         });
     }
 
-    /// A turn that does not start: its waiter hears why (never a dropped reply).
+    /// A turn that does not start: its waiter hears why (never a dropped reply), and the sends that joined it hear the drop.
     fn refuse_start(&mut self, reply: Option<Effect>, error: &CoreError) {
+        self.submissions.unstarted();
         if let Some(Effect::Reply { op, tx, .. }) = reply {
             if let Some(op) = &op {
                 self.ops.failed(op, error);
@@ -5594,8 +5675,8 @@ impl SessionActor {
                 meta.entry("device").or_insert_with(|| json!(submitter.device));
             }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
-            // `beginTurn` stamps the verb the turn will complete with on the same metadata the runtime persists.
-            meta.entry("completionVerb").or_insert_with(|| json!(super::live_end::done_verb(self.turns_closed)));
+            // The turn's `completionVerb` stays with the turn (`slot.verb`): Node's persisted user metadata leaves it out
+            // (`persistedUserTranscriptMetadata`, transcript-metadata.mjs:92).
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }
