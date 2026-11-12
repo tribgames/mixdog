@@ -137,6 +137,71 @@
         "recorded": true,
         "deliveredCurrent": true
       }
+    },
+    {
+      "case": "the task_id line names the task before the async header, and the header names it when no line does",
+      "observed": {
+        "headerOnly": {
+          "text": "Async agent task task_header_only (completed) finished.\n\nResult:\n> done",
+          "taskId": "task_header_only",
+          "entry": {
+            "id": "completion_9fa847d1f533d57edd2d12e0",
+            "content": "Async agent task task_header_only (completed) finished.\n\nResult:\n> done",
+            "text": "Async agent task task_header_only (completed) finished.\n\nResult:\n> done",
+            "notificationKind": "completion_notification",
+            "mode": "task-notification",
+            "executionId": "task_header_only",
+            "execution": {
+              "id": "task_header_only"
+            },
+            "enqueuedAt": 1800000000000
+          }
+        },
+        "lineAndHeader": {
+          "text": "Async agent task task_header_id (completed) finished.\n\nResult:\n> task_id: task_line_id\n> status: completed\n> \n> done",
+          "taskId": "task_line_id",
+          "entry": {
+            "id": "completion_9c2e424fde348ae9ec552792",
+            "content": "Async agent task task_header_id (completed) finished.\n\nResult:\n> task_id: task_line_id\n> status: completed\n> \n> done",
+            "text": "Async agent task task_header_id (completed) finished.\n\nResult:\n> task_id: task_line_id\n> status: completed\n> \n> done",
+            "notificationKind": "completion_notification",
+            "mode": "task-notification",
+            "executionId": "task_line_id",
+            "execution": {
+              "id": "task_line_id"
+            },
+            "enqueuedAt": 1800000000000
+          }
+        },
+        "agentTaskLine": {
+          "text": "agent task: task_agent_line\n\nbody",
+          "taskId": "task_agent_line",
+          "entry": {
+            "id": "completion_8710ef21bcfbf1a617a78b8a",
+            "content": "agent task: task_agent_line\n\nbody",
+            "text": "agent task: task_agent_line\n\nbody",
+            "notificationKind": "completion_notification",
+            "mode": "task-notification",
+            "executionId": "task_agent_line",
+            "execution": {
+              "id": "task_agent_line"
+            },
+            "enqueuedAt": 1800000000000
+          }
+        },
+        "none": {
+          "text": "finished with nothing that names a task",
+          "taskId": "",
+          "entry": {
+            "id": "completion_8ba104b6f702b1cd2e456ac9",
+            "content": "finished with nothing that names a task",
+            "text": "finished with nothing that names a task",
+            "notificationKind": "completion_notification",
+            "mode": "task-notification",
+            "enqueuedAt": 1800000000000
+          }
+        }
+      }
     }
   ]
 }

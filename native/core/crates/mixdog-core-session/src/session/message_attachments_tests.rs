@@ -80,10 +80,9 @@ fn the_restored_bubble_does_not_show_the_files_note_as_node_recorded() {
 fn a_message_record_keeps_the_picked_file_referenced_as_node_recorded() {
     let want = named_attachment_case("a message record keeps the picked file referenced");
     let normalized = |offered: &Value| normalize_attachments(Some(offered));
-    let kept = normalized(&want["offered"]);
-    assert_eq!(kept[0]["original"], want["kept"]["original"]);
-    assert_eq!(kept[0]["id"], want["kept"]["id"]);
+    assert_eq!(Value::Array(normalized(&want["offered"])), json!([want["kept"]]));
     let bare = normalized(&want["refused"]);
+    assert_eq!(Value::Array(bare.clone()), json!([want["bare"]]));
     assert_eq!(json!(bare[0].get("original").is_some()), want["bareHasOriginal"]);
 }
 

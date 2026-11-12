@@ -156,12 +156,13 @@ export const REPLAY_TARGETS = {
     notPublic: ['the persisted metadata writer and the submission intake (store.mjs) are not part of this replay: the recording gives the attachment list the intake produced, the replay starts from it'],
   },
   'task-notification-envelope-cases': {
-    rust: [r('mixdog-agent/src/agent_tool/board.rs', 255, 'render_agent_completion'), r('mixdog-agent/src/project.rs', 96, 'parse_task_notification'), r('mixdog-agent/src/project.rs', 196, 'is_model_visible_tool_completion_wrapper'), r('mixdog-core-session/src/session/delivered.rs', 66, 'DeliveredCompletions')],
-    notPublic: ['mixdog-core-session/src/session/delivered.rs:28 `task_notification_id` and completions.rs `entry` are crate-internal: the replay is an in-crate test'],
+    rust: [r('mixdog-agent/src/agent_tool/board.rs', 255, 'render_agent_completion'), r('mixdog-agent/src/project.rs', 196, 'is_model_visible_tool_completion_wrapper'), r('mixdog-protocol/src/text_class.rs', 95, 'parse_task_notification'), r('mixdog-protocol/src/text_class.rs', 82, 'background_task_header_status'), r('mixdog-core-session/src/session/delivered.rs', 66, 'DeliveredCompletions')],
+    notPublic: ['mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test'],
     missing: ['modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)'],
   },
   'slash-commands-cases': {
-    missing: ['slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart', 'the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI'],
+    notPublic: ['mixdog-core-session/src/session/slash_commands.rs: the registry, normalize_slash_command_name, slash_argument_hint, overlay_blocks_global_transcript_scroll, btw_scroll_max / btw_scroll_offset / btw_panel_rows are pub(crate): the replay is an in-crate test (slash_commands_tests.rs)'],
+    missing: ['btwContentRows of a finished answer (measureMarkdownRenderedRows, the TUI markdown renderer): the core has no markdown renderer; the recorded contentRows is the input of btw_panel_rows'],
   },
   'store-agent-worker-pool-cases': {
     rust: [r('mixdog-core-agents/src/agents/pool_list.rs', 139, 'AgentPool', 'new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50')],

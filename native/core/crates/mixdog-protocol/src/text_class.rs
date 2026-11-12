@@ -70,6 +70,23 @@ pub struct TaskNotification {
     pub summary: String,
     pub result: String,
     pub error: String,
+    /// `<exit-code>` when it is an integer.
+    pub exit_code: Option<i64>,
+    pub output_file: String,
+}
+
+static HEADER_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^status:\s*(\S+)", "im"));
+
+/// `backgroundTaskHeaderStatus`: an envelope's status, else the first `status:` line, lower-cased.
+pub fn background_task_header_status(text: &str) -> String {
+    if let Some(notification) = parse_task_notification(text) {
+        return notification.status;
+    }
+    HEADER_STATUS
+        .captures(text)
+        .and_then(|caps| caps.get(1))
+        .map(|status| js_trim(status).to_lowercase())
+        .unwrap_or_default()
 }
 
 /// `parseTaskNotification`: only the outer fields; a result may itself hold tags.
@@ -131,6 +148,12 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
         summary,
         result,
         error: field("error"),
+        exit_code: {
+            let code = field("exit-code");
+            let digits = code.strip_prefix('-').unwrap_or(&code);
+            (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| code.parse().ok()).flatten()
+        },
+        output_file: field("output-file"),
     })
 }
 

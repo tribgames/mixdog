@@ -1,7 +1,7 @@
 //! `fixtures/task-notification-envelope-cases` (`record-task-notification-envelope-cases.mjs`, b6f10295a): the agent-completion cases
 //! of `task-notification-envelope.test.mjs`, replayed through the product's renderer, classifiers, queued-entry builder and delivered
-//! registry. `backgroundTaskHeaderStatus` (a TUI header) and `modelVisibleToolCompletionMessage` of a legacy wrapper (the core queues only
-//! envelopes it rendered) have no Rust function: those recorded fields are not compared, and the manifest says so.
+//! registry. Every recorded field is compared except `legacyModelVisible`: Node converts a legacy quoted wrapper into the current envelope,
+//! the core queues only envelopes it rendered, and the manifest says so.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -12,11 +12,13 @@ use mixdog_agent::compact::ingest::should_exclude_ingest_message;
 use mixdog_agent::project::is_internal_runtime_notification;
 use mixdog_agent::project::is_model_visible_tool_completion_wrapper;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_protocol::text_class::background_task_header_status;
 use mixdog_protocol::text_class::parse_task_notification;
 use mixdog_testkit::exact::Exact;
 use serde_json::Value;
 use serde_json::json;
 
+use super::agent_registry::flow::model_visible;
 use super::completions;
 use super::delivered::DeliveredCompletions;
 use super::delivered::task_notification_id;
@@ -39,23 +41,21 @@ fn ingest_excluded(text: &str) -> bool {
     should_exclude_ingest_message(&IngestView { role: Role::User, first_text: text, meta_source: "", skill_body: false, has_tool_calls: false })
 }
 
-/// What `parseTaskNotification` returns, in the fields the core's parser keeps (the recording also holds `exitCode` and `outputFile`, which
-/// an agent envelope never carries).
+/// What `parseTaskNotification` returns.
 fn parsed(text: &str) -> Value {
     let n = parse_task_notification(text).expect("an envelope");
-    json!({ "taskId": n.task_id, "tag": n.tag, "surface": n.surface, "status": n.status, "summary": n.summary, "result": n.result, "error": n.error })
+    json!({ "taskId": n.task_id, "tag": n.tag, "surface": n.surface, "status": n.status, "summary": n.summary, "result": n.result, "error": n.error, "exitCode": n.exit_code, "outputFile": n.output_file })
 }
 
-fn recorded_parsed(recorded: &Value) -> Value {
-    let mut keep = recorded.clone();
-    let fields = keep.as_object_mut().unwrap();
-    assert_eq!(fields.remove("exitCode"), Some(Value::Null));
-    assert_eq!(fields.remove("outputFile"), Some(json!("")));
-    keep
+/// `modelVisibleToolCompletionMessage(text)` with no meta.
+fn model_visible_of(text: &str) -> Value {
+    json!(model_visible(text, &json!({})).unwrap_or_default())
 }
 
 fn classified(want: &Value, text: &str) {
-    assert_eq!(parsed(text), recorded_parsed(&want["parsed"]), "parseTaskNotification");
+    assert_eq!(parsed(text), want["parsed"], "parseTaskNotification");
+    assert_eq!(json!(background_task_header_status(text)), want["headerStatus"], "backgroundTaskHeaderStatus");
+    assert_eq!(model_visible_of(text), want["modelVisible"], "modelVisibleToolCompletionMessage");
     assert_eq!(json!(is_model_visible_tool_completion_wrapper(text)), want["wrapper"], "isModelVisibleToolCompletionWrapper");
     assert_eq!(json!(is_internal_runtime_notification(text)), want["internal"], "isInternalRuntimeNotificationText");
     assert_eq!(json!(ingest_excluded(text)), want["ingestExcluded"], "shouldExcludeIngestMessage");
@@ -95,7 +95,9 @@ fn a_large_result_is_neither_truncated_by_wrapping_nor_by_its_queued_entry_as_no
     let want = observed("large results are not truncated by wrapping or re-enqueue");
     let text = render(&want["input"]);
     assert_eq!(json!(text), want["text"]);
-    let entry = queued(&text, "agent", "completed");
+    let visible = model_visible(&text, &json!({})).unwrap_or_default();
+    assert_eq!(json!(visible == text), want["visibleIsText"]);
+    let entry = queued(&visible, "agent", "completed");
     assert_eq!(entry, want["entry"], "the entry carries the whole text with its execution");
     assert_eq!(json!(entry["content"].as_str().unwrap() == text), want["entryContentIsText"]);
     assert_eq!(json!(parse_task_notification(entry["content"].as_str().unwrap()).unwrap().result), want["entryResult"]);
@@ -116,4 +118,14 @@ fn a_legacy_quoted_row_classifies_and_dedupes_with_the_current_envelope_as_node_
     let delivered = DeliveredCompletions::new(Arc::new(FixedClock(AtomicU64::new(1_800_000_000_000))));
     assert_eq!(json!(delivered.record(None, Some(legacy))), want["recorded"]);
     assert_eq!(json!(delivered.is_delivered(None, Some(&current))), want["deliveredCurrent"]);
+}
+
+#[test]
+fn the_task_id_line_names_the_task_before_the_async_header_as_node_recorded() {
+    let want = observed("the task_id line names the task before the async header, and the header names it when no line does");
+    for (name, recorded) in want.as_object().unwrap() {
+        let text = recorded["text"].as_str().unwrap();
+        assert_eq!(json!(task_notification_id(text)), recorded["taskId"], "{name}: taskNotificationId");
+        assert_eq!(queued(text, "", ""), recorded["entry"], "{name}: the queued entry");
+    }
 }
