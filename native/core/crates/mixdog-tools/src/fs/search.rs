@@ -140,7 +140,7 @@ async fn walk_kept(
     let mut refused = None;
     let timer = async move {
         match soft {
-            Some(at) => mixdog_rt::time::sleep_until(at.into()).await,
+            Some(at) => mixdog_rt::time::sleep_until(at).await,
             None => std::future::pending().await,
         }
     };
@@ -1302,7 +1302,7 @@ impl GrepTool {
                 limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
                 // A file list reads each file to its first match (`--files-with-matches`).
                 first_per_file: mode == Mode::Files,
-                deadline: Some(deadlines.soft),
+                deadline: Some(deadlines.soft.into_std()),
                 class,
             },
         );
@@ -1313,7 +1313,7 @@ impl GrepTool {
         let mut refused = None;
         // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
         // report after its last match belongs to the answer (Node's server checks it once more after its scan).
-        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard), |item| {
+        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()),|item| {
             match item {
                 Ok(SearchMatch { path, line, text, .. }) => {
                     if mode == Mode::Content && hits.len() >= CONTENT_MATCH_CAP {
@@ -1400,8 +1400,8 @@ struct Scanned {
 /// past which the call fails; the server's soft deadline (`softDeadlineMs`) is that less a margin of 7.5 %, between
 /// 250 ms and 2 s, past which the server answers what it found, marked timed out.
 struct SearchDeadlines {
-    soft: std::time::Instant,
-    hard: std::time::Instant,
+    soft: mixdog_rt::time::Instant,
+    hard: mixdog_rt::time::Instant,
     hard_ms: u64,
 }
 
@@ -1414,8 +1414,9 @@ impl SearchDeadlines {
     /// sets the server's soft deadline from the budget that remains).
     fn within(ctx: &ToolContext, left_ms: u64) -> Self {
         const REQUEST_TIMEOUT_MS: u64 = 17_500;
-        let now = std::time::Instant::now();
-        let caller = ctx.deadline.map(|at| u64::try_from(at.saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
+        // On the runtime's clock, as the sleeps that wait for these deadlines: a test moves it by an explicit advance.
+        let now = mixdog_rt::time::Instant::now();
+        let caller = ctx.deadline.map(|at| u64::try_from(mixdog_rt::time::Instant::from_std(at).saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
         let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.min(REQUEST_TIMEOUT_MS)).min(left_ms);
         let margin = (hard_ms * 75 / 1000).clamp(250, 2000);
         let ms = std::time::Duration::from_millis;
