@@ -4069,6 +4069,7 @@
   "Remote Access…": "Truy cập từ xa…",
   "Remote Browser Use connection is switching; input was not sent.": "Đang chuyển kết nối Remote Browser Use; thao tác nhập chưa được gửi.",
   "Remote Browser Use did not apply the typed input.": "Remote Browser Use không áp dụng nội dung đã nhập.",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "Không thể bật lại truy cập từ xa vì phiên của nó không còn tồn tại. Hãy bật lại.",
   "Remote MCP server": "Máy chủ MCP từ xa",
   "Remote off": "Tắt truy cập từ xa",
   "Remote off for new task": "Tắt truy cập từ xa cho tác vụ mới",

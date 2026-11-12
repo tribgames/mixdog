@@ -35,7 +35,12 @@ export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwner
   function start() {
     if (channelsStartPromise) return channelsStartPromise;
     channelsStartPromise = ensure()
-      .then((module) => module.start({ bridge: false }))
+      .then(async (module) => {
+        await module.start({ bridge: false });
+        // The one observable end of the deferred start (a restored Remote must
+        // still be ON after it).
+        log('channels runtime started');
+      })
       .catch((e) => {
         channelsStartPromise = null;
         log(`channels.start failed (non-fatal): ${e?.message || e}`);

@@ -64,6 +64,11 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
         ),
         tone: 'error',
       };
+    case 'remote-restore-declined':
+      return {
+        text: t('Remote could not be turned back on because its session no longer exists. Turn it on again.'),
+        tone: 'warn',
+      };
   }
 }
 

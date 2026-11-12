@@ -237,8 +237,10 @@ const { handleToolCall } = createToolDispatch({
 const configReloadWatch = createConfigReloadWatch(reloadRuntimeConfig);
 async function start(options = {}) {
   if (options?.bridge === false) {
-    channelBridgeActive = false;
-    writeBridgeState(false);
+    // A restored Remote may have activated the bridge before this deferred
+    // automation start runs (session-spawned daemon: it waits for a channels
+    // client); resetting here would silently switch that Remote off again.
+    if (!channelBridgeActive) writeBridgeState(false);
     await startAutomationRuntime();
     configReloadWatch.start();
     return;

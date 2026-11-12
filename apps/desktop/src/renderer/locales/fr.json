@@ -4187,6 +4187,7 @@
   "Remote Access…": "Accès à distance…",
   "Remote Browser Use connection is switching; input was not sent.": "Connexion Remote Browser Use en cours de changement ; entrée non envoyée.",
   "Remote Browser Use did not apply the typed input.": "Remote Browser Use n'a pas appliqué le texte saisi.",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "Impossible de réactiver l’accès distant car sa session n’existe plus. Réactivez-le.",
   "Remote MCP server": "Serveur MCP distant",
   "Remote off": "Désactiver l'accès distant",
   "Remote off for new task": "Accès distant désactivé pour la nouvelle tâche",

@@ -32,6 +32,7 @@ export function createRemoteBinding({
   remoteStatePath,
   remoteIntentPath,
   onRemoteStateChange,
+  isSessionAvailable = null,
 }) {
   // Binding calls (manual ON/OFF, rebind) mutate GLOBAL pointer/pin state after
   // reading it. The control lane is unbounded, so two sessions toggling at once
@@ -59,6 +60,12 @@ export function createRemoteBinding({
     const restore = runExclusiveBinding(async () => {
       if (state.closed || state.remoteIntent !== intent || state.pinnedSessionId !== intent.sessionId) return false;
       try {
+        if (isSessionAvailable && (await isSessionAvailable(intent)) === false) {
+          // Retrying a session that no longer exists on every boot would only
+          // repeat the notice; the pin is dropped so it is reported once.
+          clearRemoteIntent('pinned session is gone', intent.sessionId);
+          return false;
+        }
         const result = await handleCall(
           ACTIVATE_TOOL,
           {
