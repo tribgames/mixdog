@@ -17,6 +17,7 @@ use bytes::Bytes;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::MediaSupport;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
@@ -314,6 +315,20 @@ impl ProviderAdapter for GatewayAdapter {
     /// Every gateway lowers a PDF to text (`WireGatewayProvider.nativePdf`, `OpenCodeGoProvider.nativePdf`).
     fn native_pdf(&self) -> bool {
         false
+    }
+    /// The engine the model's route sends on declares what it takes: a Messages engine its own flags (OpenRouter takes
+    /// a PDF there, DeepSeek no document at all), the Gemini engine a PDF, the Chat and Responses wires the provider's
+    /// own `nativePdf = false`.
+    async fn media_support(&self, request: &ModelRequest) -> MediaSupport {
+        let text = MediaSupport { native_pdf: false, native_documents: None };
+        let Ok((wire, _, _)) = self.route_of(request).await else { return text };
+        match wire {
+            Wire::Messages | Wire::Gemini => match self.engine(wire) {
+                Some(engine) => engine.media_support(request).await,
+                None => text,
+            },
+            _ => text,
+        }
     }
     fn release_session(&self, session_id: &str) {
         self.account.release_session(session_id);

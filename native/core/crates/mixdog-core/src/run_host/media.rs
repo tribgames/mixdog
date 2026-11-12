@@ -24,83 +24,14 @@ use mixdog_agent::text_only::MediaText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
 use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake};
 use mixdog_core_api::domain::provider::{
-    BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, Message, ProviderError, Role,
+    BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, MediaSupport, Message, ProviderError, Role,
 };
 use mixdog_protocol::{ProviderId, ThreadId};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-/// How an inline file payload can reach a model (`inlineFileKind`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum FileKind {
-    Pdf,
-    Text,
-    Office,
-    Binary,
-}
-
-const TEXTUAL_MIME_TYPES: [&str; 6] = [
-    "application/json",
-    "application/xml",
-    "application/yaml",
-    "application/toml",
-    "application/x-ndjson",
-    "application/x-www-form-urlencoded",
-];
-const OFFICE_MIME_TYPES: [&str; 4] = [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel.sheet.macroenabled.12",
-];
-const GENERIC_CONTAINER_MIME_TYPES: [&str; 3] = ["application/zip", "application/x-zip-compressed", "application/octet-stream"];
-
-/// `base64ByteLength`.
-pub fn base64_byte_length(data: &str) -> u64 {
-    if data.is_empty() {
-        return 0;
-    }
-    let padding = if data.ends_with("==") { 2 } else { u64::from(data.ends_with('=')) };
-    ((mixdog_js::utf16_len(data) as u64 * 3) / 4).saturating_sub(padding)
-}
-
-fn has_pdf_magic(base64_data: &str) -> bool {
-    let head: String = base64_data.chars().take(8).collect();
-    if head.chars().count() < 8 {
-        return false;
-    }
-    STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-"))
-        || base64_data.starts_with("JVBERi0")
-}
-
-fn office_extension(filename: &str) -> bool {
-    let name = mixdog_js::js_trim(filename).to_lowercase();
-    [".docx", ".pptx", ".xlsx", ".xlsm"].iter().any(|e| name.ends_with(e))
-}
-
-/// `inlineFileKind(mimeType, base64Data, filename)`.
-pub fn inline_file_kind(mime_type: &str, base64_data: &str, filename: &str) -> FileKind {
-    let mime = mixdog_js::js_trim(mime_type.split(';').next().unwrap_or("")).to_lowercase();
-    if mime == "application/pdf" || has_pdf_magic(base64_data) {
-        return FileKind::Pdf;
-    }
-    if OFFICE_MIME_TYPES.contains(&mime.as_str()) {
-        return FileKind::Office;
-    }
-    if GENERIC_CONTAINER_MIME_TYPES.contains(&mime.as_str()) && office_extension(filename) {
-        return FileKind::Office;
-    }
-    if mime.starts_with("text/")
-        || mime.starts_with("application/javascript")
-        || mime.starts_with("application/ecmascript")
-        || mime.ends_with("+json")
-        || mime.ends_with("+xml")
-        || TEXTUAL_MIME_TYPES.contains(&mime.as_str())
-    {
-        return FileKind::Text;
-    }
-    FileKind::Binary
-}
+// The kinds of a file and their classification are the provider builders': one function for both sides.
+pub use mixdog_ai::providers::file_text::{base64_byte_length, inline_file_kind, FileKind};
 
 /// What the attachment store recorded about a stored attachment (Node keeps these on the part).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -461,20 +392,34 @@ fn content_to_text(content: &serde_json::Value) -> String {
     }
 }
 
-#[async_trait]
-impl MediaText for MediaLowering {
-    async fn prepare_pdf_text(&self, messages: Vec<Message>) -> Result<Vec<Message>, Box<ProviderError>> {
+/// What one route turns the files of a request into text for.
+struct Lowered {
+    /// A PDF is sent as its text (`nativePdf === false`, or no document at all).
+    pdf: bool,
+    /// No document block of any kind (`nativeDocuments === false`).
+    no_documents: bool,
+    /// The route takes media, so the lowering of an Office file and of a stored file whose blob is gone is the
+    /// route's own; a text-only route leaves both to its degrade step.
+    route_files: bool,
+}
+
+impl MediaLowering {
+    /// `preparePdfTextForProvider`: the messages with each file part that has a text form replaced by it.
+    async fn lower(&self, messages: Vec<Message>, how: Lowered) -> Result<Vec<Message>, Box<ProviderError>> {
         self.warm(&messages).await?;
         let mut out = Vec::with_capacity(messages.len());
         for mut message in messages {
             if let Content::Parts(parts) = &mut message.content {
                 for part in parts.iter_mut() {
                     let replacement = match self.lookup(part) {
-                        Lookup::Info(file) if inline_file_kind(&file.mime, &file.data, &file.filename) == FileKind::Pdf => {
-                            Some(format!("--- {} ---\n{}", file_label(&file), self.pdf(&file).await?))
-                        }
-                        Lookup::Info(_) if self.no_documents => self.text_form(part)?,
-                        Lookup::NotFile if self.no_documents => Self::document_source_text(part),
+                        Lookup::Info(file) => match inline_file_kind(&file.mime, &file.data, &file.filename) {
+                            FileKind::Pdf if how.pdf => Some(format!("--- {} ---\n{}", file_label(&file), self.pdf(&file).await?)),
+                            FileKind::Pdf => None,
+                            kind if how.no_documents || (how.route_files && kind == FileKind::Office) => self.text_form(part)?,
+                            _ => None,
+                        },
+                        Lookup::Gone if how.route_files => Some(unavailable_text(part)),
+                        Lookup::NotFile if how.no_documents => Self::document_source_text(part),
                         _ => None,
                     };
                     if let Some(text) = replacement {
@@ -485,6 +430,18 @@ impl MediaText for MediaLowering {
             out.push(message);
         }
         Ok(out)
+    }
+}
+
+#[async_trait]
+impl MediaText for MediaLowering {
+    async fn prepare_pdf_text(&self, messages: Vec<Message>) -> Result<Vec<Message>, Box<ProviderError>> {
+        self.lower(messages, Lowered { pdf: true, no_documents: self.no_documents, route_files: false }).await
+    }
+
+    async fn prepare_for_route(&self, messages: Vec<Message>, support: MediaSupport) -> Result<Vec<Message>, Box<ProviderError>> {
+        let no_documents = support.native_documents == Some(false);
+        self.lower(messages, Lowered { pdf: !support.native_pdf || no_documents, no_documents, route_files: true }).await
     }
 
     fn text_form(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>> {

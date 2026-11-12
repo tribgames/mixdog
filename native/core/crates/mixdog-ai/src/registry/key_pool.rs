@@ -406,6 +406,9 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.pool.primary.native_documents()
     }
+    async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
+        self.pool.primary.media_support(request).await
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         self.pool.primary.first_response_budget(model, parameters)
     }

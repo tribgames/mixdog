@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::MediaSupport;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::ids::ProviderId;
@@ -700,7 +701,14 @@ impl DefaultProviderBuilder {
         let policy = AnthropicAdapter::api_key(config.clone(), http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane)
             .retry_policy()
             .clone();
-        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy)
+        // What each gateway's Messages engine declares (`openrouter.mjs` `nativePdf: true`, `deepseek.mjs` `nativePdf` and
+        // `nativeDocuments: false`; `wire-gateway.mjs:64`, `opencode-go.mjs`, `command-code-oauth.mjs:109` take a PDF as text).
+        let media = match name {
+            "openrouter" => MediaSupport { native_pdf: true, native_documents: None },
+            "deepseek" => MediaSupport { native_pdf: false, native_documents: Some(false) },
+            _ => MediaSupport { native_pdf: false, native_documents: None },
+        };
+        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy).with_media(media)
     }
 
     /// xAI's API mode (`useXaiResponsesApi`): Responses unless the request, config or environment names Chat.

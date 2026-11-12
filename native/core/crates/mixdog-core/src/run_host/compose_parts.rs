@@ -264,6 +264,10 @@ pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
             store: input.blobs,
             interactive: process.lanes.interactive_io,
         }),
+        media: Some(Arc::new({
+            let source = hop.source.clone();
+            move |session: &serde_json::Value| source.media(session)
+        })),
         heartbeats: input.heartbeats,
         ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
         auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),

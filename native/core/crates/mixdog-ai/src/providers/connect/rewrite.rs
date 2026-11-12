@@ -178,6 +178,9 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    /// What the engine takes as a document when it is not the plain `nativePdf = false` of Grok, the local
+    /// runtime and a custom provider's engines (a gateway's Messages engine declares its own).
+    media: Option<mixdog_core_api::domain::provider::MediaSupport>,
 }
 
 impl HttpAdapter {
@@ -199,7 +202,14 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            media: None,
         }
+    }
+
+    /// The engine's own document capabilities (`GatewayMessagesEngine.nativePdf` / `.nativeDocuments`).
+    pub fn with_media(mut self, media: mixdog_core_api::domain::provider::MediaSupport) -> Self {
+        self.media = Some(media);
+        self
     }
 
     /// The refusals the provider sends again at once ([`Resend`]).
@@ -243,6 +253,10 @@ impl ProviderAdapter for HttpAdapter {
 
     /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).
     fn native_pdf(&self) -> bool {
-        false
+        self.media.is_some_and(|m| m.native_pdf)
+    }
+
+    fn native_documents(&self) -> Option<bool> {
+        self.media.and_then(|m| m.native_documents)
     }
 }
