@@ -817,6 +817,45 @@ test('stop while a write is IN FLIGHT keeps that write and drops only queued del
   assert.ok(!JSON.stringify(checkpoint).includes('queued-dropped'));
 });
 
+test('the wait a request is sent behind ends only once the mark of that send is on disk', async () => {
+  const sessionId = 'sess-send-mark';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await turn.recorder.landed();
+  // A tool run of the turn is on disk; the request after it is the one sent.
+  const call = { id: 'call-a', name: 'read', arguments: '{}' };
+  turn.tracker.recordToolCalls([call]);
+  turn.outgoing.push({ role: 'assistant', content: '', toolCalls: [call] });
+  turn.tracker.markToolPhaseStarted();
+  turn.outgoing.push({ role: 'tool', toolCallId: 'call-a', content: 'done' });
+  turn.flush();
+  await turn.recorder.written();
+  assert.equal(readTurnCheckpoint(sessionId).interruption.phase, 'tools');
+  const hold = holdJournalWrites();
+  let written = false;
+  let wait;
+  try {
+    turn.tracker.markProviderSendStarted();
+    turn.flush();
+    wait = turn.recorder.written().then(() => {
+      written = true;
+    });
+    // One full turn of the event loop: a wait that did not queue behind the
+    // held write has resolved by now.
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+    assert.equal(written, false);
+    assert.equal(readTurnCheckpoint(sessionId).interruption.phase, 'tools');
+  } finally {
+    hold.release();
+  }
+  await wait;
+  assert.equal(readTurnCheckpoint(sessionId).interruption.phase, 'streaming');
+  // Nothing is queued any more: the wait is over at once.
+  await turn.recorder.written();
+});
+
 test('replay skips a duplicated re-flushed record and stops at a real gap', async () => {
   const sessionId = 'sess-seq';
   const turn = startTurn(sessionId);

@@ -147,10 +147,15 @@ export function buildAgentLoopOptions({
     // A provider output item started (a tool call, a phased message): display
     // only, so it bypasses the interruption journal.
     onStreamItemStart: optionalFn(askOpts?.onStreamItemStart),
+    // The loop awaits the returned promise before the request leaves: the
+    // mark that this request was sent is on disk first, so a process killed
+    // with the request on the wire recovers as sent (the result the request
+    // ended with keeps `sentRequestTail`), not as a turn still in its tool run.
     onProviderSendStarted: () => {
       interruption.markProviderSendStarted();
       checkpoint.schedule(true);
       relay(askOpts?.onProviderSendStarted);
+      return checkpoint.written?.();
     },
     onToolPhaseStarted: () => {
       interruption.markToolPhaseStarted();

@@ -503,6 +503,7 @@ function _warnJournalOnce(sessionId, error) {
 
 // Process exit only (see the exit handler below).
 function _runJournalOpSync(op) {
+  if (op.kind === 'barrier') return;
   if (op.kind === 'append') {
     withCheckpointDirSync(() => appendFileSync(op.path, op.data, 'utf8'));
     return;
@@ -525,6 +526,7 @@ function _runJournalOpSync(op) {
 const SUPERSEDED = Symbol('superseded');
 
 async function _runJournalOpAsync(op) {
+  if (op.kind === 'barrier') return undefined;
   if (_journalOpGate) await _journalOpGate(op);
   if (op.kind === 'append') return withCheckpointDir(() => appendFile(op.path, op.data, 'utf8'));
   if (op.kind === 'open') {
@@ -651,6 +653,22 @@ export function appendJournalLines(sessionId, lines) {
   }
   _enqueueJournalOp(sessionId, { kind: 'append', path: turnJournalPath(sessionId), data });
   return true;
+}
+
+/**
+ * Resolves once every write queued so far for the session has run (landed,
+ * failed or been retired): the lane is ordered, so a marker queued now is
+ * reached after all of them. A request sent after it finds on disk what the
+ * turn recorded before it — the mark that the request was sent among it — so
+ * a process killed with that request on the wire recovers knowing it was
+ * sent. It never rejects.
+ */
+export function journalWritesSettled(sessionId) {
+  const entry = _journalWrites.get(sessionId);
+  if (!entry || (!entry.writing && entry.ops.length === 0)) return Promise.resolve();
+  return new Promise((settle) => {
+    _enqueueJournalOp(sessionId, { kind: 'barrier', settle: () => settle() });
+  });
 }
 
 /**
