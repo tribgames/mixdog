@@ -79,6 +79,56 @@ async fn each_family_builds_under_its_own_id() {
     assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
 }
 
+/// What each built provider takes as a document on the route a request goes to, against what the instance of Node's
+/// class declared for the same route (`fixtures/media-wire/table.json`: the flags `preparePdfTextForProvider` read).
+/// The builder names each row; a row Rust cannot build here is declared in the set's manifest.
+#[tokio::test]
+#[allow(clippy::disallowed_methods)]
+async fn each_route_takes_the_documents_nodes_instance_declared() {
+    use mixdog_core_api::domain::provider::{MediaSupport, ModelRequest, RequestOptions};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let declared = |provider: &str| -> MediaSupport {
+        let row = table["rows"].as_array().unwrap().iter().find(|r| r["provider"] == provider).unwrap_or_else(|| panic!("{provider} is a row of the table"));
+        let flags = &row["capabilities"];
+        // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
+        MediaSupport { native_pdf: flags["nativePdf"] != json!(false), native_documents: flags["nativeDocuments"].as_bool() }
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    // A session's request carries tools, which is what puts it on a gateway's agent route.
+    let tool = mixdog_core_api::domain::provider::ToolDefinition {
+        name: "read".to_owned(),
+        description: "read".to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+        defer_loading: false,
+        freeform: None,
+    };
+    let request = |model: &str| ModelRequest { model: model.to_owned(), messages: Vec::new(), tools: vec![tool.clone()], options: RequestOptions::default() };
+    let enabled = json!({"enabled": true, "apiKey": "k"});
+    let custom = json!({"type": "custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
+    // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
+    let routes = [
+        ("anthropic", "anthropic", enabled.clone(), "claude-sonnet-4-5", None),
+        ("openai", "openai", enabled.clone(), "gpt-5", None),
+        ("gemini", "gemini", enabled.clone(), "gemini-2.5-pro", None),
+        ("xai", "xai", enabled.clone(), "grok-4", None),
+        ("cursor-api", "cursor-api", enabled.clone(), "auto", None),
+        ("custom-anthropic", "custom-z", custom, "m", None),
+        ("deepseek", "deepseek", enabled.clone(), "deepseek-v4-pro", Some("messages")),
+        ("openrouter", "openrouter", enabled.clone(), "anthropic/claude-sonnet-4.5", Some("messages")),
+    ];
+    for (row, name, cfg, model, wire) in routes {
+        let adapter = b.build(name, &cfg).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        if let Some(wire) = wire {
+            let context = mixdog_core_api::domain::provider::WireRouteContext { agent: true, ..Default::default() };
+            let route = adapter.wire_routing().expect("a gateway routes").resolve_wire_route(model, &context).await.unwrap().unwrap();
+            assert_eq!(route.wire, wire, "{row}: {model} is on the wire the row is for");
+        }
+        assert_eq!(adapter.media_support(&request(model)).await, declared(row), "{row}");
+    }
+}
+
 /// `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, so a one-wire provider
 /// routes (and pins) its wire. The route is the one the real-turn harness recorded in Node's stored header
 /// (`out/read/compare/stored-header.node.json` `wireRoute`: `custom-harness:chat`, source `default`); the
