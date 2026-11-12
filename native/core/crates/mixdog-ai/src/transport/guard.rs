@@ -1,8 +1,9 @@
 //! The one place every provider exchange has its credentials redacted from what comes back.
 //!
 //! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). Before the request goes out it registers the
-//! credentials the request carries ([`carried::attach_request`], [`carried::attach_upgrade`]: a few index entries per form,
-//! no rebuild) in the process-wide registry, which also holds what each provider's own sign-in and refresh keep, and
+//! credentials the request carries ([`carried::attach_request`], [`carried::attach_upgrade`]: a few index entries per new
+//! form, no rebuild) in the process-wide registry for as long as the exchange is in flight (the lease lives in the response
+//! body or the socket), which also holds every credential the process read out of its source, and
 //! redacts every credential the registry holds, however the text encodes it, from everything that leaves the transport on
 //! any exchange's behalf (an error that repeats the old credential of a refreshed token, or the key of an earlier request,
 //! is as redacted as one that repeats the current one). Each text, each chunk of a stream included, is read against the
@@ -56,12 +57,31 @@ use crate::oauth::carried::Matcher;
 pub struct Guarded<T>(pub T);
 
 /// A body redacted as it streams: a credential cut by a chunk boundary is held until the chunk that finishes it, and only
-/// an end that may still become one waits at all.
+/// an end that may still become one waits at all. It holds what its request carried until it is dropped.
 struct RedactedBody {
     inner: Box<dyn BodyStream>,
     stream: carried::Stream,
     ended: bool,
     fault: Option<TransportFault>,
+    _lease: carried::Lease,
+}
+
+/// A body that passes whole (a token grant, framed binary messages), holding what its request carried until it is dropped:
+/// its decoder scrubs what it reads with the registry.
+struct LeasedBody {
+    inner: Box<dyn BodyStream>,
+    _lease: carried::Lease,
+}
+
+#[async_trait]
+impl BodyStream for LeasedBody {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        self.inner.next().await
+    }
+
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
 }
 
 #[async_trait]
@@ -105,27 +125,28 @@ fn framed_binary(headers: &[(String, String)]) -> bool {
     })
 }
 
-fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>, grant: bool) -> HttpResponse {
+fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>, grant: bool, lease: carried::Lease) -> HttpResponse {
     matcher.redact_headers(&mut response.headers);
     // A token grant carries the credentials it issues, often the refresh token the request carried: it is the one
     // successful body that arrives whole. Every other body, a successful document or stream and a refusal alike, reaches
     // the model, the transcript or a log, and is redacted as it streams (a framed binary body by its decoder), against the
     // registry as it is at each chunk: even one that holds nothing yet.
     if (grant && response.is_success()) || framed_binary(&response.headers) {
+        response.body = Box::new(LeasedBody { inner: response.body, _lease: lease });
         return response;
     }
-    response.body = Box::new(RedactedBody { inner: response.body, stream: carried::Stream::new(matcher.clone()), ended: false, fault: None });
+    response.body = Box::new(RedactedBody { inner: response.body, stream: carried::Stream::new(matcher.clone()), ended: false, fault: None, _lease: lease });
     response
 }
 
 #[async_trait]
 impl<T: HttpSend> HttpSend for Guarded<T> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-        carried::attach_request(&request);
+        let lease = carried::attach_request(&request);
         let matcher = carried::remembered();
         let grant = exchange.grant || carried::is_token_request(&request.body);
         match self.0.send(request, exchange).await {
-            Ok(response) => Ok(clean_response(response, &matcher, grant)),
+            Ok(response) => Ok(clean_response(response, &matcher, grant, lease)),
             Err(error) => Err(matcher.redact_error(error)),
         }
     }
@@ -134,19 +155,20 @@ impl<T: HttpSend> HttpSend for Guarded<T> {
 #[async_trait]
 impl<T: BidiOpen> BidiOpen for Guarded<T> {
     async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
-        carried::attach_request(&request);
+        let lease = carried::attach_request(&request);
         let matcher = carried::remembered();
         match self.0.open(request, first, exchange).await {
-            Ok((response, sink)) => Ok((clean_response(response, &matcher, false), sink)),
+            Ok((response, sink)) => Ok((clean_response(response, &matcher, false, lease), sink)),
             Err(error) => Err(matcher.redact_error(error)),
         }
     }
 }
 
-/// An open WebSocket whose frames and closing are redacted.
+/// An open WebSocket whose frames and closing are redacted; it holds what its upgrade carried while it is open.
 struct RedactedSocket {
     inner: Box<dyn WsSocket>,
     matcher: Arc<Matcher>,
+    _lease: carried::Lease,
 }
 
 #[async_trait]
@@ -207,12 +229,12 @@ impl<T: WsDial> WsDial for Guarded<T> {
     async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let headers: Vec<(String, String)> =
             request.headers().iter().filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))).collect();
-        carried::attach_upgrade(&request.uri().to_string(), &headers);
+        let lease = carried::attach_upgrade(&request.uri().to_string(), &headers);
         let matcher = carried::remembered();
         match self.0.dial(request).await {
             Ok((socket, mut response)) => {
                 clean_upgrade(&mut response, &matcher);
-                Ok((Box::new(RedactedSocket { inner: socket, matcher }), response))
+                Ok((Box::new(RedactedSocket { inner: socket, matcher, _lease: lease }), response))
             }
             Err(ConnectError::Rejected(mut response)) => {
                 clean_upgrade(&mut response, &matcher);
@@ -476,6 +498,71 @@ mod tests {
         let echo = Guarded(Echo { chunks: vec![b"previous key static-key-1123v"], location: "", fail_with: None, content_type: "text/plain", status: 400 });
         let response = echo.send(request("https://static.example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(response).await, "previous key [REDACTED]");
+    }
+
+    /// Two accounts, one origin and one header (review 1124m/n P1): account A's key is configured (read through the key
+    /// variable every send reads it from) and sent once; account B rotates its token 32,769 times, each read out of its
+    /// credential file and sent in the same origin's `authorization`. A is still configured: a later answer quoting it is
+    /// redacted. (The registry named a carried value by origin and position: each of B's sends retired A, and the 32,769th
+    /// retirement after it forgot A.)
+    #[tokio::test]
+    async fn a_configured_key_outlives_the_rotations_of_another_account_on_its_origin_and_header() {
+        use crate::providers::key_source::ApiKeySource as _;
+        use crate::registry::keys::ApiKeyStore;
+        use crate::registry::keys::KeyConfig;
+        use crate::registry::keys::MemoryVault;
+        use crate::registry::keys::ProviderKey;
+
+        struct Configured;
+        impl crate::registry::keys::Environment for Configured {
+            fn var(&self, name: &str) -> Option<String> {
+                (name == "XAI_API_KEY").then(|| "configured-key-of-account-a-5f3c".to_owned())
+            }
+        }
+        let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Configured), false);
+        let key_a = ProviderKey::primary(keys, "xai", KeyConfig::default()).key().await.expect("configured");
+        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        let bearer = |token: &str| format!("Bearer {token}");
+        body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&key_a))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        for i in 0..32_769 {
+            let token = format!("rotated-token-of-account-b-{i:05}");
+            carried::keep("file account-b.json", &[&token]);
+            body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&token))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        }
+        let echo = Guarded(Echo { chunks: vec![b"the key configured-key-of-account-a-5f3c is over its quota"], location: "", fail_with: None, content_type: "text/plain", status: 429 });
+        let response = echo.send(request("https://api.x.ai/v1/chat/completions", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(response).await, "the key [REDACTED] is over its quota");
+    }
+
+    /// A stream keeps scrubbing the credential its request carried after the credential's source replaced it, however many
+    /// values retire meanwhile; once the stream is over, the replaced value retires like any other.
+    #[tokio::test]
+    async fn a_stream_keeps_scrubbing_what_its_request_carried_after_its_source_replaced_it() {
+        carried::keep("file streaming-account.json", &["streaming-token-before-refresh-1d4e"]);
+        let a = Guarded(Echo {
+            chunks: vec![b"data: first\n\n", b"data: still streaming-token-before-refresh-1d4e\n\n"],
+            location: "",
+            fail_with: None,
+            content_type: "text/event-stream",
+            status: 200,
+        });
+        let mut response = a.send(request("https://a.example.test/v1", &[("authorization", "Bearer streaming-token-before-refresh-1d4e")]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(response.body.next().await.expect("a first chunk").expect("no fault").as_ref(), b"data: first\n\n");
+        // The account refreshes; then more values retire than the registry keeps.
+        carried::keep("file streaming-account.json", &["streaming-token-after-refresh-7a0c"]);
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file another-account.json", &[&format!("another-retired-token-{i:05}")]);
+        }
+        let mut rest = Vec::new();
+        while let Some(chunk) = response.body.next().await {
+            rest.extend_from_slice(&chunk.expect("no fault"));
+        }
+        assert_eq!(String::from_utf8(rest).unwrap(), "data: still [REDACTED]\n\n");
+        drop(response);
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file another-account.json", &[&format!("a later retired token-{i:05}")]);
+        }
+        assert_eq!(carried::remembered().redact_str("streaming-token-before-refresh-1d4e"), "streaming-token-before-refresh-1d4e", "retired with the stream's end, then forgotten over the cap");
     }
 
     /// Request A streams; request B attaches its credential; A's response then echoes B's credential (review 1124e: a

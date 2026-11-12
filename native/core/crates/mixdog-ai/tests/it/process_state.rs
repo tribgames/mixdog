@@ -27,6 +27,7 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
     ("oauth/carried.rs", "REGISTRY", Reset("oauth::carried::reset_registry()")),
     ("oauth/carried.rs", "TOUCHED", NotState("a unit test's count of the index entries its own thread made, compiled only into unit tests")),
+    ("oauth/carried.rs", "SCANNING", NotState("a unit test's hook that parks its own thread's scan, compiled only into unit tests")),
     ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
     ("random.rs", "NEXT", Reset("random::script(Vec::new())")),

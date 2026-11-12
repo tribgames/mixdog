@@ -5,19 +5,30 @@
 //! for `Basic`, the `user:key` its base64 holds and the key), the value of a header whose name ends in `api-key` / `apikey`,
 //! the userinfo of the URL and a key in its query (`key`, `api_key`, `access_token`, `token`), and the secret fields of an
 //! OAuth token request, which is known by its kind (a body with a top-level `grant_type`), never by a field name found in an
-//! arbitrary body. A credential also becomes one where the process keeps it: each provider's own sign-in, refresh and load
-//! path names what it stores ([`keep`]), whatever the field it read it from. Both land in one process-wide [`Registry`]
-//! under a slot (the origin and position an exchange carried it in, or the credential file of an account): what a slot
-//! holds now is pinned, so a static key and the current token of every account are never forgotten; what a slot held
-//! before is retired and stays a credential too (the old credential of a refreshed token is found in the text of a later
-//! exchange), bounded only by [`RETIRED_CAP`], over which the oldest retired value goes first, never a pinned one.
+//! arbitrary body. A credential also becomes one where the process reads it out of its source ([`keep`]): a key variable
+//! (`Environment::key_var`, `process_key_var_os`), a keychain entry (the vault reads), a configured key, an account's
+//! credential file (each provider's own load, refresh and sign-in path names what it stores, whatever the field it read it
+//! from) and a token an exchange hands the process for later requests.
+//!
+//! **Who owns a value.** Its sources, the places it was read out of: a value is pinned while one of its sources still
+//! yields it, so a static key and the current token of every account are never forgotten, however many values other
+//! accounts carry or rotate. Only a value its own source replaced (or let go of) is retired; it stays a credential (the old
+//! credential of a refreshed token is found in the text of a later exchange) among the last [`RETIRED_CAP`] retired, the
+//! oldest retired going first. Two sources yielding one value keep it until both have let go. An exchange holds what it
+//! carries ([`Lease`]) while it is in flight: a value its source replaces while a response still streams stays a credential
+//! of that stream whatever is retired after it. A value seen only on a request, from no known source, never retires
+//! another: once no exchange carries it, it is kept by recency of use (each carry makes it the newest) among the last
+//! [`CARRIED_CAP`] such values.
 //!
 //! **What it costs.** Knowing a credential costs a handful of index entries per canonical form (below), never a structure
 //! rebuilt from all of them: a two-stage match. Each form is indexed by a fingerprint, its first eight bytes (a form shorter
 //! than that by itself, with its length); the scan of a text looks every eight-byte window of the view up in that index,
-//! and a hit is verified against the whole form, regenerated from the registry's value. Adding or retiring a credential
-//! touches its own entries only, so it is done where the request is dispatched; a text is always scanned against the
-//! registry as it is at that moment, so a response already streaming is searched for a credential attached after it began.
+//! and a hit is verified against the whole form, regenerated from the registry's value. The index is persistent ([`Trie`]):
+//! a scan takes the registry's current index in O(1) (one pointer, under a lock held for that copy alone) and scans it
+//! holding no lock, while a registration changes its own copy, paying the nodes on the paths of its own entries only, and
+//! publishes it the same way. Neither waits for the other: a registration never waits for a scan, and a scan of the next
+//! chunk sees what was registered meanwhile (a response already streaming is searched for a credential attached after it
+//! began).
 //!
 //! **How it is found.** Never by a list of spellings. The text is read through a canonical view ([`canonical`]) with a map from
 //! each byte of the view back to the source bytes it came from: percent-escapes (either hex case) decoded, JSON escapes
@@ -32,13 +43,11 @@
 //! redacted after `Bearer ` or in a header without eating a part of an ordinary word. Text in which no credential is found
 //! comes back byte for byte.
 
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::hash::BuildHasherDefault;
-use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::RwLock;
 
@@ -61,11 +70,15 @@ const MAX_TOKEN_BODY: usize = 64 * 1024;
 /// The secret fields of an OAuth token request (RFC 6749 and its grant extensions).
 const TOKEN_FIELDS: [&str; 10] =
     ["refresh_token", "code", "code_verifier", "device_code", "assertion", "client_assertion", "client_secret", "password", "subject_token", "actor_token"];
-/// The retired values the registry keeps (pinned ones are never counted nor dropped). A retirement is a value a slot held
-/// before: a refresh retires an account's access token, its refresh token when the server rotates it, and an id token, three
-/// at most. Ten accounts (generous) refreshing every hour (the shortest common lifetime) retire 720 a day: 32,768 is 45 days
-/// of that, twenty such accounts 22 days, and a daemon at the usual refresh intervals of several hours runs for months.
-pub const RETIRED_CAP: usize = 32_768;
+/// The retired values the registry keeps (a value a source yields is never counted nor dropped). A retirement is a value
+/// its own source replaced: a refresh retires an account's access token, its refresh token when the server rotates it, and
+/// an id token, three at most. Ten accounts (generous) refreshing every hour (the shortest common lifetime) retire 720 a
+/// day: 4,096 is five and a half days of that, and the old tokens of a refresh are expired or revoked long before.
+pub const RETIRED_CAP: usize = 4_096;
+/// The values seen only on requests (no known source) the registry keeps once no exchange carries them, the least
+/// recently carried going first. Every credential the product reads is read out of a source, so these are the stray ones.
+/// With [`RETIRED_CAP`], the most the registry holds besides what sources yield: 8,192 values.
+pub const CARRIED_CAP: usize = 4_096;
 /// The fingerprint of a form: its first this many bytes (a shorter form is indexed whole).
 const PRINT: usize = 8;
 
@@ -73,12 +86,11 @@ const PRINT: usize = 8;
 // Provenance
 // ---------------------------------------------------------------------------------------------------------------------
 
-/// A credential and the position of the exchange it rode in (a header's name, `userinfo`, a query key, a token request's
-/// field): the position of an origin holds what the last exchange carried there.
-fn add(out: &mut Vec<(String, String)>, position: &str, value: &str) {
+/// A credential an exchange carries, each once.
+fn add(out: &mut Vec<String>, value: &str) {
     let value = value.trim();
-    if !value.is_empty() && !out.iter().any(|(_, known)| known == value) {
-        out.push((position.to_owned(), value.to_owned()));
+    if !value.is_empty() && !out.iter().any(|known| known == value) {
+        out.push(value.to_owned());
     }
 }
 
@@ -88,7 +100,7 @@ fn basic_pair(encoded: &str) -> Option<String> {
     [STANDARD_NO_PAD, URL_SAFE_NO_PAD].iter().find_map(|engine| String::from_utf8(engine.decode(bare).ok()?).ok()).filter(|pair| pair.contains(':'))
 }
 
-fn of_headers(headers: &[(String, String)], out: &mut Vec<(String, String)>) {
+fn of_headers(headers: &[(String, String)], out: &mut Vec<String>) {
     for (name, value) in headers {
         let name = name.to_ascii_lowercase();
         if name == "authorization" || name == "proxy-authorization" {
@@ -96,31 +108,31 @@ fn of_headers(headers: &[(String, String)], out: &mut Vec<(String, String)>) {
             match value.split_once(' ').filter(|(scheme, _)| !scheme.is_empty() && scheme.bytes().all(|b| b.is_ascii_alphabetic())) {
                 Some((scheme, credential)) => {
                     let credential = credential.trim();
-                    add(out, &name, credential);
+                    add(out, credential);
                     if scheme.eq_ignore_ascii_case("basic")
                         && let Some(pair) = basic_pair(credential)
                     {
-                        add(out, &name, &pair);
-                        add(out, &name, pair.split_once(':').map_or("", |(_, key)| key));
+                        add(out, &pair);
+                        add(out, pair.split_once(':').map_or("", |(_, key)| key));
                     }
                 }
-                None => add(out, &name, value),
+                None => add(out, value),
             }
         } else if name.ends_with("api-key") || name.ends_with("apikey") || name.ends_with("api_key") {
-            add(out, &name, value);
+            add(out, value);
         }
     }
 }
 
-fn of_url(url: &str, out: &mut Vec<(String, String)>) {
+fn of_url(url: &str, out: &mut Vec<String>) {
     let Ok(parsed) = url::Url::parse(url) else { return };
     for part in [parsed.username(), parsed.password().unwrap_or("")] {
-        add(out, "userinfo", &String::from_utf8_lossy(&percent_decode(part.as_bytes())));
+        add(out, &String::from_utf8_lossy(&percent_decode(part.as_bytes())));
     }
     for (name, value) in parsed.query_pairs() {
         let name: String = name.chars().filter(|c| *c != '_' && *c != '-').flat_map(char::to_lowercase).collect();
         if ["key", "apikey", "accesstoken", "token"].contains(&name.as_str()) {
-            add(out, &format!("query {name}"), &value);
+            add(out, &value);
         }
     }
 }
@@ -164,15 +176,16 @@ pub fn is_token_request(body: &[u8]) -> bool {
 }
 
 /// The secret fields of a token request. Any other body carries none.
-fn of_token_request(body: &[u8], out: &mut Vec<(String, String)>) {
+fn of_token_request(body: &[u8], out: &mut Vec<String>) {
     for (name, value) in token_request_fields(body).unwrap_or_default() {
         if TOKEN_FIELDS.contains(&name.as_str()) {
-            add(out, &format!("token-request {name}"), &value);
+            add(out, &value);
         }
     }
 }
 
-fn attached_to_request(request: &WireRequest) -> Vec<(String, String)> {
+/// The credentials the transport attached to `request` (see the module's rule).
+pub fn of_request(request: &WireRequest) -> Vec<String> {
     let mut out = Vec::new();
     of_headers(&request.headers, &mut out);
     of_url(&request.url, &mut out);
@@ -180,50 +193,24 @@ fn attached_to_request(request: &WireRequest) -> Vec<(String, String)> {
     out
 }
 
-fn attached_to_upgrade(uri: &str, headers: &[(String, String)]) -> Vec<(String, String)> {
+/// The credentials a WebSocket upgrade carries: its credential headers and the userinfo and key of its URL.
+pub fn of_upgrade(uri: &str, headers: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     of_headers(headers, &mut out);
     of_url(uri, &mut out);
     out
 }
 
-/// The credentials the transport attached to `request` (see the module's rule).
-pub fn of_request(request: &WireRequest) -> Vec<String> {
-    attached_to_request(request).into_iter().map(|(_, value)| value).collect()
+/// Registers what the transport attaches to `request`, before it is sent, for as long as the returned lease lives (the
+/// exchange: its response read to the end or dropped). A value no source yields is kept after that by recency of use; it
+/// retires nothing.
+pub fn attach_request(request: &WireRequest) -> Lease {
+    Lease::of(&REGISTRY, &of_request(request))
 }
 
-/// The credentials a WebSocket upgrade carries: its credential headers and the userinfo and key of its URL.
-pub fn of_upgrade(uri: &str, headers: &[(String, String)]) -> Vec<String> {
-    attached_to_upgrade(uri, headers).into_iter().map(|(_, value)| value).collect()
-}
-
-/// Registers what the transport attaches to `request`, before it is sent: each position of its origin now holds what this
-/// request carries there.
-pub fn attach_request(request: &WireRequest) {
-    attach(&request.url, attached_to_request(request));
-}
-
-/// [`attach_request`] for a WebSocket upgrade.
-pub fn attach_upgrade(uri: &str, headers: &[(String, String)]) {
-    attach(uri, attached_to_upgrade(uri, headers));
-}
-
-fn attach(url: &str, attached: Vec<(String, String)>) {
-    if attached.is_empty() {
-        return;
-    }
-    let origin = url::Url::parse(url).map_or_else(|_| String::new(), |url| url.origin().ascii_serialization());
-    let mut positions: Vec<(&str, Vec<&str>)> = Vec::new();
-    for (position, value) in &attached {
-        match positions.iter_mut().find(|(known, _)| *known == position.as_str()) {
-            Some((_, values)) => values.push(value.as_str()),
-            None => positions.push((position.as_str(), vec![value.as_str()])),
-        }
-    }
-    let mut registry = write();
-    for (position, values) in positions {
-        registry.keep(&format!("{origin} {position}"), &values);
-    }
+/// [`attach_request`] for a WebSocket upgrade: the lease lives as long as the socket.
+pub fn attach_upgrade(uri: &str, headers: &[(String, String)]) -> Lease {
+    Lease::of(&REGISTRY, &of_upgrade(uri, headers))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -599,39 +586,6 @@ fn plains_of(secret: &str) -> Vec<String> {
     distinct
 }
 
-/// No record.
-const NONE: u32 = u32::MAX;
-
-/// A multiply-rotate hash for keys that are uniform already (packed bytes, lengths): one multiplication a word.
-#[derive(Default)]
-struct Fold(u64);
-
-impl Hasher for Fold {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.write_u64(u64::from(*byte));
-        }
-    }
-
-    fn write_u8(&mut self, n: u8) {
-        self.write_u64(u64::from(n));
-    }
-
-    fn write_u32(&mut self, n: u32) {
-        self.write_u64(u64::from(n));
-    }
-
-    fn write_u64(&mut self, n: u64) {
-        self.0 = (self.0.rotate_left(26) ^ n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    }
-}
-
-type Folded = BuildHasherDefault<Fold>;
-
 /// Up to eight bytes as one big-endian word.
 fn pack(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0, |word, byte| (word << 8) | u64::from(*byte))
@@ -641,6 +595,245 @@ fn pack(bytes: &[u8]) -> u64 {
 fn pack_left(bytes: &[u8]) -> u64 {
     pack(bytes) << (8 * (PRINT - bytes.len()))
 }
+
+/// A bijection of 64-bit words that spreads their bits (SplitMix64's finalizer): distinct keys stay distinct.
+fn mix(mut word: u64) -> u64 {
+    word = (word ^ (word >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    word = (word ^ (word >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    word ^ (word >> 31)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The persistent trie
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The bits of a key level `depth` of a [`Trie`] takes, highest first: six a level, the last (60 taken) the four left.
+fn width(depth: u32) -> u32 {
+    if depth < 10 { 6 } else { 4 }
+}
+
+fn chunk(key: u64, depth: u32) -> u32 {
+    if depth < 10 { ((key >> (58 - 6 * depth)) & 63) as u32 } else { (key & 15) as u32 }
+}
+
+/// A map from 64-bit keys whose copy is one pointer: a radix trie of the key's bits, highest first, whose nodes are shared
+/// between copies and copied on write along the path of a change alone. A scan reads a copy taken in O(1) while a
+/// registration changes another; a change costs the nodes on its path (at most eleven), never the map.
+struct Trie<V> {
+    root: Option<Arc<Node<V>>>,
+}
+
+impl<V> Clone for Trie<V> {
+    fn clone(&self) -> Self {
+        Self { root: self.root.clone() }
+    }
+}
+
+impl<V> Default for Trie<V> {
+    fn default() -> Self {
+        Self { root: None }
+    }
+}
+
+struct Node<V> {
+    /// Which of the (up to 64) children are present; `slots` holds them in that order.
+    bitmap: u64,
+    slots: Vec<Slot<V>>,
+}
+
+impl<V: Clone> Clone for Node<V> {
+    fn clone(&self) -> Self {
+        Self { bitmap: self.bitmap, slots: self.slots.clone() }
+    }
+}
+
+#[derive(Clone)]
+enum Slot<V> {
+    Leaf(u64, V),
+    Node(Arc<Node<V>>),
+}
+
+impl<V: Clone> Node<V> {
+    fn empty() -> Self {
+        Self { bitmap: 0, slots: Vec::new() }
+    }
+
+    /// The bit of `key`'s child at `depth` and its place among the slots.
+    fn place(&self, key: u64, depth: u32) -> (u64, usize) {
+        let bit = 1_u64 << chunk(key, depth);
+        (bit, (self.bitmap & (bit - 1)).count_ones() as usize)
+    }
+
+    fn insert(&mut self, key: u64, value: V, depth: u32) -> Option<V> {
+        let (bit, at) = self.place(key, depth);
+        if self.bitmap & bit == 0 {
+            self.bitmap |= bit;
+            self.slots.insert(at, Slot::Leaf(key, value));
+            return None;
+        }
+        // Another key's leaf where this one goes: both one level down.
+        if matches!(&self.slots[at], Slot::Leaf(known, _) if *known != key) {
+            let leaf = std::mem::replace(&mut self.slots[at], Slot::Node(Arc::new(Self::empty())));
+            if let (Slot::Leaf(known, held), Slot::Node(next)) = (leaf, &mut self.slots[at]) {
+                Arc::make_mut(next).insert(known, held, depth + 1);
+            }
+        }
+        match &mut self.slots[at] {
+            Slot::Node(next) => Arc::make_mut(next).insert(key, value, depth + 1),
+            Slot::Leaf(_, held) => Some(std::mem::replace(held, value)),
+        }
+    }
+
+    fn remove(&mut self, key: u64, depth: u32) -> Option<V> {
+        let (bit, at) = self.place(key, depth);
+        if self.bitmap & bit == 0 {
+            return None;
+        }
+        if let Slot::Leaf(known, _) = &self.slots[at] {
+            if *known != key {
+                return None;
+            }
+            self.bitmap &= !bit;
+            return match self.slots.remove(at) {
+                Slot::Leaf(_, value) => Some(value),
+                Slot::Node(_) => None,
+            };
+        }
+        let Slot::Node(next) = &mut self.slots[at] else { return None };
+        let next = Arc::make_mut(next);
+        let removed = next.remove(key, depth + 1)?;
+        // A child left with one leaf gives way to it, an empty one goes.
+        if next.slots.len() <= 1 && !matches!(next.slots.first(), Some(Slot::Node(_))) {
+            match next.slots.pop() {
+                Some(leaf) => self.slots[at] = leaf,
+                None => {
+                    self.bitmap &= !bit;
+                    self.slots.remove(at);
+                }
+            }
+        }
+        Some(removed)
+    }
+
+    fn visit_all(&self, visit: &mut impl FnMut(u64, &V) -> bool) -> bool {
+        self.slots.iter().any(|slot| match slot {
+            Slot::Leaf(key, value) => visit(*key, value),
+            Slot::Node(next) => next.visit_all(visit),
+        })
+    }
+
+    #[cfg(test)]
+    fn footprint(&self, of: &impl Fn(&V) -> usize) -> usize {
+        let own = std::mem::size_of::<Self>() + 16 + self.slots.capacity() * std::mem::size_of::<Slot<V>>();
+        own + self
+            .slots
+            .iter()
+            .map(|slot| match slot {
+                Slot::Leaf(_, value) => of(value),
+                Slot::Node(next) => next.footprint(of),
+            })
+            .sum::<usize>()
+    }
+}
+
+impl<V: Clone> Trie<V> {
+    fn get(&self, key: u64) -> Option<&V> {
+        let mut node = self.root.as_deref()?;
+        let mut depth = 0;
+        loop {
+            let (bit, at) = node.place(key, depth);
+            if node.bitmap & bit == 0 {
+                return None;
+            }
+            match &node.slots[at] {
+                Slot::Leaf(known, value) => return (*known == key).then_some(value),
+                Slot::Node(next) => node = next,
+            }
+            depth += 1;
+        }
+    }
+
+    fn insert(&mut self, key: u64, value: V) -> Option<V> {
+        Arc::make_mut(self.root.get_or_insert_with(|| Arc::new(Node::empty()))).insert(key, value, 0)
+    }
+
+    fn remove(&mut self, key: u64) -> Option<V> {
+        let root = self.root.as_mut()?;
+        let removed = Arc::make_mut(root).remove(key, 0);
+        if root.slots.is_empty() {
+            self.root = None;
+        }
+        removed
+    }
+
+    /// Visits the entries whose highest `bits` bits are `prefix`'s, in key order, until `visit` says it is done; returns
+    /// whether it did.
+    fn visit_prefixed(&self, prefix: u64, bits: u32, visit: &mut impl FnMut(u64, &V) -> bool) -> bool {
+        let mask = if bits == 0 { 0 } else { u64::MAX << (64 - bits) };
+        let Some(mut node) = self.root.as_deref() else { return false };
+        let mut depth = 0;
+        let mut taken = 0;
+        while taken + width(depth) <= bits {
+            let (bit, at) = node.place(prefix, depth);
+            if node.bitmap & bit == 0 {
+                return false;
+            }
+            match &node.slots[at] {
+                Slot::Leaf(key, value) => return *key & mask == prefix & mask && visit(*key, value),
+                Slot::Node(next) => node = next,
+            }
+            taken += width(depth);
+            depth += 1;
+        }
+        // The children whose chunk begins with what is left of the prefix.
+        let free = width(depth) - (bits - taken);
+        let first = chunk(prefix, depth) >> free << free;
+        for child in first..first + (1 << free) {
+            let bit = 1_u64 << child;
+            if node.bitmap & bit == 0 {
+                continue;
+            }
+            let done = match &node.slots[(node.bitmap & (bit - 1)).count_ones() as usize] {
+                Slot::Leaf(key, value) => *key & mask == prefix & mask && visit(*key, value),
+                Slot::Node(next) => next.visit_all(visit),
+            };
+            if done {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[cfg(test)]
+    fn footprint(&self, of: impl Fn(&V) -> usize) -> usize {
+        self.root.as_deref().map_or(0, |root| root.footprint(&of))
+    }
+
+    /// (nodes, slots allocated, leaves, deepest node).
+    #[cfg(test)]
+    fn shape(&self) -> (usize, usize, usize, u32) {
+        fn walk<V>(node: &Node<V>, depth: u32, out: &mut (usize, usize, usize, u32)) {
+            out.0 += 1;
+            out.1 += node.slots.capacity();
+            out.3 = out.3.max(depth);
+            for slot in &node.slots {
+                match slot {
+                    Slot::Leaf(..) => out.2 += 1,
+                    Slot::Node(next) => walk(next, depth + 1, out),
+                }
+            }
+        }
+        let mut out = (0, 0, 0, 0);
+        if let Some(root) = self.root.as_deref() {
+            walk(root, 0, &mut out);
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The index
+// ---------------------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 thread_local! {
@@ -654,50 +847,61 @@ pub(crate) fn touched() -> usize {
     TOUCHED.with(std::cell::Cell::get)
 }
 
-#[derive(Clone, Copy)]
-struct Owner {
-    cred: u32,
-    form: u16,
-    kind: Kind,
-}
-
 /// A form found in a view: its start, its end and its kind.
 type Found = (usize, usize, Kind);
 
-/// One form, indexed: the credentials that have it (equal bytes are one record) and the next record of its bucket.
-struct Record {
+/// One form of one credential as the index holds it: what a fingerprint's hit is verified against (forms of at most
+/// twice [`PRINT`] bytes are named whole by their first and last bytes; a longer one is regenerated from the credential).
+struct Entry {
+    secret: Arc<str>,
+    form: u8,
+    kind: Kind,
     len: u32,
-    owners: Vec<Owner>,
-    next: u32,
+    first: u64,
+    last: u64,
 }
 
-impl Record {
-    /// The loosest kind of those its owners give it.
-    fn kind(&self) -> Kind {
-        if self.owners.iter().any(|owner| owner.kind == Kind::Anywhere) { Kind::Anywhere } else { self.owners[0].kind }
-    }
+/// A form's first and last [`PRINT`] bytes (a shorter form's bytes and nothing).
+fn ends_of(bytes: &[u8]) -> (u64, u64) {
+    if bytes.len() >= PRINT { (pack(&bytes[..PRINT]), pack(&bytes[bytes.len() - PRINT..])) } else { (pack(bytes), 0) }
 }
+
+/// The bucket of the forms with these ends and length: the high half of their entries' keys.
+fn bucket(first: u64, last: u64, len: usize) -> u64 {
+    mix(mix(first ^ len as u64) ^ last) & !0xFFFF_FFFF
+}
+
+/// An entry's key: its bucket, then the loosest kind first (a hit stops at the first entry whose form is there), the
+/// credential's place and the form's.
+fn entry_key(bytes: &[u8], kind: Kind, cred: u32, form: usize) -> u64 {
+    let (first, last) = ends_of(bytes);
+    let rank: u64 = match kind {
+        Kind::Anywhere => 0,
+        Kind::Token => 1,
+        Kind::TokenBase64 => 2,
+        Kind::Base64 => 3,
+    };
+    debug_assert!(cred < MAX_CREDS && form < 64, "a place and a form fit their bits");
+    bucket(first, last, bytes.len()) | rank << 30 | u64::from(cred) << 6 | form as u64
+}
+
+/// The places an entry's key has bits for (24). Places are reused, and the registry holds the caps' 8,192 values besides
+/// what sources yield: far fewer.
+const MAX_CREDS: u32 = 1 << 24;
 
 /// Every canonical form of every credential held, by fingerprint: the first stage of a match finds a form's first eight
-/// bytes (a shorter form whole) in it, the second verifies the whole form, regenerated from the credential.
-#[derive(Default)]
+/// bytes (a shorter form whole) in it, the second verifies the whole form. Persistent: a copy is a handful of pointers,
+/// and a change copies the trie nodes on its own entries' paths.
+#[derive(Clone, Default)]
 struct Index {
-    /// Each credential (`None`: a free place) and the record of each of its forms, in the order of [`forms_of`].
-    creds: Vec<Option<(Arc<str>, Vec<u32>)>>,
-    free_creds: Vec<u32>,
-    records: Vec<Option<Record>>,
-    free_records: Vec<u32>,
-    /// A form of at least [`PRINT`] bytes by its fingerprint, its length and its last [`PRINT`] bytes: the first record of
-    /// that bucket (a form of at most twice [`PRINT`] bytes is wholly named by its key).
-    long: HashMap<(u64, u32, u64), u32, Folded>,
-    /// Each fingerprint's form lengths, and how many records have each.
-    heads: HashMap<u64, Vec<(u32, u32)>, Folded>,
-    /// A form shorter than [`PRINT`] bytes by its length and bytes.
-    short: HashMap<(u8, u64), u32, Folded>,
-    /// How many records each length below [`PRINT`] has.
+    /// Each fingerprint (mixed) and the lengths of its forms, with how many entries have each.
+    heads: Trie<Arc<[(u32, u32)]>>,
+    /// Every form of every credential (see [`entry_key`]).
+    forms: Trie<Arc<Entry>>,
+    /// How many entries each length below [`PRINT`] has.
     short_lengths: [u32; PRINT],
-    /// The first bytes of every form, left-aligned, and how many records begin with them: whether a text ends inside one.
-    beginnings: BTreeMap<u64, u32>,
+    /// The first bytes of every form, left-aligned, and how many entries begin with them: whether a text ends inside one.
+    starts: Trie<u32>,
     live: usize,
 }
 
@@ -706,162 +910,60 @@ impl Index {
         self.live == 0
     }
 
-    fn record(&self, at: u32) -> &Record {
-        self.records[at as usize].as_ref().expect("a bucket holds live records")
-    }
-
-    fn bytes_of(&self, record: &Record) -> Vec<u8> {
-        let owner = record.owners[0];
-        let (secret, _) = self.creds[owner.cred as usize].as_ref().expect("a record's owner is held");
-        form_of(secret, usize::from(owner.form))
-    }
-
-    /// The first record of the bucket of `bytes`.
-    fn head(&self, bytes: &[u8]) -> u32 {
-        let found = if bytes.len() >= PRINT {
-            self.long.get(&(pack(&bytes[..PRINT]), bytes.len() as u32, pack(&bytes[bytes.len() - PRINT..])))
-        } else {
-            self.short.get(&(bytes.len() as u8, pack(bytes)))
-        };
-        found.copied().unwrap_or(NONE)
-    }
-
-    fn set_head(&mut self, bytes: &[u8], at: u32) {
-        if bytes.len() >= PRINT {
-            let key = (pack(&bytes[..PRINT]), bytes.len() as u32, pack(&bytes[bytes.len() - PRINT..]));
-            if at == NONE {
-                self.long.remove(&key);
-            } else {
-                self.long.insert(key, at);
-            }
-        } else {
-            let key = (bytes.len() as u8, pack(bytes));
-            if at == NONE {
-                self.short.remove(&key);
-            } else {
-                self.short.insert(key, at);
-            }
-        }
-    }
-
-    /// Indexes every form of `secret`, touching the entries of its own forms only; returns its place.
-    fn insert(&mut self, secret: Arc<str>) -> u32 {
-        let forms = forms_of(&secret);
-        let cred = match self.free_creds.pop() {
-            Some(cred) => cred,
-            None => {
-                self.creds.push(None);
-                (self.creds.len() - 1) as u32
-            }
-        };
-        self.creds[cred as usize] = Some((secret, Vec::new()));
-        let mut placed = Vec::with_capacity(forms.len());
-        for (form, (bytes, kind)) in forms.into_iter().enumerate() {
-            let mut at = self.head(&bytes);
-            while at != NONE {
-                let record = self.record(at);
-                if bytes.len() <= 2 * PRINT || self.bytes_of(record) == bytes {
-                    break;
-                }
-                at = record.next;
-            }
-            if at == NONE {
-                at = self.new_record(&bytes);
-            }
-            self.records[at as usize].as_mut().expect("just found or made").owners.push(Owner { cred, form: form as u16, kind });
-            placed.push(at);
+    /// Indexes every form of `secret` at its place `cred`, touching the entries of its own forms only.
+    fn insert(&mut self, secret: &Arc<str>, cred: u32) {
+        for (form, (bytes, kind)) in forms_of(secret).into_iter().enumerate() {
+            let (first, last) = ends_of(&bytes);
+            let entry = Entry { secret: secret.clone(), form: form as u8, kind, len: bytes.len() as u32, first, last };
+            self.forms.insert(entry_key(&bytes, kind, cred, form), Arc::new(entry));
+            self.count(&bytes, true);
             #[cfg(test)]
             TOUCHED.with(|touched| touched.set(touched.get() + 1));
-        }
-        if let Some((_, records)) = self.creds[cred as usize].as_mut() {
-            *records = placed;
         }
         self.live += 1;
-        cred
     }
 
-    fn new_record(&mut self, bytes: &[u8]) -> u32 {
-        let record = Record { len: bytes.len() as u32, owners: Vec::new(), next: self.head(bytes) };
-        let at = match self.free_records.pop() {
-            Some(at) => {
-                self.records[at as usize] = Some(record);
-                at
-            }
-            None => {
-                self.records.push(Some(record));
-                (self.records.len() - 1) as u32
-            }
-        };
-        self.set_head(bytes, at);
-        if bytes.len() >= PRINT {
-            let lengths = self.heads.entry(pack(&bytes[..PRINT])).or_default();
-            match lengths.iter_mut().find(|(len, _)| *len == bytes.len() as u32) {
-                Some((_, records)) => *records += 1,
-                None => lengths.push((bytes.len() as u32, 1)),
-            }
-        } else {
-            self.short_lengths[bytes.len()] += 1;
-        }
-        *self.beginnings.entry(pack_left(&bytes[..bytes.len().min(PRINT)])).or_default() += 1;
-        at
-    }
-
-    /// Drops the credential at `cred` and every record only it had.
-    fn remove(&mut self, cred: u32) {
-        let Some((secret, placed)) = self.creds[cred as usize].take() else { return };
-        let forms = forms_of(&secret);
-        for (form, at) in placed.into_iter().enumerate() {
-            let record = self.records[at as usize].as_mut().expect("a credential's records are live");
-            if let Some(owner) = record.owners.iter().position(|owner| owner.cred == cred && usize::from(owner.form) == form) {
-                record.owners.swap_remove(owner);
-            }
-            if record.owners.is_empty() {
-                self.drop_record(at, &forms[form].0);
+    /// Drops every form of `secret` at its place `cred`.
+    fn remove(&mut self, secret: &str, cred: u32) {
+        for (form, (bytes, kind)) in forms_of(secret).into_iter().enumerate() {
+            if self.forms.remove(entry_key(&bytes, kind, cred, form)).is_some() {
+                self.count(&bytes, false);
             }
             #[cfg(test)]
             TOUCHED.with(|touched| touched.set(touched.get() + 1));
         }
-        self.free_creds.push(cred);
         self.live -= 1;
     }
 
-    fn drop_record(&mut self, at: u32, bytes: &[u8]) {
-        let next = self.record(at).next;
-        let head = self.head(bytes);
-        if head == at {
-            self.set_head(bytes, next);
-        } else {
-            let mut before = head;
-            while self.record(before).next != at {
-                before = self.record(before).next;
-            }
-            self.records[before as usize].as_mut().expect("a bucket holds live records").next = next;
-        }
+    /// One entry more (`up`) or less of a form of these bytes in the counts the scan reads.
+    fn count(&mut self, bytes: &[u8], up: bool) {
+        let step = |n: u32| if up { n + 1 } else { n.saturating_sub(1) };
         if bytes.len() >= PRINT {
-            let fingerprint = pack(&bytes[..PRINT]);
-            if let Some(lengths) = self.heads.get_mut(&fingerprint) {
-                if let Some(entry) = lengths.iter().position(|(len, _)| *len == bytes.len() as u32) {
-                    lengths[entry].1 -= 1;
-                    if lengths[entry].1 == 0 {
-                        lengths.swap_remove(entry);
-                    }
-                }
-                if lengths.is_empty() {
-                    self.heads.remove(&fingerprint);
-                }
+            let key = mix(pack(&bytes[..PRINT]));
+            let mut lengths: Vec<(u32, u32)> = self.heads.get(key).map_or_else(Vec::new, |lengths| lengths.to_vec());
+            match lengths.iter().position(|(len, _)| *len == bytes.len() as u32) {
+                Some(at) => lengths[at].1 = step(lengths[at].1),
+                None if up => lengths.push((bytes.len() as u32, 1)),
+                None => {}
+            }
+            lengths.retain(|(_, entries)| *entries > 0);
+            if lengths.is_empty() {
+                self.heads.remove(key);
+            } else {
+                self.heads.insert(key, lengths.into());
             }
         } else {
-            self.short_lengths[bytes.len()] -= 1;
+            self.short_lengths[bytes.len()] = step(self.short_lengths[bytes.len()]);
         }
-        let beginning = pack_left(&bytes[..bytes.len().min(PRINT)]);
-        if let Some(records) = self.beginnings.get_mut(&beginning) {
-            *records -= 1;
-            if *records == 0 {
-                self.beginnings.remove(&beginning);
+        let start = pack_left(&bytes[..bytes.len().min(PRINT)]);
+        match step(self.starts.get(start).copied().unwrap_or(0)) {
+            0 => {
+                self.starts.remove(start);
+            }
+            entries => {
+                self.starts.insert(start, entries);
             }
         }
-        self.records[at as usize] = None;
-        self.free_records.push(at);
     }
 
     /// Every form found in `bytes`, and each place a fingerprint was seen with the longest form it begins.
@@ -874,25 +976,23 @@ impl Index {
             window = (window << 8) | u64::from(byte);
             let end = at + 1;
             for &len in &short {
-                if end >= len
-                    && let Some(&first) = self.short.get(&(len as u8, window & ((1_u64 << (8 * len)) - 1)))
-                {
-                    self.verify(first, end - len, bytes, &mut found);
+                if end >= len {
+                    let part = window & ((1_u64 << (8 * len)) - 1);
+                    self.verify(bucket(part, 0, len), (part, 0), end - len, len, bytes, &mut found);
                 }
             }
             if end < PRINT {
                 continue;
             }
-            let Some(lengths) = self.heads.get(&window) else { continue };
+            let Some(lengths) = self.heads.get(mix(window)) else { continue };
             let start = end - PRINT;
             let mut longest = 0;
-            for &(len, _) in lengths {
+            for &(len, _) in lengths.iter() {
                 let len = len as usize;
                 longest = longest.max(len);
-                if start + len <= bytes.len()
-                    && let Some(&first) = self.long.get(&(window, len as u32, pack(&bytes[start + len - PRINT..start + len])))
-                {
-                    self.verify(first, start, bytes, &mut found);
+                if start + len <= bytes.len() {
+                    let last = pack(&bytes[start + len - PRINT..start + len]);
+                    self.verify(bucket(window, last, len), (window, last), start, len, bytes, &mut found);
                 }
             }
             begun.push((start, longest));
@@ -900,17 +1000,18 @@ impl Index {
         (found, begun)
     }
 
-    /// The second stage: the record of the bucket at `at` whose whole form is at `start`.
-    fn verify(&self, mut at: u32, start: usize, bytes: &[u8], found: &mut Vec<Found>) {
-        while at != NONE {
-            let record = self.record(at);
-            let end = start + record.len as usize;
-            if record.len as usize <= 2 * PRINT || self.bytes_of(record) == bytes[start..end] {
-                found.push((start, end, record.kind()));
-                return;
+    /// The second stage: the first entry of `bucket` (the loosest kind first) whose whole form is `bytes[start..start + len]`.
+    fn verify(&self, bucket: u64, ends: (u64, u64), start: usize, len: usize, bytes: &[u8], found: &mut Vec<Found>) {
+        let text = &bytes[start..start + len];
+        self.forms.visit_prefixed(bucket, 32, &mut |_, entry| {
+            let whole = entry.len as usize == len
+                && (entry.first, entry.last) == ends
+                && (len <= 2 * PRINT || form_of(&entry.secret, usize::from(entry.form)) == text);
+            if whole {
+                found.push((start, start + len, entry.kind));
             }
-            at = record.next;
-        }
+            whole
+        });
     }
 
     /// Where the earliest form that `bytes[..at]` may end inside begins: a fingerprint seen whose longest form goes on past
@@ -922,29 +1023,17 @@ impl Index {
 
     /// Whether a form begins with `part` (one to seven bytes).
     fn begins(&self, part: &[u8]) -> bool {
-        let low = pack_left(part);
-        let high = low | (u64::MAX >> (8 * part.len()));
-        self.beginnings.range(low..=high).next().is_some()
+        self.starts.visit_prefixed(pack_left(part), 8 * part.len() as u32, &mut |_, _| true)
     }
 
-    /// What the index holds in bytes, estimated from its containers' capacities: a hash entry its key, value and control
-    /// byte, a tree entry its key and value and half again, a vector its capacity, a credential its text.
+    /// What the index holds in bytes, estimated from its containers: every trie node with its slots, every entry and the
+    /// lengths a fingerprint lists (the credentials' text is the registry's, counted there).
     #[cfg(test)]
     fn footprint(&self) -> usize {
         use std::mem::size_of;
-        let records: usize = self.records.iter().flatten().map(|record| record.owners.capacity() * size_of::<Owner>()).sum();
-        let creds: usize = self.creds.iter().flatten().map(|(secret, placed)| secret.len() + 16 + placed.capacity() * 4).sum();
-        let heads: usize = self.heads.values().map(|lengths| lengths.capacity() * 8).sum();
-        self.creds.capacity() * size_of::<Option<(Arc<str>, Vec<u32>)>>()
-            + creds
-            + self.records.capacity() * size_of::<Option<Record>>()
-            + records
-            + self.long.capacity() * (size_of::<((u64, u32, u64), u32)>() + 1)
-            + self.heads.capacity() * (size_of::<(u64, Vec<(u32, u32)>)>() + 1)
-            + heads
-            + self.short.capacity() * (size_of::<((u8, u64), u32)>() + 1)
-            + self.beginnings.len() * size_of::<(u64, u32)>() * 3 / 2
-            + (self.free_creds.capacity() + self.free_records.capacity()) * 4
+        self.heads.footprint(|lengths| 16 + lengths.len() * size_of::<(u32, u32)>())
+            + self.forms.footprint(|_| 16 + size_of::<Entry>())
+            + self.starts.footprint(|_| 0)
     }
 
     /// `source` with every form held redacted (see [`Matcher::redact`]).
@@ -1057,7 +1146,7 @@ pub struct Matcher(Source);
 
 enum Source {
     Own(Box<Index>),
-    Registry(Arc<RwLock<Registry>>),
+    Registry(Arc<Registry>),
 }
 
 /// What [`Matcher::redact`] made of a text.
@@ -1072,8 +1161,10 @@ pub struct Redacted {
     pub changed: bool,
 }
 
-fn read(registry: &RwLock<Registry>) -> std::sync::RwLockReadGuard<'_, Registry> {
-    registry.read().unwrap_or_else(PoisonError::into_inner)
+#[cfg(test)]
+thread_local! {
+    /// Run by a scan of this thread once it holds its snapshot and before it reads it (a test parks a scan there).
+    pub(crate) static SCANNING: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 }
 
 impl Matcher {
@@ -1083,7 +1174,7 @@ impl Matcher {
         for credential in credentials.iter().filter(|c| !c.is_empty()) {
             if !seen.contains(&credential.as_str()) {
                 seen.push(credential);
-                index.insert(Arc::from(credential.as_str()));
+                index.insert(&Arc::from(credential.as_str()), seen.len() as u32 - 1);
             }
         }
         Self(Source::Own(Box::new(index)))
@@ -1095,23 +1186,32 @@ impl Matcher {
     }
 
     /// The matcher of what `registry` holds whenever a text is read.
-    pub fn of_registry(registry: Arc<RwLock<Registry>>) -> Self {
+    pub fn of_registry(registry: Arc<Registry>) -> Self {
         Self(Source::Registry(registry))
     }
 
     pub fn is_empty(&self) -> bool {
         match &self.0 {
             Source::Own(index) => index.is_empty(),
-            Source::Registry(registry) => read(registry).index.is_empty(),
+            Source::Registry(registry) => registry.snapshot().is_empty(),
         }
     }
 
     /// `source` with every credential redacted. `context` is what the text before it ended with; unless `last`, the end of
-    /// `source` that may still become (a part of) a credential is not consumed and waits for the next text.
+    /// `source` that may still become (a part of) a credential is not consumed and waits for the next text. Against a
+    /// registry, the text is read against the index as the registry holds it now, taken in O(1); no lock is held while it is
+    /// read, so no registration waits for it.
     pub fn redact(&self, source: &[u8], context: Context, last: bool) -> Redacted {
         match &self.0 {
             Source::Own(index) => index.redact(source, context, last),
-            Source::Registry(registry) => read(registry).index.redact(source, context, last),
+            Source::Registry(registry) => {
+                let index = registry.snapshot();
+                #[cfg(test)]
+                if let Some(park) = SCANNING.with(|hook| hook.borrow_mut().take()) {
+                    park();
+                }
+                index.redact(source, context, last)
+            }
         }
     }
 
@@ -1141,135 +1241,311 @@ impl Matcher {
     }
 }
 
-/// A value the registry holds: its place in the index, how many slots hold it now, and when it was retired.
+// ---------------------------------------------------------------------------------------------------------------------
+// The registry
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The line a value nothing holds waits in to be forgotten.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Line {
+    /// A value a source yielded once and yields no more: the oldest retirement goes first.
+    Retired,
+    /// A value no source ever yielded: the least recently carried goes first.
+    Carried,
+}
+
+/// What the registry holds of one value: its place in the index, how many sources yield it and how many exchanges in
+/// flight carry it, whether a source ever yielded it, and its place in a line while nothing holds it.
 struct Held {
     cred: u32,
-    pins: u32,
-    retired: Option<u64>,
+    sources: u32,
+    leases: u32,
+    owned: bool,
+    queued: Option<(Line, u64)>,
 }
 
-/// Every credential the process attached or keeps, by slot (see the module's rule): what a slot holds now is pinned, what
-/// it held before is retired, and over [`RETIRED_CAP`] retired values the oldest retired one goes.
-pub struct Registry {
+/// The values of one line, oldest first (an entry whose value was held again or queued later is stale), and how many are
+/// live.
+struct Queue {
+    order: VecDeque<(u64, Arc<str>)>,
+    live: usize,
     cap: usize,
-    index: Index,
-    held: HashMap<Arc<str>, Held>,
-    slots: HashMap<String, Vec<Arc<str>>>,
-    /// Retirements, oldest first (an entry whose value was pinned again or retired later is stale).
-    retired: VecDeque<(u64, Arc<str>)>,
-    retired_live: usize,
-    seq: u64,
 }
 
-impl Registry {
-    pub fn new(cap: usize) -> Self {
+impl Queue {
+    fn new(cap: usize) -> Self {
+        Self { order: VecDeque::new(), live: 0, cap }
+    }
+}
+
+/// The registry's own state, changed under its lock by registrations alone.
+struct Book {
+    /// The working copy of the index; published as a new snapshot after each change.
+    index: Index,
+    changed: bool,
+    held: HashMap<Arc<str>, Held>,
+    /// What each source yields now.
+    sources: HashMap<String, Vec<Arc<str>>>,
+    retired: Queue,
+    carried: Queue,
+    seq: u64,
+    free: Vec<u32>,
+    next: u32,
+}
+
+impl Book {
+    fn new(retired_cap: usize, carried_cap: usize) -> Self {
         Self {
-            cap,
             index: Index::default(),
+            changed: false,
             held: HashMap::new(),
-            slots: HashMap::new(),
-            retired: VecDeque::new(),
-            retired_live: 0,
+            sources: HashMap::new(),
+            retired: Queue::new(retired_cap),
+            carried: Queue::new(carried_cap),
             seq: 0,
+            free: Vec::new(),
+            next: 0,
         }
     }
 
-    /// `slot` holds `values` now: they are pinned, and what it held before and holds no more is retired. Each new value
-    /// costs the index entries of its own forms, whatever the registry holds.
-    pub fn keep(&mut self, slot: &str, values: &[&str]) {
-        let mut now: Vec<Arc<str>> = Vec::new();
-        for value in values.iter().map(|value| value.trim()).filter(|value| !value.is_empty()) {
-            if !now.iter().any(|known| &**known == value) {
-                now.push(self.pin(value));
+    /// The registry's copy of `value`, indexed (its own entries only) when new, out of its line when it waited in one.
+    fn take(&mut self, value: &str) -> Arc<str> {
+        if let Some((known, held)) = self.held.get_key_value(value) {
+            let known = known.clone();
+            if let Some((line, _)) = held.queued {
+                match line {
+                    Line::Retired => self.retired.live -= 1,
+                    Line::Carried => self.carried.live -= 1,
+                }
+                self.held.get_mut(value).expect("just found").queued = None;
+            }
+            return known;
+        }
+        let cred = self.free.pop().unwrap_or_else(|| {
+            self.next += 1;
+            self.next - 1
+        });
+        let value: Arc<str> = Arc::from(value);
+        self.index.insert(&value, cred);
+        self.changed = true;
+        self.held.insert(value.clone(), Held { cred, sources: 0, leases: 0, owned: false, queued: None });
+        value
+    }
+
+    /// Once nothing holds `value`, it waits in its line: retired when a source ever yielded it, else by its last carry.
+    fn settle(&mut self, value: &Arc<str>) {
+        let Some(held) = self.held.get_mut(value) else { return };
+        if held.sources > 0 || held.leases > 0 || held.queued.is_some() {
+            return;
+        }
+        self.seq += 1;
+        let line = if held.owned { Line::Retired } else { Line::Carried };
+        held.queued = Some((line, self.seq));
+        let queue = match line {
+            Line::Retired => &mut self.retired,
+            Line::Carried => &mut self.carried,
+        };
+        queue.order.push_back((self.seq, value.clone()));
+        queue.live += 1;
+    }
+
+    /// Over a line's cap, its oldest values are forgotten; a value a source yields or an exchange carries never is.
+    fn evict(&mut self) {
+        for (line, queue) in [(Line::Retired, &mut self.retired), (Line::Carried, &mut self.carried)] {
+            while queue.live > queue.cap {
+                let Some((seq, value)) = queue.order.pop_front() else { break };
+                if self.held.get(&value).is_some_and(|held| held.queued == Some((line, seq))) {
+                    let held = self.held.remove(&value).expect("just found");
+                    self.index.remove(&value, held.cred);
+                    self.changed = true;
+                    self.free.push(held.cred);
+                    queue.live -= 1;
+                }
+            }
+            if queue.order.len() > 2 * queue.live + 64 {
+                let held = &self.held;
+                queue.order.retain(|(seq, value)| held.get(value).is_some_and(|held| held.queued == Some((line, *seq))));
             }
         }
-        let before = if now.is_empty() { self.slots.remove(slot) } else { self.slots.insert(slot.to_owned(), now) };
+    }
+
+    fn keep(&mut self, source: &str, values: &[&str]) {
+        let mut now: Vec<Arc<str>> = Vec::new();
+        for value in values.iter().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+            if now.iter().any(|known| &**known == value) {
+                continue;
+            }
+            let value = self.take(value);
+            let held = self.held.get_mut(&value).expect("just taken");
+            held.sources += 1;
+            held.owned = true;
+            now.push(value);
+        }
+        let before = if now.is_empty() { self.sources.remove(source) } else { self.sources.insert(source.to_owned(), now) };
         for value in before.unwrap_or_default() {
-            self.unpin(&value);
+            if let Some(held) = self.held.get_mut(&value) {
+                held.sources -= 1;
+            }
+            self.settle(&value);
         }
         self.evict();
     }
 
-    fn pin(&mut self, value: &str) -> Arc<str> {
-        if let Some((known, _)) = self.held.get_key_value(value) {
-            let known = known.clone();
-            let held = self.held.get_mut(value).expect("just found");
-            held.pins += 1;
-            if held.retired.take().is_some() {
-                self.retired_live -= 1;
+    fn lease(&mut self, values: &[String]) -> Vec<Arc<str>> {
+        let mut leased: Vec<Arc<str>> = Vec::with_capacity(values.len());
+        for value in values.iter().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+            if leased.iter().any(|known| &**known == value) {
+                continue;
             }
-            return known;
+            let value = self.take(value);
+            self.held.get_mut(&value).expect("just taken").leases += 1;
+            leased.push(value);
         }
-        let value: Arc<str> = Arc::from(value);
-        let cred = self.index.insert(value.clone());
-        self.held.insert(value.clone(), Held { cred, pins: 1, retired: None });
-        value
+        leased
     }
 
-    fn unpin(&mut self, value: &Arc<str>) {
-        let Some(held) = self.held.get_mut(value) else { return };
-        held.pins -= 1;
-        if held.pins == 0 {
-            self.seq += 1;
-            held.retired = Some(self.seq);
-            self.retired.push_back((self.seq, value.clone()));
-            self.retired_live += 1;
+    fn release(&mut self, leased: &[Arc<str>]) {
+        for value in leased {
+            if let Some(held) = self.held.get_mut(value) {
+                held.leases -= 1;
+            }
+            self.settle(value);
         }
+        self.evict();
+    }
+}
+
+/// How many values the registry holds: those a source yields or an exchange carries, the retired ones and the carried ones
+/// no source yields.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Counts {
+    pub held: usize,
+    pub retired: usize,
+    pub carried: usize,
+}
+
+/// Every credential the process read out of a source or attached to an exchange (see the module's rule). Registrations
+/// change the book under its lock; scans read the published snapshot, taken in O(1), and hold nothing while they read it.
+pub struct Registry {
+    book: Mutex<Book>,
+    published: RwLock<Arc<Index>>,
+}
+
+impl Registry {
+    /// A registry keeping at most `retired_cap` retired values and `carried_cap` values no source yields.
+    pub fn new(retired_cap: usize, carried_cap: usize) -> Self {
+        Self { book: Mutex::new(Book::new(retired_cap, carried_cap)), published: RwLock::new(Arc::new(Index::default())) }
     }
 
-    /// Over the cap, the oldest retired values go; a pinned value never does.
-    fn evict(&mut self) {
-        while self.retired_live > self.cap {
-            let Some((seq, value)) = self.retired.pop_front() else { break };
-            if self.held.get(&value).is_some_and(|held| held.retired == Some(seq)) {
-                let held = self.held.remove(&value).expect("just found");
-                self.index.remove(held.cred);
-                self.retired_live -= 1;
-            }
+    /// The index as the registry holds it now: one pointer, copied under a lock held for that copy alone.
+    fn snapshot(&self) -> Arc<Index> {
+        self.published.read().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Runs `change` on the book, then publishes its index if it changed (a pointer, under the snapshot lock for that alone).
+    fn change<R>(&self, change: impl FnOnce(&mut Book) -> R) -> R {
+        let mut book = self.book.lock().unwrap_or_else(PoisonError::into_inner);
+        let out = change(&mut book);
+        if std::mem::take(&mut book.changed) {
+            let snapshot = Arc::new(book.index.clone());
+            *self.published.write().unwrap_or_else(PoisonError::into_inner) = snapshot;
         }
-        if self.retired.len() > 2 * self.retired_live + 64 {
-            let held = &self.held;
-            self.retired.retain(|(seq, value)| held.get(value).is_some_and(|held| held.retired == Some(*seq)));
-        }
+        out
+    }
+
+    /// `source` yields `values` now: they are pinned, and what it yielded before and yields no more is retired (unless
+    /// another source still yields it or an exchange carries it). Each new value costs the index entries of its own forms,
+    /// whatever the registry holds; a value it holds already costs a lookup.
+    pub fn keep(&self, source: &str, values: &[&str]) {
+        self.change(|book| book.keep(source, values));
+    }
+
+    fn release(&self, leased: &[Arc<str>]) {
+        self.change(|book| book.release(leased));
     }
 
     /// Whether `value` is a credential the registry holds.
     pub fn holds(&self, value: &str) -> bool {
-        self.held.contains_key(value)
+        self.book.lock().unwrap_or_else(PoisonError::into_inner).held.contains_key(value)
     }
 
-    /// How many values are pinned, and how many retired.
-    pub fn counts(&self) -> (usize, usize) {
-        (self.held.len() - self.retired_live, self.retired_live)
+    pub fn counts(&self) -> Counts {
+        let book = self.book.lock().unwrap_or_else(PoisonError::into_inner);
+        Counts { held: book.held.len() - book.retired.live - book.carried.live, retired: book.retired.live, carried: book.carried.live }
     }
 
-    /// The bytes the registry's index holds (an estimate from its containers' capacities).
+    /// The bytes the registry's index and values hold (an estimate from their containers).
     #[cfg(test)]
     pub(crate) fn footprint(&self) -> usize {
-        self.index.footprint()
+        let book = self.book.lock().unwrap_or_else(PoisonError::into_inner);
+        let values: usize = book.held.keys().map(|value| 16 + value.len() + std::mem::size_of::<Held>() + 16).sum();
+        book.index.footprint() + values
+    }
+
+    /// Forgets everything (a replay starts as a new process).
+    fn reset(&self) {
+        let mut book = self.book.lock().unwrap_or_else(PoisonError::into_inner);
+        let caps = (book.retired.cap, book.carried.cap);
+        *book = Book::new(caps.0, caps.1);
+        *self.published.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(Index::default());
     }
 }
 
-static REGISTRY: LazyLock<Arc<RwLock<Registry>>> = LazyLock::new(|| Arc::new(RwLock::new(Registry::new(RETIRED_CAP))));
-
-fn write() -> std::sync::RwLockWriteGuard<'static, Registry> {
-    REGISTRY.write().unwrap_or_else(PoisonError::into_inner)
+/// The credentials one exchange carries, held while the exchange is in flight: a value its source replaces while the
+/// response still streams stays a credential of that stream, whatever is retired after it. Dropped with the exchange.
+pub struct Lease {
+    registry: Arc<Registry>,
+    values: Vec<Arc<str>>,
 }
+
+impl Lease {
+    fn of(registry: &Arc<Registry>, values: &[String]) -> Self {
+        let values = if values.is_empty() { Vec::new() } else { registry.change(|book| book.lease(values)) };
+        Self { registry: registry.clone(), values }
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if !self.values.is_empty() {
+            self.registry.release(&self.values);
+        }
+    }
+}
+
+static REGISTRY: LazyLock<Arc<Registry>> = LazyLock::new(|| Arc::new(Registry::new(RETIRED_CAP, CARRIED_CAP)));
 
 /// A replay starts as a new process: the registry is empty.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_registry() {
-    *write() = Registry::new(RETIRED_CAP);
+    REGISTRY.reset();
 }
 
-/// A provider's own sign-in, refresh or load path names what `slot` (its account) holds now: every credential it keeps,
-/// whatever field it read it from.
-pub fn keep(slot: &str, values: &[&str]) {
-    write().keep(slot, values);
+/// The process registry (its counts, for a test).
+#[cfg(any(test, feature = "test-support"))]
+pub fn registry() -> Arc<Registry> {
+    REGISTRY.clone()
 }
 
-/// The matcher of every credential this process attached or keeps, read as the registry is at each text: a response that
-/// began before a credential was attached is searched for it from its next text on.
+/// `source` (a key variable, a keychain entry, a configured key, an account's credential file, the exchange that handed
+/// a token over) yields `values` now, read out of it before any request or text can carry them: they are credentials from
+/// this moment, pinned while the source yields them; what it yielded before is retired.
+pub fn keep(source: &str, values: &[&str]) {
+    REGISTRY.keep(source, values);
+}
+
+/// The source of a token an exchange hands over for the account of credential `of` (a session JWT, an exchanged access
+/// token): named by a hash of that credential, never its text, so one account's next token replaces its last.
+pub fn derived_source(kind: &str, of: &str) -> String {
+    use std::hash::Hash as _;
+    use std::hash::Hasher as _;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    of.hash(&mut hasher);
+    format!("{kind} {:016x}", hasher.finish())
+}
+
+/// The matcher of every credential this process read or attached, read as the registry is at each text: a response that
+/// began before a credential was registered is searched for it from its next text on.
 pub fn remembered() -> Arc<Matcher> {
     Arc::new(Matcher::of_registry(REGISTRY.clone()))
 }

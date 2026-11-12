@@ -1,4 +1,3 @@
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -451,50 +450,129 @@ fn a_megabyte_stream_with_five_credentials() {
 
 // ---- the registry ------------------------------------------------------------------------------------------------------
 
-fn shared(cap: usize) -> Arc<std::sync::RwLock<Registry>> {
-    Arc::new(std::sync::RwLock::new(Registry::new(cap)))
+fn registry(retired: usize, carried: usize) -> Arc<Registry> {
+    Arc::new(Registry::new(retired, carried))
 }
 
-/// What a slot holds now is pinned: however many values are retired after them, a static key and the current token of
-/// every account stay. Over the cap the oldest retired value goes first, and a value a slot holds again is pinned again.
+/// A value is pinned while a source yields it: however many values other sources retire after it, a static key and the
+/// current token of every account stay. Only a value its own source replaced retires, the oldest retired going first over
+/// the cap; a value two sources yield stays until both have let go; a retired value a source yields again is pinned again.
 #[test]
-fn the_registry_drops_only_the_oldest_retired_values_over_its_cap() {
-    let mut registry = Registry::new(4);
-    registry.keep("https://static.test x-api-key", &["static-key-0001"]);
-    registry.keep("account a", &["access-a-0", "refresh-a-0"]);
+fn only_a_value_its_own_source_replaced_retires_and_the_oldest_retired_goes_first() {
+    let registry = registry(4, 4);
+    registry.keep("env STATIC_API_KEY", &["static-key-0001"]);
+    registry.keep("file account-a.json", &["access-a-0", "refresh-a-0"]);
+    // Account c's file and a keychain entry hold one value: it stays until both let go.
+    registry.keep("file account-c.json", &["shared-value-of-two-sources"]);
+    registry.keep("keychain agent.c.apiKey", &["shared-value-of-two-sources"]);
     for i in 1..=3 {
-        registry.keep("account b", &[&format!("access-b-{i}")]);
+        registry.keep("file account-b.json", &[&format!("access-b-{i}")]);
     }
     // The refresh keeps the refresh token: only the access token retires.
-    registry.keep("account a", &["access-a-1", "refresh-a-0"]);
+    registry.keep("file account-a.json", &["access-a-1", "refresh-a-0"]);
+    registry.keep("file account-c.json", &[]);
     for i in 4..=6 {
-        registry.keep("account b", &[&format!("access-b-{i}")]);
+        registry.keep("file account-b.json", &[&format!("access-b-{i}")]);
     }
-    // Retired in turn: b-1, b-2, a-0, b-3, b-4, b-5; the cap keeps the last four.
-    assert_eq!(registry.counts(), (4, 4));
+    // Retired in turn: b-1, b-2, a-0, b-3, b-4, b-5; the cap keeps the last four. The shared value has one source left.
+    assert_eq!(registry.counts(), Counts { held: 5, retired: 4, carried: 0 });
     for gone in ["access-b-1", "access-b-2"] {
         assert!(!registry.holds(gone), "{gone}");
     }
-    for kept in ["static-key-0001", "refresh-a-0", "access-a-1", "access-b-6", "access-a-0", "access-b-3", "access-b-4", "access-b-5"] {
+    for kept in ["static-key-0001", "refresh-a-0", "access-a-1", "access-b-6", "shared-value-of-two-sources", "access-a-0", "access-b-3", "access-b-4", "access-b-5"] {
         assert!(registry.holds(kept), "{kept}");
     }
-    registry.keep("account c", &["access-a-0"]);
-    assert_eq!(registry.counts(), (5, 3), "a retired value held again is pinned again");
-    let scrub = Matcher::of_registry(Arc::new(std::sync::RwLock::new(registry)));
+    registry.keep("keychain agent.c.apiKey", &[]);
+    assert_eq!(registry.counts(), Counts { held: 4, retired: 4, carried: 0 }, "the second source let go: the shared value retired, a-0 went");
+    assert!(!registry.holds("access-a-0") && registry.holds("shared-value-of-two-sources"));
+    registry.keep("file account-d.json", &["access-b-3"]);
+    assert_eq!(registry.counts(), Counts { held: 5, retired: 3, carried: 0 }, "a retired value a source yields again is pinned again");
+    let scrub = Matcher::of_registry(registry);
     assert_eq!(scrub.redact_str("key static-key-0001 and access-b-3, not access-b-1"), "key [REDACTED] and [REDACTED], not access-b-1");
+}
+
+/// A value seen only on requests retires nothing: two accounts carrying their keys in one origin's `authorization` keep
+/// both. Once no exchange carries it, such a value is kept by recency of use, each carry making it the newest, among the
+/// cap's last; the least recently carried goes first, and nothing a source yields is touched.
+#[test]
+fn a_value_seen_only_on_requests_retires_nothing_and_is_kept_by_recency_of_use() {
+    let registry = registry(4, 3);
+    registry.keep("config xai", &["configured-key-of-a"]);
+    let carry = |value: &str| drop(Lease::of(&registry, &[value.to_owned()]));
+    carry("configured-key-of-a");
+    carry("stray-1");
+    carry("stray-2");
+    carry("stray-3");
+    // In flight, a value is held whatever the cap.
+    let in_flight = Lease::of(&registry, &["stray-in-flight".to_owned()]);
+    carry("stray-1");
+    carry("stray-4");
+    // Carried in turn (newest last): 2, 3, 1, 4. The cap keeps three.
+    assert_eq!(registry.counts(), Counts { held: 2, retired: 0, carried: 3 });
+    assert!(!registry.holds("stray-2"));
+    for kept in ["configured-key-of-a", "stray-in-flight", "stray-3", "stray-1", "stray-4"] {
+        assert!(registry.holds(kept), "{kept}");
+    }
+    drop(in_flight);
+    assert!(!registry.holds("stray-3"), "the exchange ended: its value is the newest, the oldest goes");
+    assert_eq!(registry.counts(), Counts { held: 1, retired: 0, carried: 3 });
 }
 
 /// A credential the registry holds is found in the text of any later exchange, in any encoding, the retired one of a
 /// refreshed token included.
 #[test]
 fn the_registry_finds_an_old_credential_in_any_encoding() {
-    let registry = shared(RETIRED_CAP);
-    registry.write().unwrap().keep("account", &["old-credential-of-a-refreshed-token", "key/with+chars-77aa"]);
-    registry.write().unwrap().keep("account", &["the-new-credential-of-the-token"]);
+    let registry = registry(RETIRED_CAP, CARRIED_CAP);
+    registry.keep("file account.json", &["old-credential-of-a-refreshed-token", "key/with+chars-77aa"]);
+    registry.keep("file account.json", &["the-new-credential-of-the-token"]);
     let scrub = Matcher::of_registry(registry);
     assert_eq!(scrub.redact_str("previous value old-credential-of-a-refreshed-token"), "previous value [REDACTED]");
     assert_eq!(scrub.redact_str("key%2Fwith%2Bchars-77aa and key&#47;with&#43;chars-77aa"), "[REDACTED] and [REDACTED]");
     assert_eq!(scrub.redacted(b"nothing of the kind"), None);
+}
+
+/// A scan reads the index as the registry held it when the scan began, holding no lock: a registration made while a scan
+/// is parked inside its read finishes at once (review 1124n P2: the scan held the registry's read guard through the whole
+/// redaction, and a registration waited for its write lock). The next scan reads the new value.
+#[test]
+fn a_scan_holds_no_lock_and_a_registration_never_waits_for_it() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let registry = registry(RETIRED_CAP, CARRIED_CAP);
+    registry.keep("file before.json", &["registered-before-the-scan-3c1a"]);
+    let scrub = Arc::new(Matcher::of_registry(registry.clone()));
+    let text = "one registered-before-the-scan-3c1a two registered-during-the-scan-9e7b";
+    let (parked, parked_seen) = mpsc::channel::<()>();
+    let (resume, resumed) = mpsc::channel::<()>();
+    let scanner = std::thread::spawn({
+        let scrub = scrub.clone();
+        move || {
+            SCANNING.with(|hook| {
+                *hook.borrow_mut() = Some(Box::new(move || {
+                    parked.send(()).expect("the test waits for the parked scan");
+                    resumed.recv().expect("the test resumes the scan");
+                }))
+            });
+            scrub.redact_str(text)
+        }
+    });
+    parked_seen.recv_timeout(Duration::from_secs(60)).expect("the scan parked once it held its snapshot");
+    let (registered, registered_seen) = mpsc::channel::<()>();
+    let registering = std::thread::spawn({
+        let registry = registry.clone();
+        move || {
+            registry.keep("file during.json", &["registered-during-the-scan-9e7b"]);
+            registered.send(()).expect("the test waits for the registration");
+        }
+    });
+    let finished = registered_seen.recv_timeout(Duration::from_secs(20));
+    resume.send(()).expect("the scan is parked");
+    registering.join().expect("the registration");
+    let scanned = scanner.join().expect("the scan");
+    assert!(finished.is_ok(), "the registration waited for a scan that was parked inside its read");
+    assert_eq!(scanned, "one [REDACTED] two registered-during-the-scan-9e7b", "the scan read the index of its beginning");
+    assert_eq!(scrub.redact_str(text), "one [REDACTED] two [REDACTED]");
 }
 
 /// A credential at least this long: one a random text of the generated test does not hold by chance.
@@ -509,15 +587,15 @@ fn long_credential(rng: &mut Rng) -> String {
 
 /// The registry changes under a stream: each round registers a random credential after its stream began (its first chunk
 /// ends before the credential's encoding does), the rest arriving in random chunks, and none of its encodings leaves. The
-/// registry holds 2,000 more values besides, far over the old cap of 512, the oldest retired first; a random one of them
-/// (the oldest every tenth round) under random encodings is found as well.
+/// registry holds 2,000 more values besides, retired one after the other by their account's refreshes; a random one of
+/// them (the oldest every tenth round) under random encodings is found as well.
 #[test]
 fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
     let mut rng = Rng(0xD1B5_4A32_D192_ED03);
-    let registry = shared(RETIRED_CAP);
+    let registry = registry(RETIRED_CAP, CARRIED_CAP);
     let others: Vec<String> = (0..2000).map(|_| long_credential(&mut rng)).collect();
     for other in &others {
-        registry.write().unwrap().keep("one account refreshed 2,000 times", &[other]);
+        registry.keep("file one account refreshed 2,000 times", &[other]);
     }
     let scrub = Arc::new(Matcher::of_registry(registry.clone()));
     for round in 0..1000 {
@@ -528,7 +606,7 @@ fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
         let mut stream = Stream::new(scrub.clone());
         let mut at = rng.below(head.len() + 1);
         let mut clean = stream.push(&text[..at]);
-        registry.write().unwrap().keep("the account of the round", &[&secret]);
+        registry.keep("file the account of the round", &[&secret]);
         while at < text.len() {
             let len = 1 + rng.below(text.len() - at);
             clean.extend(stream.push(&text[at..at + len]));
@@ -544,34 +622,44 @@ fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
     }
 }
 
-/// The cost of knowing many credentials: 512 and 10,000 JWT-sized values (1.2 KiB, the most an access token takes), each
-/// registered as the refresh of one account that retires the one before; one more value (what a send does before it is
-/// dispatched) touches the entries of its own 28 forms whatever the registry holds; the index's size; one pass of a 1 MiB
-/// stream in 16 KiB chunks. The figures are printed (`--nocapture`); the stream, holding none of them, arrives unchanged,
-/// and the first value registered is still found.
+/// The bounds, at 512 and 10,000 JWT-sized values (1.2 KiB, the most an access token takes), each a source's own (10,000
+/// is more than the caps let the registry hold besides what sources yield: 8,192):
+/// - one more value (what a send does before it is dispatched) touches the entries of its own 28 forms, whatever the
+///   registry holds (asserted);
+/// - the registry's estimated bytes a value (asserted under 16 KiB);
+/// - the registration latency while two threads scan 1 MiB texts (the largest chunk) against the registry without pause;
+/// - one scan of 1 MiB in 64 chunks.
+///
+/// Timings are printed (`--nocapture`; the release profile's are the commit's figures).
 #[test]
 fn registries_of_512_and_10000_jwt_sized_values() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut part = |len: usize| -> String { (0..len).map(|_| char::from(URL[rng.below(URL.len())])).collect() };
-    let values: Vec<String> = (0..10_000).map(|_| format!("eyJ{}.{}.{}", part(36), part(800), part(340))).collect();
+    let values: Vec<String> = (0..10_200).map(|_| format!("eyJ{}.{}.{}", part(36), part(800), part(340))).collect();
     let event = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"the quick brown fox \\u00e9 jumps\"}}\n\n";
-    let text: Vec<u8> = event.as_bytes().iter().copied().cycle().take(1 << 20).collect();
+    let text: Arc<Vec<u8>> = Arc::new(event.as_bytes().iter().copied().cycle().take(1 << 20).collect());
     for count in [512, 10_000] {
-        let registry = shared(RETIRED_CAP);
+        let registry = registry(RETIRED_CAP, CARRIED_CAP);
         let started = std::time::Instant::now();
-        for value in &values[..count - 1] {
-            registry.write().unwrap().keep("an account", &[value]);
+        for (n, value) in values[..count - 1].iter().enumerate() {
+            registry.keep(&format!("file account-{n}.json"), &[value]);
         }
         let filled = started.elapsed();
         let before = touched();
         let started = std::time::Instant::now();
-        registry.write().unwrap().keep("an account", &[&values[count - 1]]);
+        registry.keep("file the last account.json", &[&values[count - 1]]);
         let one_more = started.elapsed();
         let entries = touched() - before;
         assert_eq!(entries, 28, "one JWT: itself and its three segments, each raw and as six base64 cores");
-        let footprint = registry.read().unwrap().footprint();
+        assert_eq!(registry.counts(), Counts { held: count, retired: 0, carried: 0 });
+        let footprint = registry.footprint();
+        assert!(footprint / count < 16 << 10, "{} bytes a value", footprint / count);
         let scrub = Arc::new(Matcher::of_registry(registry.clone()));
+        // One scan of the largest chunk, alone.
         let started = std::time::Instant::now();
         let mut stream = Stream::new(scrub.clone());
         let mut out = Vec::with_capacity(text.len());
@@ -580,13 +668,58 @@ fn registries_of_512_and_10000_jwt_sized_values() {
         }
         out.extend(stream.finish());
         let scanned = started.elapsed();
-        assert!(out == text, "the stream holds no credential");
-        assert_eq!(scrub.redact_str(&format!("echo {} end", values[0])), "echo [REDACTED] end");
+        assert!(out == *text, "the stream holds no credential");
+        let started = std::time::Instant::now();
+        assert_eq!(scrub.redacted(&text), None);
+        let whole = started.elapsed();
+        // The whole pass's two parts: the canonical view, then the two-stage lookup in the index.
+        let started = std::time::Instant::now();
+        let (view, _, _) = canonical(&text, Context::default(), true);
+        let viewed = started.elapsed();
+        let index = registry.snapshot();
+        let started = std::time::Instant::now();
+        let (found, _) = index.scan(&view.bytes);
+        let looked_up = started.elapsed();
+        assert!(found.is_empty());
+        let tries = (index.heads.footprint(|l| 16 + l.len() * 8), index.forms.footprint(|_| 16 + std::mem::size_of::<Entry>()), index.starts.footprint(|_| 0));
+        println!("forms trie shape (nodes, slots allocated, leaves, depth): {:?}; heads {:?}", index.forms.shape(), index.heads.shape());
+        // Registrations while two scanners read 1 MiB texts against the registry without pause.
+        let scanning = Arc::new(AtomicBool::new(true));
+        let scanners: Vec<_> = (0..2)
+            .map(|_| {
+                let (scrub, text, scanning) = (scrub.clone(), text.clone(), scanning.clone());
+                std::thread::spawn(move || {
+                    let mut scans = 0;
+                    while scanning.load(Ordering::Relaxed) {
+                        assert!(scrub.redacted(&text).is_none());
+                        scans += 1;
+                    }
+                    scans
+                })
+            })
+            .collect();
+        let mut latencies: Vec<std::time::Duration> = values[10_000..10_200]
+            .iter()
+            .enumerate()
+            .map(|(n, value)| {
+                let started = std::time::Instant::now();
+                registry.keep(&format!("file a registration during the scans {n}.json"), &[value]);
+                started.elapsed()
+            })
+            .collect();
+        scanning.store(false, Ordering::Relaxed);
+        let scans: usize = scanners.into_iter().map(|scanner| scanner.join().expect("a scanner")).sum();
+        latencies.sort();
+        assert_eq!(scrub.redact_str(&format!("echo {} and {} end", values[0], values[10_199])), "echo [REDACTED] and [REDACTED] end");
         println!(
-            "{count} JWT-sized values: registered one by one in {filled:?} ({:?} each), one more {one_more:?} touching {entries} entries, index ~{} MiB ({} bytes a value), 1 MiB in 64 chunks {scanned:?}",
+            "{count} JWT-sized values: registered in {filled:?} ({:?} each), one more {one_more:?} touching {entries} entries; ~{} MiB ({} bytes a value; tries heads/forms/starts {:?} bytes a value); 1 MiB scanned in 64 chunks {scanned:?}, whole {whole:?} ({:.1} MiB/s: view {viewed:?}, lookup {looked_up:?}); 200 registrations during {scans} scans of 1 MiB on two threads: median {:?}, max {:?}",
             filled / (count as u32 - 1),
             footprint >> 20,
-            footprint / count
+            footprint / count,
+            (tries.0 / count, tries.1 / count, tries.2 / count),
+            1.0 / whole.as_secs_f64(),
+            latencies[latencies.len() / 2],
+            latencies[latencies.len() - 1],
         );
     }
 }
