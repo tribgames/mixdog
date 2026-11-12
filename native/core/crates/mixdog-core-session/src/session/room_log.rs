@@ -68,28 +68,41 @@ impl SessionRoomLog {
 #[async_trait]
 impl RoomLog for SessionRoomLog {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<usize, CoreError> {
-        let unavailable = || CoreError::DomainError {
+        let handle = open_for_post(&self.directory, session_id).await?;
+        post(&handle, messages, CallContext::internal("room-log")).await
+    }
+}
+
+/// The room log opened for a post: one that is gone or closing is refused as `session <id> is not available`.
+pub async fn open_for_post(directory: &SessionDirectory, session_id: &str) -> Result<Arc<super::SessionHandle>, CoreError> {
+    let thread = ThreadId::from(session_id);
+    directory.open_handle(&thread, &CallContext::internal("room-log")).await.map_err(|error| unavailable(session_id, error))
+}
+
+/// `session <id> is not available`: a log that is gone or closing (Node's `commit`, and the refusal of a save its
+/// generation fence dropped).
+fn unavailable(session_id: &str, error: CoreError) -> CoreError {
+    match error {
+        CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. } => CoreError::DomainError {
             domain: "session".into(),
             code: None,
             message: Some(format!("session {session_id} is not available").into()),
             detail: None,
-        };
-        let gone = |error: CoreError| match error {
-            CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. } => unavailable(),
-            other => other,
-        };
-        let ctx = CallContext::internal("room-log");
-        let thread = ThreadId::from(session_id);
-        let handle = self.directory.open_handle(&thread, &ctx).await.map_err(gone)?;
-        let request = CoreRequest {
-            method: mixdog_core_api::ids::Method("thread/roomRows/append"),
-            params: json!({ "messages": messages }),
-            op: None,
-            ctx,
-        };
-        match handle.request(request).await.map_err(gone)? {
-            Reply::Value(value) => Ok(value["added"].as_u64().unwrap_or(0) as usize),
-            _ => Ok(0),
-        }
+        },
+        other => other,
+    }
+}
+
+/// The post itself, on a log already opened (what [`RoomLog::append_rows`] does after it opened the log): a log that closes
+/// before the rows are taken in refuses them.
+pub async fn post_on_opened(handle: &super::SessionHandle, messages: Vec<Value>) -> Result<usize, CoreError> {
+    post(handle, messages, CallContext::internal("room-log")).await
+}
+
+async fn post(handle: &super::SessionHandle, messages: Vec<Value>, ctx: CallContext) -> Result<usize, CoreError> {
+    let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+    match handle.request(request).await.map_err(|error| unavailable(handle.id.as_str(), error))? {
+        Reply::Value(value) => Ok(value["added"].as_u64().unwrap_or(0) as usize),
+        _ => Ok(0),
     }
 }

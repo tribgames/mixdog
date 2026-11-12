@@ -82,6 +82,41 @@ const PROFILES: [(&str, ModelProfile); 3] = [
     ),
 ];
 
+/// The embedding settings Node reads from the environment (`embedding-model-config.mjs`):
+/// `MIXDOG_EMBED_MODEL` and `MIXDOG_EMBED_DTYPE`, unset when absent.
+#[derive(Debug, Clone, Default)]
+pub struct EmbedEnv {
+    pub model: Option<String>,
+    pub dtype: Option<String>,
+}
+
+impl EmbedEnv {
+    pub fn from_process() -> Self {
+        Self { model: std::env::var("MIXDOG_EMBED_MODEL").ok(), dtype: std::env::var("MIXDOG_EMBED_DTYPE").ok() }
+    }
+
+    /// `getConfiguredEmbeddingModelId`: the trimmed model setting, else the default model.
+    pub fn model_id(&self) -> String {
+        let model = js_trim(self.model.as_deref().unwrap_or_default());
+        if model.is_empty() { DEFAULT_MODEL_ID.to_owned() } else { model.to_owned() }
+    }
+
+    /// `getDefaultEmbeddingDtype`: the dtype setting when `model_id` supports it, else its default.
+    pub fn dtype(&self, model_id: &str) -> String {
+        normalize_dtype(model_id, self.dtype.as_deref())
+    }
+}
+
+/// `getDefaultEmbeddingDevice`: the profile's device, `auto` for a model without one.
+pub fn default_device(model_id: &str) -> &'static str {
+    profile(model_id).map_or("auto", |p| p.default_device)
+}
+
+/// `getEmbeddingOutputName`: no profile names an output, so the graph's first output is read.
+pub fn output_name(_model_id: &str) -> &'static str {
+    ""
+}
+
 pub fn profile(model_id: &str) -> Option<&'static ModelProfile> {
     PROFILES.iter().find(|(id, _)| *id == js_trim(model_id)).map(|(_, profile)| profile)
 }

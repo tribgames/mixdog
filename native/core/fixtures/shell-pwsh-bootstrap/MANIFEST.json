@@ -1,0 +1,52 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs --tree <b6f10295a with the patch> --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch --spawn-bin <mixdog-spawn.exe of that tree>",
+  "exclusions": [
+    "MIXDOG_SHELL_WARM_STANDBY=0: every call is a fresh spawn; a parked standby runs the same bootstrap"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2065,
+      "path": "golden.json",
+      "sha256": "1962b8f8bfec1cca1f0a9ac7e8ec17f25fea1ffe77d0111b68af8ea0a4b5d10d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs",
+        "src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs",
+        "src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs"
+      ],
+      "sha256": "39b7bed6e2337b97e35dbf0ff37d6dd30ebc11cf7cfadeb04d6a268dff682eac"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 3
+    },
+    "srcSha256": "867c8ff32ca0380fd5f47840cf8257f13fc9bce519b0f9ed6527d67b556a6adc",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs",
+  "recorderSha256": "ad77e2a16c99b544587a29927e24dbfc30d91350c5162fa157de151146a6a3b9",
+  "set": "shell-pwsh-bootstrap",
+  "totalBytes": 2065
+}

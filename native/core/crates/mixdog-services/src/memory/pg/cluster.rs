@@ -441,6 +441,21 @@ impl ShareDir {
     }
 }
 
+/// The `initdb` arguments. initdb flushes every file it writes (nine to fourteen seconds alone beside builds, two or three without),
+/// and sixteen clusters started at once queue on the same disk for minutes; where this process's own flushes are elided (a test
+/// run), initdb's, a child's, are too (`--no-sync`).
+fn initdb_args(data_dir: &Path, share: Option<&Path>, syncs_elided: bool) -> Vec<String> {
+    let mut args = vec!["-D".to_owned(), data_dir.to_string_lossy().into_owned()];
+    if let Some(path) = share {
+        args.extend(["-L".to_owned(), path.to_string_lossy().into_owned()]);
+    }
+    args.extend(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"].map(str::to_owned));
+    if syncs_elided {
+        args.push("--no-sync".to_owned());
+    }
+    args
+}
+
 impl std::fmt::Debug for PgCluster {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PgCluster").field("data_dir", &self.data_dir).field("port", &self.port).finish_non_exhaustive()
@@ -711,11 +726,7 @@ impl PgCluster {
 
     async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
         let share = ShareDir::prepare(lane, processes, runtime).await?;
-        let mut args = vec!["-D".to_owned(), data_dir.to_string_lossy().into_owned()];
-        if let Some(path) = share.path() {
-            args.extend(["-L".to_owned(), path.to_string_lossy().into_owned()]);
-        }
-        args.extend(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"].map(str::to_owned));
+        let args = initdb_args(data_dir, share.path(), mixdog_fsio::elide::syncs_elided());
         // No time limit, as in Node (`runChild` without `timeoutMs`); the cancel ends it.
         let result = runtime.run(processes, "initdb", &args, Duration::ZERO, Some(cancel)).await;
         share.release(lane).await;

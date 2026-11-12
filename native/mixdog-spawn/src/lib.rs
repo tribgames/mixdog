@@ -9,6 +9,8 @@
 //! binary alone and the library is empty.
 #![cfg(feature = "core")]
 
+#[cfg(windows)]
+mod console_hosts;
 mod contain;
 pub mod detached;
 mod feed;
@@ -95,6 +97,27 @@ pub mod testing {
         }
     }
 
+    /// The next settle of a root that ended on its own, having found only console hosts left in its job, parks before it
+    /// waits on them until [`release_settle_window`].
+    pub fn arm_settle_window() {
+        SETTLE_WINDOW.arm();
+    }
+
+    /// Blocks until a settle is parked in the window.
+    pub fn wait_settle_window_entered() {
+        SETTLE_WINDOW.wait_entered();
+    }
+
+    pub fn release_settle_window() {
+        SETTLE_WINDOW.release();
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn settle_window() {
+        SETTLE_WINDOW.pass();
+    }
+
+    static SETTLE_WINDOW: Seam = Seam::new();
     static EXIT_WINDOW: Seam = Seam::new();
     static KILL_WINDOW: Seam = Seam::new();
     static LAUNCH_WINDOW: Seam = Seam::new();

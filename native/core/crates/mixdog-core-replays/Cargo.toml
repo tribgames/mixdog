@@ -69,12 +69,12 @@ mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-services = { workspace = true }
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }
@@ -92,3 +92,6 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }

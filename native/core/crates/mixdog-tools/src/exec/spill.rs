@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
@@ -22,6 +24,127 @@ use mixdog_rt::PtyIo;
 use mixdog_rt::SpawnIo;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+
+const STDOUT_SUFFIX: &str = ".stdout.log";
+const STDERR_SUFFIX: &str = ".stderr.log";
+/// The ownership record of a job's logs, `<task id>.owner.json` beside them: who wrote them and whether that job has
+/// ended. It is the only thing the sweep goes by, so it is readable by every process sharing the folder.
+const OWNER_SUFFIX: &str = ".owner.json";
+
+/// The ownership record of the logs whose stdout log is `out`.
+fn owner_path(out: &Path) -> Option<PathBuf> {
+    let name = out.file_name()?.to_str()?.strip_suffix(STDOUT_SUFFIX)?;
+    Some(out.with_file_name(format!("{name}{OWNER_SUFFIX}")))
+}
+
+fn owner_record(state: &str) -> Vec<u8> {
+    serde_json::json!({"pid": std::process::id(), "state": state}).to_string().into_bytes()
+}
+
+/// How long a job's logs are kept (`SHELL_OUTPUT_RETENTION_MS`): transcripts keep naming them, so
+/// a session resumed days later may still read them.
+pub const RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Removes the logs of the jobs of `dir` that their ownership record shows ended, when the record and both logs were
+/// last modified more than `RETENTION_MS` ago, by the system clock the modification times are written with
+/// (`sweepExpiredShellOutput`). A running job's logs, this process's or another's, are never taken, however long they
+/// have been silent; a file named like a log that has no ownership record (a user's, an older version's) stays, and
+/// is counted in a log line. Returns that count. Best effort: a file that cannot be read or removed stays.
+pub async fn sweep_expired(lane: impl LaneToken, cancel: &CancellationToken, dir: &Path) -> usize {
+    #[cfg(test)]
+    sweep_gate::pass(dir).await;
+    let dir = dir.to_owned();
+    let Ok(handle) = lane.submit(cancel, move |_| {
+        let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(RETENTION_MS);
+        let aged = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(modified) => modified < cutoff,
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        };
+        let names: Vec<String> = std::fs::read_dir(&dir)?.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
+        let unowned = unowned_logs(&names);
+        for name in &names {
+            let Some(id) = name.strip_suffix(OWNER_SUFFIX) else { continue };
+            let owner = dir.join(name);
+            let finished = std::fs::read(&owner)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|record| record["state"] == "finished");
+            let logs = [dir.join(format!("{id}{STDOUT_SUFFIX}")), dir.join(format!("{id}{STDERR_SUFFIX}"))];
+            if finished && aged(&owner) && logs.iter().all(|log| aged(log)) {
+                for log in &logs {
+                    let _ = std::fs::remove_file(log);
+                }
+                let _ = std::fs::remove_file(&owner);
+            }
+        }
+        if unowned > 0 {
+            tracing::info!(dir = %dir.display(), unowned, "shell log sweep left files named like job logs that have no ownership record");
+        }
+        Ok::<usize, std::io::Error>(unowned)
+    }) else {
+        return 0;
+    };
+    handle.await.ok().and_then(Result::ok).unwrap_or(0)
+}
+
+/// How many of a directory's `names` are named like a job's log but have no ownership record beside them, the records
+/// indexed once.
+fn unowned_logs(names: &[String]) -> usize {
+    let owned: std::collections::HashSet<&str> = names.iter().filter_map(|name| name.strip_suffix(OWNER_SUFFIX)).collect();
+    names
+        .iter()
+        .filter_map(|name| [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix)))
+        .filter(|id| !owned.contains(id))
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Counting the logs without an ownership record looks each one up once: 20,000 jobs' names (half of them owned)
+    /// take milliseconds, where searching every name for each log takes 2 × 10^9 comparisons.
+    #[test]
+    fn unowned_logs_are_counted_in_one_pass_over_the_names() {
+        let mut names = Vec::new();
+        for job in 0..20_000 {
+            names.push(format!("task-{job}.stdout.log"));
+            names.push(format!("task-{job}.stderr.log"));
+            if job % 2 == 0 {
+                names.push(format!("task-{job}.owner.json"));
+            }
+        }
+        names.push("notes.txt".to_owned());
+        let start = std::time::Instant::now();
+        assert_eq!(super::unowned_logs(&names), 20_000);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "took {:?}", start.elapsed());
+    }
+}
+
+/// Holds the log sweep of one directory until released, so a test can show the command does not wait for it.
+#[cfg(test)]
+pub(crate) mod sweep_gate {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use tokio::sync::Notify;
+
+    static HELD: Mutex<Option<(PathBuf, Arc<Notify>)>> = Mutex::new(None);
+
+    /// The sweep of `dir` waits at its start until the returned signal is notified.
+    pub(crate) fn hold(dir: &Path) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        *HELD.lock().unwrap() = Some((dir.to_owned(), Arc::clone(&gate)));
+        gate
+    }
+
+    pub(super) async fn pass(dir: &Path) {
+        let gate = HELD.lock().unwrap().as_ref().filter(|(held, _)| held == dir).map(|(_, gate)| Arc::clone(gate));
+        if let Some(gate) = gate {
+            gate.notified().await;
+        }
+    }
+}
 
 use super::invocation::SkillRuntime;
 use super::invocation::skill_launcher_dir;
@@ -31,13 +154,21 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Creates (truncating) both logs of a job and their directory. Best effort: a log that cannot be
+/// Creates (truncating) both logs of a job and their directory, after their ownership record. Best effort: a log that cannot be
 /// created fails its first append, which stops it.
-fn create_logs(logs: &[PathBuf; 2]) {
+fn create_logs(shared: &Shared) {
+    let logs = &shared.logs;
     #[cfg(test)]
     write_gate::pass(&logs[0]);
     if let Some(dir) = logs[0].parent() {
         let _ = std::fs::create_dir_all(dir);
+    }
+    // The ownership record comes before its logs, so no sweep finds a log without it. A creation held up past the
+    // job's end records the job as ended: nothing would mark a record written as running after the end's mark.
+    if let Some(owner) = owner_path(&logs[0]) {
+        let _record = lock(&shared.record);
+        let state = if shared.ended.load(Ordering::Acquire) { "finished" } else { "running" };
+        let _ = std::fs::write(owner, owner_record(state));
     }
     for log in logs {
         let _ = std::fs::File::create(log);
@@ -91,6 +222,11 @@ struct Shared {
     progress: Notify,
     /// The job's log token: cancelled when the writer is given up.
     stop: CancellationToken,
+    /// The job has ended ([`LogWriter::mark_finished`]).
+    ended: AtomicBool,
+    /// Held across each write of the ownership record, so its two writers (the first drain's creation and the end's
+    /// mark) never interleave.
+    record: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -160,6 +296,8 @@ impl LogWriter {
             state: Mutex::new(WriterState::default()),
             progress: Notify::new(),
             stop: CancellationToken::new(),
+            ended: AtomicBool::new(false),
+            record: Mutex::new(()),
         };
         Self { lane, shared: Arc::new(shared) }
     }
@@ -267,10 +405,45 @@ impl LogWriter {
         if lock(&self.shared.state).gaps.iter().any(Option::is_some) { LogsClosed::Incomplete } else { LogsClosed::Complete }
     }
 
+    /// Records in the logs' ownership record that the job has ended: nothing writes its logs any more, so the sweep
+    /// may take them once they have aged. A job whose logs were never created has no record and gets none. The
+    /// record is written on the logs' own lane (a stalled disk under the logs holds no lane a session's save waits
+    /// on) and waited for at most `deadline`: a mark still queued or writing then is finished by its lane thread, and
+    /// the job's end does not wait for it.
+    pub async fn mark_finished(&self, deadline: std::time::Duration) {
+        let Some(owner) = owner_path(&self.shared.logs[0]) else { return };
+        self.shared.ended.store(true, Ordering::Release);
+        let shared = self.shared.clone();
+        let Ok(marked) = self.lane.submit(&CancellationToken::new(), move |_| {
+            let _record = lock(&shared.record);
+            if std::fs::exists(&owner)? {
+                std::fs::write(&owner, owner_record("finished"))?;
+            }
+            Ok::<(), std::io::Error>(())
+        }) else {
+            return;
+        };
+        let _ = mixdog_rt::time::timeout(deadline, marked).await;
+    }
+
     /// Bytes queued or being written.
     #[cfg(test)]
     pub(crate) fn unwritten(&self) -> usize {
         lock(&self.shared.state).bytes
+    }
+
+    /// Waits until no drain is running or waiting to run.
+    #[cfg(test)]
+    pub(crate) async fn idle(&self) {
+        loop {
+            let ended = self.shared.progress.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            if !lock(&self.shared.state).draining {
+                return;
+            }
+            ended.await;
+        }
     }
 }
 
@@ -278,7 +451,7 @@ impl LogWriter {
 /// queued.
 fn drain(shared: &Shared, exit: DrainExit) {
     if !lock(&shared.state).created {
-        create_logs(&shared.logs);
+        create_logs(shared);
         lock(&shared.state).created = true;
     }
     loop {
@@ -329,8 +502,9 @@ fn drain(shared: &Shared, exit: DrainExit) {
     }
 }
 
+/// Appends, recreating a log that a sweep of another process removed under the running job.
 fn append(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::OpenOptions::new().append(true).open(path).and_then(|mut file| file.write_all(bytes))
+    std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut file| file.write_all(bytes))
 }
 
 /// Holds the drains of the logs under a directory before each batch, until the test opens it.
@@ -546,11 +720,16 @@ pub async fn ensure_launchers(
     plan.dir.clone()
 }
 
-/// Removes a file; best effort (an unconfirmed kill may keep it locked).
-pub async fn remove_file(lane: impl LaneToken, cancel: &CancellationToken, path: &Path) {
+/// Removes a file; best effort (an unconfirmed kill may keep it locked). Whether it is gone.
+pub async fn remove_file(lane: impl LaneToken, cancel: &CancellationToken, path: &Path) -> bool {
     let path = path.to_owned();
-    if let Ok(job) = lane.submit(cancel, move |_| std::fs::remove_file(&path)) {
-        let _ = job.await;
+    let Ok(job) = lane.submit(cancel, move |_| std::fs::remove_file(&path)) else {
+        return false;
+    };
+    match job.await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => error.kind() == std::io::ErrorKind::NotFound,
+        Err(_) => false,
     }
 }
 

@@ -1,0 +1,75 @@
+{
+  "name": "search-admission-list-deep-admitted",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n",
+    "u/sub/e.ts": "e\n",
+    "node_modules/p/i.js": "i\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "requests": 1
+    },
+    {
+      "tick": 5000
+    },
+    {
+      "start": "deep",
+      "call": {
+        "tool": "list",
+        "input": {
+          "path": ".",
+          "depth": 2
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "tick": 12500
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "text": "Error: rg failed for t: native file inventory search timed out after 17500ms.",
+        "isError": true
+      }
+    },
+    {
+      "settle": "deep",
+      "requests": 2,
+      "answer": {
+        "text": "node_modules\tdir\nt\tdir\nt/a.ts\tfile\nu\tdir\nu/d.ts\tfile\nu/sub\tdir",
+        "isError": false
+      }
+    }
+  ],
+  "answeredOrder": [
+    "holder",
+    "deep"
+  ]
+}

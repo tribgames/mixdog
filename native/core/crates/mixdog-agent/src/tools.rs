@@ -590,6 +590,8 @@ pub(crate) struct CallEnv {
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
+    /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
+    pub(crate) prepared: bool,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -975,7 +977,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
     // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
     // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
     // answers once the turn is cancelled.
-    if let Some(mcp) = &env.mcp
+    if !env.prepared
+        && let Some(mcp) = &env.mcp
         && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
         return cancelled();
@@ -1268,6 +1271,8 @@ impl Run {
         // The tools start only once the assistant item that carries their
         // calls is on disk.
         self.until_durable(ticket).await?;
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Started));
+        let tools_started_ms = self.env.clock.now_ms();
         let results_from = self.messages.len();
         self.process_tool_batch(&calls, allowed).await?;
         // A turn recovered from a stream cut that dropped an in-flight tool
@@ -1276,12 +1281,14 @@ impl Run {
             self.push(notice).await?;
         }
         self.settle_turn_limits(overrun).await?;
+        let elapsed_ms = u64::try_from(self.env.clock.now_ms() - tools_started_ms).unwrap_or(0);
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
 
@@ -1458,6 +1465,7 @@ mod tests {
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
+            prepared: false,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),

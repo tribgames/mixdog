@@ -181,6 +181,7 @@ fn main() {
         script_syntax: Arc::new(InlineSyntax),
         windows,
         powershell: windows,
+        warm_standby: false,
         now_ms: Arc::new(|| 0),
     });
     let bench = Bench {
@@ -224,7 +225,7 @@ fn main() {
             started_rx.recv_timeout(Duration::from_secs(60)).expect("both io-maintenance threads are held");
         }
         let calls = futures::future::join_all((0..CONCURRENT).map(|_| bench.call()));
-        let held = tokio::time::timeout(HELD_DEADLINE, calls).await;
+        let held = mixdog_rt::time::timeout(HELD_DEADLINE, calls).await;
         match held {
             Ok(samples) => report(&format!("{CONCURRENT} concurrent calls, io-maintenance held"), &samples),
             Err(_) => println!(

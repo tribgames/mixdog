@@ -25,6 +25,7 @@ use super::tool_schema::estimate_request_reserve_tokens;
 use super::tool_schema::tool_schema_signature;
 use crate::message::AgentMessage;
 
+mod inspection;
 mod rows;
 mod status;
 mod ask_usage;
@@ -38,6 +39,7 @@ pub use ask_usage::pass_change;
 pub use ask_usage::settled_change;
 pub use ask_usage::turn_started;
 pub use ask_usage::usage_change;
+pub use inspection::Inspections;
 pub use rows::AttachmentBytes;
 pub use status::StageMeta;
 pub use status::compact_telemetry;

@@ -1,0 +1,67 @@
+{
+  "calls": 38,
+  "command": "node benchmarks/rust-core/recorders/record-context-inspection.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 90752,
+      "path": ".mixdog/data/sessions/sess_4242_1800000000000_1800000000000_d5205810ef1488f12b5223080dd65c1e.log.jsonl",
+      "sha256": "68e815bac3f0ee5936910e1e84d0ce64fcffec8ff8385b732c745b467947387a"
+    },
+    {
+      "bytes": 740850,
+      "path": "golden.json",
+      "sha256": "d9df4b79a68db37a2d7ef00659cfe2c5f3823918f8585922d97d4e92a43d1fc2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
+      "sha256": "8f974af9f70f86e55bfba0850a7a19197ac0bec15fc13fa0fdfe3de29c9fa725"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
+      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/intercept.mjs",
+      "sha256": "a080fa2c7df9cf3629ae4304d14ca3c66e68e14c6afddc7ca8d22da38063e47a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per call: the options and the whole status returned (inspection included); the session store the answers were read from",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-context-inspection.mjs",
+  "recorderSha256": "9c58d64a44c1a552aa28b3373d0a3ef445cbc41a3779d5660b80d5cfde466bb3",
+  "set": "context-inspection",
+  "syntheticInputs": [
+    "the provider: a scripted Anthropic endpoint answering a read of a.txt, then a text",
+    "the working folder: a.txt holding \"hello\"",
+    "the clock: fixed at `now`"
+  ],
+  "totalBytes": 831602
+}

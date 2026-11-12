@@ -23,6 +23,11 @@ pub enum P {
     IA(Vec<i64>),
     /// jsonb
     J(serde_json::Value),
+    /// SQL NULL, for a placeholder of any type.
+    Null,
+    /// A literal in the text format, parsed by the placeholder type's input function (as node-postgres sends every
+    /// parameter): a `halfvec` from `[1,2,…]`.
+    Lit(String),
 }
 
 impl ToSql for P {
@@ -35,11 +40,23 @@ impl ToSql for P {
             Self::TA(v) => v.to_sql(ty, out),
             Self::IA(v) => v.to_sql(ty, out),
             Self::J(v) => v.to_sql(ty, out),
+            Self::Null => Ok(IsNull::Yes),
+            Self::Lit(v) => {
+                out.extend_from_slice(v.as_bytes());
+                Ok(IsNull::No)
+            }
         }
     }
 
     fn accepts(_: &Type) -> bool {
         true
+    }
+
+    fn encode_format(&self, _: &Type) -> tokio_postgres::types::Format {
+        match self {
+            Self::Lit(_) => tokio_postgres::types::Format::Text,
+            _ => tokio_postgres::types::Format::Binary,
+        }
     }
 
     to_sql_checked!();
@@ -100,6 +117,8 @@ pub struct Row {
     pub historical_root_element: Option<String>,
     pub historical_root_summary: Option<String>,
     pub compact_body: bool,
+    /// The member ids a compact body stands for (`_compactMemberIds`), as strings.
+    pub compact_member_ids: Option<Vec<String>>,
     pub compact_raw: bool,
     /// A curated core-memory row: `id` is the negated core id, shown as `core:N`.
     pub core: bool,
@@ -126,6 +145,12 @@ fn column<'a, T: FromSql<'a>>(row: &'a tokio_postgres::Row, name: &str) -> Optio
 /// A REAL column as the shortest decimal that round-trips, so `1.4` stays `1.4`.
 fn real(row: &tokio_postgres::Row, name: &str) -> Option<f64> {
     column::<f32>(row, name).and_then(|v| v.to_string().parse().ok())
+}
+
+/// A column that is REAL in one form of a statement and DOUBLE PRECISION in another (`ts_rank_cd` vs `NULL::float8`).
+fn real_or_double(row: &tokio_postgres::Row, name: &str) -> Option<f64> {
+    let column = row.columns().iter().find(|c| c.name() == name)?;
+    if *column.type_() == Type::FLOAT4 { real(row, name) } else { self::column(row, name) }
 }
 
 impl Row {
@@ -157,7 +182,7 @@ impl Row {
             event_key: column(row, "_event_key"),
             dense_sim: column(row, "dense_sim"),
             dense_rank: column(row, "dense_rank"),
-            sparse_lex: real(row, "sparse_lex"),
+            sparse_lex: real_or_double(row, "sparse_lex"),
             sparse_rank: column(row, "sparse_rank"),
             trg_sim: column(row, "trg_sim"),
             trgm_rank: column(row, "trgm_rank"),
@@ -247,8 +272,20 @@ pub fn compare_by_score(a: &Row, b: &Row) -> Ordering {
         .then_with(|| a.sort_id().cmp(&b.sort_id()))
 }
 
-/// Rows with a unique id, first occurrence kept.
-pub fn unique_rows_by_id(rows: impl IntoIterator<Item = Row>) -> Vec<Row> {
+/// A row's id as `uniqueRowsById` keys it (query-ranking.mjs:93, `String(row?.id ?? '')`); `None` is the empty key,
+/// whose row is dropped.
+pub trait RowKey {
+    fn unique_key(&self) -> Option<String>;
+}
+
+impl RowKey for Row {
+    fn unique_key(&self) -> Option<String> {
+        Some(self.display_id())
+    }
+}
+
+/// Rows with a unique, non-empty id, first occurrence kept.
+pub fn unique_rows_by_id<R: RowKey>(rows: impl IntoIterator<Item = R>) -> Vec<R> {
     let mut seen = std::collections::HashSet::new();
-    rows.into_iter().filter(|row| seen.insert(row.id)).collect()
+    rows.into_iter().filter(|row| row.unique_key().is_some_and(|key| seen.insert(key))).collect()
 }

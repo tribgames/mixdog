@@ -85,12 +85,13 @@ pub(super) async fn load_seed(db: &Db, seed: &Value) {
     }
 }
 
+/// The provider as the product's recall asks it: through `RecallEmbedder` (memory/boot.rs), its bounded cold wait.
 pub(super) struct Provider(pub(super) Arc<EmbeddingProvider>);
 
 #[async_trait]
 impl QueryEmbedder for Provider {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        self.0.query_vector(text).await
+    async fn query_vector(&self, text: &str, cancel: &tokio_util::sync::CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
+        crate::memory::recall::readiness::RecallEmbedder::new(self.0.clone(), false).query_vector(text, cancel).await
     }
 }
 
@@ -138,8 +139,8 @@ async fn recall_matches_recorded_goldens() {
     for case in &cases {
         let name = case["name"].as_str().expect("name");
         let outcome = match case["tool"].as_str() {
-            Some("search_memories") => recall.search_memories(&case["args"]).await,
-            _ => recall.recall(&case["args"]).await,
+            Some("search_memories") => recall.search_memories(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
+            _ => recall.recall_cancellable(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
         };
         let expected = case["text"].as_str().expect("text");
         if outcome.text != expected {

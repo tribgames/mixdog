@@ -331,6 +331,10 @@ pub(crate) enum RunShown {
     SearchUsage(Value),
     /// A stage the client shows as its status (`onStageChange(stage, detail)` relayed to `applyStageChange`).
     Stage { stage: String, detail: Option<Value> },
+    /// One provider request of the turn (`thread/modelRequest/updated`).
+    ModelRequest { request_index: u32, phase: mixdog_app_protocol::v2::thread::ModelRequestPhase, tool_calls: Option<Vec<Value>> },
+    /// The tool batch of a request (`thread/toolBatch/updated`).
+    ToolBatch { request_index: u32, phase: mixdog_app_protocol::v2::thread::ToolBatchPhase, iteration: Option<u32>, calls: Option<u32>, duration_ms: Option<u64> },
 }
 
 /// What a compaction pass's summary model used (ccumulateCompactUsage).
@@ -648,6 +652,22 @@ impl RunPort {
     /// A stage the client shows as its status, never a transcript row: `thread/stage/updated`.
     pub async fn stage(&self, stage: String, detail: Option<Value>) -> Result<(), RunError> {
         self.shown(RunShown::Stage { stage, detail }).await
+    }
+
+    /// The turn's provider request `request_index` (from 1) started, or completed with the tool calls its response
+    /// streamed: `thread/modelRequest/updated`.
+    pub async fn model_request(&self, request_index: u32, phase: mixdog_app_protocol::v2::thread::ModelRequestPhase, tool_calls: Option<Vec<Value>>) -> Result<(), RunError> {
+        self.shown(RunShown::ModelRequest { request_index, phase, tool_calls }).await
+    }
+
+    /// The tool batch of the turn's provider request `request_index` started, or completed (`iteration`, the calls it
+    /// ran, its length): `thread/toolBatch/updated`.
+    pub async fn tool_batch(&self, request_index: u32, phase: mixdog_app_protocol::v2::thread::ToolBatchPhase, completed: Option<(u32, u32, u64)>) -> Result<(), RunError> {
+        let (iteration, calls, duration_ms) = match completed {
+            Some((iteration, calls, duration_ms)) => (Some(iteration), Some(calls), Some(duration_ms)),
+            None => (None, None, None),
+        };
+        self.shown(RunShown::ToolBatch { request_index, phase, iteration, calls, duration_ms }).await
     }
 
     async fn shown(&self, shown: RunShown) -> Result<(), RunError> {

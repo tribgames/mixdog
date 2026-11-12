@@ -8,15 +8,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40180,
+      "bytes": 40778,
       "path": "golden.json",
-      "sha256": "33f95b7300db6ac6c14a4e255504a28401e4694e289fea3677043470ddfc3aef"
+      "sha256": "072536153f966719e105b054b26256e83d56cbdb9623d5b699295e47098261ff"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -34,7 +34,8 @@
   "nodeVersion": "v22.20.0",
   "normalised": {
     "ids": "serial ids 1..N from a fresh cluster, in insertion order",
-    "private directory": "temp, not recorded"
+    "private directory": "temp, not recorded",
+    "scoredAtMs": "the cluster clock the score trigger read at each insert (NOW()): wall-clock time, recorded"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -54,11 +55,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-hybrid-sql-exact.mjs",
-  "recorderSha256": "54f97512f2bbefef5e92fa29cb565d806a776a5b764f167c4f09a86d10e3e302",
-  "replay": "the public call is the `memory/recall` request (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240 -> search_relevant_hybrid, recall/hybrid.rs:743), whose exact leg is built at recall/hybrid.rs:228 (exact_cte, private: not called directly). A replay inserts the same `entries` rows in order into a PG (needs MIXDOG_PG_RUNTIME), sends a recall with each recorded query text and compares the returned rows (the recorded `returned` rows carry the exact_rank column: compare the rows whose exact_rank is non-null, with their id and exact_rank, and the exact terms). ORDER: the last SELECT of Node's statement has no ORDER BY (finalStatementHasOrderBy false), so the recorded order is this cluster's plan order; the tie rule for a replay is: compare as sets keyed by id, and compare exact_rank values (which come from the ORDER BY inside the exact leg: rarity desc, hits desc, MAX(ts) desc). The sql text is Node's and is not compared",
+  "recorderSha256": "7ec868eba3243a112df8e8605bae038c2c47f4847054d20e079168f19787a364",
+  "replay": "mixdog-services memory/recall/hybrid.rs search_relevant_hybrid (the `memory/recall` request, Recall::recall) on a private cluster (MIXDOG_PG_RUNTIME) holding the recorded rows, inserted in order before each probe as here, each scored by the schema's compute_entry_score at its recorded scoredAtMs (the trigger's expression at the clock it read). Compared per probe: the exact terms, the candidate statement the search sends at its send point (recall/store.rs read_query_pg: text byte for byte and every parameter), and the rows PostgreSQL answered it with, whole and in the returned order",
   "set": "memory-hybrid-sql-exact",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 40180,
+  "totalBytes": 40778,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

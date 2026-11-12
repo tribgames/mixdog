@@ -17,7 +17,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -75,12 +75,19 @@
       "mixdog-core-session/src/session/inheritance.rs:100 `carry_into` is pub(super): it is reached through thread/fork"
     ],
     "missingOnO1": [],
-    "normalised": {},
+    "normalised": {
+      "systemBlock": "the heir's recorded `targetMessages` start with its own system block (`targetBefore.messages`, 'Target instructions.'), which Node's inheritance leaves in place and never takes from the source (src/session-runtime/lifecycle/inheritance.mjs:33-37 hands the compactor the whole transcript but only the conversation half travels). The core keeps no system block in a thread's stored messages: the run builds it for each request, so `thread/modelMessages/list` holds the conversation only. The replay checks the recorded block equals `targetBefore`'s and stays first, and compares the conversation after it whole.",
+      "rowIds": "Node numbered restored rows by message position (hist_<session>_<message>_<part>); the core's row id is its item id. Rows are compared whole without the id"
+    },
     "protocolMethods": [
       "thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492"
     ],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": {
+      "successful inheritance restores its boundary": "mixdog-app-server-daemon session_host_replay_tests::a_successful_inheritance_restores_its_boundary_as_node_recorded (thread/fork intoThreadId over a real store, read back by a reopened directory)",
+      "rejected inheritance does not persist or display a successful boundary": "mixdog-app-server-daemon session_host_replay_tests::a_rejected_inheritance_persists_and_shows_nothing_as_node_recorded"
+    }
   },
   "set": "session-inheritance-cases",
   "totalBytes": 20187,

@@ -8,6 +8,7 @@
 mod chain;
 pub mod exact;
 mod fixture;
+pub mod mcp_server;
 mod fs;
 mod process;
 

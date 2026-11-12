@@ -25,8 +25,13 @@ pub fn lane_ranks(row: &Row) -> (Option<i64>, Option<i64>) {
 }
 
 pub fn rrf_score(row: &Row) -> f64 {
+    rrf_score_with_k(row, RRF_K)
+}
+
+/// `rrf_score` with an explicit RRF constant (Node's `recallRrfScore(row, k)`).
+pub fn rrf_score_with_k(row: &Row, k: f64) -> f64 {
     let (dense, lexical) = lane_ranks(row);
-    dense.map_or(0.0, |rank| 1.0 / (RRF_K + rank as f64)) + lexical.map_or(0.0, |rank| 1.0 / (RRF_K + rank as f64))
+    dense.map_or(0.0, |rank| 1.0 / (k + rank as f64)) + lexical.map_or(0.0, |rank| 1.0 / (k + rank as f64))
 }
 
 /// `lexical` when a lexical lane matched, `semantic` for positive dense
@@ -53,15 +58,23 @@ pub fn is_semantic_only(rows: &[Row]) -> bool {
 pub struct Ranked {
     pub id: i64,
     pub rrf: f64,
+    /// Position of the candidate's row in the ranked input.
+    pub index: usize,
+    pub evidence: &'static str,
 }
 
 /// Candidates with positive fused score and some evidence, best first.
 pub fn rank_candidates(rows: &[Row]) -> Vec<Ranked> {
+    rank_candidates_with_k(rows, RRF_K)
+}
+
+/// `rank_candidates` with an explicit RRF constant (Node's `rankRecallCandidates(rows, k)`).
+pub fn rank_candidates_with_k(rows: &[Row], k: f64) -> Vec<Ranked> {
     let mut ranked: Vec<Ranked> = rows
         .iter()
-        .map(|row| (row.id, rrf_score(row), evidence_kind(row)))
-        .filter(|(_, rrf, evidence)| *rrf > 0.0 && *evidence != "none")
-        .map(|(id, rrf, _)| Ranked { id, rrf })
+        .enumerate()
+        .map(|(index, row)| Ranked { id: row.id, rrf: rrf_score_with_k(row, k), index, evidence: evidence_kind(row) })
+        .filter(|ranked| ranked.rrf > 0.0 && ranked.evidence != "none")
         .collect();
     ranked.sort_by(|a, b| by_diff(b.rrf - a.rrf).then_with(|| a.id.cmp(&b.id)));
     ranked

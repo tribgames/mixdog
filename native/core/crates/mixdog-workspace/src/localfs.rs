@@ -756,9 +756,9 @@ fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, 
     ignore_rules(&mut builder, request.respect_ignore);
     let prune = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, prune);
-    let max_depth = (!request.recursive).then_some(1);
+    let max_depth = request.descent.max_depth.or((!request.recursive).then_some(1));
     let volumes = Volumes::shared(root);
-    let walk = tree::Tree::new(root, rules, max_depth, dirs, volumes.clone());
+    let walk = tree::Tree::new(root, rules, max_depth, dirs, volumes.clone()).bare(request.descent.bare.clone(), request.descent.bare_dotted);
     Ok(Walking { walk, volumes, root: root.to_path_buf(), include_dirs: request.include_dirs })
 }
 
@@ -3665,7 +3665,7 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new(), server: None });
+        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new(), descent: Default::default(), server: None });
         let mut names = Vec::new();
         while let Some(e) = walk.next().await {
             names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
@@ -4559,7 +4559,45 @@ mod tests {
     }
 
     fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
-        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, include_dirs: true, prune, server: None }
+        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, include_dirs: true, prune, descent: Default::default(), server: None }
+    }
+
+    /// Counts the folders a walk reads.
+    struct Reads(Arc<AtomicUsize>);
+
+    impl tree::Dirs for Reads {
+        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
+            tree::Dirs::root(&mut tree::RealDirs, root)
+        }
+
+        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            tree::Dirs::list(&mut tree::RealDirs, dir)
+        }
+
+        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
+            tree::Dirs::kind(&mut tree::RealDirs, entry)
+        }
+    }
+
+    /// A deep list's walk stops at its depth and at the folders it leaves unread: the folders read are the root and the
+    /// one folder of depth 1, whatever lies in the noise folder, the dotted folder and below depth 2.
+    #[test]
+    fn a_depth_bounded_walk_reads_no_folder_it_cannot_list_from() {
+        let (_dir, root) = root();
+        let chain = |top: &str| root.join(top).as_path().join("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p");
+        for dir in [chain("node_modules"), chain(".hidden"), chain("src/too/deep"), root.join("src/ok").as_path().to_path_buf()] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let reads = Arc::new(AtomicUsize::new(0));
+        let descent = mixdog_core_api::domain::fs::Descent { max_depth: Some(2), bare: vec!["node_modules".into()], bare_dotted: true };
+        let request = WalkRequest { descent, ..listing_request(&root, Vec::new()) };
+        let request = WalkRequest { include_hidden: true, respect_ignore: false, ..request };
+        let listed: Vec<PathBuf> = walking(&request, Box::new(Reads(reads.clone()))).unwrap().walk.map(|e| e.unwrap().path).collect();
+        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(rel, ["", ".hidden", "node_modules", "src", "src/ok", "src/too"]);
+        // root, then `src` (`.hidden` and `node_modules` are bare, `src/ok` and `src/too` lie at the depth).
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
     }
 
     /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
@@ -4877,7 +4915,7 @@ mod tests {
             std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
         }
         let fs = LocalFileService::new();
-        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new(), server: None };
+        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new(), descent: Default::default(), server: None };
         let mut walk = fs.walk(lanes().maintenance, request);
         let mut names = Vec::new();
         while let Some(entry) = walk.next().await {

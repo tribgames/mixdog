@@ -1,0 +1,89 @@
+{
+  "name": "search-admission-list-deep-refused",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n",
+    "u/sub/e.ts": "e\n",
+    "node_modules/p/i.js": "i\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "requests": 1
+    },
+    {
+      "start": "shallow",
+      "call": {
+        "tool": "list",
+        "input": {
+          "path": ".",
+          "depth": 1
+        }
+      },
+      "until": "answered",
+      "requests": 1,
+      "answer": {
+        "text": "t\tdir\nu\tdir",
+        "isError": false
+      }
+    },
+    {
+      "start": "deep",
+      "call": {
+        "tool": "list",
+        "input": {
+          "path": ".",
+          "depth": 2
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "tick": 17500
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "text": "Error: rg failed for t: native file inventory search timed out after 17500ms.",
+        "isError": true
+      }
+    },
+    {
+      "settle": "deep",
+      "requests": 1,
+      "answer": {
+        "text": "t\tdir\nt/a.ts\tfile\nu\tdir\nu/d.ts\tfile\nu/sub\tdir",
+        "isError": false
+      }
+    }
+  ],
+  "answeredOrder": [
+    "shallow",
+    "holder",
+    "deep"
+  ]
+}

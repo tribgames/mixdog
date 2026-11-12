@@ -22,7 +22,7 @@ const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
-    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }
+    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
 }
 
 fn config(name: &str, extra: Value) -> McpServerConfig {
@@ -45,7 +45,14 @@ async fn ready(extra: Value, artifacts: &std::path::Path) -> Arc<McpServer> {
 
 async fn until(server: &McpServer, wanted: impl Fn(&ServerState) -> bool) {
     let mut rx = server.subscribe();
-    rx.wait_for(|s| wanted(s)).await.unwrap();
+    let reached = tokio::time::timeout(Duration::from_secs(60), rx.wait_for(|s| wanted(s))).await;
+    reached.expect("timed out after 60 s waiting for the server to reach the awaited state").unwrap();
+}
+
+/// The test function the scripted servers run as (`mixdog_testkit::mcp_server`): nothing unless started as one.
+#[test]
+fn scripted_server() {
+    mixdog_testkit::mcp_server::serve_if_asked();
 }
 
 fn text_of(parts: &[ToolPart]) -> String {
@@ -218,6 +225,33 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     hub.close_all().await;
 }
 
+/// A server whose start failed is connected again when its unchanged configuration is applied
+/// (Node's reconcile retries a recorded failure, `server-connection.mjs` `reconcileServers`); a
+/// connected one keeps its connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn applying_the_unchanged_configuration_of_a_failed_server_connects_it_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let down = dir.path().join("down");
+    std::fs::write(&down, "").unwrap();
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    let files = config("files", json!({"env": {"MOCK_DOWN_WHILE": down}}));
+    hub.apply(vec![files.clone()]);
+    let first = hub.server("files").unwrap();
+    until(&first, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*first.state(), ServerState::Failed { .. }));
+
+    std::fs::remove_file(&down).unwrap();
+    hub.apply(vec![files.clone()]);
+    let again = hub.server("files").unwrap();
+    assert!(!matches!(&*again.state(), ServerState::Failed { .. }), "the failed server is connecting again");
+    // The connect ends by itself, bounded by the server's startup timeout.
+    until(&again, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*again.state(), ServerState::Ready(_)), "the server reconnected");
+    hub.apply(vec![files]);
+    assert!(Arc::ptr_eq(&again, &hub.server("files").unwrap()), "a connected server is kept");
+    hub.close_all().await;
+}
+
 /// A scope is a key into the one hub (Node's registry key `scope\0name`, `mcp/client.mjs:110-118`): the
 /// servers connected under it are its tools and its lookups only, an empty id is the default scope, a
 /// scope never connected has nothing, and releasing a scope (`disconnectAll({ scopeId })`) closes its
@@ -350,6 +384,49 @@ async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
     assert_eq!(other.stderr, "MCP server \"mock\" not connected", "another session's server is not used");
     let none = run_mcp_tool_handler(&hub, None, &echo, json!({"text": "from none"}), "PreToolUse", &cancel).await;
     assert_eq!(none.stderr, "MCP server \"mock\" not connected", "a session with no scope reads the default scope, which holds nothing here");
+    hub.close_all().await;
+}
+
+/// `fixtures/mcp-cwd-scope` `hook`: an `mcp_tool` hook of a session whose cwd is outside a plugin's scope still runs the
+/// plugin's tool (Node's `executeMcpTool` resolves it in the session's MCP scope only, no session catalog). The recorded
+/// registry is connected as real servers (`mixdog_testkit::mcp_server`: each lists its recorded tools, answers
+/// `ran <server> <tool>` and logs what reaches it); the hook runs the recorded call, and the tool's answer and the servers
+/// and tools its reach logs hold are compared with Node's recording (`result`, `ran`).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_mcp_tool_hook_outside_the_plugins_scope_runs_as_nodes_does() {
+    use mixdog_mcp::hook_runner::run_mcp_tool_handler;
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let recorded = &golden["hook"];
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
+    let mut configs = Vec::new();
+    let mut servers = Vec::new();
+    // One log for every server: the order of the calls across servers is the order they reached them in.
+    let reach = dir.path().join("reach.log");
+    for entry in golden["registry"].as_array().unwrap() {
+        let server = entry["server"].as_str().unwrap();
+        let tools: Vec<&str> = entry["tools"].as_array().unwrap().iter().map(|doc| doc["name"].as_str().unwrap()).collect();
+        let launch = mixdog_testkit::mcp_server::launch("mcp_suite::scripted_server", server, &tools, &reach);
+        let mut entry_config = json!({"command": launch.command, "args": launch.args, "env": launch.env});
+        if let Some(plugin) = entry["pluginId"].as_str() {
+            entry_config["_mixdogPlugin"] = json!({"id": plugin});
+        }
+        configs.push(McpServerConfig::from_entry(server, &entry_config, &std::env::vars().collect()).unwrap());
+        servers.push(server.to_owned());
+    }
+    hub.apply_in("session-b", configs);
+    for server in &servers {
+        until(&hub.server_in("session-b", server).unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
+    }
+    let name = recorded["name"].as_str().unwrap();
+    let (server, tool) = name.strip_prefix("mcp__").unwrap().split_once("__").unwrap();
+    let cancel = CancellationToken::new();
+    let hook = hook_handler(json!({"type": "mcp_tool", "server": server, "tool": tool}));
+    // The hook's payload is the arguments its tool receives (`hook-bus/handlers.mjs`: `args: payload`): the recorded ones.
+    let payload = recorded["arguments"].clone();
+    let ran = run_mcp_tool_handler(&hub, Some("session-b"), &hook, payload, "PreToolUse", &cancel).await;
+    assert_eq!((ran.exit_code, ran.stdout.as_str()), (0, recorded["result"].as_str().unwrap()), "the hook's result");
+    assert_eq!(json!(mixdog_testkit::mcp_server::reached(&reach)), recorded["ran"], "the servers, tools and arguments that reached a live server, in order");
     hub.close_all().await;
 }
 

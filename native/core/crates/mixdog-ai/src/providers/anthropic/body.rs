@@ -187,6 +187,8 @@ fn server_fallback(cfg: &BodyConfig<'_>, model: &str, parameters: Option<&Value>
 
 pub(crate) struct BuiltBody {
     pub bytes: Vec<u8>,
+    /// The body's diagnostic prefix fingerprint (`anthropicPrefixFingerprint(params)`).
+    pub prefix: super::prefix_trace::Fingerprint,
     pub betas: BetaFeatures,
 }
 
@@ -839,10 +841,12 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     if cfg.flavor == Flavor::ApiKey {
         body.insert("stream".into(), Value::Bool(true));
     }
+    let prefix = super::prefix_trace::fingerprint(&body);
     let bytes = serde_json::to_vec(&Value::Object(body))
         .map_err(|e| local_error(format!("request body is not serialisable: {e}")))?;
     Ok(BuiltBody {
         bytes,
+        prefix,
         betas: BetaFeatures {
             fast_mode: fast,
             tool_search: request.tools.iter().any(|t| t.defer_loading),

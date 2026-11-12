@@ -283,7 +283,8 @@ fn prompts_budgets_and_quality_equal_node() {
         let root = &case["root"];
         let members = rows(&root["members"]);
         let quality = Some(&root["chunk_quality"]).filter(|q| !q.is_null());
-        let (usable, reasons) = assess_chunk_quality(root["summary"].as_str().unwrap(), quality, &members);
+        let assessment = assess_chunk_quality(root["summary"].as_str().unwrap(), quality, &members);
+        let (usable, reasons) = (assessment.usable, assessment.reasons);
         assert_eq!(usable, case["result"]["usable"].as_bool().unwrap(), "{case}");
         assert_eq!(json!(reasons), case["result"]["reasons"], "{case}");
     }

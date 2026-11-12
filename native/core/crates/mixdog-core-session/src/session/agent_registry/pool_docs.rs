@@ -35,7 +35,7 @@ impl AgentRegistry {
                 .collect()
         };
         let (workers, leads) = (stored(false), stored(true));
-        let tombstones: Vec<Value> = state.stored_tombstones(now).iter().map(|row| Value::Object(row.clone())).collect();
+        let tombstones: Vec<Value> = state.stored_tombstones(now).into_iter().map(Value::Object).collect();
         (json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads }))
     }
 }

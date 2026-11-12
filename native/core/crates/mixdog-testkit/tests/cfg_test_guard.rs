@@ -16,6 +16,11 @@ const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "mixdog-core/src/run_host/mod.rs",
+        "mod migrated_fixture;",
+        "the migrated recording the Context inspector test of `context_world` opens; that test reads crate-private items (`LiveContextWorld`, `Mode`, `WindowFacts`) and stays in the library",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
         "mod compaction_node_harness",
         "the harness of the node tests left in the library because they call crate-private items (`CompactionRows`, `NoApprovals`, `manual_compaction::offload_candidates`); nothing else uses it",
     ),

@@ -632,19 +632,12 @@ enum Command {
         ack: mpsc::Sender<Result<(), DbError>>,
     },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
-    #[cfg(any(test, feature = "test-support"))]
     Close,
 }
 
 impl Command {
-    #[cfg(any(test, feature = "test-support"))]
     fn closes(&self) -> bool {
         matches!(self, Command::Close)
-    }
-
-    #[cfg(not(any(test, feature = "test-support")))]
-    fn closes(&self) -> bool {
-        false
     }
 }
 
@@ -1064,7 +1057,6 @@ impl Writer {
                         record_offload_scan(&tx, &session, ordinal, &sources)?;
                         acks.push(ack);
                     }
-                    #[cfg(any(test, feature = "test-support"))]
                     Command::Close => unreachable!("the writer stops before it queues a close"),
                     Command::Upsert { .. }
                     | Command::Project { .. }
@@ -1505,7 +1497,6 @@ struct Shared {
     gate: gate::Gate,
     rows: RowSinkCell,
     /// The writer thread, joined by [`SqliteStore::close`].
-    #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
@@ -1654,15 +1645,12 @@ impl SqliteStore {
         let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
             .map_err(|e| DbError::Write(e.to_string()))?;
-        #[cfg(not(any(test, feature = "test-support")))]
-        drop(handle);
         let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
         let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 gate,
                 rows,
-                #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
             }),
         };
@@ -1696,10 +1684,9 @@ impl SqliteStore {
         self.shared.gate.waiters()
     }
 
-    /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
-    /// its connection closes, and the read pool's idle connections close, so the database files can be removed while other
-    /// handles still exist. Returns once the writer thread has ended.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and its connection
+    /// closes, and the read pool's idle connections close, so the database files can be removed while other handles still exist
+    /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer thread has ended.
     pub fn close(&self) {
         self.shared.gate.close(|| {
             let handle = self.shared.writer.lock().expect("writer handle").take();
@@ -2024,93 +2011,6 @@ impl SqliteStore {
             Ok(rows.collect::<Result<_, _>>()?)
         })
         .await
-    }
-
-    /// The worker index the agent registry loads, from the revision it holds (`None`: none yet): the revision now and
-    /// every session written since, with the sessions in `also` read again whatever their revision; every listed session
-    /// when `since` is `None` or a revision this index never reached. The revision and the rows are one read transaction,
-    /// so they are one committed state, whichever connection or process wrote it (FORMAT.md §8.2 worker index revision).
-    pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
-        use crate::worker::IndexedSession;
-        self.read(move |c| {
-            let tx = c.unchecked_transaction()?;
-            let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
-                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))
-            })?;
-            let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<IndexedSession> {
-                let worker = match r.get::<_, Option<String>>(2)? {
-                    Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-                    })?),
-                    None => None,
-                };
-                let summary: Option<String> = r.get(4)?;
-                let agent = match summary {
-                    Some(summary) => Some((r.get(3)?, summary)),
-                    None => None,
-                };
-                Ok(IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
-            };
-            let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
-            let mut sessions: Vec<IndexedSession> = Vec::new();
-            if full {
-                let mut stmt = tx.prepare_cached(crate::worker::INDEXED_ALL_SQL)?;
-                sessions = stmt.query_map([], row)?.collect::<Result<_, _>>()?;
-            } else {
-                let since = since.map_or(0, |(_, rev)| rev) as i64;
-                let mut at: HashMap<String, usize> = HashMap::new();
-                let mut put = |sessions: &mut Vec<IndexedSession>, s: IndexedSession| match at.get(&s.session) {
-                    Some(&i) => sessions[i] = s,
-                    None => {
-                        at.insert(s.session.clone(), sessions.len());
-                        sessions.push(s);
-                    }
-                };
-                let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, agent: None };
-                let removed: Vec<String> =
-                    tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
-                for id in removed {
-                    put(&mut sessions, gone(id));
-                }
-                let changed: Vec<IndexedSession> =
-                    tx.prepare_cached(crate::worker::INDEXED_SINCE_SQL)?.query_map([since], row)?.collect::<Result<_, _>>()?;
-                for s in changed {
-                    put(&mut sessions, s);
-                }
-                for id in also {
-                    if sessions.iter().any(|s| s.session == id) {
-                        continue;
-                    }
-                    let found = tx.prepare_cached(crate::worker::INDEXED_ONE_SQL)?.query_row([&id], row).optional()?;
-                    put(&mut sessions, found.unwrap_or_else(|| gone(id)));
-                }
-            }
-            Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
-        })
-        .await
-    }
-
-    /// Test support: `session`'s `worker` map replaced (`None`: removed) by a connection of its own, committed as another
-    /// process writing the index would.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_worker_elsewhere(&self, session: &str, worker: Option<&serde_json::Map<String, serde_json::Value>>) {
-        let mut header = serde_json::Map::new();
-        if let Some(map) = worker {
-            header.insert("worker".into(), serde_json::Value::Object(map.clone()));
-        }
-        let keys = crate::worker::WorkerKeys::of(&header);
-        let conn = Connection::open(&self.shared.path).expect("the index opens");
-        conn.execute(
-            "UPDATE sessions SET worker = ?1, worker_tag = ?2, worker_owner = ?3, worker_host_pid = ?4 WHERE id = ?5",
-            params![
-                keys.as_ref().map(|k| &k.map),
-                keys.as_ref().map(|k| &k.tag),
-                keys.as_ref().and_then(|k| k.owner.as_ref()),
-                keys.as_ref().and_then(|k| k.host_pid),
-                session
-            ],
-        )
-        .expect("the other connection's write");
     }
 
     /// The newest session `owner` ran under `tag` (1.4.5 `lastTagSession`, open or closed),
@@ -2919,11 +2819,9 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
-    /// Test support only: `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a
-    /// connection until that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in
-    /// flight and no read opens a connection after it returned. A release build has no close: its pool keeps its connections until
-    /// the last owner of the store drops it.
-    #[cfg(any(test, feature = "test-support"))]
+    /// `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a connection until
+    /// that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in flight and no read
+    /// opens a connection after it returned. A pool nobody closes keeps its connections until the last owner of the store drops it.
     closed: std::sync::RwLock<bool>,
 }
 
@@ -2933,14 +2831,12 @@ impl ReadPool {
             path: path.to_path_buf(),
             lane,
             conns: Mutex::new(Vec::new()),
-            #[cfg(any(test, feature = "test-support"))]
             closed: std::sync::RwLock::new(false),
         })
     }
 
-    /// Test support only (a test's data folder closes its databases before it is removed): waits for the reads in flight, closes
-    /// every pooled connection, and makes every later read fail as the stopped writer does.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Waits for the reads in flight, closes every pooled connection, and makes every later read fail as the stopped writer
+    /// does (a test's data folder, and the exec's private root, are removed while the process lives on).
     pub(crate) fn close(&self) {
         let mut closed = self.closed.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *closed = true;
@@ -2948,9 +2844,7 @@ impl ReadPool {
     }
 
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
-        #[cfg(any(test, feature = "test-support"))]
         let closed = self.closed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        #[cfg(any(test, feature = "test-support"))]
         if *closed {
             return Err(DbError::Stopped);
         }
