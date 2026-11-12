@@ -324,6 +324,14 @@ impl ProviderAdapter for DevinAdapter {
         &self.placeholder
     }
 
+    /// The model's catalog row says whether it has vision (`modelRow?.supportsVision`); a row that cannot be read leaves
+    /// the images to the attempt, which fails on the same lookup.
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        let Ok(token) = self.token.session_token().await else { return true };
+        let Ok(rows) = self.cached_rows(&token).await else { return true };
+        rows.into_iter().find(|r| r.id == request.model.trim()).is_some_and(|r| r.supports_vision)
+    }
+
     fn retry_policy(&self) -> &RetryPolicy {
         &self.policy
     }

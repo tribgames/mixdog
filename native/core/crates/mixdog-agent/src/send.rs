@@ -385,9 +385,10 @@ impl Run {
                         // The engine this request goes to says what it takes as a document (a gateway's Messages
                         // engine differs from its Chat wire).
                         let support = self.provider.media_support(&request).await;
+                        let takes_vision = self.provider.takes_vision(&request).await;
                         let resolved = or_cancelled(
                             &self.cancel,
-                            crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf),
+                            crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf, takes_vision),
                         )
                         .await
                         .ok_or(AgentError::Aborted)?;

@@ -1154,6 +1154,12 @@ pub trait ProviderAdapter: Send + Sync {
     async fn media_support(&self, _request: &ModelRequest) -> MediaSupport {
         MediaSupport { native_pdf: self.native_pdf(), native_documents: self.native_documents() }
     }
+    /// Whether the route `request` goes to takes an image at all. A model without vision gets the fixed omitted text for a
+    /// stored image and its blob is never read (Node's `degradeMediaParts` lowers the part, not the file), so a blob that is
+    /// gone reads "omitted" like any other. True by default.
+    async fn takes_vision(&self, _request: &ModelRequest) -> bool {
+        true
+    }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`
     /// may wait for its response headers and its first output, which the progress watchdog's
     /// first-response deadlines are floored above. `None` keeps the watchdog's default window. An

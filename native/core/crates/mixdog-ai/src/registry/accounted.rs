@@ -243,6 +243,9 @@ impl ProviderAdapter for AccountedAdapter {
     async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
         self.inner.media_support(request).await
     }
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        self.inner.takes_vision(request).await
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
