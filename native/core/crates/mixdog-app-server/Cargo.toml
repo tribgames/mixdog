@@ -39,7 +39,7 @@ mixdog-app-protocol = { workspace = true }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
@@ -63,6 +63,7 @@ mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-app-server = { path = ".", features = ["replay-controls"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }

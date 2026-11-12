@@ -17,7 +17,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -79,7 +79,8 @@
     "normalised": {},
     "protocolMethods": [],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": "src/tui/app/slash-commands-replay.test.mjs: every case through the K1 TUI (src/tui/app/slash-commands.mjs normalizeSlashCommandName, slashArgumentHint, overlayBlocksGlobalTranscriptScroll; src/tui/app/btw-controller.mjs btwScrollMax/Offset, btwContentRows/PanelRows), the whole observed value exact-encoded. The TUI owns these; the core recognises slash tokens only (pending.rs recognised_slash_token)."
   },
   "set": "slash-commands-cases",
   "totalBytes": 4063,

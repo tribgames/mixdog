@@ -12,6 +12,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::FeedSource;
+use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::ThreadId;
@@ -211,10 +212,17 @@ struct World {
     agent_only: Arc<AgentOnly>,
     app: MockConnection,
     surface: mixdog_core_base::surface::SurfaceGeneration,
+    /// The core's one archive stamp counter, which the settings and the retention cycle share.
+    stamps: Arc<ArchiveStamps>,
     _ops: tempfile::TempDir,
 }
 
 async fn world() -> World {
+    world_with(None).await
+}
+
+/// The world, its archive hand-off going to `worktrees` instead of the rig's real worktree maintenance.
+async fn world_with(worktrees: Option<Arc<dyn ArchivedWorktrees>>) -> World {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     let workspace = worktree_tests::rig();
@@ -225,7 +233,7 @@ async fn world() -> World {
     });
     let (notes, effort, agent_only) = (Arc::new(Notes::default()), Arc::new(Effort::default()), Arc::new(AgentOnly::default()));
     let live: crate::session::worktree::LiveSessions = Arc::new(HashSet::new);
-    let worktrees = WorktreeMaintenance::new(workspace.worktrees.clone(), Arc::new(NoSessions), live, Arc::new(|_: Option<&str>| {}));
+    let worktrees_of_rig = WorktreeMaintenance::new(workspace.worktrees.clone(), Arc::new(NoSessions), live, Arc::new(|_: Option<&str>| {}));
     let limits = MockLimits::default();
     let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
     let app = MockConnection::new(ConnectionId(1), limits);
@@ -234,20 +242,21 @@ async fn world() -> World {
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let ops = tempfile::tempdir().unwrap();
     let surface = mixdog_core_base::surface::SurfaceGeneration::default();
+    let stamps: Arc<ArchiveStamps> = Arc::default();
     let settings = ThreadSettings::new(ThreadSettingsParts {
         directory: directory.clone(),
         workspaces: workspace.ws.clone(),
         effort: effort.clone(),
         projects: projects.clone(),
         agent_only: agent_only.clone(),
-        worktrees: Arc::new(worktrees),
+        worktrees: worktrees.unwrap_or_else(|| Arc::new(worktrees_of_rig)),
         retention: notes.clone(),
         app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
-        archive_stamps: Arc::default(),
+        archive_stamps: stamps.clone(),
     });
-    World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
+    World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, stamps, _ops: ops }
 }
 
 impl World {
@@ -601,6 +610,213 @@ async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
             hold.notify_one();
             compacting.await.expect("joined").expect("compacted");
         }
+    }
+}
+
+// ---- fixtures/session-host-lifecycle-cases (record-session-host-lifecycle-cases.mjs) -------------------------------
+
+/// Node's recording of the desktop host's lifecycle (`session-host-lifecycle.test.mjs`).
+fn lifecycle_cases() -> mixdog_testkit::exact::Exact {
+    let value: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json")).expect("golden.json");
+    mixdog_testkit::exact::Exact::decode(&value).expect("exact")
+}
+
+fn lifecycle_case(name: &str) -> mixdog_testkit::exact::Exact {
+    let golden = lifecycle_cases();
+    let found = golden.get("cases").as_array().iter().find(|case| case.get("case").as_str() == name).cloned();
+    found.unwrap_or_else(|| panic!("no recorded case {name:?}")).get("observed").clone()
+}
+
+fn plain(value: &mixdog_testkit::exact::Exact) -> Value {
+    value.to_plain().expect("a plain recorded value")
+}
+
+/// The header a recorded list row stands for: every field it names but the list's own (`id`, `messageCount`, `preview`).
+fn header_of_row(row: &Value) -> Map<String, Value> {
+    let mut header: Map<String, Value> = row.as_object().expect("row").iter().filter(|(key, _)| !["id", "messageCount", "preview"].contains(&key.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    header.entry("createdAt").or_insert(json!(1));
+    header
+}
+
+impl World {
+    /// The recorded rows as stored sessions, created by a directory of their own over the world's store: the world's directory opens
+    /// each one when a call reaches it, as the core's does for a session it does not host. `extra` adds header keys per id.
+    async fn stored_rows(&self, rows: &[Value], extra: impl Fn(&str) -> Map<String, Value>) {
+        let creator = SessionDirectory::new(self.rig.deps());
+        let mut agent_only = Vec::new();
+        for row in rows {
+            let id = row["id"].as_str().expect("id");
+            let mut header = header_of_row(row);
+            header.extend(extra(id));
+            // The index lists a session as agent-only by the visibility its record states or implies.
+            let mut doc = header.clone();
+            doc.insert("id".into(), json!(id));
+            if mixdog_store::summary::session_visibility(&doc) == "agent-only" {
+                agent_only.push(id.to_owned());
+            }
+            creator.create_with_id(ThreadId::from(id), header, json!({})).await.expect("created");
+        }
+        *lock(&self.agent_only.0) = agent_only;
+    }
+
+    /// Every session's archive stamp, of the sessions still stored.
+    async fn archived(&self, ids: &[&str]) -> Value {
+        let mut archived = Map::new();
+        for id in ids {
+            let header = self.directory.try_stored_header(&ThreadId::from(*id)).await.expect("read");
+            // A delete-marked session is gone (the real store's purge removes it; the test store keeps the marked record).
+            let header = header.filter(|header| header.get(mixdog_store::summary::DELETED) != Some(&json!(true)));
+            if let Some(at) = header.and_then(|header| header.get("archivedAt").cloned()) {
+                archived.insert((*id).to_owned(), at);
+            }
+        }
+        Value::Object(archived)
+    }
+
+    async fn archive(&self, id: &str, archived: bool, op: u64) {
+        let answer = self.call(if archived { ARCHIVE } else { UNARCHIVE }, json!({ "threadId": id }), op).await;
+        assert_eq!(answer.expect("the archive change"), json!({}), "{id} archived={archived}");
+    }
+}
+
+fn ids_of(rows: &[Value]) -> Vec<&str> {
+    rows.iter().map(|row| row["id"].as_str().expect("id")).collect()
+}
+
+/// An archive's stamps are one per session and the core keeps each on its session's header: the desktop's map of them is compared as
+/// a map (its key order was the order Node's metadata map took the keys in; the manifest declares it).
+fn assert_archived(rust: &Value, recorded: &mixdog_testkit::exact::Exact, step: &str) {
+    // Both sides through the recording's number form (every number an f64), the map compared without its key order.
+    assert_eq!(plain(&mixdog_testkit::exact::Exact::plain(rust)), plain(recorded), "{step}: the archived sessions and their stamps");
+}
+
+/// Case "archiving a session archives its sub-agent sessions; restoring it brings back the ones it took": the archive of a sub-agent
+/// session, then of its Lead (which takes the other sub-agent session along with the Lead's stamp), the Lead's restore (which brings back
+/// only what its archive took), then the sub-agent session the store deleted (its flag goes with it).
+#[tokio::test(start_paused = true)]
+async fn an_archive_takes_its_sub_agent_sessions_and_a_restore_brings_back_its_own_as_node_recorded() {
+    let observed = lifecycle_case("archiving a session archives its sub-agent sessions; restoring it brings back the ones it took");
+    let rows: Vec<Value> = plain(observed.get("rows")).as_array().expect("rows").clone();
+    let world = world().await;
+    world.rig.clock.0.store(1_800_000_000_000, Ordering::SeqCst);
+    world.stored_rows(&rows, |_| Map::new()).await;
+    let ids = ids_of(&rows);
+    let log = observed.get("log").as_array();
+    world.archive("sess_w2", true, 1).await;
+    world.archive("sess_lead", true, 2).await;
+    assert_eq!(log[0].get("step").as_str(), "w2 archived, then the lead");
+    assert_archived(&world.archived(&ids).await, log[0].get("archived"), "w2 archived, then the lead");
+    world.archive("sess_lead", false, 3).await;
+    assert_eq!(log[1].get("step").as_str(), "lead restored");
+    assert_archived(&world.archived(&ids).await, log[1].get("archived"), "lead restored");
+    // The store deletes the sub-agent session: the core's archive flag is on its header, which goes with it.
+    let delete = mixdog_core_api::CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/delete"),
+        params: json!({ "threadId": "sess_w2", "opId": "op-delete" }),
+        op: Some(mixdog_core_api::ids::OpId::from("op-delete")),
+        ctx: mixdog_core_api::call::CallContext::internal("test"),
+    };
+    // The catalog lists it (the recorder's session client listed every row), so the store's delete finds it.
+    let w2 = rows.iter().find(|row| row["id"] == "sess_w2").expect("w2 row").clone();
+    lock(&world.rig.store.summaries).insert(ThreadId::from("sess_w2"), w2);
+    let deleted = world.directory.request(delete).await.expect("the store deletes the session");
+    assert!(matches!(deleted, mixdog_core_api::Reply::Value(Value::Bool(true))), "{deleted:?}");
+    assert_eq!(log[2].get("step").as_str(), "w2 forgotten (store deleted it)");
+    assert_archived(&world.archived(&ids).await, log[2].get("archived"), "w2 forgotten (store deleted it)");
+}
+
+/// The hand-off of an archive's sessions to the managed worktrees: what reached it, and a hand-off that fails.
+#[derive(Default)]
+struct HandOff(Mutex<Vec<Value>>, tokio::sync::Notify);
+
+#[async_trait]
+impl ArchivedWorktrees for HandOff {
+    async fn set_archived(&self, session_ids: &[String], archived: bool) -> Result<(), String> {
+        lock(&self.0).push(json!(["setArchivedSessionWorktrees", [{ "sessionIds": session_ids, "archived": archived }]]));
+        self.1.notify_waiters();
+        Err("daemon unavailable".to_owned())
+    }
+}
+
+/// Case "archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive": the
+/// Lead and its sub-agent session reach the hand-off on the archive and on the restore, and both answer although the hand-off fails.
+#[tokio::test(start_paused = true)]
+async fn an_archive_hands_its_tree_to_the_worktrees_and_survives_their_failure_as_node_recorded() {
+    let observed = lifecycle_case("archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive");
+    let rows: Vec<Value> = plain(observed.get("rows")).as_array().expect("rows").clone();
+    let hand_off = Arc::new(HandOff::default());
+    let world = world_with(Some(hand_off.clone())).await;
+    world.rig.clock.0.store(1_800_000_000_000, Ordering::SeqCst);
+    world.stored_rows(&rows, |_| Map::new()).await;
+    world.archive("sess_lead", true, 1).await;
+    world.archive("sess_lead", false, 2).await;
+    eventually_on!(&[&hand_off.1], || (lock(&hand_off.0).len() == 2).then_some(())).await;
+    let forwarded = Value::Array(lock(&hand_off.0).clone());
+    assert_eq!(mixdog_testkit::exact::Exact::plain(&forwarded), *observed.get("forwarded"), "the hand-offs");
+    assert_archived(&world.archived(&ids_of(&rows)).await, observed.get("archivedAfter"), "after the restore");
+}
+
+/// Case "sub-agent retention archives exactly its tree's members through the real host, no cascade past them": the retention pass (the
+/// production `DirectoryRetention` over the directory, the stored agent-only sessions and the host's archive stamps) archives the two
+/// members idle five days, each alone with a stamp of the host's; the Lead's sub-agent session's restore and archive then move only what
+/// their stamps say.
+#[tokio::test(start_paused = true)]
+async fn retention_archives_exactly_its_tree_with_the_hosts_stamps_as_node_recorded() {
+    use crate::session::sub_agent_retention::DirectoryRetention;
+    use crate::session::sub_agent_retention::members_of;
+    use crate::session::sub_agent_retention::sweep;
+
+    let observed = lifecycle_case("sub-agent retention archives exactly its tree's members through the real host, no cascade past them");
+    let rows: Vec<Value> = plain(observed.get("rows")).as_array().expect("rows").clone();
+    let now = 1_800_000_000_000_u64;
+    let age_days = observed.get("storedRecordAgeDays").as_f64() as u64;
+    let at = now - age_days * 24 * 60 * 60 * 1000;
+    let world = world().await;
+    world.rig.clock.0.store(now, Ordering::SeqCst);
+    // The recorder wrote the two members' stored records with their age; the other rows are as listed.
+    let stored = ["sess_t", "sess_t_child"];
+    world.stored_rows(&rows, |id| if stored.contains(&id) { Map::from_iter(["createdAt", "updatedAt", "lastUsedAt"].map(|key| (key.to_owned(), json!(at)))) } else { Map::new() }).await;
+    let host = DirectoryRetention::new(world.directory.clone(), world.agent_only.clone(), world.stamps.clone());
+    let members: Vec<Value> = members_of(&host).await.expect("members").iter().map(|member| json!({ "id": member.id, "lastActive": member.last_active as u64 })).collect();
+    let recorded_members: Vec<Value> =
+        plain(observed.get("members")).as_array().expect("members").iter().map(|member| json!({ "id": member["id"], "lastActive": member["lastActive"] })).collect();
+    assert_eq!(plain(&mixdog_testkit::exact::Exact::plain(&json!(members))), json!(recorded_members), "the members the pass reads are the ones Node's pass was given");
+    let applied = sweep(&host, now as f64, &CancellationToken::new()).await.expect("the pass");
+    assert_eq!(mixdog_testkit::exact::Exact::plain(&json!({ "archived": applied.archived, "deleted": applied.deleted })), *observed.get("applied"), "applied");
+    let ids = ids_of(&rows);
+    assert_archived(&world.archived(&ids).await, observed.get("archivedAfterRetention"), "after the retention pass");
+    world.archive("sess_t", false, 1).await;
+    world.archive("sess_t", true, 2).await;
+    assert_archived(&world.archived(&ids).await, observed.get("archivedAfterExplicitArchive"), "after the explicit restore and archive");
+}
+
+/// Case "a read lands in the session's own numbering: a surface counting in a retired one cannot read past it": a surface reads 417 of
+/// a session the catalog lists with 62 messages after 17 compactions; the listed row reads 62, cursor revision 1.
+#[tokio::test(start_paused = true)]
+async fn a_read_lands_in_the_sessions_own_numbering_as_node_recorded() {
+    let observed = lifecycle_case("a read lands in the session\u{2019}s own numbering: a surface counting in a retired one cannot read past it");
+    let world = world().await;
+    world.rig.clock.0.store(1_800_000_000_000, Ordering::SeqCst);
+    // The recorder's catalog row (its session client listed it).
+    let recorded_listed = plain(observed.get("listed"));
+    let row = json!({
+        "id": "sess_chat", "owner": "user", "agent": "lead", "sourceType": "lead", "preview": "chat",
+        "title": recorded_listed["title"], "updatedAt": 0, "cwd": recorded_listed["cwd"],
+        "messageCount": observed.get("listedMessageCount").as_f64() as u64, "compactCount": observed.get("listedCompactCount").as_f64() as u64,
+    });
+    world.stored_rows(std::slice::from_ref(&row), |_| Map::new()).await;
+    lock(&world.rig.store.summaries).insert(ThreadId::from("sess_chat"), row.clone());
+    let count = observed.get("surfaceReadCount").as_f64() as i64;
+    assert_eq!(world.call(READ_STATE_UPDATE, json!({ "threadId": "sess_chat", "messageCount": count, "consumedUnread": false }), 1).await.expect("read"), json!(true));
+    // The catalog row carries the header's cursor, as the index's summary of the session does.
+    let mut listed_row = row.clone();
+    listed_row["readState"] = world.header("sess_chat").await["readState"].clone();
+    let listed = serde_json::to_value(crate::session::transcript::summary_of_list_row(&ThreadId::from("sess_chat"), &listed_row, false)).expect("row");
+    // The read cursor the row carries (the case's subject) and the counts it settles against; the rest of the desktop's row
+    // (`classification` as a word, `activityAt` 0) is the desktop roster's dressing, not the core's protocol summary.
+    let listed = plain(&mixdog_testkit::exact::Exact::plain(&listed));
+    for key in ["id", "preview", "title", "messageCount", "compactCount", "readMessageCount", "readRevision"] {
+        assert_eq!(listed[key], recorded_listed[key], "the listed row's {key}");
     }
 }
 

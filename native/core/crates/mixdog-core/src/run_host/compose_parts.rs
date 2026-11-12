@@ -664,7 +664,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let hub = McpHub::new(
-            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
             dir.path().join("tool-results"),
             mixdog_mcp::result::OutputPolicy::default(),
         );
