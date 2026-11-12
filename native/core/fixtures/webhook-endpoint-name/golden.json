@@ -725,5 +725,88 @@
       "body": "{\"error\":\"payload too large\",\"limit\":5242880}",
       "destroyed": true
     }
+  ],
+  "wire": [
+    {
+      "name": "a gate answer with a second request pipelined behind it",
+      "server": "gate",
+      "parts": [
+        "POST /webhook/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "headers": {
+            "content-type": "application/json",
+            "connection": "keep-alive",
+            "keep-alive": "timeout=5",
+            "transfer-encoding": "chunked"
+          },
+          "body": "{\"error\":\"invalid endpoint name\"}"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "a gate answer, then a second request on the same connection",
+      "server": "gate",
+      "sequential": true,
+      "parts": [
+        "POST /webhook/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n",
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "headers": {
+            "content-type": "application/json",
+            "connection": "keep-alive",
+            "keep-alive": "timeout=5",
+            "transfer-encoding": "chunked"
+          },
+          "body": "{\"error\":\"invalid endpoint name\"}"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "a truncated chunked body, the peer half-closed",
+      "server": "collect",
+      "halfClose": true,
+      "parts": [
+        "POST /webhook/hook HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n"
+      ],
+      "responses": [
+        {
+          "status": 400,
+          "headers": {
+            "connection": "close"
+          },
+          "body": ""
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "junk where a chunk ends",
+      "server": "collect",
+      "parts": [
+        "POST /webhook/hook HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}XX0\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 400,
+          "headers": {
+            "connection": "close"
+          },
+          "body": ""
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    }
   ]
 }
