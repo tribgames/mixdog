@@ -936,6 +936,15 @@ impl ShellTool {
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
+                // Ahead of the two promotions below: a cancelled call that is also due for the background is killed, never left
+                // running behind a call that was cancelled.
+                () = ctx.cancel.cancelled() => {
+                    // A kill of a process that just exited is not an error.
+                    let _ = ctx.processes.kill(&job.handle);
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                }
                 () = hold_timer => {
                     reason = if args.background == Some(true) {
                         PromotionReason::Background
@@ -950,13 +959,6 @@ impl ShellTool {
                         Some(WakeReason::Notification) => PromotionReason::Notification,
                         _ => PromotionReason::Input,
                     };
-                }
-                () = ctx.cancel.cancelled() => {
-                    // A kill of a process that just exited is not an error.
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
-                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
             }
         } else {

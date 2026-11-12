@@ -370,7 +370,7 @@ async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_six_seconds
     let (admitted, mut admissions) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (release, held) = tokio::sync::oneshot::channel::<()>();
     let held = Arc::new(std::sync::Mutex::new(Some(held)));
-    let before_spawn: Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync> = Arc::new(move || {
+    let before_spawn: Arc<dyn Fn(u16) -> futures::future::BoxFuture<'static, ()> + Send + Sync> = Arc::new(move |_| {
         let _ = admitted.send(());
         let held = held.lock().expect("held").take().expect("one start");
         Box::pin(async move {
@@ -767,19 +767,21 @@ async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_nex
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
     let dir = tempfile::tempdir().expect("dir");
     let preferred = 57_000 + (std::process::id() % 800) as u16 * 8 + 5;
-    let taken = Arc::new(std::sync::Mutex::new(None));
+    // The port the start chose first (whichever it was: another process may hold `preferred` already), taken before its postmaster binds.
+    let taken = Arc::new(std::sync::Mutex::new(None::<(u16, std::net::TcpListener)>));
     let holder = taken.clone();
     let mut start = Start::node();
-    start.before_spawn = Some(Arc::new(move || {
+    start.before_spawn = Some(Arc::new(move |chosen| {
         let mut holder = holder.lock().expect("holder");
         if holder.is_none() {
-            *holder = Some(std::net::TcpListener::bind(("127.0.0.1", preferred)).expect("the chosen port is still free"));
+            *holder = Some((chosen, std::net::TcpListener::bind(("127.0.0.1", chosen)).expect("the chosen port is still free")));
         }
         Box::pin(async {})
     }));
     let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &start, &|| true)
         .await
         .expect("the start moves on to the next port");
-    assert!(cluster.port() > preferred, "the start used the port that was taken: {}", cluster.port());
+    let first = taken.lock().expect("holder").as_ref().expect("the start reached its spawn").0;
+    assert!(cluster.port() > first, "the start used the port that was taken ({first}): {}", cluster.port());
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }

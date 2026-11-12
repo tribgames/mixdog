@@ -244,9 +244,9 @@ pub(crate) struct Start {
     pub recovery_wait: Duration,
     #[cfg(test)]
     pub lock_wait: Duration,
-    /// Holds a start between its admission and the spawn of `pg_ctl start`.
+    /// Holds a start between its admission and the spawn of `pg_ctl start`; it is told the port the start chose.
     #[cfg(test)]
-    pub before_spawn: Option<std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>>,
+    pub before_spawn: Option<std::sync::Arc<dyn Fn(u16) -> futures::future::BoxFuture<'static, ()> + Send + Sync>>,
 }
 
 impl Start {
@@ -634,7 +634,7 @@ impl PgCluster {
         }
         #[cfg(test)]
         if let Some(gate) = &start.before_spawn {
-            gate().await;
+            gate(port).await;
         }
         let args: Vec<String> = [
             "start".to_owned(),
