@@ -19,8 +19,18 @@
                   build runs, pointed at this working tree.
 
     -FastDirect   fingerprint build inputs, rebuild only changed targets, then
-                  atomically swap only affected installed artifacts. Native or
-                  packaging changes fall back to win-unpacked.
+                  atomically swap only affected installed artifacts: the
+                  app shell (app.asar), the core (resources\core\mixdogd.exe)
+                  and the package root the core reads
+                  (resources\runtime.asar.unpacked\node_modules\mixdog).
+                  Native, dependency or packaging changes, and any install
+                  this script did not deploy last (a Node-core install
+                  included), fall back to win-unpacked.
+
+  The core is built with cargo (`cargo build --release -p mixdog-cli`, in the
+  checkout that holds native\core) and staged by `stage-core.mjs --binary`;
+  a local deploy ships no server-cores (the SSH install needs the release
+  build's other platforms).
 
   -DryRun prints the resolved plan and current process/daemon state and changes
   nothing — every other mode stops the running app and its session daemon.
@@ -31,13 +41,11 @@ param(
     [switch]$ViaUpdater,
     [switch]$FastDirect,
     [switch]$FastDirectWorker,
-    # -ReuseBuild trusts a just-finished build:fast (out/ + daemon are fresh) and
-    # skips the second electron-vite/build-daemon pass. -BuildOnly stops after
-    # staging so a caller can overlap other work, then rerun with -SkipBuild.
+    # -ReuseBuild trusts a just-finished build:fast (out/ is fresh) and skips
+    # the second electron-vite pass. -BuildOnly stops after staging so a
+    # caller can overlap other work, then rerun with -SkipBuild.
     [switch]$ReuseBuild,
     [switch]$BuildOnly,
-    [switch]$RuntimeOnly,
-    [switch]$RuntimeOnlyWorker,
     [switch]$NoLaunch,
     [switch]$KeepDaemon,
     # Abort the work a busy core is running, after listing it and a typed
@@ -50,6 +58,9 @@ param(
     [string]$FastPlanPath = '',
     [string]$FastStatePath = '',
     [string]$FastArtifactDir = '',
+    # The checkout the core is built in; the detached worker (started through WMI, which passes no environment)
+    # gets it here.
+    [string]$CoreBuildRoot = '',
     [int]$FeedPort = 9357
 )
 
@@ -58,7 +69,7 @@ trap {
     # Windows PowerShell can return exit 0 for an uncaught terminating error in
     # a -File script. FastDirect callers must never report a failed build/swap as
     # success, especially when the detached worker was never launched.
-    if (($RuntimeOnlyWorker -or $FastDirect) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
+    if ($FastDirect -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
         try { Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message } catch {}
     }
     [Console]::Error.WriteLine(($_ | Out-String))
@@ -95,11 +106,19 @@ if ($FastDirect -and -not $FastDirectWorker -and [string]::IsNullOrWhiteSpace($R
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 
-function Assert-DesktopDaemonArtifact {
+function Assert-DesktopCoreArtifact {
     param([string]$ArtifactRoot)
-    $daemonArtifact = Join-Path $ArtifactRoot 'resources\app.asar.unpacked\out\main\daemon.cjs'
-    if (-not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)) {
-        throw "Desktop artifact is missing the unpacked daemon: $daemonArtifact"
+    # What the app starts (local-core.ts) and what the core reads (core-layout.mjs).
+    foreach ($relative in @(
+            'resources\core\mixdogd.exe',
+            'resources\core\js-runtime.json',
+            'resources\runtime.asar.unpacked\node_modules\mixdog\package.json',
+            'resources\runtime.asar.unpacked\node_modules\mixdog\src\ext-host\worker.mjs'
+        )) {
+        $artifact = Join-Path $ArtifactRoot $relative
+        if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
+            throw "Desktop artifact is missing $relative : $artifact"
+        }
     }
     & node $fastDirectHelper --action=assert-prod-deps "--install-dir=$ArtifactRoot"
     if ($LASTEXITCODE -ne 0) {
@@ -174,7 +193,7 @@ function Start-DetachedDeployWorker {
     $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
     # WMI owns the deployment worker, not Mixdog's shell process tree. Stopping
     # the app/daemon therefore cannot kill the worker before the swap it runs --
-    # the installed directory for FastDirect, the runtime archive for RuntimeOnly.
+    # the installed directory for FastDirect.
     $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
         CommandLine = $commandLine
     }
@@ -192,17 +211,9 @@ function Start-FastDirectWorker {
         + " -FastPlanPath $(ConvertTo-PowerShellLiteral $FastPlanPath)" `
         + " -FastStatePath $(ConvertTo-PowerShellLiteral $FastStatePath)" `
         + " -FastArtifactDir $(ConvertTo-PowerShellLiteral $FastArtifactDir)" `
+        + " -CoreBuildRoot $(ConvertTo-PowerShellLiteral $coreBuildRoot)" `
         + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
     return Start-DetachedDeployWorker -ModeName 'FastDirect' -WorkerLabel 'fast deploy' `
-        -WorkerArguments $workerArguments
-}
-
-function Start-RuntimeOnlyWorker {
-    $workerArguments = " -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
-        + " -InstallDir $(ConvertTo-PowerShellLiteral $InstallDir)" `
-        + " -ReceiptPath $(ConvertTo-PowerShellLiteral $ReceiptPath)" `
-        + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
-    return Start-DetachedDeployWorker -ModeName 'RuntimeOnly' -WorkerLabel 'runtime deploy' `
         -WorkerArguments $workerArguments
 }
 
@@ -478,6 +489,34 @@ function Wait-ForFreshDaemon {
     return $null
 }
 
+# The core is built where cargo's incremental state lives: the checkout, not the frozen snapshot (a fresh
+# checkout of the same files has newer mtimes, so cargo would rebuild all 41 crates every deploy).
+$coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
+
+function Build-LocalCore {
+    Write-Step 'building mixdogd (cargo build --release -p mixdog-cli)'
+    if ($FastDirect -and $fastPlan) {
+        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot"
+        if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
+    }
+    & cargo build --release --locked -p mixdog-cli --manifest-path (Join-Path $coreBuildRoot 'native\core\Cargo.toml')
+    if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
+    if ($FastDirect -and $fastPlan) {
+        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot"
+        if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed while building.' }
+    }
+    $built = Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+    if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw "cargo did not produce $built" }
+    return $built
+}
+
+# prepare:runtime recreates .runtime from nothing, so the core is staged after it, never before.
+function Install-LocalCoreIntoRuntime {
+    param([string]$Binary)
+    & node (Join-Path $PSScriptRoot 'stage-core.mjs') "--binary=$Binary" --platform=win32 --arch=x64
+    if ($LASTEXITCODE -ne 0) { throw "stage-core exited with $LASTEXITCODE" }
+}
+
 function Invoke-Build {
     param(
         [string]$OverrideVersion,
@@ -498,23 +537,22 @@ function Invoke-Build {
                 -ArgumentList @('electron-builder', '--dir', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$OverrideVersion") `
                 -WorkingDirectory $desktopDir -NoNewWindow -Wait -PassThru
             if ($builder.ExitCode -ne 0) { throw "electron-builder --dir exited with $($builder.ExitCode)" }
-            Assert-DesktopDaemonArtifact $unpackedDir
+            Assert-DesktopCoreArtifact $unpackedDir
             Write-Step 'complete win-unpacked fallback ready'
             return
         }
-        if ([string]::IsNullOrWhiteSpace($OverrideVersion)) {
-            & npm.cmd run build:win
-            if ($LASTEXITCODE -ne 0) { throw "build:win exited with $LASTEXITCODE" }
-            return
-        }
-        # Same steps as build:win, with the version the local feed will advertise.
+        # The steps of build:win, except that the core is the one cargo builds here: build:win stages release
+        # builds of every platform, which only CI has.
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw "build exited with $LASTEXITCODE" }
         & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
         if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+        Install-LocalCoreIntoRuntime (Build-LocalCore)
         & npm.cmd run brand:win
         if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
-        & npx.cmd electron-builder --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
+        $builderArguments = @('electron-builder', '--win', '--x64', '--publish', 'never')
+        if (-not [string]::IsNullOrWhiteSpace($OverrideVersion)) { $builderArguments += "-c.extraMetadata.version=$OverrideVersion" }
+        & npx.cmd @builderArguments
         if ($LASTEXITCODE -ne 0) { throw "electron-builder exited with $LASTEXITCODE" }
         & npm.cmd run verify:update-metadata
         if ($LASTEXITCODE -ne 0) { throw "verify:update-metadata exited with $LASTEXITCODE" }
@@ -545,7 +583,7 @@ function Test-FastDirectNoOp {
     return (
         -not [bool]$Plan.full -and
         @($Plan.targets).Count -eq 0 -and
-        -not [bool]$Plan.daemon -and
+        -not [bool]$Plan.core -and
         -not [bool]$Plan.runtime
     )
 }
@@ -694,9 +732,8 @@ function Invoke-FastDirectChangedOutputs {
     else {
         @($Plan.targets)
     }
-    # The same rule the daemon artifact follows below, applied to the Electron
-    # targets: freshness is a claim about SOURCES, and a target whose output is
-    # not on disk cannot be fresh no matter what the plan says. A snapshot deploy
+    # Freshness is a claim about SOURCES, and a target whose output is not on
+    # disk cannot be fresh no matter what the plan says. A snapshot deploy
     # builds in a throwaway worktree that starts with no `out/`, so a
     # renderer-only plan staged an asar without out/main/index.js and the install
     # failed on the missing entry point.
@@ -724,68 +761,33 @@ function Invoke-FastDirectChangedOutputs {
         Invoke-SelectedElectronBuild $buildTargets
     }
 
-    # An Electron build clears out/main before recreating ITS OWN targets, and
-    # daemon.cjs is emitted by a separate script — so rebuilding `main` deletes a
-    # daemon the plan still believes is fresh, and staging then fails on an
-    # archive with no daemon in it. Freshness is a claim about sources; the
-    # artifact's own absence outranks it.
-    $daemonArtifact = Join-Path $desktopDir 'out\main\daemon.cjs'
-    $daemonMissing = -not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)
-    $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon -or $daemonMissing
-    $reuseDaemon = $daemonChanged -and -not $Plan.full -and -not $daemonMissing `
-        -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
-    if ($reuseDaemon) {
-        Write-Step 'reusing fresh desktop daemon'
-    }
-    elseif ($daemonChanged) {
-        Write-Step 'building changed desktop daemon'
+    # A complete deploy prepares the whole runtime and stages the core into it
+    # (prepare:runtime recreates .runtime, so the core goes in after it).
+    if ($Plan.full) {
         Push-Location $desktopDir
         try {
-            & node scripts/build-daemon.mjs
-            if ($LASTEXITCODE -ne 0) { throw "build-daemon exited with $LASTEXITCODE" }
+            Write-Step 'preparing production runtime.asar for the complete fallback'
+            & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+            if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
         }
         finally {
             Pop-Location
         }
+        Install-LocalCoreIntoRuntime (Build-LocalCore)
+        return
     }
-
-    $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
-    $runtimeChanged = if ($Plan.full) {
-        [bool]$Plan.changed.runtime -or -not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)
+    if ([bool]$Plan.core) {
+        Build-LocalCore | Out-Null
     }
-    else {
-        [bool]$Plan.runtime
-    }
-    if ($runtimeChanged) {
+    if ([bool]$Plan.runtime) {
         Push-Location $desktopDir
         try {
-            if ($Plan.full) {
-                Write-Step 'preparing production runtime.asar for the complete fallback'
-                & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-                if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-            }
-            else {
-                $runtimeMode = [string]$Plan.runtimeMode
-                if ([string]::IsNullOrWhiteSpace($runtimeMode) -or $runtimeMode -eq 'none') {
-                    $runtimeMode = 'full'
-                }
-                Write-Step "preparing changed FastDirect runtime ($runtimeMode)"
-                if ($runtimeMode -eq 'code') {
-                    # Through npm like prepare:runtime below: the script packs
-                    # via npm_execpath, which a bare node launch (deploy-remote
-                    # -FastDirect run outside npm) never had.
-                    & npm.cmd run prepare:fast-runtime-code -- `
-                        "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
-                        "--runtime-hash=$($Plan.groups.runtime.hash)"
-                    if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
-                }
-                else {
-                    & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64 --mode=fast-full `
-                        "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
-                        "--runtime-hash=$($Plan.groups.runtime.hash)"
-                    if ($LASTEXITCODE -ne 0) { throw "prepare:runtime fast-full exited with $LASTEXITCODE" }
-                }
-            }
+            Write-Step 'preparing the changed runtime package'
+            # Through npm like prepare:runtime: the script packs via npm_execpath.
+            & npm.cmd run prepare:fast-runtime-code -- `
+                "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+                "--runtime-hash=$($Plan.groups.runtime.hash)"
+            if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
         }
         finally {
             Pop-Location
@@ -798,7 +800,7 @@ function Invoke-FastDirectIncrementalBuild {
     Invoke-FastDirectChangedOutputs $Plan
     Assert-FastDirectPlanCurrent
     $targets = @($Plan.targets)
-    if ($targets.Count -gt 0 -or $Plan.daemon) {
+    if ($targets.Count -gt 0) {
         Write-Step 'staging incremental app.asar'
         & node $fastDirectHelper --action=stage-shell "--install-dir=$InstallDir" `
             "--plan=$FastPlanPath" "--artifact=$FastArtifactDir"
@@ -810,7 +812,7 @@ function Install-UnpackedBuild {
     if (-not (Test-Path -LiteralPath (Join-Path $unpackedDir 'Mixdog.exe') -PathType Leaf)) {
         throw "Unpacked desktop artifact missing: $unpackedDir"
     }
-    Assert-DesktopDaemonArtifact $unpackedDir
+    Assert-DesktopCoreArtifact $unpackedDir
     $installParent = Split-Path -Parent $InstallDir
     $installLeaf = Split-Path -Leaf $InstallDir
     $backupDir = Join-Path $installParent ".$installLeaf.fast-backup-$PID"
@@ -897,52 +899,14 @@ function Install-UnpackedBuild {
     }
 }
 
-# The first open of a NEW file by Mixdog.exe pays a per-file antivirus scan
-# (~7ms each here); a FastDirect deploy rewrites the whole runtime tree, so
-# the next boot used to spend ~1s in the daemon's module graph and ~7ms on
-# every lazily imported module. Warm the tree from the installed exe before
-# launch (see prewarm-fast-runtime.mjs); the scan cache is per file.
-function Invoke-FastRuntimePrewarm {
-    param([string]$Exe, [string]$RuntimeDir)
-    if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return }
-    if (-not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return }
-    $script = Join-Path $PSScriptRoot 'prewarm-fast-runtime.mjs'
-    $log = Join-Path $env:TEMP ("mixdog-fast-prewarm-" + [guid]::NewGuid().ToString('N') + '.log')
-    $previous = $env:ELECTRON_RUN_AS_NODE
-    try {
-        $env:ELECTRON_RUN_AS_NODE = '1'
-        Write-Step 'prewarming the FastDirect runtime files'
-        $process = Start-Process -FilePath $Exe -ArgumentList @("`"$script`"", "`"$RuntimeDir`"") `
-            -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $log
-        if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $log -PathType Leaf)) {
-            $line = (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
-            if ($line) { Write-Step $line }
-        }
-        else {
-            Write-Step "prewarm skipped (exit $($process.ExitCode))"
-        }
-    }
-    catch {
-        Write-Step "prewarm skipped ($($_.Exception.Message))"
-    }
-    finally {
-        if ($null -eq $previous) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
-        else { $env:ELECTRON_RUN_AS_NODE = $previous }
-        Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-    }
-}
-
 function Install-IncrementalBuild {
     param([object]$Plan)
-    $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
+    $shellChanged = @($Plan.targets).Count -gt 0
     $runtimeChanged = [bool]$Plan.runtime
-    $runtimeMode = if ([string]::IsNullOrWhiteSpace([string]$Plan.runtimeMode)) {
-        'full'
-    }
-    else {
-        [string]$Plan.runtimeMode
-    }
-    $appRestartRequired = $shellChanged -or $runtimeChanged
+    $coreChanged = [bool]$Plan.core
+    # The core reads the package root at start and holds mixdogd.exe open, so either change restarts it.
+    $coreRestartRequired = $runtimeChanged -or $coreChanged
+    $appRestartRequired = $shellChanged -or $coreRestartRequired
     $installedResources = Join-Path $InstallDir 'resources'
     $backupDir = Join-Path $env:TEMP ("mixdog-fast-incremental-backup-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
@@ -984,8 +948,8 @@ function Install-IncrementalBuild {
             Write-Step 'stopping the installed app'
             Stop-MixdogApp
         }
-        if ($runtimeChanged) {
-            Write-Step 'stopping the session daemon'
+        if ($coreRestartRequired) {
+            Write-Step 'stopping the core'
             Stop-Daemon
         }
         if ($appRestartRequired) {
@@ -1004,37 +968,24 @@ function Install-IncrementalBuild {
                 -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
         }
         if ($runtimeChanged) {
-            $installedFastRuntime = Join-Path $installedResources 'fast-runtime'
-            if ($runtimeMode -eq 'code') {
-                $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code'
-                if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
-                    throw "Prepared FastDirect runtime code is missing: $runtimeCode"
-                }
-                if (-not (Test-Path -LiteralPath (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') -PathType Leaf)) {
-                    throw "Installed FastDirect dependency runtime is missing: $installedFastRuntime"
-                }
-                Backup-InstalledArtifact (Join-Path $installedFastRuntime 'node_modules\mixdog') 'fast-runtime-mixdog'
-                Backup-InstalledArtifact (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') 'fast-runtime-marker.json'
-                Install-PreparedArtifact (Join-Path $runtimeCode 'node_modules\mixdog') `
-                (Join-Path $installedFastRuntime 'node_modules\mixdog')
-                Install-PreparedArtifact (Join-Path $runtimeCode '.mixdog-fast-runtime.json') `
-                (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json')
+            # The package root js-runtime.json names: real files beside the core's other modules.
+            $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code\node_modules\mixdog'
+            $installedPackage = Join-Path $installedResources 'runtime.asar.unpacked\node_modules\mixdog'
+            if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'src\ext-host\worker.mjs') -PathType Leaf)) {
+                throw "Prepared runtime package is missing: $runtimeCode"
             }
-            else {
-                $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
-                $fastRuntime = Join-Path $desktopDir '.runtime\fast-runtime'
-                if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
-                    throw "Prepared runtime native tools are missing: $runtimeNativeTools"
-                }
-                if (-not (Test-Path -LiteralPath (Join-Path $fastRuntime 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
-                    throw "Prepared FastDirect runtime is missing: $fastRuntime"
-                }
-                Backup-InstalledArtifact $installedFastRuntime 'fast-runtime'
-                Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
-                Install-PreparedArtifact $fastRuntime $installedFastRuntime
-                Install-PreparedArtifact $runtimeNativeTools (Join-Path $installedResources 'native-tools')
+            if (-not (Test-Path -LiteralPath $installedPackage -PathType Container)) {
+                throw "Installed runtime package is missing: $installedPackage"
             }
-            Invoke-FastRuntimePrewarm -Exe $installedExe -RuntimeDir $installedFastRuntime
+            Backup-InstalledArtifact $installedPackage 'runtime-package-mixdog'
+            Install-PreparedArtifact $runtimeCode $installedPackage
+        }
+        if ($coreChanged) {
+            $builtCore = Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+            if (-not (Test-Path -LiteralPath $builtCore -PathType Leaf)) { throw "Built core is missing: $builtCore" }
+            $installedCore = Join-Path $installedResources 'core\mixdogd.exe'
+            Backup-InstalledArtifact $installedCore 'mixdogd.exe'
+            Copy-Item -LiteralPath $builtCore -Destination $installedCore
         }
 
         if (-not $NoLaunch) {
@@ -1042,9 +993,9 @@ function Install-IncrementalBuild {
                 Write-Step 'starting the incrementally deployed app'
                 Start-DetachedMixdogApp
             }
-            if ($runtimeChanged) {
+            if ($coreRestartRequired) {
                 $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
-                if (-not $fresh) { throw 'Incrementally deployed Mixdog did not publish a fresh daemon.' }
+                if (-not $fresh) { throw 'Incrementally deployed Mixdog did not publish a fresh core.' }
                 $script:daemonAfter = $fresh
             }
             else {
@@ -1066,7 +1017,7 @@ function Install-IncrementalBuild {
             Stop-MixdogApp
             Stop-InstalledMixdogProcess
         }
-        if ($runtimeChanged) { Stop-Daemon }
+        if ($coreRestartRequired) { Stop-Daemon }
         Restore-IncrementalArtifacts
         Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
         if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
@@ -1091,12 +1042,9 @@ else { $Version }
 if ($ViaUpdater -and $FastDirect) {
     throw 'ViaUpdater and FastDirect are mutually exclusive.'
 }
-if ($RuntimeOnly -and ($ViaUpdater -or $FastDirect)) {
-    throw 'RuntimeOnly cannot be combined with ViaUpdater or FastDirect.'
-}
 
 Write-Host ''
-Write-Host "mode            : $(if ($ViaUpdater) { 'via updater (local feed)' } elseif ($FastDirect) { 'fast direct' } elseif ($RuntimeOnly) { 'runtime.asar only' } else { 'reinstall' })"
+Write-Host "mode            : $(if ($ViaUpdater) { 'via updater (local feed)' } elseif ($FastDirect) { 'fast direct' } else { 'reinstall' })"
 Write-Host "repo root       : $repoRoot"
 Write-Host "install dir     : $InstallDir"
 Write-Host "installer       : $installer$(if (Test-Path -LiteralPath $installer) { '' } else { '  (missing - will be built)' })"
@@ -1120,9 +1068,9 @@ if (-not (Test-Path -LiteralPath $InstallDir)) {
 # Release CI commits to the default branch (version bump, synchronized runtime
 # and native manifests). A tree without those commits installs stale manifests
 # under the installed version number, so a behind branch is never deployed.
-# The detached workers run after the front process already checked. A
+# The detached worker runs after the front process already checked. A
 # FastDirect snapshot is a detached copy; its source checkout holds the branch.
-if (-not ($FastDirectWorker -or $RuntimeOnlyWorker)) {
+if (-not $FastDirectWorker) {
     Write-Step 'checking the working tree includes the latest upstream commits'
     $upstreamCheckRoot = if ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
     & git -C $upstreamCheckRoot fetch --quiet
@@ -1132,112 +1080,6 @@ if (-not ($FastDirectWorker -or $RuntimeOnlyWorker)) {
     if ([int]$behind -gt 0) {
         throw "The working tree is $behind commit(s) behind its upstream. Pull them first: release commits carry the version and runtime manifest updates."
     }
-}
-
-if ($RuntimeOnly) {
-    # runtime.asar-only swap: only the session daemon restarts; the app window,
-    # renderer, and native tools stay untouched. Valid ONLY while the installed
-    # desktop shell (app.asar) still matches this working tree — a runtime swap
-    # on top of shell drift would run new runtime code against an old shell.
-    $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
-    $runtimeSidecarArtifact = "$runtimeArtifact.unpacked"
-    $installedResources = Join-Path $InstallDir 'resources'
-    $installedAppAsar = Join-Path $installedResources 'app.asar'
-    if (-not (Test-Path -LiteralPath $installedAppAsar -PathType Leaf)) {
-        throw "No installed app.asar at $installedAppAsar - run a full FastDirect deploy first."
-    }
-    $shellBuiltAt = (Get-Item -LiteralPath $installedAppAsar).LastWriteTimeUtc
-    $shellInputs = @(
-        (Join-Path $desktopDir 'src'),
-        (Join-Path $desktopDir 'package.json'),
-        (Join-Path $desktopDir 'electron.vite.config.ts')
-    ) | Where-Object { Test-Path -LiteralPath $_ }
-    $newestShellChange = ($shellInputs | ForEach-Object {
-            Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue
-        } | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-    if ($newestShellChange -and $newestShellChange -gt $shellBuiltAt) {
-        throw "Desktop shell sources changed after the installed build ($newestShellChange > $shellBuiltAt). Run update:dev:fast instead."
-    }
-
-    if (-not $SkipBuild) {
-        Write-Step 'building runtime.asar only'
-        Push-Location $desktopDir
-        try {
-            & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-            if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-        }
-        finally {
-            Pop-Location
-        }
-    }
-    if (-not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)) {
-        throw "Runtime artifact missing: $runtimeArtifact"
-    }
-    if (-not $RuntimeOnlyWorker) {
-        if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-            $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-runtime-deploy.json'
-        }
-        Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
-        $workerPid = Start-RuntimeOnlyWorker
-        Write-Step "runtime deploy handed to detached worker pid=$workerPid"
-        Write-Host "receipt         : $ReceiptPath"
-        exit 0
-    }
-
-    Write-FastDirectReceipt -Status 'worker-started'
-    Start-Sleep -Seconds 2
-    Write-Step 'stopping the installed app'
-    Stop-MixdogApp
-    Write-Step 'stopping the session daemon'
-    Stop-Daemon
-    Write-Step 'waiting for installed Mixdog processes to release runtime.asar'
-    Stop-InstalledMixdogProcess
-    $installedRuntime = Join-Path $installedResources 'runtime.asar'
-    $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
-    $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-    try {
-        Write-Step 'swapping resources\runtime.asar'
-        if (Test-Path -LiteralPath $installedRuntime -PathType Leaf) {
-            Move-Item -LiteralPath $installedRuntime -Destination (Join-Path $backupDir 'runtime.asar') -Force
-        }
-        if (Test-Path -LiteralPath $installedRuntimeUnpacked -PathType Container) {
-            Move-Item -LiteralPath $installedRuntimeUnpacked -Destination (Join-Path $backupDir 'runtime.asar.unpacked') -Force
-        }
-        Copy-Item -LiteralPath $runtimeArtifact -Destination $installedRuntime -Force
-        if (Test-Path -LiteralPath $runtimeSidecarArtifact -PathType Container) {
-            Copy-Item -LiteralPath $runtimeSidecarArtifact -Destination $installedRuntimeUnpacked -Recurse -Force
-        }
-    }
-    catch {
-        $failure = $_
-        Write-Step 'runtime swap failed; restoring the previous runtime archive'
-        if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar') -PathType Leaf) {
-            Remove-Item -LiteralPath $installedRuntime -Force -ErrorAction SilentlyContinue
-            Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar') -Destination $installedRuntime -Force
-        }
-        if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -PathType Container) {
-            Remove-Item -LiteralPath $installedRuntimeUnpacked -Recurse -Force -ErrorAction SilentlyContinue
-            Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -Destination $installedRuntimeUnpacked -Force
-        }
-        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-        throw $failure
-    }
-
-    $daemonAfterSwap = $null
-    if (-not $NoLaunch) {
-        Write-Step 'starting the installed app'
-        Start-InstalledMixdogApp
-        Write-Step 'waiting for a fresh daemon'
-        $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -TimeoutSeconds 45
-    }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host ''
-    Write-Host 'result' -ForegroundColor Green
-    Write-Host "  runtime.asar      : swapped ($([math]::Round((Get-Item -LiteralPath $installedRuntime).Length / 1MB, 1)) MB)"
-    Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } elseif ($NoLaunch) { '(stopped)' } else { 'did not appear' })"
-    Write-FastDirectReceipt -Status 'completed'
-    exit 0
 }
 
 if ($FastDirect -and $SkipBuild) {

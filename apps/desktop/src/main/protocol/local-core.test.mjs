@@ -5,15 +5,17 @@ import test from 'node:test';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { coreBinaryPath, coreEnvironment, packagedMixdogRoot } from './local-core.ts';
 
-test('a packaged app tells the core where its unpacked resources are; a development run leaves the environment alone', () => {
+test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
   const resources = join('r', 'resources');
-  assert.deepEqual(coreEnvironment(true, resources, base), {
+  const userData = join('r', 'profile');
+  assert.deepEqual(coreEnvironment(true, resources, userData, base), {
     PATH: 'p',
     MIXDOG_ROOT: join(resources, 'runtime.asar.unpacked', 'node_modules', 'mixdog', 'src'),
+    MIXDOG_DESKTOP_USER_DATA: userData,
   });
-  assert.equal(packagedMixdogRoot(resources), coreEnvironment(true, resources, {}).MIXDOG_ROOT);
-  assert.equal(coreEnvironment(false, resources, base), base);
+  assert.equal(packagedMixdogRoot(resources), coreEnvironment(true, resources, userData, {}).MIXDOG_ROOT);
+  assert.equal(coreEnvironment(false, resources, userData, base), base);
 });
 
 test('the packaged core binary sits beside the resources', () => {

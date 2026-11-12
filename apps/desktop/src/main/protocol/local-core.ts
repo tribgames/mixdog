@@ -19,9 +19,11 @@ export function packagedMixdogRoot(resourcesPath: string): string {
   return join(resourcesPath, 'runtime.asar.unpacked', 'node_modules', 'mixdog', 'src');
 }
 
-/** What the started core inherits: a packaged app tells it where its resources are. */
-export function coreEnvironment(packaged: boolean, resourcesPath: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return packaged ? { ...base, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath) } : base;
+/** What the started core inherits: a packaged app tells it where its resources are and which Electron profile is
+ *  its own. The core never guesses a profile (`migration_roots` in the daemon's boot.rs): `MIXDOG_DESKTOP_USER_DATA`
+ *  is the only way the one-time migration reaches the profile's session metadata and remote state. */
+export function coreEnvironment(packaged: boolean, resourcesPath: string, userData: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return packaged ? { ...base, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData } : base;
 }
 
 async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcPort: number | null; blocked: unknown }> {

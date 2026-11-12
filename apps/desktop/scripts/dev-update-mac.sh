@@ -5,9 +5,8 @@
 #   build -> stop app -> stop session daemon -> replace the installed bundle
 #   -> relaunch -> wait for a fresh daemon.
 #
-# The daemon stop is the point: a dev rebuild keeps the same version, so the
-# version-skew drain in session-client.mjs never fires and a relaunched app
-# would otherwise attach to the still-running old session daemon.
+# The daemon stop is the point: a dev rebuild keeps the same version, so a
+# relaunched app would otherwise attach to the still-running old core.
 #
 # No Developer ID key leaves CI, so there is no -ViaUpdater equivalent: macOS
 # auto-update only accepts a bundle signed by the same identity as the running
@@ -25,6 +24,7 @@
 set -euo pipefail
 
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
+repo_root="$(cd "$desktop_dir/../.." && pwd)"
 install_app="/Applications/Mixdog.app"
 skip_build=false no_launch=false keep_daemon=false dry_run=false
 
@@ -70,17 +70,18 @@ app_pids() {
 	ps -axo pid=,command= | awk '$2 ~ /Mixdog\.app\/Contents\/MacOS\/Mixdog$/ { print $1 }'
 }
 
+# The core of any installed bundle (`mixdogd` under Contents/Resources/core).
 daemon_pids() {
-	ps -axo pid=,command= | awk '/standalone\/daemon\.mjs|runtime\/memory\/index\.mjs|out\/main\/daemon\.cjs/ && !/awk/ { print $1 }'
+	ps -axo pid=,command= | awk '$2 ~ /Mixdog\.app\/Contents\/Resources\/core\/mixdogd$/ { print $1 }'
 }
 
+# The pid the core published in its discovery file (<runtime root>/daemon.json).
 daemon_field() {
 	[ -f "$daemon_discovery" ] || return 0
 	node -e '
     try {
       const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-      const s = (d.endpoints && d.endpoints.session) || {};
-      console.log({ pid: d.pid, port: s.port, token: s.token }[process.argv[2]] ?? "");
+      console.log({ pid: d.pid }[process.argv[2]] ?? "");
     } catch { console.log(""); }
   ' "$daemon_discovery" "$1"
 }
@@ -116,30 +117,25 @@ stop_app() {
 	fail "Mixdog is still running: $(app_pids | join_pids)"
 }
 
-# Same /shutdown the client's shutdownDaemon() posts; the daemon owns both
-# front doors, so one call ends channels, sessions and the memory client.
+# The installed core stops itself once it is idle (`ctl stop --when-idle`, as the Windows script does); nothing
+# here kills it, so running work finishes first.
 stop_daemon() {
-	local pid port token
+	local pid core="$install_app/Contents/Resources/core/mixdogd"
 	pid="$(daemon_field pid)"
-	port="$(daemon_field port)"
-	token="$(daemon_field token)"
-	if [ -n "$port" ] && [ -n "$token" ]; then
-		if curl -fsS -m 5 -X POST "http://127.0.0.1:$port/shutdown" \
-			-H "X-Mixdog-Daemon-Token: $token" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1; then
-			echo "    asked daemon pid=$pid to exit"
-		else
-			echo "    daemon /shutdown failed"
-		fi
-	fi
-	for _ in $(seq 1 75); do
-		[ -z "$(daemon_pids)" ] && break
-		sleep_s 0.2
+	[ -n "$pid" ] || {
+		echo "    no core running"
+		return
+	}
+	[ -x "$core" ] || {
+		echo "    the installed build has no mixdogd ($core); nothing to stop"
+		return
+	}
+	"$core" ctl stop --when-idle --reason fastDeploy --json >/dev/null || fail "mixdogd ctl stop failed"
+	echo "    asked core pid=$pid to stop when idle"
+	while kill -0 "$pid" 2>/dev/null; do
+		echo "    waiting for the core to become idle"
+		sleep_s 10
 	done
-	for leftover in $(daemon_pids); do
-		echo "    force stopping daemon pid=$leftover"
-		kill -9 "$leftover" 2>/dev/null || true
-	done
-	rm -f "$daemon_discovery"
 }
 
 wait_for_fresh_daemon() {
@@ -159,6 +155,9 @@ build() {
 		cd "$desktop_dir"
 		npm run build
 		npm run prepare:runtime
+		# The core cargo builds here; prepare:runtime recreated .runtime, so it is staged after it.
+		cargo build --release --locked -p mixdog-cli --manifest-path "$repo_root/native/core/Cargo.toml"
+		node scripts/stage-core.mjs "--binary=$repo_root/native/core/target/release/mixdogd"
 		# Dev builds never see the Developer ID secrets.
 		if dev_identity_ready; then
 			# No secure timestamp: only notarization needs one, and fetching it from
@@ -174,8 +173,8 @@ build() {
 
 assert_artifact() {
 	[ -d "$dist_app" ] || fail "Build artifact missing: $dist_app"
-	[ -f "$dist_app/Contents/Resources/app.asar.unpacked/out/main/daemon.cjs" ] ||
-		fail "Desktop artifact is missing the unpacked daemon: $dist_app"
+	[ -f "$dist_app/Contents/Resources/core/mixdogd" ] || fail "Desktop artifact is missing the core: $dist_app"
+	[ -f "$dist_app/Contents/Resources/core/js-runtime.json" ] || fail "Desktop artifact is missing js-runtime.json: $dist_app"
 	[ -f "$dist_app/Contents/Resources/runtime.asar" ] || fail "Desktop artifact is missing runtime.asar: $dist_app"
 }
 

@@ -65,6 +65,33 @@ async function sha256Of(file) {
 export { workspaceVersion };
 
 /**
+ * Stages the core this app starts: `.runtime/core/mixdogd[.exe]` and its `js-runtime.json`. A local deploy
+ * stages only this (`--host-only`); the server bundles need the other platforms' builds.
+ * @param {object} options
+ * @param {string} options.binary      the built `mixdogd` of the host platform
+ */
+export async function stageHostCore({
+  binary,
+  runtimeDir,
+  version,
+  host,
+  hostRunnable = host.platform === process.platform && host.arch === process.arch,
+  reportedVersion = hostReportedVersion,
+}) {
+  if (hostRunnable) {
+    const reported = reportedVersion(binary);
+    if (reported !== version) {
+      throw new Error(`mixdogd reports version ${reported}, but the release is ${version}`);
+    }
+  }
+  const coreDir = join(runtimeDir, 'core');
+  await rm(coreDir, { recursive: true, force: true });
+  await mkdir(coreDir, { recursive: true });
+  await copyFile(binary, join(coreDir, binaryName(host.platform)));
+  await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
+}
+
+/**
  * @param {object} options
  * @param {string} options.targetDir   cargo target directory holding `<triple>/release/mixdogd`
  * @param {string} options.runtimeDir  `.runtime` of the desktop build
@@ -89,21 +116,16 @@ export async function stageCore({
   const hostTarget = HOST_TARGETS[hostKey];
   if (!hostTarget) throw new Error(`no mixdogd target for ${hostKey}`);
 
-  const coreDir = join(runtimeDir, 'core');
   const serversDir = join(runtimeDir, 'server-cores');
-  await rm(coreDir, { recursive: true, force: true });
   await rm(serversDir, { recursive: true, force: true });
-
-  const hostSource = await builtBinary(targetDir, hostTarget, host.platform);
-  if (hostRunnable) {
-    const reported = reportedVersion(hostSource);
-    if (reported !== version) {
-      throw new Error(`mixdogd reports version ${reported}, but the release is ${version}`);
-    }
-  }
-  await mkdir(coreDir, { recursive: true });
-  await copyFile(hostSource, join(coreDir, binaryName(host.platform)));
-  await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
+  await stageHostCore({
+    binary: await builtBinary(targetDir, hostTarget, host.platform),
+    runtimeDir,
+    version,
+    host,
+    hostRunnable,
+    reportedVersion,
+  });
 
   const binaries = {};
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
@@ -132,13 +154,25 @@ if (invokedPath === import.meta.url) {
   const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
   try {
     await checkReleaseVersion();
-    const manifest = await stageCore({
-      targetDir: resolve(argument('target-dir') ?? join(coreRoot, 'target')),
-      runtimeDir: join(desktopDir, '.runtime'),
-      version: argument('version') ?? (await workspaceVersion()),
-      host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
-    });
-    console.log(`[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`);
+    const binary = argument('binary');
+    if (binary) {
+      // Local deploy: the host core only, from `cargo build --release -p mixdog-cli` (no `<triple>` directory).
+      await stageHostCore({
+        binary: resolve(binary),
+        runtimeDir: join(desktopDir, '.runtime'),
+        version: argument('version') ?? (await workspaceVersion()),
+        host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
+      });
+      console.log(`[stage-core] host core only: ${binary}`);
+    } else {
+      const manifest = await stageCore({
+        targetDir: resolve(argument('target-dir') ?? join(coreRoot, 'target')),
+        runtimeDir: join(desktopDir, '.runtime'),
+        version: argument('version') ?? (await workspaceVersion()),
+        host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
+      });
+      console.log(`[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`);
+    }
   } catch (error) {
     console.error(`[stage-core] failed: ${error.message}`);
     process.exitCode = 1;

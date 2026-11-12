@@ -138,7 +138,7 @@ test('Windows Crashpad starts locally, before the single-instance lock', async (
 test('production desktop starts the packaged mixdogd and tells it where its resources are', async () => {
   const main = await text('./index.ts');
   assert.match(main, /coreBinaryPath\(app\.isPackaged, process\.resourcesPath\)/);
-  assert.match(main, /coreEnvironment\(app\.isPackaged, process\.resourcesPath\)/);
+  assert.match(main, /coreEnvironment\(app\.isPackaged, process\.resourcesPath, app\.getPath\('userData'\)\)/);
   assert.doesNotMatch(main, /daemon\.cjs|MIXDOG_SUPERVISOR_BIN/);
 });
 
