@@ -4,7 +4,6 @@ mod ai_other_fixtures;
 mod anthropic_request_gzip;
 mod ai_other_no_timer;
 mod broker;
-mod native_request_bytes_fixture;
 mod native_search_request;
 mod node_http_client;
 mod oauth_callback_page;
