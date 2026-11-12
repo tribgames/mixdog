@@ -1670,6 +1670,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::FindTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::ListTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::exec::MachineTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::ApplyPatchTool::new().with_state(read_state.clone())));
     // The web tools over one `WebService`: pages render in the shared render browser, and the page and search caches persist in `cache.local.json` of the data directory (`web-search/lib/config.mjs`).
     // `search` stays unset: the hosted search needs a `SearchHost` (the live Main route and the asking session), which has no implementation in the tree yet, so `web_search` answers Node's

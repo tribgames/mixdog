@@ -48,6 +48,8 @@ const IMAGE_MAX_BYTES: usize = 3_750_000;
 const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
 const GUARD_DEFAULT_LIMIT: u64 = 500;
 const MAX_WINDOW: i64 = 100_000;
+/// The most lines a from-the-end read of a file past the in-memory cap serves (`TAIL_MODE_LINES_MAX`).
+const TAIL_MODE_LINES_MAX: u64 = 2000;
 const PUBLIC_BATCH_LIMIT: usize = 10;
 /// A file over this many bytes is streamed, not buffered (`READ_STREAM_RANGE_MIN_BYTES`).
 const READ_STREAM_RANGE_MIN_BYTES: u64 = 128 * 1024;
@@ -230,22 +232,34 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
     }
     let mut entries = Vec::new();
     for (index, target) in targets.iter().enumerate() {
-        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?}}", index + 1));
-        let (path, offset, limit) = match target {
-            JsonValue::String(s) => (s.as_str(), None, None),
+        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?, tail?}}", index + 1));
+        let (path, offset, limit, tail) = match target {
+            JsonValue::String(s) => (s.as_str(), None, None, None),
             JsonValue::Object(o) => {
-                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit")) {
+                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit" | "tail")) {
                     return Err(shape());
                 }
                 match o.get("file_path").and_then(JsonValue::as_str) {
-                    Some(p) => (p, o.get("offset"), o.get("limit")),
+                    Some(p) => (p, o.get("offset"), o.get("limit"), o.get("tail")),
                     None => return Err(shape()),
                 }
             }
             _ => return Err(shape()),
         };
-        if path.trim().is_empty() {
+        // Node's isNonEmptyString: a blank path is a path, and the read reports it.
+        if path.is_empty() {
             return Err(shape());
+        }
+        // `tail` names the whole window (the last N lines), so a limit has nothing left to say.
+        if let Some(tail) = tail.or_else(|| args.get("tail")) {
+            if offset.or_else(|| args.get("offset")).is_some() {
+                return Err(bad("offset", "tail", format!("read target {} tail cannot be combined with offset (tail is counted from the end of the file)", index + 1)));
+            }
+            let Some(n) = as_int(tail).filter(|n| (1..=MAX_WINDOW).contains(n)) else {
+                return Err(bad("tail", "range", format!("read target {} tail must be an integer from 1 to {MAX_WINDOW}", index + 1)));
+            };
+            entries.push(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), ..BEntry::default() });
+            continue;
         }
         let offset = window_value(offset, default_offset.expect("validated"), false);
         let limit = window_value(limit, default_limit.expect("validated"), true);
@@ -294,6 +308,15 @@ impl Tool for ReadTool {
             return self.call_legacy(ctx, args).await;
         }
         let mut public = parse_public(&args)?;
+        // A tail is read off the path as the caller wrote it, before a `path:line` coordinate is taken off it.
+        for e in &mut public.entries {
+            let raw = e.path.clone();
+            if !public.single {
+                self.resolve_tail(ctx, e, &raw).await;
+            } else if !(has_glob_magic(&raw) && !exists(ctx, &raw).await) {
+                self.resolve_tail(ctx, e, &raw).await;
+            }
+        }
         for e in &mut public.entries {
             e.path = strip_line_coordinate(ctx, &e.path).await?;
         }
@@ -328,7 +351,7 @@ fn text_output(text: String) -> ToolOutcome {
 }
 
 /// `normalizeInputPath`: trimmed, control characters dropped, `~` expanded, NFC.
-fn normalize_input_path(p: &str) -> String {
+pub(crate) fn normalize_input_path(p: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     let mut out: String = mixdog_js::js_trim(p).chars().filter(|c| !matches!(*c, '\u{0}'..='\u{1f}' | '\u{7f}')).collect();
     if (out == "~" || out.starts_with("~/") || out.starts_with("~\\"))
@@ -372,15 +395,20 @@ impl ReadTool {
         }
         match map.get("path").cloned() {
             Some(JsonValue::String(raw)) => {
-                let be = BEntry {
+                let mut be = BEntry {
                     path: raw,
                     mode: map.get("mode").and_then(JsonValue::as_str).map(str::to_owned),
                     n: map.get("n").filter(|v| !v.is_null()).cloned(),
                     offset: map.get("offset").and_then(JsonValue::as_f64),
                     limit: map.get("limit").and_then(JsonValue::as_f64),
                     full: map.get("full").and_then(JsonValue::as_bool),
+                    tail: map.get("tail").and_then(js_tail),
                     ..BEntry::default()
                 };
+                if be.tail.is_some() && !(has_glob_magic(&be.path) && !exists(ctx, &be.path).await) {
+                    let raw = be.path.clone();
+                    self.resolve_tail(ctx, &mut be, &raw).await;
+                }
                 self.run_top(ctx, be, 0, map.get("pages").and_then(JsonValue::as_str)).await
             }
             Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items).await,
@@ -427,15 +455,18 @@ impl ReadTool {
                 }
                 path = stripped;
             }
-            entries.push(BEntry {
+            let mut entry = BEntry {
                 path,
                 mode,
                 n: pick("n").cloned(),
                 offset,
                 limit,
                 full: pick("full").and_then(JsonValue::as_bool),
+                tail: if object { item.get("tail").and_then(js_tail) } else { None },
                 ..BEntry::default()
-            });
+            };
+            self.resolve_tail(ctx, &mut entry, raw_path).await;
+            entries.push(entry);
         }
         let results = self.pipeline(ctx, entries, object, READ_MAX_OUTPUT_BYTES, true, 0).await?;
         if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
@@ -445,6 +476,35 @@ impl ReadTool {
             return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
         }
         text_output(rows_for_model(&render_text(&results)))
+    }
+
+    /// `resolveTailRecord`: a `tail: N` entry becomes the window it names, read off `raw` (the path as the caller wrote it).
+    /// Up to the in-memory cap the file's lines are counted and the entry is an ordinary window; past it the entry is a
+    /// from-the-end glance, which never reads the middle of the file. A path that is no file keeps the first window, which
+    /// the ordinary read reports.
+    async fn resolve_tail(&self, ctx: &ToolContext, be: &mut BEntry, raw: &str) {
+        let Some(tail) = be.tail.take() else { return };
+        let named = normalize_input_path(raw);
+        let found = match resolve_path(&ctx.cwd, &named) {
+            Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs.clone()).await {
+                Ok(st) if matches!(st.kind, EntryKind::File) => Some((abs, st.len)),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        let total = match &found {
+            Some((_, size)) if *size > MAX_FILE_BYTES => {
+                be.mode = Some("tail".to_owned());
+                be.n = Some(JsonValue::from(tail.min(TAIL_MODE_LINES_MAX)));
+                be.offset = None;
+                be.limit = None;
+                return;
+            }
+            Some((abs, size)) => count_logical_lines(ctx, abs, &named, *size).await.ok(),
+            None => None,
+        };
+        be.offset = Some(total.map_or(0, |total| total.saturating_sub(tail)) as f64);
+        be.limit = Some(tail as f64);
     }
 
     /// `isWSL`, once: the environment, else the kernel's `/proc/version`.
@@ -784,6 +844,30 @@ async fn read_range(ctx: &ToolContext, abs: &AbsPath, shown: &str, offset: u64, 
     }
 }
 
+/// The lines `countLogicalLinesBytesSync` counts: the newlines, and a last line without one.
+async fn count_logical_lines(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64) -> Result<u64, ToolError> {
+    const CHUNK: u64 = 1024 * 1024;
+    let (mut at, mut lines, mut last) = (0_u64, 0_u64, None);
+    while at < size {
+        let chunk = read_range(ctx, abs, shown, at, CHUNK.min(size - at)).await?;
+        let Some(&end) = chunk.last() else { break };
+        lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
+        last = Some(end);
+        at += chunk.len() as u64;
+    }
+    Ok(lines + u64::from(last.is_some_and(|b| b != b'\n')))
+}
+
+/// `Math.trunc(Number(tail))` of a legacy `path` call's `tail`: a number, or the text of one.
+fn js_tail(v: &JsonValue) -> Option<u64> {
+    let n = match v {
+        JsonValue::Number(n) => n.as_f64()?,
+        JsonValue::String(s) => mixdog_js::string_to_number(s),
+        _ => return None,
+    };
+    n.is_finite().then(|| n.trunc().max(0.0) as u64)
+}
+
 async fn exists(ctx: &ToolContext, raw: &str) -> bool {
     let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
     ctx.files.stat(ctx.io.interactive, abs).await.is_ok()
@@ -912,7 +996,9 @@ impl ReadTool {
                 Some(Survey::Many(results, capped)) => {
                     return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
                 }
-                Some(Survey::One(one)) => {
+                Some(Survey::One(mut one)) => {
+                    let raw = one.path.clone();
+                    self.resolve_tail(ctx, &mut one, &raw).await;
                     let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false, suppress: false };
                     return self.run_plan(ctx, &one, base, pages, mode).await;
                 }
@@ -970,7 +1056,10 @@ impl ReadTool {
             })
             .collect();
         if entries.len() == 1 {
-            return Ok(Some(Survey::One(entries.remove(0))));
+            // Node re-enters the read with the call's own arguments, so a lone match keeps the call's tail.
+            let mut one = entries.remove(0);
+            one.tail = be.tail;
+            return Ok(Some(Survey::One(one)));
         }
         Ok(Some(Survey::Many(self.pipeline(ctx, entries, false, cap, record, base).await?, capped)))
     }

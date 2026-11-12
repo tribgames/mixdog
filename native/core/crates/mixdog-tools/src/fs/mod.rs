@@ -31,6 +31,7 @@ pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub(crate) use read::normalize_input_path;
 pub use read_state::FileVersion;
 pub use read_state::Persistence;
 pub use read_state::ReadState;
