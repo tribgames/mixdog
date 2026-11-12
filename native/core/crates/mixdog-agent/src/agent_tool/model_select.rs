@@ -155,7 +155,7 @@ fn with_model_settings(args: &Value, hit: &ModelRow) -> Result<Value, String> {
         match coerce_effort_for(&hit.provider, &hit.row, &asked, None).filter(|e| values.contains(&e.as_str())) {
             Some(effort) => out["effort"] = Value::String(effort),
             None => {
-                out.as_object_mut().expect("args are an object").remove("effort");
+                out.as_object_mut().expect("args are an object").shift_remove("effort");
             }
         }
     }
