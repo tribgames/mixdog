@@ -1,0 +1,319 @@
+{
+  "name": "search-cancel-stalled",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "stalled": {
+    "timeouts": [
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      }
+    ],
+    "calls": [
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": [
+            "t",
+            "u"
+          ],
+          "context": 0
+        }
+      },
+      {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      {
+        "tool": "find",
+        "input": {
+          "query": "a",
+          "path": "t"
+        }
+      }
+    ]
+  },
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "text": "Error: native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: native content search did not stop within 1000ms after cancellation)",
+      "isError": true,
+      "returned": "string",
+      "helpers": [
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        }
+      ]
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "t",
+          "u"
+        ],
+        "context": 0
+      },
+      "text": "# grep t\nError: native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: native content search did not stop within 1000ms after cancellation)\n\n# grep u\nError: native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: native content search did not stop within 1000ms after cancellation)",
+      "isError": false,
+      "returned": "string",
+      "helpers": [
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        }
+      ]
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "t"
+      },
+      "text": "Error: rg failed for t: native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: native content search did not stop within 1000ms after cancellation)",
+      "isError": true,
+      "returned": "string",
+      "helpers": [
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        }
+      ]
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "a",
+        "path": "t"
+      },
+      "text": "Error: native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: native content search did not stop within 1000ms after cancellation)",
+      "isError": true,
+      "returned": "string",
+      "helpers": [
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        },
+        {
+          "tool": "grep",
+          "input": {
+            "pattern": "stall-helper",
+            "path": "t"
+          },
+          "thrown": "operation aborted"
+        }
+      ]
+    }
+  ]
+}

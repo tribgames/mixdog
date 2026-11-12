@@ -114,10 +114,15 @@ pub struct Projector {
     stopped: Arc<std::sync::atomic::AtomicBool>,
     /// How long an exact read waits ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND); a test sets its own).
     bound: std::time::Duration,
+    /// The number of the last projection sent.
+    sent: Arc<std::sync::atomic::AtomicU64>,
+    /// Per session, the number of its first projection the index failed to take: its frames are missing from the index until
+    /// the next start re-projects the session from its log.
+    lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
 }
 
 enum Projecting {
-    Frames(Box<Projection>),
+    Frames(u64, Box<Projection>),
     /// Answered once every projection sent before it is committed.
     Flush(tokio::sync::oneshot::Sender<()>),
     /// Answers `reached` once every projection sent before it is committed, then takes nothing more until `release`
@@ -144,7 +149,7 @@ impl Projector {
         // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
         Self::spawn_with(move |projection| {
             let index = index.clone();
-            async move { drop(index.project(projection).await) }
+            async move { index.project(projection).await.map_err(|error| error.to_string()) }
         })
     }
 
@@ -152,18 +157,28 @@ impl Projector {
     fn spawn_with<F, P>(mut project: P) -> Self
     where
         P: FnMut(Projection) -> F + Send + 'static,
-        F: std::future::Future<Output = ()> + Send,
+        F: std::future::Future<Output = Result<(), String>> + Send,
     {
         let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
         let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (done_count, mark) = (pending.clone(), StopMark(stopped.clone()));
+        let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
+        let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
         tokio::spawn(async move {
             let _mark = mark;
             while let Some(msg) = rx.recv().await {
                 match msg {
-                    Projecting::Frames(projection) => {
-                        project(*projection).await;
+                    Projecting::Frames(number, projection) => {
+                        let session = projection.session.clone();
+                        match project(*projection).await {
+                            Err(error) => {
+                                tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
+                                failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
+                            }
+                            // A later projection carries the session's whole head (its header), so the index holds the header
+                            // writes again: the header waits stop failing.
+                            Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
+                        }
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     Projecting::Flush(done) => drop(done.send(())),
@@ -175,7 +190,7 @@ impl Projector {
                 }
             }
         });
-        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND }
+        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost }
     }
 
     /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
@@ -194,8 +209,25 @@ impl Projector {
     fn send(&self, projection: Projection) {
         // Counted before it is queued, so a reader that follows the barrier's ack sees it pending until the index holds it.
         self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if self.queue.send(Projecting::Frames(Box::new(projection))).is_err() {
+        let number = self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        if self.queue.send(Projecting::Frames(number, Box::new(projection))).is_err() {
             self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// [`caught_up`](Self::caught_up), then the writes of `session` acknowledged so far are in the index: an error with the
+    /// reason when one of them failed to go in (the index lacks it until the next start re-projects the session), so a call
+    /// that answers after this never reports a write the listings cannot show.
+    async fn indexed(&self, session: &str) -> Result<(), CoreError> {
+        let mark = self.sent.load(std::sync::atomic::Ordering::SeqCst);
+        self.caught_up().await?;
+        let lost = self.lost.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied();
+        match lost {
+            Some(number) if number <= mark => Err(internal(
+                "index-write-failed",
+                &format_args!("the index did not take the change to session {session}: it is not listed until the next start re-projects it"),
+            )),
+            _ => Ok(()),
         }
     }
 
@@ -1509,6 +1541,11 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("history", &e))
     }
 
+    fn indexed(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (projector, session) = (self.projector.clone(), id.as_str().to_owned());
+        Box::pin(async move { projector.indexed(&session).await })
+    }
+
     fn session_meta(
         &self,
         id: &ThreadId,
@@ -1799,6 +1836,45 @@ mod projector_tests {
         assert!(projector.settle().is_none(), "a dead projector is waited on");
     }
 
+    /// A session write the index failed to take is never answered as in the index: the wait after it (`ThreadStore::indexed`,
+    /// which a header patch awaits before it answers) fails with the reason, and keeps failing for that session, as the index
+    /// keeps lacking it until the next start re-projects it; another session's write that went in answers done.
+    #[tokio::test]
+    async fn a_write_the_index_failed_to_take_is_not_answered_as_indexed() {
+        let projector = Projector::spawn_with(|projection: Projection| {
+            let session = projection.session.clone();
+            async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+        });
+        projector.send(empty_projection("sess_bad"));
+        projector.send(empty_projection("sess_ok"));
+        let failed = |result: Result<(), CoreError>| match result {
+            Err(CoreError::Internal { incident_id }) => assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}"),
+            Ok(()) => panic!("a write the index did not take was answered as indexed"),
+            Err(other) => panic!("{other:?}"),
+        };
+        failed(projector.indexed("sess_bad").await);
+        projector.indexed("sess_ok").await.expect("the write that went in");
+        failed(projector.indexed("sess_bad").await);
+    }
+
+    /// Once a later projection of the session goes in, the index holds its head again (a projection carries the whole header),
+    /// so the header waits after it answer done instead of failing until a restart.
+    #[tokio::test]
+    async fn a_session_the_index_took_again_is_answered_as_indexed() {
+        let refused = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let projector = Projector::spawn_with({
+            let refused = refused.clone();
+            move |_: Projection| {
+                let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
+                async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+            }
+        });
+        projector.send(empty_projection("sess_bad"));
+        assert!(projector.indexed("sess_bad").await.is_err(), "the refused write");
+        projector.send(empty_projection("sess_bad"));
+        projector.indexed("sess_bad").await.expect("the index holds the session again");
+    }
+
     /// The exact class's wait: behind a projection that never ends it still waits one tick before
     /// [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it fails, saying the index is behind; it never goes
     /// on to read.
@@ -1806,7 +1882,7 @@ mod projector_tests {
     async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
         let bound = super::super::thread_list::FENCE_BOUND;
         let _clock = crate::session::testing::HeldClock::hold();
-        let projector = Projector::spawn_with(|_| std::future::pending::<()>());
+        let projector = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
         projector.send(empty_projection("sess_stuck"));
         let read = projector.caught_up();
         tokio::pin!(read);
@@ -1834,7 +1910,7 @@ mod projector_tests {
         let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
             .await
             .expect("store");
-        let mut stuck = Projector::spawn_with(|_| std::future::pending::<()>());
+        let mut stuck = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
         stuck.bound = std::time::Duration::ZERO;
         stuck.send(empty_projection("sess_a"));
         let store = Arc::new(StoreThreads { projector: stuck, ..store });

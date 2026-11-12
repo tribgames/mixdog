@@ -46,7 +46,7 @@ mod failed_turn_rewind;
 pub mod assemble;
 pub mod run_approvals;
 pub mod prewarm;
-pub mod message_row;
+pub use mixdog_agent::message_row;
 pub mod rules_lead;
 pub mod deferred_manifest;
 pub mod tool_migration;
@@ -85,6 +85,7 @@ pub mod summary_routes;
 pub mod tail;
 pub mod unattended;
 pub mod tool_progress;
+pub mod quiet_watch;
 pub mod tool_pool;
 pub mod explorer_host;
 pub mod explorer_env;
@@ -131,6 +132,8 @@ pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
+#[cfg(test)]
+mod session_route_state_replay;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
@@ -161,4 +164,10 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
+#[cfg(test)]
+mod room_rows_replay;
+#[cfg(test)]
+mod room_send_replay;
+#[cfg(test)]
+mod pool_list_replay;
 pub mod room_labels;

@@ -2398,6 +2398,22 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
 }
 
+/// The restart notice's queue (`enqueuePendingMessage` then `settlePendingMessageWrites`, `restart-notify.mjs:116-119`): the
+/// call answers only once the entry's record is stored, and the same execution queued again (a retry after a crash before the
+/// row's stamp) stays one entry and is answered too.
+#[tokio::test(start_paused = true)]
+async fn a_durable_completion_answers_once_stored_and_a_repeat_is_one_entry() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let owner = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
+    for attempt in 0..2 {
+        directory.queue_completion_durably(&owner.id, "agent", "restart:t-1", "failed", "lost".into()).await.expect("stored");
+        let queued = rig.store.records(&owner.id).into_iter().filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_))).count();
+        assert_eq!(queued, 1, "attempt {attempt}: one entry, stored before the answer");
+    }
+}
+
 /// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
 /// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
 /// for the next turn and starts none.
@@ -3982,6 +3998,47 @@ async fn a_model_switch_is_recorded_once_on_its_anchor_and_read_back_folded() {
         ))
         .await;
     assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{refused:?}");
+}
+
+/// Node's reconnect recovery (`turn-checkpoint-recovery.mjs:113-131`): a thread whose process died with a tool call
+/// unanswered opens with the call closed as cancelled and the restart line saved, so the first read, before any new
+/// turn, shows the recovered conversation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_the_process_died_in_is_recovered_at_open_before_any_read() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let told = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            // The process dies here: the run never ends.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    turn(&handle, "read a", "op-1").await;
+    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(read) = reopened.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("read") else { panic!("a value") };
+    let messages = read["messages"].as_array().expect("messages");
+    let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
+    assert_eq!(
+        shown,
+        [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")],
+        "{read}"
+    );
+    assert_eq!(messages[2]["toolCallId"], "call_1");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

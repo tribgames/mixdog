@@ -44,6 +44,7 @@ use mixdog_core_run::run_host::progress::ProgressPublisher;
 use mixdog_core_run::run_host::progress::StreamKind;
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
+use super::quiet_watch::QuietWatch;
 use super::tool_progress::{RunToolProgress, ToolHints};
 use mixdog_core_session::session::turn_snapshot::ReviewGate;
 use mixdog_core_session::session::failure_record::provider_turn_error;
@@ -240,9 +241,7 @@ impl RunFactory for RunHostFactory {
     }
 }
 
-pub(super) fn new_item_id() -> ItemId {
-    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
-}
+pub(super) use mixdog_core_session::session::run::new_item_id;
 
 fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
     RunOutcome::Failed(TurnError { message: message.into(), data, provider_error: None })
@@ -964,6 +963,7 @@ async fn drive(
     };
     parts.reset_turn_shells(&thread);
     let hints = ToolHints::start(progress.subscribe(), port.clone());
+    let quiet_changes = progress.subscribe();
     let watched = progress.subscribe();
     let tool_progress = RunToolProgress::new(progress.clone());
     let mut stored = match context.read().await {
@@ -1161,6 +1161,11 @@ async fn drive(
     } else {
         None
     };
+    // The quiet-time cue of a turn a person watches (`startQuietWatch` in the lead turn, `turn.mjs:781`), against the lead's warn point.
+    let quiet_watch = (!unattended).then(|| {
+        let warn_ms = mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
+        QuietWatch::start(quiet_changes, port.clone(), clock.clone(), Arc::new(TimerWait), warn_ms as f64)
+    });
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
     drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
@@ -1239,6 +1244,9 @@ async fn drive(
     closing.end_reasoning();
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
+    if let Some(quiet_watch) = quiet_watch {
+        quiet_watch.finish().await;
+    }
     // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
     // A cancelled run's token has fired, but Node saves after the abort (`finalizeCancelledTurn`).
     let end_port = if cancel.is_cancelled() { port.closing() } else { port.clone() };
@@ -1264,6 +1272,7 @@ async fn drive(
             let mut transcript = output.transcript.clone();
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
+                message.turn_reminder.clone_from(&output.last_reminder);
                 *lock(&sink.terminal) = Some((output.iterations, output.tool_calls_total));
                 if let Err(error) = sink.commit(&message).await {
                     sink.flush().await;
@@ -2910,4 +2919,10 @@ mod tests {
         assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
         assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
     }
+
+    #[path = "../../restart_prefix_tests.rs"]
+    mod restart_prefix;
+
+    #[path = "../../session_message_sanitize_replay.rs"]
+    mod session_message_sanitize_replay;
 }

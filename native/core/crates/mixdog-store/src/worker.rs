@@ -106,6 +106,54 @@ pub struct WorkerRow {
     pub summary: String,
 }
 
+/// One session as a load of the worker index reads it (FORMAT.md §8.2 worker index revision).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexedSession {
+    pub session: String,
+    /// `created_at`: the worker rows' order is newest first (none last), then id.
+    pub created_at: Option<f64>,
+    /// The `worker` map, while the session is listed as a worker row.
+    pub worker: Option<Map<String, Value>>,
+    /// The `activity` (the agent-only sessions' order: newest first, then id) and the JSON list row, while the session is
+    /// listed as an agent-only session.
+    pub agent: Option<(f64, String)>,
+}
+
+/// A load of the worker index at one revision, read in one read transaction with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkerIndexRead {
+    pub revision: u64,
+    /// `sessions` is every listed session (a first load, or a revision this index never had); otherwise the sessions written
+    /// since the revision asked about, and those asked for by id, listed or not.
+    pub full: bool,
+    pub sessions: Vec<IndexedSession>,
+}
+
+/// The columns of an [`IndexedSession`]; the listing filters are the worker rows' and `AGENT_ONLY_SQL`'s.
+macro_rules! indexed_sql {
+    ($cond:literal) => {
+        concat!(
+            "SELECT id, created_at,
+                CASE WHEN worker_tag IS NOT NULL AND deleted = 0 AND log_id <> '' THEN worker END,
+                activity,
+                CASE WHEN visibility = 'agent-only' AND deleted = 0 AND log_id <> '' THEN summary END
+            FROM sessions WHERE ",
+            $cond
+        )
+    };
+}
+
+/// Every listed session.
+pub(crate) const INDEXED_ALL_SQL: &str =
+    indexed_sql!("deleted = 0 AND log_id <> '' AND (worker_tag IS NOT NULL OR visibility = 'agent-only')");
+/// The sessions written since a revision.
+pub(crate) const INDEXED_SINCE_SQL: &str = indexed_sql!("worker_rev > ?1");
+/// One session by id.
+pub(crate) const INDEXED_ONE_SQL: &str = indexed_sql!("id = ?1");
+/// The listed sessions deleted without their delete mark since a revision.
+pub(crate) const REMOVED_SINCE_SQL: &str = "SELECT id FROM worker_removed WHERE rev > ?1";
+pub(crate) const REVISION_SQL: &str = "SELECT rev FROM worker_revision";
+
 /// `String(value ?? '').trim()`.
 fn clean(v: Option<&Value>) -> String {
     match v {

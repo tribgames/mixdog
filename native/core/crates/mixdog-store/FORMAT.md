@@ -611,11 +611,22 @@ run once on an empty file, outside a transaction (they set `auto_vacuum`).
 
 ### 8.2 `index/store.sqlite` (`src/schema/sql/index.sql`)
 
-`application_id` `0x4D584958` ('MXIX'), `user_version` 8. Every change to the DDL bumps
+`application_id` `0x4D584958` ('MXIX'), `user_version` 13. Every change to the DDL bumps
 `user_version` (2: the frame location of each `message_rows` version; 3: `history.facets`,
 `compactions.drop_mode` and `compaction_dropped`; 4: `sessions.title`; 5: the worker index;
 6: `agent_tag` over the agent registry's sessions, in its walk order; 7: `model_switches`;
-8: `compactions.silent`).
+8: `compactions.silent`; 13: the worker index revision).
+
+The worker index revision: what the agent registry loads (each listed `worker` map, each
+listed agent-only session's list row, and whether each is listed) is followed by
+`worker_revision.rev`, which triggers on `sessions` bump inside every transaction that
+changes it, whichever connection or process writes; a rolled-back write leaves it. The
+changed row takes the new value in `sessions.worker_rev`; a listed row deleted without its
+delete mark leaves its id in `worker_removed`. `SqliteStore::worker_index_since` reads the
+revision and the rows past the one the caller holds in one read transaction, so a load
+costs what was written since, not the size of the index. Nothing lighter is sound: the
+writer's own counter misses another connection's commits and counts failed rounds, and
+`PRAGMA data_version` says only that something changed, never which rows.
 
 Derived. `SqliteStore::open` (one maintenance-lane job, the only way to open the index)
 rebuilds it from the logs when the file is missing, is not a readable SQLite database, or

@@ -378,6 +378,10 @@ async fn a_load_remembers_what_node_recorded() {
 /// The gates of a runtime that is up and idle.
 struct IdleGates;
 
+impl super::model_warmup::WarmupMarks for IdleGates {
+    fn profile(&self, _: &str, _: Option<serde_json::Value>) {}
+}
+
 impl super::model_warmup::WarmupGates for IdleGates {
     fn busy(&self) -> Option<&'static str> {
         None
@@ -388,7 +392,6 @@ impl super::model_warmup::WarmupGates for IdleGates {
     fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         Box::pin(std::future::pending())
     }
-    fn profile(&self, _: &str, _: &str) {}
 }
 
 /// A non-fetching miss schedules the provider-model warm-up (`scheduleProviderModelWarmup()`, `model-meta.mjs:67`, which
@@ -425,7 +428,7 @@ async fn a_cold_placeholder_schedules_the_load_that_replaces_it() {
         host: Some(host),
     };
     let service = Arc::new(service);
-    let warmup = super::model_warmup::ModelWarmup::new(super::model_warmup::WarmupConfig { enabled: true, delay: std::time::Duration::ZERO });
+    let warmup = super::model_warmup::ModelWarmup::new(super::model_warmup::WarmupConfig { enabled: true, delay: std::time::Duration::ZERO, before_first_turn: false });
     warmup.bind(service.clone(), Arc::new(IdleGates)).unwrap();
     assert!(service.warm_needed(), "nothing is loaded or loading yet");
     assert_eq!(catalog.model_meta("p", "mock-model"), json!({ "id": "mock-model", "provider": "p" }), "the cold placeholder");

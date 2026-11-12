@@ -10,8 +10,10 @@ use mixdog_ai::service::admin_route::Obj;
 use serde_json::Value;
 
 use super::model_list_node_tests::{Rig, assert_rows, rig, statusline_recording, web_search};
-use super::model_warmup::WarmupGates;
-use super::statusline_warmup::{StatuslineSink, StatuslineWarmup};
+use super::model_warmup::{WarmupGates, WarmupMarks};
+use super::statusline_warmup::{ReadinessPrep, StatuslineSink, StatuslineWarmup};
+use crate::domains::ai_account::setup_cache::KeychainLive;
+use crate::domains::ai_account::provider_setup::KeychainStatus;
 use crate::domains::ai_account::collaborators::WebSearchModels;
 
 #[derive(Default)]
@@ -20,6 +22,12 @@ struct Gates {
     close: tokio_util::sync::CancellationToken,
     /// Every `bootProfile` mark, as `event detail`, in order.
     marks: Mutex<Vec<String>>,
+}
+
+impl WarmupMarks for Gates {
+    fn profile(&self, event: &str, detail: Option<Value>) {
+        self.marks.lock().unwrap().push(format!("{event} {}", detail.map(|detail| detail.to_string()).unwrap_or_default()));
+    }
 }
 
 impl WarmupGates for Gates {
@@ -33,9 +41,31 @@ impl WarmupGates for Gates {
         let close = self.close.clone();
         Box::pin(async move { close.cancelled().await })
     }
-    fn profile(&self, event: &str, detail: &str) {
-        self.marks.lock().unwrap().push(format!("{event} {detail}"));
+}
+
+/// A keyring that is always ready: these recordings sign in with no secret store.
+struct ReadyKeychain;
+
+#[async_trait::async_trait]
+impl KeychainLive for ReadyKeychain {
+    fn status(&self) -> KeychainStatus {
+        KeychainStatus::default()
     }
+    fn prewarm_ready(&self) -> bool {
+        true
+    }
+    async fn await_prewarm(&self) {}
+    async fn retry(&self, _: bool) -> bool {
+        false
+    }
+    async fn refresh(&self, _: bool) -> bool {
+        false
+    }
+}
+
+/// The daemon's preparation over the rig's config and readiness.
+fn prep(rig: &Rig) -> Arc<ReadinessPrep> {
+    Arc::new(ReadinessPrep { keychain: Arc::new(ReadyKeychain), loaded: rig.loaded.clone(), readiness: rig.readiness.clone() })
 }
 
 struct Sink {
@@ -71,7 +101,7 @@ async fn built_from(node: Value, seeds: &Value, env: &'static [(&'static str, &'
     let gates = Arc::new(Gates::default());
     let (tx, seen) = tokio::sync::mpsc::unbounded_channel();
     let sink = Arc::new(Sink { routes: Mutex::default(), seen: tx });
-    warm.bind(rig.host.route.clone(), rig.loaded.clone(), rig.readiness.clone(), sink.clone(), gates.clone()).unwrap();
+    warm.bind(rig.host.route.clone(), prep(&rig), sink.clone(), gates.clone()).unwrap();
     Built { rig, warm, gates, sink, seen, node }
 }
 
@@ -262,7 +292,7 @@ async fn the_boot_warm_up_makes_the_reads_node_recorded() {
     assert_eq!(routes.len(), 1, "the route's reading is refreshed once");
     assert_eq!(routes[0]["provider"], "anthropic-oauth");
     // Node's statusline-usage:warm-ready, marked once the preparation is done and the refresh dispatched.
-    assert_eq!(*built.gates.marks.lock().unwrap(), ["statusline-usage:warm-ready provider=anthropic-oauth"]);
+    assert_eq!(*built.gates.marks.lock().unwrap(), [r#"statusline-usage:warm-ready {"provider":"anthropic-oauth"}"#]);
 }
 
 #[tokio::test(start_paused = true)]
@@ -329,11 +359,12 @@ async fn a_route_that_is_not_oauth_is_left_alone() {
     let gates = Arc::new(Gates::default());
     let (tx, mut seen) = tokio::sync::mpsc::unbounded_channel();
     let sink = Arc::new(Sink { routes: Mutex::default(), seen: tx });
-    warm.bind(rig.host.route.clone(), rig.loaded.clone(), rig.readiness.clone(), sink, gates.clone()).unwrap();
+    warm.bind(rig.host.route.clone(), prep(&rig), sink, gates.clone()).unwrap();
     warm.start();
     warm.turn_settled();
     warm.settle().await;
     assert!(seen.try_recv().is_err());
-    assert!(gates.marks.lock().unwrap().is_empty(), "nothing was warmed, so nothing is marked");
+    let provider = (rig.host.route)()["provider"].clone();
+    assert_eq!(*gates.marks.lock().unwrap(), [format!("statusline-usage:warm-skipped {}", serde_json::json!({ "provider": provider }))], "only the skip is marked");
     assert!(rig.registry.names().iter().all(|name| name != "anthropic-oauth"));
 }

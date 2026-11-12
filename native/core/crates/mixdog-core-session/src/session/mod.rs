@@ -178,6 +178,16 @@ mod sensitive_record_tests;
 #[cfg(test)]
 mod sensitive_carry_tests;
 #[cfg(test)]
+mod message_sanitize_replay;
+#[cfg(test)]
+mod address_replay;
+#[cfg(test)]
+mod switch_replay;
+#[cfg(test)]
+mod lifecycle_replay;
+#[cfg(test)]
+mod sequence_replay;
+#[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
 mod goal_snapshot_replay_tests;

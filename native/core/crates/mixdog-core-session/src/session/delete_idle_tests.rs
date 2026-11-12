@@ -118,6 +118,7 @@ impl World {
                 text: "failed".into(),
                 origin: None,
                 live: true,
+                durable: None,
             })
             .await
             .expect("the actor runs");

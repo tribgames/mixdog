@@ -36,6 +36,8 @@ pub mod late_lifecycle;
 pub mod memory_agent_watch;
 pub mod prewarm_world;
 pub mod setup_host;
+#[cfg(test)]
+mod warmup_schedulers_replay;
 pub mod compose_domains;
 pub mod late_live_route;
 pub mod late_route_positions;

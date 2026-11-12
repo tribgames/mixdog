@@ -2554,6 +2554,56 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// The worker index revision: a load from a revision reads every session whose worker map or listing was committed since,
+/// by this store's writer or another connection; a rolled-back write and a write that changes neither leave it as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_worker_index_revision_follows_every_committed_write_of_any_connection() {
+    let env = Env::new();
+    let s = &env.store;
+    let upsert = |h: CatalogHead| async move { s.upsert(h, DirtyMark::Clear).await.unwrap() };
+    let since = |rev: u64| async move {
+        let read = s.worker_index_since(Some(rev), Vec::new()).await.unwrap();
+        assert!(!read.full);
+        (read.revision, read.sessions.iter().map(|x| (x.session.clone(), x.worker.as_ref().map(|w| w["status"].clone()))).collect::<Vec<_>>())
+    };
+    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"idle"}))).await;
+    upsert(worker_head("w2", 20, json!({"tag":"b","parentSessionId":"p1","status":"idle"}))).await;
+    upsert(head("plain", "task", "t")).await;
+    let first = s.worker_index_since(None, Vec::new()).await.unwrap();
+    assert!(first.full);
+    let mut listed: Vec<&str> = first.sessions.iter().map(|x| x.session.as_str()).collect();
+    listed.sort_unstable();
+    assert_eq!(listed, ["w1", "w2"]);
+    let r1 = first.revision;
+    assert_eq!(since(r1).await, (r1, vec![]), "nothing written since");
+
+    // This store's writer; a header write that changes no worker map leaves the revision.
+    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"running"}))).await;
+    upsert(head("plain", "task", "t2")).await;
+    let (r2, changed) = since(r1).await;
+    assert_eq!(changed, [("w1".to_owned(), Some(json!("running")))]);
+
+    // Another connection's commit.
+    s.set_worker_elsewhere("w2", Some(json!({"tag":"b","parentSessionId":"p1","status":"failed"}).as_object().unwrap()));
+    let (r3, changed) = since(r2).await;
+    assert_eq!(changed, [("w2".to_owned(), Some(json!("failed")))]);
+
+    // A write rolled back changes nothing.
+    let other = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE; UPDATE sessions SET worker = '{\"tag\":\"x\"}', worker_tag = 'x' WHERE id = 'w1'; ROLLBACK;").unwrap();
+    assert_eq!(since(r3).await, (r3, vec![]), "the rolled-back write left the revision");
+
+    // A delete unlists the row; an id asked for is read whatever its revision.
+    s.mark_deleted("w1").await.unwrap();
+    let (r4, changed) = since(r3).await;
+    assert_eq!(changed, [("w1".to_owned(), None)]);
+    let read = s.worker_index_since(Some(r4), vec!["w2".into(), "absent".into()]).await.unwrap();
+    let asked: Vec<(String, bool)> = read.sessions.iter().map(|x| (x.session.clone(), x.worker.is_some())).collect();
+    assert_eq!(asked, [("w2".to_owned(), true), ("absent".to_owned(), false)]);
+    // A revision the index never reached reads it whole.
+    assert!(s.worker_index_since(Some(r4 + 1), Vec::new()).await.unwrap().full);
+}
+
 fn worker_head(id: &str, created: u64, worker: serde_json::Value) -> CatalogHead {
     let mut h = head(id, "task", "t");
     h.header.insert("createdAt".into(), json!(created));

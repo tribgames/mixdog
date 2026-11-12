@@ -15,8 +15,8 @@
 //! * a turn settling: `refreshStatuslineUsageAfterTurn` prepares and refreshes at once, with no delay and no deferral
 //!   ([`StatuslineWarmup::turn_settled`]).
 //!
-//! Node first awaits the keychain prewarm and loads the full config (`ensureConfigForRouteProvider`); the loaded config
-//! this reads is the one built with the secrets, so there is nothing further to load.
+//! A preparation first awaits the keychain prewarm and loads the full config (`ensureConfigForRouteProvider`), then
+//! readies the route's provider ([`UsagePrep`]).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -24,26 +24,66 @@ use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use mixdog_ai::catalog::ProviderReadiness;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::clean;
 use mixdog_ai::service::admin_route::ensure_provider_enabled;
+use serde_json::Value;
+use serde_json::json;
 
 use super::model_warmup::WarmupGates;
 use super::model_warmup::env_delay;
 use super::provider_sync::LoadedConfig;
+use crate::domains::ai_account::setup_cache::KeychainLive;
 
 /// `refreshStatuslineUsageSnapshot(route)`: the usage service measures the route's account in the background.
 pub trait StatuslineSink: Send + Sync {
     fn refresh_route(&self, route: &Obj);
 }
 
+/// What a usage refresh prepares before it reads: `awaitKeychainPrewarm`, `ensureConfigForRouteProvider` and
+/// `ensureProvidersReady(ensureProviderEnabled(getConfig(), provider))`.
+#[async_trait]
+pub trait UsagePrep: Send + Sync {
+    async fn keychain_prewarm(&self);
+    fn ensure_config_for_route_provider(&self);
+    async fn ensure_provider_ready(&self, provider: &str) -> Result<(), String>;
+}
+
+/// The daemon's preparation: its keychain, the loaded config and the provider readiness.
+pub struct ReadinessPrep {
+    pub keychain: Arc<dyn KeychainLive>,
+    /// `getConfig()`: the loaded config.
+    pub loaded: Arc<LoadedConfig>,
+    pub readiness: Arc<ProviderReadiness>,
+}
+
+#[async_trait]
+impl UsagePrep for ReadinessPrep {
+    async fn keychain_prewarm(&self) {
+        self.keychain.await_prewarm().await;
+    }
+
+    /// The loaded config is the one built with the secrets (the provider sync rebuilds it on every change): there is
+    /// nothing further to load.
+    fn ensure_config_for_route_provider(&self) {}
+
+    async fn ensure_provider_ready(&self, provider: &str) -> Result<(), String> {
+        let config = self.loaded.get();
+        self.readiness.ensure_providers_ready(Some(ensure_provider_enabled(&config, provider))).await.map(drop).map_err(|error| error.message)
+    }
+}
+
+/// `timers.statuslineUsageWarmupTimer`.
+const SLOT: &str = "statuslineUsageWarmupTimer";
+/// The refresh after a settled turn, a job with no timer.
+const AFTER_TURN: &str = "statuslineUsageAfterTurn";
+
 struct Bindings {
     /// `getRoute()`: the live Main route.
     route: Arc<dyn Fn() -> Obj + Send + Sync>,
-    /// `getConfig()`: the loaded config.
-    loaded: Arc<LoadedConfig>,
-    readiness: Arc<ProviderReadiness>,
+    prep: Arc<dyn UsagePrep>,
     sink: Arc<dyn StatuslineSink>,
     gates: Arc<dyn WarmupGates>,
 }
@@ -85,16 +125,9 @@ impl StatuslineWarmup {
             bound: OnceLock::new(), state: Mutex::new(State::default()) })
     }
 
-    /// Binds the route, config, readiness, usage service and gates it works over; once.
-    pub fn bind(
-        &self,
-        route: Arc<dyn Fn() -> Obj + Send + Sync>,
-        loaded: Arc<LoadedConfig>,
-        readiness: Arc<ProviderReadiness>,
-        sink: Arc<dyn StatuslineSink>,
-        gates: Arc<dyn WarmupGates>,
-    ) -> Result<(), ()> {
-        self.bound.set(Bindings { route, loaded, readiness, sink, gates }).map_err(|_| ())
+    /// Binds the route, the preparation, the usage service and the gates it works over; once.
+    pub fn bind(&self, route: Arc<dyn Fn() -> Obj + Send + Sync>, prep: Arc<dyn UsagePrep>, sink: Arc<dyn StatuslineSink>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
+        self.bound.set(Bindings { route, prep, sink, gates }).map_err(|_| ())
     }
 
     pub fn is_bound(&self) -> bool {
@@ -105,11 +138,20 @@ impl StatuslineWarmup {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The boot's `scheduleStatuslineUsageWarmup()`: nothing unless the route is an OAuth one.
+    /// `timers.statuslineUsageWarmupTimer` is set.
+    pub fn pending(&self) -> bool {
+        self.state().pending
+    }
+
+    /// The boot's `scheduleStatuslineUsageWarmup()`: a route that is not an OAuth one is marked skipped.
     pub fn start(self: &Arc<Self>) {
         let Some(bound) = self.bound.get() else { return };
         if bound.oauth_route().is_some() {
             self.arm(self.delay);
+        } else {
+            let provider = clean((bound.route)().get("provider"));
+            let provider = if provider.is_empty() { Value::Null } else { Value::String(provider) };
+            bound.gates.profile("statusline-usage:warm-skipped", Some(json!({ "provider": provider })));
         }
     }
 
@@ -121,6 +163,7 @@ impl StatuslineWarmup {
             return;
         }
         state.pending = true;
+        bound.gates.armed(SLOT, delay);
         // setTimeout counts from the call; teardown clears the timer, so the runtime closing ends the wait.
         let deadline = tokio::time::Instant::now() + delay;
         let closed = bound.gates.closed();
@@ -143,43 +186,48 @@ impl StatuslineWarmup {
                     }
                 }
             }
-            this.run().await;
+            let Some(bound) = this.bound.get() else { return };
+            bound.gates.running(SLOT, true);
+            this.run(bound).await;
+            bound.gates.running(SLOT, false);
         }));
     }
 
     /// `warmStatuslineUsage`: a parked run may wake after the route left OAuth; a busy runtime parks it again.
-    async fn run(self: &Arc<Self>) {
-        let Some(bound) = self.bound.get() else { return };
+    async fn run(&self, bound: &Bindings) {
         {
             let mut state = self.state();
             state.pending = false;
             if bound.gates.closing() || bound.oauth_route().is_none() {
                 return;
             }
-            if bound.gates.busy().is_some() {
+            if let Some(reason) = bound.gates.busy() {
                 state.parked = true;
+                drop(state);
+                bound.gates.profile("statusline-usage:warm-deferred", Some(json!({ "reason": reason })));
                 return;
             }
         }
         match Self::refresh_idle(bound).await {
             // Node's mark after the preparation and the dispatch of the refresh, only for the scheduled warm (not a settled turn).
-            Ok(Some(provider)) => bound.gates.profile("statusline-usage:warm-ready", &format!("provider={provider}")),
+            Ok(Some(provider)) => bound.gates.profile("statusline-usage:warm-ready", Some(json!({ "provider": provider }))),
             Ok(None) => {}
-            Err(error) => tracing::debug!(%error, "[statusline-usage] the warm-up failed"),
+            Err(error) => bound.gates.profile("statusline-usage:warm-failed", Some(json!({ "error": error }))),
         }
     }
 
-    /// `refreshIdleStatuslineUsage`: the route's provider prepared, then the reading of the route that was prepared (not
-    /// of one selected while the preparation was pending). The provider of the route whose reading was dispatched, or none
-    /// when the runtime was closing.
+    /// `refreshIdleStatuslineUsage`: the keychain and the config loaded, the route's provider prepared, then the reading
+    /// of the route that was prepared (not of one selected while the preparation was pending). The provider of the route
+    /// whose reading was dispatched, or none when the runtime was closing.
     async fn refresh_idle(bound: &Bindings) -> Result<Option<String>, String> {
+        bound.prep.keychain_prewarm().await;
         if bound.gates.closing() {
             return Ok(None);
         }
+        bound.prep.ensure_config_for_route_provider();
         let route = (bound.route)();
         let provider = clean(route.get("provider"));
-        let config = bound.loaded.get();
-        bound.readiness.ensure_providers_ready(Some(ensure_provider_enabled(&config, &provider))).await.map_err(|error| error.message)?;
+        bound.prep.ensure_provider_ready(&provider).await?;
         if bound.gates.closing() {
             return Ok(None);
         }
@@ -203,9 +251,11 @@ impl StatuslineWarmup {
             return;
         }
         let this = self.clone();
+        bound.gates.running(AFTER_TURN, true);
         drop(mixdog_rt::spawn("statusline-usage-turn", mixdog_rt::TaskClass::Work, async move {
             if let Some(bound) = this.bound.get() {
                 let _ = Self::refresh_idle(bound).await;
+                bound.gates.running(AFTER_TURN, false);
             }
         }));
     }
