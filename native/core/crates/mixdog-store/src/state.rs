@@ -263,12 +263,20 @@ pub struct SetAside {
     pub project_rows: usize,
 }
 
-/// Whether the file is a `state/core.sqlite` a newer build wrote (this build's application id, a later `user_version`): intact,
-/// so never set aside (Node's newer-version guard).
-fn written_by_newer_build(path: &Path) -> bool {
-    let Ok(bytes) = mixdog_fsio::read(&mixdog_fsio::Unlaned, path) else { return false };
-    let int = |at: usize| bytes.get(at..at + 4).map(|b| i32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-    bytes.starts_with(b"SQLite format 3\0") && int(68) == Some(STATE_APPLICATION_ID) && int(60) > Some(STATE_USER_VERSION)
+/// Whether the file may be set aside: SQLite itself, with the WAL applied (a newer schema's `user_version` may live only there,
+/// while another reader holds the WAL open), reads it as damage (not a database, or a damaged page) or as another identity or an
+/// older schema. Only a file of this application a newer build wrote is intact and never set aside (Node's newer-version
+/// guard), and one SQLite cannot be asked about (busy, I/O) is not judged. The probe opens read-only: it changes nothing.
+#[allow(clippy::disallowed_methods, reason = "part of `CoreState::open_or_set_aside`, which opens the SQLite file itself on the same boot call")]
+fn may_be_set_aside(path: &Path) -> bool {
+    let read = || -> rusqlite::Result<(i32, i32)> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        Ok((conn.pragma_query_value(None, "application_id", |r| r.get(0))?, conn.pragma_query_value(None, "user_version", |r| r.get(0))?))
+    };
+    match read() {
+        Ok((app, version)) => !(app == STATE_APPLICATION_ID && version > STATE_USER_VERSION),
+        Err(e) => matches!(e.sqlite_error_code(), Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)),
+    }
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -277,21 +285,78 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Moves the database and its journal files to `<file>.corrupt-<ms>` (+ the same suffix), the registry's set-aside name.
-fn set_aside_file(path: &Path) -> Result<PathBuf, DbError> {
+// Test support: the step a set-aside fails before (0 = the marker write, 1-3 = the `-wal`, `-shm` and `-journal` moves, 4 = the
+// database's, 5 = the marker's removal), as a crash would stop it.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SET_ASIDE_FAULT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+fn before_step(step: usize) -> Result<(), DbError> {
+    #[cfg(test)]
+    if SET_ASIDE_FAULT.with(std::cell::Cell::get) == Some(step) {
+        return Err(DbError::Write(format!("injected fault before set-aside step {step}")));
+    }
+    let _ = step;
+    Ok(())
+}
+
+/// The marker of a set-aside under way. Written (whole, by rename) before the first file moves; it names the set-aside's
+/// `.corrupt-<ms>` suffix, so the next start finishes the same set-aside whatever step a crash stopped it at.
+const SET_ASIDE_MARKER: &str = ".set-aside";
+
+/// Sets the database aside, interruption-safe: the marker first, then the `-wal`, `-shm` and `-journal` files, the database
+/// last (the name is free for a new database only once nothing of the old one is left beside it), then the marker goes.
+/// A crash before the marker leaves everything as it was; after it, [`finish_set_aside`] runs the rest, so the kept
+/// `<file>.corrupt-<ms>` always holds the database with its WAL and no new database ever meets an old WAL.
+pub(crate) fn set_aside_file(path: &Path) -> Result<PathBuf, DbError> {
     let proof = mixdog_fsio::Unlaned;
     let aside = mixdog_statefile::quarantine_path(&proof, path);
-    let moved = |from: &Path, to: &Path| {
-        mixdog_fsio::rename(&proof, from, to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))
-    };
-    moved(path, &aside)?;
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let from = with_suffix(path, suffix);
-        if mixdog_fsio::exists(&proof, &from).unwrap_or(false) {
-            moved(&from, &with_suffix(&aside, suffix))?;
-        }
-    }
+    let suffix = aside.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(path.file_name()?.to_str()?)).map(str::to_owned);
+    let suffix = suffix.ok_or_else(|| DbError::Write(format!("set-aside name {}", aside.display())))?;
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    let staged = with_suffix(path, ".set-aside.tmp");
+    before_step(0)?;
+    let write = |e: std::io::Error| DbError::Write(format!("marking the set-aside of {}: {e}", path.display()));
+    mixdog_fsio::write(&proof, &staged, &suffix).map_err(write)?;
+    mixdog_fsio::rename(&proof, &staged, &marker).map_err(write)?;
+    run_set_aside(path, &aside)?;
     Ok(aside)
+}
+
+/// The steps after the marker; each moves only what is still at its old name, so a start after a crash repeats them.
+fn run_set_aside(path: &Path, aside: &Path) -> Result<(), DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    for (step, suffix) in ["-wal", "-shm", "-journal", ""].into_iter().enumerate() {
+        before_step(step + 1)?;
+        let (from, to) = (with_suffix(path, suffix), with_suffix(aside, suffix));
+        if !mixdog_fsio::exists(&proof, &from).unwrap_or(false) {
+            continue;
+        }
+        if mixdog_fsio::exists(&proof, &to).unwrap_or(true) {
+            return Err(DbError::Write(format!("setting aside {}: {} is in the way", from.display(), to.display())));
+        }
+        mixdog_fsio::rename(&proof, &from, &to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))?;
+    }
+    before_step(5)?;
+    mixdog_fsio::remove_file(&proof, with_suffix(path, SET_ASIDE_MARKER))
+        .map_err(|e| DbError::Write(format!("finishing the set-aside of {}: {e}", path.display())))
+}
+
+/// A set-aside a crash stopped is finished before anything opens the file: returns where the database was kept.
+fn finish_set_aside(path: &Path) -> Result<Option<PathBuf>, DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    if !mixdog_fsio::exists(&proof, &marker).map_err(|e| DbError::Write(format!("{}: {e}", marker.display())))? {
+        return Ok(None);
+    }
+    let suffix = mixdog_fsio::read_to_string(&proof, &marker).map_err(|e| DbError::Write(format!("{}: {e}", marker.display())))?;
+    if !suffix.starts_with(".corrupt-") || suffix.contains(['/', '\\']) {
+        return Err(DbError::Write(format!("the set-aside marker of {} names {suffix:?}", path.display())));
+    }
+    let aside = with_suffix(path, &suffix);
+    run_set_aside(path, &aside)?;
+    Ok(Some(aside))
 }
 
 fn cell_json(cell: &rusqlite::types::Value) -> serde_json::Value {
@@ -398,7 +463,7 @@ impl CoreState {
     /// which Node's whole-file set-aside of its registry would have cost every row.
     pub fn open_or_set_aside(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize, SetAside), DbError> {
         match Self::open_with(thread, read_lane, path, true) {
-            Err(e) if needs_rebuild(&e) && !written_by_newer_build(path) => {
+            Err(e) if needs_rebuild(&e) && may_be_set_aside(path) => {
                 let kept = set_aside_file(path)?;
                 let (state, recovered, mut aside) = Self::open_with(thread, read_lane, path, true)?;
                 aside.file = Some((kept, e.to_string()));
@@ -409,6 +474,7 @@ impl CoreState {
     }
 
     fn open_with(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path, scan_rows: bool) -> Result<(CoreState, usize, SetAside), DbError> {
+        let resumed = finish_set_aside(path)?;
         upgrade_v1(path)?;
         let mut conn = open_schema(path, STATE_DDL, STATE_APPLICATION_ID, STATE_USER_VERSION)?;
         if scan_rows {
@@ -440,7 +506,8 @@ impl CoreState {
             }),
             sender,
         };
-        Ok((state, recovered, SetAside { file: None, project_rows }))
+        let file = resumed.map(|kept| (kept, "an earlier start was interrupted while setting this database aside".to_owned()));
+        Ok((state, recovered, SetAside { file, project_rows }))
     }
 
     /// Moves a `rooms` row whose document the owner cannot read into `meta` (`corrupt:rooms:<id>`, the text as it was) and
