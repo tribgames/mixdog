@@ -81,7 +81,13 @@ impl TranscriptFiles {
         let (store, id) = (self.store.clone(), thread.clone());
         let log_id = on_lane(self.lanes.io, &token, move |lane| store.read_log_id(lane, &id)).await??;
         let rows = read_context(&self.store, &self.lanes, thread).await?;
-        Ok(Some((log_id, header, rows.into_iter().map(|(_, message)| message).collect())))
+        Ok(Some((log_id, header, rows
+            .into_iter()
+            .map(|(_, mut message)| {
+                mixdog_agent::interrupt::without_recovery_mark(&mut message);
+                message
+            })
+            .collect())))
     }
 
     /// Writes the export; false when the session has no model context to export.

@@ -11,6 +11,7 @@
 
 pub mod deadlines;
 pub mod fault;
+pub mod guard;
 pub mod http;
 pub mod link;
 pub mod node_http;
@@ -27,6 +28,9 @@ pub mod replay_bytes;
 pub mod loopback;
 #[cfg(any(test, feature = "test-support"))]
 pub mod manifest;
+/// The provider recorders' network redirect: requests and WebSocket dials to a scripted loopback endpoint.
+#[cfg(any(test, feature = "test-support"))]
+pub mod redirect;
 
 #[cfg(test)]
 pub(crate) mod site_probe;

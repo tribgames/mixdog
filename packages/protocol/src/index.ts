@@ -516,8 +516,6 @@ export type ChannelSetWebhookEnabledParams = { opId: OpId, threadId?: ThreadId, 
  */
 export type ChannelTestWebhookParams = { opId: OpId, threadId?: ThreadId, name: string, };
 
-export type ClassLimits = { c0: number, c1: number, c2: number, c3: number, };
-
 /**
  * `client/activity`: sent on user input, at most once per 60 s (client-side rate).
  */
@@ -1884,11 +1882,7 @@ terminalRingChars: number, maxBlobPageBytes: number,
 /**
  * Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
  */
-maxBlobPutChunkBytes: number,
-/**
- * Per-connection in-flight cap per request class.
- */
-inflight: ClassLimits, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
+maxBlobPutChunkBytes: number, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
 /**
  * Per-terminal input buffer before socket reads pause (P §7.3).
  */
@@ -3088,7 +3082,7 @@ export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "notice", message: string, warn: boolean, } | { "type": "servedModel", model: string, } | { "type": "providerMetadata", value: JsonValue, } | { "type": "responseId", id: string, } | { "type": "accountRouting", provider: string, accountId: string, sessionAccountId: string | null, } | { "type": "accountSwitching", message: string, } | { "type": "accountChanged", provider: string, at: number, } | { "type": "toolExcluded", name: string, index: number, pointer: string, reason: string, message: string, } | { "type": "wireRerouted", route: JsonValue, } | { "type": "outputStarted" } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "notice", message: string, warn: boolean, } | { "type": "servedModel", model: string, } | { "type": "providerMetadata", value: JsonValue, } | { "type": "responseId", id: string, } | { "type": "accountRouting", provider: string, accountId: string, sessionAccountId: string | null, } | { "type": "accountSwitching", message: string, } | { "type": "accountChanged", provider: string, at: number, } | { "type": "toolExcluded", name: string, index: number, pointer: string, reason: string, message: string, } | { "type": "wireRerouted", route: JsonValue, } | { "type": "outputStarted" } | { "type": "contentSummary", has_thinking: boolean, block_types: Array<string>, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
 
 /**
  * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);

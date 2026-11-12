@@ -204,9 +204,9 @@ pub fn project_subdir_of(top_level: &str, project_path: &str) -> String {
     if top_level.is_empty() || project_path.is_empty() || !is_within(top_level, project_path) {
         return String::new();
     }
-    let top = path_key(std::path::Path::new(top_level));
-    let project = project_path.replace('\\', "/");
-    project.get(top.len()..).map(|rest| rest.trim_matches('/').to_owned()).unwrap_or_default()
+    // Node's `relative` of the two resolved paths: the rest keeps the project's own case, whatever spelling either came in.
+    let rel = mixdog_js::nodepath::relative_host(top_level, project_path);
+    if rel.starts_with("..") || mixdog_js::nodepath::is_absolute_host(&rel) { String::new() } else { rel.replace('\\', "/") }
 }
 
 /// `subdir` (forward slashes) inside `root`.
@@ -298,6 +298,7 @@ mod tests {
     #[test]
     fn subfolder_projects_map_into_the_checkout() {
         assert_eq!(project_subdir_of("/r", "/r/apps/web"), "apps/web");
+        assert_eq!(project_subdir_of("/r/", "/r/x/../Apps/web/"), "Apps/web", "another spelling of the same folders");
         assert_eq!(project_subdir_of("/r", "/r"), "");
         assert_eq!(project_subdir_of("/r", "/other"), "");
         assert!(is_within("/r", "/r/a") && !is_within("/r", "/rx"));

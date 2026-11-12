@@ -116,11 +116,34 @@ pub async fn run_attempt(
     request: &ModelRequest,
     resend: Option<&Resend>,
 ) -> Result<Box<dyn ModelStream>, ProviderError> {
+    run_fitted_attempt(codec, http, credential, request, resend, None).await
+}
+
+/// [`run_attempt`] for a Messages engine: each encoding of the request has its images fitted
+/// ([`crate::providers::anthropic::images::ImageFitter::fit_wire`]) before it is sent.
+pub async fn run_fitted_attempt(
+    codec: &dyn WireCodec,
+    http: &dyn HttpSend,
+    credential: &dyn Credential,
+    request: &ModelRequest,
+    resend: Option<&Resend>,
+    images: Option<&crate::providers::anthropic::images::ImageFitter>,
+) -> Result<Box<dyn ModelStream>, ProviderError> {
     // The credential first: a rewriter may read identity it loads.
     let mut header = credential.header(false).await?;
     let mut wire = codec.encode(request)?;
+    if let Some(fitter) = images {
+        wire = fitter.fit_wire(request, wire).await?;
+    }
     let mut again = false;
     let mut refreshed = false;
+    // `requesting`: Chat Completions raises it for every attempt of its ladder (openai-compat-chat-send.mjs:276), the
+    // Messages wire (anthropic.mjs:300) and Responses (grok-oauth.mjs, openai-compat-xai-send.mjs:103) once before it.
+    if wire.url.ends_with("/chat/completions") {
+        request.options.send_identity.raise_stage("requesting");
+    } else {
+        request.options.send_identity.raise_requesting_once();
+    }
     loop {
         let mut sent = wire.clone();
         if let Some(header) = header.clone() {
@@ -153,7 +176,12 @@ pub async fn run_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
+            // Node's gate calls `send` again: the resend is a request with an id of its own.
+            request.options.send_identity.remint();
             wire = codec.encode(request)?;
+            if let Some(fitter) = images {
+                wire = fitter.fit_wire(request, wire).await?;
+            }
             continue;
         }
         return Err(error);
@@ -170,7 +198,13 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    retry_line: Option<mixdog_core_api::domain::provider::RetryLine>,
     input_excludes_cache: Option<bool>,
+    /// What the engine takes as a document when it is not the plain `nativePdf = false` of Grok, the local
+    /// runtime and a custom provider's engines (a gateway's Messages engine declares its own).
+    media: Option<mixdog_core_api::domain::provider::MediaSupport>,
+    /// A Messages engine's image resizer ([`crate::providers::anthropic::images`]).
+    images: Option<crate::providers::anthropic::images::ImageFitter>,
 }
 
 impl HttpAdapter {
@@ -192,13 +226,34 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            retry_line: None,
             input_excludes_cache: None,
+            media: None,
+            images: None,
         }
+    }
+
+    /// The line the provider's ladder writes before each retry ([`ProviderAdapter::retry_line`]).
+    pub fn with_retry_line(mut self, line: mixdog_core_api::domain::provider::RetryLine) -> Self {
+        self.retry_line = Some(line);
+        self
     }
 
     /// The usage convention of an adapter whose class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
     pub fn with_input_excludes_cache(mut self, excludes: bool) -> Self {
         self.input_excludes_cache = Some(excludes);
+        self
+    }
+
+    /// Fits the images of every request with `fitter`: the Messages wire's `prepareAnthropicImages`.
+    pub fn with_images(mut self, fitter: Option<crate::providers::anthropic::images::ImageFitter>) -> Self {
+        self.images = fitter;
+        self
+    }
+
+    /// The engine's own document capabilities (`GatewayMessagesEngine.nativePdf` / `.nativeDocuments`).
+    pub fn with_media(mut self, media: mixdog_core_api::domain::provider::MediaSupport) -> Self {
+        self.media = Some(media);
         self
     }
 
@@ -234,8 +289,12 @@ impl ProviderAdapter for HttpAdapter {
         &self.keepalive
     }
 
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.retry_line.clone()
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref()).await
+        run_fitted_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref(), self.images.as_ref()).await
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {
@@ -248,6 +307,10 @@ impl ProviderAdapter for HttpAdapter {
 
     /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).
     fn native_pdf(&self) -> bool {
-        false
+        self.media.is_some_and(|m| m.native_pdf)
+    }
+
+    fn native_documents(&self) -> Option<bool> {
+        self.media.and_then(|m| m.native_documents)
     }
 }

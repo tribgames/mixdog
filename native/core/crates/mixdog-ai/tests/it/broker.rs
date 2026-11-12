@@ -167,6 +167,67 @@ async fn cancel_ends_the_retry_wait() {
     assert!(matches!(err, SendError::Cancelled));
 }
 
+/// A provider whose first attempt fails with `message`, its retry line worded as the OpenAI-compatible ladder's.
+struct Refusing {
+    inner: MockProvider,
+    message: String,
+}
+
+#[async_trait]
+impl ProviderAdapter for Refusing {
+    fn release_send(&self, _group: &str) {}
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        Some(mixdog_core_api::domain::provider::RetryLine {
+            tag: "[custom]".into(),
+            delay: true,
+            style: mixdog_core_api::domain::provider::RetryLineStyle::Attempt,
+        })
+    }
+
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if self.inner.attempts.load(Ordering::Relaxed) == 0 {
+            self.inner.attempts.fetch_add(1, Ordering::Relaxed);
+            let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Overloaded, DeliveryState::Accepted);
+            error.status = Some(503);
+            error.message = self.message.clone();
+            return Err(error);
+        }
+        self.inner.attempt(request).await
+    }
+}
+
+/// The line written before a retry carries the server's text: a credential the process holds is redacted from it.
+#[tokio::test(start_paused = true)]
+async fn the_retry_line_redacts_a_credential_the_refusal_echoes() {
+    let (broker, send) = setup();
+    mixdog_ai::oauth::carried::keep("config the-retry-line-test", &["retry-line-key-3f9a71c2"]);
+    let provider = Refusing {
+        inner: MockProvider::new([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]),
+        message: "upstream 503: key retry-line-key-3f9a71c2 is overloaded".into(),
+    };
+    let (lines, _capture) = mixdog_rt::node_log::capture();
+    broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap();
+    let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("[custom] retry attempt 2 after upstream 503: key [REDACTED] is overloaded"), "{}", lines[0]);
+}
+
 struct Echo;
 
 #[async_trait]
@@ -366,4 +427,81 @@ async fn content_moves_the_lease_of_an_unattended_send() {
     assert_eq!(held(&run.admission), 1, "99 s in, 59 s after the text");
     settle(Duration::from_secs(1)).await;
     assert_eq!(held(&run.admission), 0, "60 s after the text");
+}
+/// A provider whose first stream shows one event and then dies with `message`; its spent send is re-issued as `recovered`.
+struct Dying {
+    inner: MockProvider,
+    message: String,
+}
+
+struct DyingStream {
+    shown: bool,
+    message: String,
+}
+
+#[async_trait]
+impl ModelStream for DyingStream {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        if !self.shown {
+            self.shown = true;
+            return Some(Ok(StreamEvent::ProviderKeepalive));
+        }
+        let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, DeliveryState::Accepted);
+        error.message = self.message.clone();
+        Some(Err(error))
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
+}
+
+#[async_trait]
+impl ProviderAdapter for Dying {
+    fn release_send(&self, _group: &str) {}
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+
+    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+        true
+    }
+
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.inner.attempt(request).await
+    }
+
+    async fn attempt(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        Ok(Box::new(DyingStream { shown: false, message: self.message.clone() }))
+    }
+}
+
+/// The line written after a dead stream is re-issued names the stream's failure, which repeats what the endpoint answered: a
+/// credential the process holds is redacted from it.
+#[tokio::test(start_paused = true)]
+async fn the_recovery_line_redacts_a_credential_the_dead_stream_echoes() {
+    let (broker, send) = setup();
+    mixdog_ai::oauth::carried::keep("config the-recovery-line-test", &["recovery-line-key-9b27e0d4"]);
+    let provider = Dying {
+        inner: MockProvider::new([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]),
+        message: "upstream: key recovery-line-key-9b27e0d4 is overloaded".into(),
+    };
+    let (lines, _capture) = mixdog_rt::node_log::capture();
+    broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap();
+    let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    assert_eq!(lines, ["[gemini] stream failed (upstream: key [REDACTED] is overloaded); recovered via non-streaming generateContent"]);
 }

@@ -35,6 +35,8 @@ mod views;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod stale_node_cases;
+#[cfg(test)]
 mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
@@ -148,7 +150,7 @@ pub trait LiveSessions: Send + Sync {
     fn header(&self, session: &str) -> Option<Row>;
     /// A turn is running (`runtime.controller` not aborted).
     fn running(&self, session: &str) -> bool;
-    /// `sessionHasLiveWork`: a running turn or queued input.
+    /// A running turn or queued input (`sessionHasLiveWork` adds the runtime stage).
     fn has_live_work(&self, session: &str) -> bool;
     /// `runtime.stage`.
     fn runtime_stage(&self, session: &str) -> Option<String>;
@@ -187,6 +189,8 @@ pub struct AgentRegistry {
     /// Woken by every refresh and row write: the deadline timer ([`keep_deadlines`]) arms again.
     rearm: Arc<tokio::sync::Notify>,
     loads: Mutex<Loads>,
+    /// The restart notices this process has begun to queue and not yet stamped (`restart::notify_restart_failures`).
+    restart_notices: Mutex<HashMap<String, restart::NoticeStage>>,
 }
 
 /// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
@@ -416,7 +420,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -964,6 +968,11 @@ impl AgentRegistry {
         Some(extra)
     }
 
+    /// `sessionHasLiveWork`: a running turn, queued input, or a runtime stage still doing work.
+    fn session_has_live_work(&self, id: &str) -> bool {
+        self.live.has_live_work(id) || self.live.runtime_stage(id).is_some_and(|stage| ACTIVE_STAGES.contains(&stage.as_str()))
+    }
+
     /// `transitionStaleNonterminalRows`.
     fn transition_stale(&self, st: &mut State, scope: &Scope) {
         let stale = self.stale_rows(st, scope);
@@ -989,7 +998,7 @@ impl AgentRegistry {
                 if is_terminal_row(row) {
                     return !is_unnotified_restart_failure(row)
                         && past_settled_retention(&reap, row, now)
-                        && !self.live.has_live_work(&id);
+                        && !self.session_has_live_work(&id);
                 }
                 if self.live_session_row(st, &id).is_some() {
                     return false;

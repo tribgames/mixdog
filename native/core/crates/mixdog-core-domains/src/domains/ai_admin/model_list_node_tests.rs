@@ -104,6 +104,11 @@ impl HttpSend for Endpoint {
         };
         // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
         let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
+        // A custom provider's connection warm-up is a raw `undici.request` in Node, which the recorder's fetch hook did not
+        // see: answered, not one of the requests.
+        if request.method == "HEAD" {
+            return Ok(reply(200, json!({})));
+        }
         let body = if request.body.is_empty() { Value::Null } else { Value::String(String::from_utf8_lossy(&request.body).into_owned()) };
         let logged = json!({ "method": request.method, "url": format!("__BASE_URL__{path}"), "headers": request.headers, "body": body });
         self.requests.send_modify(|log| log.push(logged));
@@ -187,6 +192,12 @@ impl ProviderBuilder for Builder {
     async fn oauth_credential_state(&self, name: &str) -> Result<mixdog_ai::accounts::CredentialState, String> {
         self.inner.oauth_credential_state(name).await
     }
+    async fn oauth_credential_expiry(&self, name: &str) -> Option<f64> {
+        self.inner.oauth_credential_expiry(name).await
+    }
+    fn credential_inputs(&self) -> Vec<std::path::PathBuf> {
+        self.inner.credential_inputs()
+    }
 }
 
 struct NoCells;
@@ -220,6 +231,11 @@ pub(super) struct Rig {
     pub(super) registry: Arc<ProviderRegistry>,
     pub(super) readiness: Arc<ProviderReadiness>,
     pub(super) effective: Arc<EffectiveProviders>,
+    /// The production builder the registry and the loaded config read the credentials through.
+    pub(super) builder: Arc<dyn ProviderBuilder>,
+    /// The account store that builder holds (the same files).
+    pub(super) accounts: AccountStore,
+    pub(super) env: Arc<dyn Environment>,
     pub(super) loaded: Arc<LoadedConfig>,
     pub(super) service: Arc<ModelListService>,
     pub(super) host: ListHost,
@@ -246,6 +262,17 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
 
 /// [`rig`] whose catalog stamps retry times with `clock` (milliseconds since the epoch) instead of the wall clock.
 pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>) -> Rig {
+    rig_paced(scenario, seeds, fail, clock, None).await
+}
+
+/// [`rig_on`] whose account store reads credential expiry on `pace`'s clock (the wall clock without one).
+pub(super) async fn rig_paced(
+    scenario: &Value,
+    seeds: &Value,
+    fail: bool,
+    clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
+    pace: Option<Arc<dyn mixdog_ai::oauth::Pace>>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -273,14 +300,24 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
         None => composed,
     };
     let catalog = Arc::new(composed.with_listing_lookup(listing.clone()));
-    let env_vars: HashMap<String, String> = scenario["env"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
+    // `__DATA_DIR__` in a value is this rig's data directory.
+    let data_dir = dir.path().to_string_lossy().into_owned();
+    let env_vars: HashMap<String, String> = scenario["env"]
+        .as_object()
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().replace("__DATA_DIR__", &data_dir))).collect())
+        .unwrap_or_default();
     let env: Arc<dyn Environment> = Arc::new(Vars(env_vars));
     let (vault_gate, vault_gate_rx) = tokio::sync::watch::channel(true);
     let vault_arrived = Arc::new(tokio::sync::Semaphore::new(0));
     let secret_reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let vault = WatchedVault { inner: MemoryVault::default(), gate: vault_gate_rx, arrived: vault_arrived.clone(), reads: secret_reads.clone() };
     let keys = ApiKeyStore::new(Arc::new(vault), env.clone(), false);
-    let accounts = AccountStore::new(dir.path().join("accounts"), io());
+    let accounts = AccountStore::new(dir.path().join("accounts"), io()).with_env(env.clone());
+    let accounts = match pace {
+        Some(pace) => accounts.with_clock(pace),
+        None => accounts,
+    };
+    let (rig_accounts, rig_env) = (accounts.clone(), env.clone());
     let (gate, gate_rx) = tokio::sync::watch::channel(true);
     let arrived = Arc::new(tokio::sync::Semaphore::new(0));
     let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -301,6 +338,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
             accounts,
             anthropic_caps: Arc::new(|_| None),
             google_traits: Arc::new(Traits),
+            route_traits: Arc::new(|_| None),
             openai_facts: Arc::new(NoFacts),
             openai_context: Arc::new(SessionContext::new()),
             codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },
@@ -320,6 +358,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
         }),
         fail,
     });
+    let rig_builder = builder.clone();
     let registry = Arc::new(ProviderRegistry::new(builder.clone()));
     let readiness = ProviderReadiness::new(registry.clone(), catalog.clone());
     let effective = Arc::new(EffectiveProviders::new(builder, keys, env));
@@ -339,7 +378,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
         host: Some(host.clone()),
     });
     let rewarms = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
+    Rig { config, catalog, registry, readiness, effective, builder: rig_builder, accounts: rig_accounts, env: rig_env, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
 }
 
 impl Rig {

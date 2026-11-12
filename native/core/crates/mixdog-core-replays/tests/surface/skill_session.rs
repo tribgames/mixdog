@@ -33,6 +33,9 @@ use serde_json::Map;
 use serde_json::Value;
 use mixdog_core::run_host::tool_surface::SurfaceHost;
 
+#[path = "node_cases.rs"]
+mod node_cases;
+
 fn golden() -> Value {
     mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture")
 }

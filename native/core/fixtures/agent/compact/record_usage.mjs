@@ -143,6 +143,11 @@ const usageDelta = (name, session, messages, over, sendTools = tools, native = [
   step(name, 'usage', session, messages, args, () => {
     // send-phase.mjs: the response arrived, so the send's start is the provider cache's last use.
     session.lastProviderSendAt = sentAt;
+    // send-phase.mjs `traceActualCacheMiss`: an Anthropic session keeps the call's cache read + write as the
+    // next call's miss baseline (`response.usage`, which `delta`'s cache figures are taken from).
+    if (session.provider === 'anthropic' || session.provider === 'anthropic-oauth') {
+      session.lastProviderCachedPrefixTokens = (Number(delta.deltaCachedRead) || 0) + (Number(delta.deltaCacheWrite) || 0);
+    }
     const d = clone(delta);
     d.sendTools = sent;
     metrics.persistIterationMetrics(d);

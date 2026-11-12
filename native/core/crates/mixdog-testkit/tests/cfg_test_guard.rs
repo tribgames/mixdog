@@ -35,14 +35,19 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "a replay that stays in the library because it reuses `room_rows_replay::Log` and `room_files::SessionFiles`, which are crate-private",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod pool_list_replay;",
-        "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
+        "mixdog-core/src/run_host/factory.rs",
+        "mod turn_durability_replay;",
+        "a replay that stays in the library because it runs over the factory tests' crate-private world (`use super::*`: the turn world, its scripted provider and rig)",
     ),
     (
         "mixdog-core/src/run_host/mod.rs",
-        "mod session_route_state_replay;",
-        "a replay that stays in the library because it uses `context_world::tests::{Fixed, Quiet, WindowFacts}`, which are crate-private and compiled for the library's tests only",
+        "mod media_wire_table;",
+        "the media-wire table (`fixtures/media-wire`) replayed over the library's own message rows, attachment store and media lowering (`message_row`, `media`, `assemble`); a module of tests only, which nothing else uses",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod pool_list_replay;",
+        "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
     ),
     (
         "mixdog-core-session/src/session/mod.rs",
@@ -68,6 +73,16 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "mixdog-core-session/src/session/mod.rs",
         "mod sequence_replay;",
         "a module of tests only (the `session-sequence` recording), over `address_replay`'s rig; no other module uses it",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod native_request_bytes_node_cases;",
+        "a module of tests only (the native request bytes recording replayed over the run host's wire, built from test doubles): no other module uses it, so a replay build loses nothing by not compiling it",
+    ),
+    (
+        "mixdog-core-session/src/session/agent_registry/mod.rs",
+        "mod stale_node_cases;",
+        "a module of tests only (the `stale-rows-cases` recording over the registry's own `WorkerStore` and `LiveSessions` traits through `super::*`): no other module uses it",
     ),
     (
         "mixdog-core/src/run_host/prompt_session.rs",

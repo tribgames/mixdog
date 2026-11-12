@@ -1321,6 +1321,8 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
 /// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
 /// - `Stage(Requesting)`: Node's admission scheduler and provider adapter raise it, and the recording's scripted `send` is neither.
 /// - `ToolCallObserved`: see `callbacks[ev=onAssistantToolCallObserved]` in [`NOT_COMPARED`].
+/// - `TurnEffort(None)`: the turn's effort the run publishes when it starts; Node's `runtime.turnEffort` is a getter a client reads,
+///   not a callback, and these routes carry no effort snapshot (any other value fails the replay).
 /// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
 /// - `Stage(Authorized)`: the host's mark that a call passed its gate without an ask (its held step goes out); Node raises no callback
 ///   for an unasked call, whose run is compared as `requests` and `events`.
@@ -1331,6 +1333,7 @@ fn uncompared(event: &RunEvent) -> bool {
             | RunEvent::TextDelta(_)
             | RunEvent::ToolCallObserved(_)
             | RunEvent::ExecutionCalls(_)
+            | RunEvent::TurnEffort(None)
     )
 }
 

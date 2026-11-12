@@ -7,11 +7,12 @@
 // public `agentLoop` entry point and the normalized transcript, result fields
 // and the requests it built are written to `golden/<name>.json`. Scenarios
 // themselves are written to `scenarios/<name>.json`.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+import { commitStage, exactProductIdentity, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+import { recorderProvenance } from '../../../../benchmarks/rust-core/recorders/lib/provenance.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const nodeRoot = resolveTree(parseArgs());
@@ -291,5 +292,9 @@ try {
   rmSync(dataRoot, { recursive: true, force: true });
 }
 refreshSetManifest(stage, nodeRoot);
+// The set's manifest also states what made it: this recorder, every module it loads and the Node that ran it.
+const manifestPath = join(stage, 'MANIFEST.json');
+const manifest = { ...JSON.parse(readFileSync(manifestPath, 'utf8')), ...recorderProvenance(import.meta.url), product: exactProductIdentity(nodeRoot, 'b6f10295a2f698afc85332467192de28500bd146') };
+writeFileSync(manifestPath, `${JSON.stringify(Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => (a < b ? -1 : 1))), null, 2)}\n`);
 commitStage(stage, here);
 process.exit(0);

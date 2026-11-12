@@ -1,0 +1,112 @@
+{
+ "clock": {
+  "start": 1800000000000,
+  "lapsed": 1800000050001
+ },
+ "scenarios": {
+  "chat": {
+   "steps": [
+    [
+     "built",
+     1
+    ],
+    [
+     "send inside the gate",
+     1
+    ],
+    [
+     "send after the gate lapsed",
+     2
+    ]
+   ],
+   "warmups": [
+    [
+     "HEAD",
+     "/"
+    ],
+    [
+     "HEAD",
+     "/"
+    ]
+   ],
+   "sent": [
+    [
+     "POST",
+     "/chat/v1/chat/completions"
+    ],
+    [
+     "POST",
+     "/chat/v1/chat/completions"
+    ]
+   ]
+  },
+  "responses": {
+   "steps": [
+    [
+     "built",
+     1
+    ],
+    [
+     "send inside the gate",
+     1
+    ],
+    [
+     "send after the gate lapsed",
+     2
+    ]
+   ],
+   "warmups": [
+    [
+     "HEAD",
+     "/"
+    ],
+    [
+     "HEAD",
+     "/"
+    ]
+   ],
+   "sent": [
+    [
+     "POST",
+     "/responses/v1/responses"
+    ],
+    [
+     "POST",
+     "/responses/v1/responses"
+    ]
+   ]
+  },
+  "messages": {
+   "steps": [
+    [
+     "built",
+     1
+    ],
+    [
+     "send inside the gate",
+     1
+    ],
+    [
+     "send after the gate lapsed",
+     1
+    ]
+   ],
+   "warmups": [
+    [
+     "HEAD",
+     "/"
+    ]
+   ],
+   "sent": [
+    [
+     "POST",
+     "/messages/v1/messages"
+    ],
+    [
+     "POST",
+     "/messages/v1/messages"
+    ]
+   ]
+  }
+ }
+}

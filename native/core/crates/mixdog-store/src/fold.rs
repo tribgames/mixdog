@@ -216,7 +216,7 @@ impl Fold {
         for (ordinal, record) in (self.next_ordinal..).zip(records) {
             let effect = match record {
                 Record::Session(_) => return Err(FoldError::Unexpected("session")),
-                Record::Checkpoint(_) | Record::Amend(_) | Record::Op(_) => Effect::None,
+                Record::Checkpoint(_) | Record::Amend(_) | Record::Op(_) | Record::Draft(_) => Effect::None,
                 Record::Meta(meta) => Effect::Header(resolve_slot(&meta.change, resolve).map_err(FoldError::Body)?),
                 Record::Item(item) => Effect::Item { visible: item.visible },
                 Record::ModelSwitch(switch) => {

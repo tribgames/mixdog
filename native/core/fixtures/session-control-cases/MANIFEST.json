@@ -9,6 +9,7 @@
     "model, effort, worktree": "create and send with model, effort or worktree need the model catalog and the worktree host through the session service; the core refuses them",
     "random names": "a created session id (sess_daemon_<ms>_<32 hex>) is <created>, a create's request id (atask_<uuid>) is <request> and the caller's folder (a temporary directory) is <WORK>",
     "reports": "the report queue (watches, started line, final report) is not in the core; Node's answer to a watch it cannot store is recorded with that seam refusing",
+    "scripted catalog": "the catalog (listSessions pages and cursors such as `earlier`, readRow rows) is the recorder's own input, as are the live work and the archived flags: Node's real listing is not run here, so the replay may script the same seam (`ScriptedListing`). The production listing (`StoreListing` over a store) is compared against Node's real catalog by the session-listing set (rows whole, order, page size, next cursor, malformed cursor, archived flag, live overlay)",
     "service bookkeeping": "a case records the catalog pages asked for (listSessions), the prompts the runtime took (runtime.submitAsync) and the session a create made (service.createSession); the service's own calls (materializeSession, the wrapper calls) and the log lines are Node internals; `skipSlashCommands`, which the service stamps on the prompt of a home chat, is dropped"
   },
   "fileCount": 1,
@@ -30,7 +31,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
-      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+      "sha256": "19b5e18bfa90ac12f591a14212b13f8662f3fcdba0329a06efed26937f93d6ea"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -46,7 +47,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "91b14bc118b4a5157a77e5f459c0dac9843205c6dbe0397b144c1658b0b659c3"
+      "sha256": "04143d0e66339bb156260de5c798e9888705b7cdf16aa58a981a0e6ea0f650ba"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -72,7 +73,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-control-cases.mjs",
-  "recorderSha256": "969d5931b2f77fa9997aabde34c37dd2b5b8dfbaab1c64e854129a7291ae9649",
+  "recorderSha256": "19322fbf5d278ce3132d83c57c481fad71563e508f40053607f7c910dcd7d3a8",
   "replay": {
     "compare": "SessionTool::call over DirectorySessionPort over a real SessionDirectory on the real thread store (the tool answer or refusal of each case; the catalog pages the port asks for; the session a create made read from its stored record; the prompts delivered read from the input row of the turn each started in the session that took it)",
     "entry": "Drive these public items on o1: mixdog-core/src/run_host/tool_pool/session_port.rs:1 DirectorySessionPort::control.",

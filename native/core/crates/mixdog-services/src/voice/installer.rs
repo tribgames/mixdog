@@ -616,7 +616,7 @@ impl Steps for ManagedVoiceInstaller {
     async fn unzip(&self, archive: &Path, dest: &Path) -> Result<(), String> {
         let (archive, dest) = (archive.to_owned(), dest.to_owned());
         // Node names the tool it spawned; the tool's own stderr is not reproducible here.
-        let tool = if cfg!(windows) { "Expand-Archive" } else if cfg!(target_os = "linux") { "unzip" } else { "tar" };
+        let tool = if cfg!(target_os = "linux") { "unzip" } else { "tar" };
         run_on_lane(self.parts.bulk, move || extract_zip(&archive, &dest, |_| false).map(drop).map_err(|e| format!("[voice-runtime] zip extract failed via {tool}: {e}")))
             .await?
     }

@@ -342,6 +342,7 @@ impl ConfigSeams for ConfigRunSeams {
             step_auto_effort: None,
             text_only: None,
             attachments: None,
+            file_text: None,
             model_max_output_tokens: None,
         }
     }
@@ -395,4 +396,3 @@ pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> 
         from_env("MIXDOG_TOKEN_CALIBRATION_DEFAULT", 1.0)
     }
 }
-

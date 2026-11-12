@@ -5,7 +5,7 @@
 //! (`cursor-api`) of [`AccessToken`]. Credential files, the refresh lock and
 //! the poll-login flow belong to the shared OAuth plumbing.
 
-use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::CURSOR_EXCHANGE;
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -144,18 +144,20 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
                 method: "POST".to_owned(),
                 url: EXCHANGE_URL.to_owned(),
                 headers: vec![
-                    ("authorization".to_owned(), format!("Bearer {token}")),
-                    ("content-type".to_owned(), "application/json".to_owned()),
+                    // As the caller's `fetch` spells them (cursor-auth.mjs `exchangeCursorToken`).
+                    ("Authorization".to_owned(), format!("Bearer {token}")),
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
                 ],
                 body: b"{}".to_vec(),
             },
-            TOKEN_EXCHANGE,
+            CURSOR_EXCHANGE,
         )
         .await?;
     let success = head.is_success();
     let response = head.read_all().await?;
     if !success {
-        let detail = String::from_utf8_lossy(&response.body).trim().to_owned();
+        // The server's text may echo the token this exchange carried; it is redacted wherever it stands.
+        let detail = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[token]).trim().to_owned();
         return Err(exchange_error(response.status.unwrap_or(0), &response.headers, &detail));
     }
     let data: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
@@ -181,16 +183,19 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
 pub struct ApiKeyAccess {
     http: std::sync::Arc<dyn HttpSend>,
     api_key: String,
+    /// Where the key was read from: the account this key belongs to, the same when the key is replaced.
+    slot: String,
     cached: ArcSwapOption<StoredTokens>,
     /// One exchange at a time; waiters adopt its result.
     exchanging: tokio::sync::Semaphore,
 }
 
 impl ApiKeyAccess {
-    pub fn new(http: std::sync::Arc<dyn HttpSend>, api_key: String) -> Self {
+    pub fn new(http: std::sync::Arc<dyn HttpSend>, api_key: String, slot: String) -> Self {
         Self {
             http,
             api_key,
+            slot,
             cached: ArcSwapOption::empty(),
             exchanging: tokio::sync::Semaphore::new(1),
         }
@@ -221,6 +226,11 @@ impl AccessToken for ApiKeyAccess {
             return Ok(access);
         }
         let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
+        // The exchanged token is a credential before any request carries it; the key's next one replaces it.
+        crate::oauth::carried::keep(
+            &crate::oauth::carried::derived_source("cursor exchange", &self.slot),
+            &[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()],
+        );
         let access = tokens.access_token.clone();
         self.cached.store(Some(std::sync::Arc::new(tokens)));
         Ok(access)
@@ -268,7 +278,10 @@ impl FileAccess {
 
     async fn stored(&self) -> Result<StoredTokens, ProviderError> {
         match self.file.load::<StoredTokens>().await {
-            Probe::Present(tokens) => Ok(tokens),
+            Probe::Present(tokens) => {
+                self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
+                Ok(tokens)
+            }
             Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
             Probe::Unreadable => Err(storage("the credential file cannot be read")),
         }
@@ -310,6 +323,7 @@ impl FileAccess {
                 return Err(error);
             }
         };
+        self.file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
         let (access, refresh) = (latest.access_token.clone(), refresh_token);
         let published = self
             .file
@@ -393,7 +407,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_callers_cause_one_exchange() {
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
-        let access = std::sync::Arc::new(ApiKeyAccess::new(http.clone(), "key".into()));
+        let access = std::sync::Arc::new(ApiKeyAccess::new(http.clone(), "key".into(), "env CURSOR_API_KEY".into()));
         let calls = (0..8).map(|_| {
             let access = access.clone();
             async move { access.access_token(false).await.unwrap() }
@@ -406,12 +420,46 @@ mod tests {
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
+    /// Answers each exchange with a token of its own.
+    struct Rotating(AtomicUsize);
+
+    #[async_trait]
+    impl HttpSend for Rotating {
+        async fn send(
+            &self,
+            _request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
+            let n = self.0.fetch_add(1, Ordering::SeqCst) as u64;
+            let body = format!(r#"{{"accessToken":"{}","refreshToken":"rotating-refresh-{n:04}"}}"#, jwt(4_000_000_000 + n));
+            Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
+        }
+    }
+
+    /// The exchange token of a key the user replaced is retired, not pinned for ever: after more retirements than the
+    /// registry keeps, it is forgotten while the current one stays.
+    #[tokio::test]
+    async fn an_exchange_token_of_a_replaced_key_retires_instead_of_staying_pinned() {
+        let http = std::sync::Arc::new(Rotating(AtomicUsize::new(0)));
+        let mut seen = Vec::new();
+        for n in 0..3 {
+            let access = ApiKeyAccess::new(http.clone(), format!("rotating-api-key-{n}"), "env CURSOR_API_KEY".into());
+            seen.push(access.access_token(false).await.unwrap());
+        }
+        for i in 0..=crate::oauth::carried::RETIRED_CAP {
+            crate::oauth::carried::keep("file the-unrelated-account-of-the-cursor-test.json", &[&format!("cursor-test-unrelated-{i:05}")]);
+        }
+        let registry = crate::oauth::carried::registry();
+        assert!(!registry.holds(&seen[0]) && !registry.holds(&seen[1]), "the replaced keys' exchange tokens were forgotten");
+        assert!(registry.holds(&seen[2]), "the current one stays");
+    }
+
     #[tokio::test]
     async fn a_failed_exchange_surfaces_even_when_the_key_looks_valid() {
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 401 });
         // The key is a JWT that has not expired: it is still not a fallback.
         let key = jwt(4_000_000_000);
-        let access = ApiKeyAccess::new(http, key);
+        let access = ApiKeyAccess::new(http, key, "env CURSOR_API_KEY".into());
         let error = access.access_token(false).await.unwrap_err();
         assert!(error.reauth_required);
     }

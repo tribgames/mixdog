@@ -240,8 +240,11 @@ struct Refusing {
 
 #[async_trait]
 impl HttpSend for Refusing {
-    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
-        self.sends.lock().unwrap().push(exchange.surface);
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        // The provider's connection warm-up (a `HEAD`) is refused too, and is not one of the sends of the ladder.
+        if request.method != "HEAD" {
+            self.sends.lock().unwrap().push(exchange.surface);
+        }
         let mut error = ProviderError::transport(TransportFault::Connect { os_code: Some(111) }, DeliveryState::NotSent);
         error.message = exchange.surface.text(|| "connect refused".to_owned());
         Err(error)

@@ -63,7 +63,7 @@ fn parse_log_name(name: &str) -> Option<u32> {
         .flatten()
 }
 
-/// The log files of a session directory, ascending. Tmp files of `publish_file` are
+/// The log files of a session directory, ascending. Tmp files of `publish_file` and run drafts (`draft_file`) are
 /// skipped; any other entry is a format error.
 pub fn list_logs(dir: &Path) -> Result<Vec<u32>, OpenError> {
     let mut files = Vec::new();
@@ -72,7 +72,7 @@ pub fn list_logs(dir: &Path) -> Result<Vec<u32>, OpenError> {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(n) = parse_log_name(&name) {
             files.push(n);
-        } else if !fsio::is_tmp_name(&name) {
+        } else if !fsio::is_tmp_name(&name) && crate::draft_file::rid_of(&name).is_none() {
             return Err(OpenError::Format(format!("unexpected entry {name:?} in {}", dir.display())));
         }
     }
@@ -1103,7 +1103,7 @@ impl LogWriter {
             WriterState::Clean { end } => Ok(end),
             WriterState::PendingRollback { target, .. } => {
                 let file = self.file_handle().map_err(AppendError::Refused)?;
-                match file.truncate(target).and_then(|()| file.sync()) {
+                match truncate_fault().and_then(|()| file.truncate(target)).and_then(|()| file.sync()) {
                     Ok(()) => {
                         self.state = WriterState::Clean { end: target };
                         Ok(target)
@@ -1237,7 +1237,16 @@ impl LogWriter {
             pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
         }
 
+        #[cfg(feature = "crash-hook")]
+        let records: Vec<Record> = batch.iter().map(|e| e.record.clone()).collect();
+        #[cfg(feature = "crash-hook")]
+        let write_fault = fsio::append_step(fsio::AppendStep::Write, &records).err();
+        #[cfg(not(feature = "crash-hook"))]
+        let write_fault: Option<io::Error> = None;
         if rotate {
+            if let Some(fault) = write_fault {
+                return Err(AppendError::BarrierFailed(self.io_err(IoOp::Write, fault)));
+            }
             revalidate(&deps)?;
             let path = self.path(file_no);
             // A failed publish leaves the writer Clean on the old file (SM §8 rule 4).
@@ -1251,7 +1260,11 @@ impl LogWriter {
                 Ok(f) => f,
                 Err(e) => return Err(AppendError::BarrierFailed(e)),
             };
-            let write = file.write_at(end, &buf);
+            // An injected write fault stops the write half way, as a full disk does.
+            let write = match write_fault {
+                Some(fault) => file.write_at(end, &buf[..buf.len() / 2]).and(Err(fault)),
+                None => file.write_at(end, &buf),
+            };
             self.state = WriterState::Dirty { acked: end, written };
             if let Err(e) = write {
                 return Err(self.roll_back(end, IoOp::Write, e));
@@ -1260,12 +1273,18 @@ impl LogWriter {
                 self.state = WriterState::Fenced(reason);
                 return Err(AppendError::Fenced { reason, outcome: Outcome::Unknown });
             }
+            #[cfg(feature = "crash-hook")]
+            let sync_fault = fsio::append_step(fsio::AppendStep::Sync, &records);
+            #[cfg(not(feature = "crash-hook"))]
+            let sync_fault = Ok(());
             let file = self.file.as_mut().expect("opened");
-            if let Err(e) = file.sync() {
+            if let Err(e) = sync_fault.and_then(|()| file.sync()) {
                 return Err(self.roll_back(end, IoOp::SyncFile, e));
             }
             self.state = WriterState::Clean { end: written };
         }
+        #[cfg(feature = "crash-hook")]
+        let _ = fsio::append_step(fsio::AppendStep::Synced, &records);
 
         // Durable: phase 2 of the fold, then the projection.
         let mut frames = Vec::with_capacity(positions.len());
@@ -1323,7 +1342,7 @@ impl LogWriter {
         let cause = self.io_err(op, cause);
         self.state = WriterState::RollingBack { target };
         let file = self.file.as_mut().expect("opened");
-        match file.truncate(target).and_then(|()| file.sync()) {
+        match truncate_fault().and_then(|()| file.truncate(target)).and_then(|()| file.sync()) {
             Ok(()) => {
                 self.state = WriterState::Clean { end: target };
                 AppendError::BarrierFailed(cause)
@@ -1338,6 +1357,14 @@ impl LogWriter {
             }
         }
     }
+}
+
+/// A rollback's truncate failed by the test hook ([`fsio::AppendStep::Truncate`]); always `Ok` in a build without it.
+fn truncate_fault() -> io::Result<()> {
+    #[cfg(feature = "crash-hook")]
+    return fsio::append_step(fsio::AppendStep::Truncate, &[]);
+    #[cfg(not(feature = "crash-hook"))]
+    Ok(())
 }
 
 fn revalidate(deps: &WriterDeps) -> Result<(), AppendError> {

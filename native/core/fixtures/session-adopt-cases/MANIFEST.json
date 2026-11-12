@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-adopt-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "compaction: the session's whole compaction record after adoption; rules: every PreToolUse answer in order; deny: each session's whole tool result text and the hook's run count",
+  "excluded": {
+    "adopting a session that already carries its bridge leaves it in place": "GONE (gaps-rest.md): the core attaches no per-session PreToolUse bridge; one hook bus serves every thread",
+    "an adopted session follows the current global compaction settings, keeping its own fields (no compaction section)": "DIFFERENCE: a runtime config without a compaction section leaves Node's session at {\"auto\":false}; the core syncs it to the empty section's defaults ({\"auto\":true,\"onModelChange\":true,\"summaryMode\":\"smart\"})"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3931,
+      "path": "golden.json",
+      "sha256": "a90763de3e8701167fc538c52f8bd0e5b443f2fe36cfca53e92c8bc042422e72"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-adopt-cases.mjs",
+  "recorderSha256": "328bb87c4fd849397981e2341296f88263e7bf7fd33d42976744213e5d47397a",
+  "set": "session-adopt-cases",
+  "totalBytes": 3931
+}

@@ -41,7 +41,9 @@ futures = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-reqwest = { workspace = true, features = ["stream", "socks"] }
+# gzip / brotli / deflate: `link_builder` turns each off (`no_gzip`, `no_brotli`, `no_deflate`) for its h2-only client, and those
+# methods exist only when the feature is on.
+reqwest = { workspace = true, features = ["stream", "socks", "gzip", "brotli", "deflate"] }
 # A proxy reached over https: the TLS client of the CONNECT tunnel and of the connection check.
 rustls = { workspace = true, features = ["ring", "std"] }
 rustls-native-certs = { workspace = true }

@@ -90,6 +90,8 @@ pub struct TestCompaction {
     pub text_books: std::sync::atomic::AtomicBool,
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
+    /// The signal each compaction call was handed.
+    pub cancels: Mutex<Vec<mixdog_agent::cancel::Cancel>>,
     /// Wakes after a compaction call is recorded.
     pub called: tokio::sync::Notify,
     /// A compaction waits on it before answering, when set.
@@ -149,8 +151,9 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         Ok(lock(&self.heir_rows).clone())
     }
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        lock(&self.cancels).push(cancel.clone());
         self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
@@ -323,6 +326,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// Every barrier fails (rolled back) with this cause while it is set.
+    pub failing: Arc<Mutex<Option<Arc<str>>>>,
     /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
     pub fail_after_write: Arc<AtomicBool>,
     /// The next batch holding a record the predicate takes fails (`FailWhen`).
@@ -356,11 +361,26 @@ pub struct MemStore {
     pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
+    /// Each run's draft file, by thread and run: its bodies in order.
+    pub drafts: Mutex<std::collections::BTreeMap<(String, String), Vec<Value>>>,
     /// The record count of every batch that landed, in order: which records one group commit held.
     pub batches: Arc<Mutex<Vec<usize>>>,
 }
 
 impl MemStore {
+    /// Appends `record` to thread `id`'s log as a barrier would (a log an earlier build wrote).
+    pub fn append_record(&self, id: &ThreadId, record: Record) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        log.push((next, record));
+    }
+
+    /// The draft files of thread `id`: run id and bodies.
+    pub fn draft_files(&self, id: &ThreadId) -> Vec<(String, Vec<Value>)> {
+        lock(&self.drafts).iter().filter(|((thread, _), _)| thread == id.as_str()).map(|((_, rid), bodies)| (rid.clone(), bodies.clone())).collect()
+    }
+
     /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
     pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
         let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
@@ -373,6 +393,11 @@ impl MemStore {
             .get(id)
             .map(|log| lock(log).clone())
             .unwrap_or_default()
+    }
+
+    /// Every thread a log was created for.
+    pub fn log_ids(&self) -> Vec<ThreadId> {
+        lock(&self.logs).keys().cloned().collect()
     }
 
     fn log(&self, id: &ThreadId) -> Log {
@@ -450,6 +475,7 @@ pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
+    failing: Arc<Mutex<Option<Arc<str>>>>,
     fail_after_write: Arc<AtomicBool>,
     fail_when: FailWhen,
     commit_gate: CommitGate,
@@ -472,9 +498,10 @@ impl SessionLog for MemLog {
             wait_for_release(&go, "the commit gate");
         }
         if self.fail_next.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed {
-                io_kind: "test".into(),
-            });
+            return Err(BarrierError::failed("test"));
+        }
+        if let Some(cause) = lock(&self.failing).clone() {
+            return Err(BarrierError::Failed { io_kind: cause.clone(), cause });
         }
         let failing = {
             let mut when = lock(&self.fail_when);
@@ -482,7 +509,7 @@ impl SessionLog for MemLog {
             if hit { when.take().map(|(_, after_write)| after_write) } else { None }
         };
         if failing == Some(false) {
-            return Err(BarrierError::Failed { io_kind: "test".into() });
+            return Err(BarrierError::failed("test"));
         }
         if failing == Some(true) {
             self.fail_after_write.store(true, Ordering::SeqCst);
@@ -518,7 +545,7 @@ impl SessionLog for MemLog {
         lock(&self.batches).push(batch.len());
         self.committed.notify_waiters();
         if self.fail_after_write.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed { io_kind: "test".into() });
+            return Err(BarrierError::failed("test"));
         }
         Ok(out)
     }
@@ -564,7 +591,7 @@ impl ThreadStore for MemStore {
     fn decode(
         &self,
         _lane: &InLane<CpuInteractive>,
-        _id: &ThreadId,
+        id: &ThreadId,
         head: HeadRead,
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
@@ -592,6 +619,28 @@ impl ThreadStore for MemStore {
             ),
             _ => (Header::new(), false, String::new()),
         };
+        // Each draft file folded over the log's draft records of its run (the session's fold reads those from the tail).
+        let drafts = self
+            .draft_files(id)
+            .into_iter()
+            .map(|(rid, bodies)| {
+                let mut draft = super::turn_draft::RunDraft::default();
+                for (_, record) in &records {
+                    match record {
+                        Record::Draft(d) if d.rid.as_str() == rid => {
+                            if let Slot::Inline(body) = &d.body {
+                                draft.apply(body);
+                            }
+                        }
+                        Record::Item(item) if item.turn.as_ref().is_some_and(|t| t.as_str() == rid) && item.role.as_ref().is_some_and(|r| r.as_str() == "assistant") => draft.message_committed(),
+                        _ => {}
+                    }
+                }
+                let landed = |iid: &str| records.iter().any(|(_, record)| matches!(record, Record::Item(item) if item.iid.as_str() == iid));
+                draft.apply_file(&bodies, landed);
+                (rid, draft)
+            })
+            .collect();
         Ok(OpenedLog {
             header,
             control,
@@ -601,12 +650,14 @@ impl ThreadStore for MemStore {
             approvals: Vec::new(),
             queue: Vec::new(),
             window: Vec::new(),
+            archived: Vec::new(),
             dividers: Vec::new(),
             has_older: false,
             prompts: Vec::new(),
             log_id,
             next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
             tail: records,
+            drafts,
             append: AppendPosition(Box::new(())),
         })
     }
@@ -621,6 +672,10 @@ impl ThreadStore for MemStore {
         }
         let listed = self.listed.load(Ordering::SeqCst);
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
+    }
+
+    fn archived_agent_parents(&self, _child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
@@ -704,46 +759,29 @@ impl ThreadStore for MemStore {
         if lock(&self.damaged).contains(id.as_str()) {
             return Err(Self::unreadable(id.as_str()));
         }
-        Ok(ContextRead(Box::new(self.records(id))))
+        Ok(ContextRead(Box::new((self.records(id), 0usize))))
     }
 
-    /// One page: the last compaction's replacement, then the model rows after it.
+    /// One page: the last compaction's replacement, then the model rows after it, less the first `skip`.
     fn context_cpu(
         &self,
         _lane: &InLane<CpuInteractive>,
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
-        let records = *read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context");
-        // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
-        let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
-        for (ordinal, record) in records {
-            match record {
-                Record::Compacted(compacted) => {
-                    out = match compacted.replacement {
-                        Slot::Inline(entries) => entries
-                            .into_iter()
-                            .map(|e| (ordinal, ItemId::from(e.iid), e.body))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                }
-                Record::Item(item) if item.model => {
-                    if let Slot::Inline(body) = item.body {
-                        out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
-                    }
-                }
-                // An amended row reads as its amend body, as the real store's context rows do.
-                Record::Amend(amend) => {
-                    if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
-                        row.2 = body;
-                    }
-                }
-                // A rewound row leaves the context, as it leaves the real store's.
-                Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
-                _ => {}
-            }
-        }
-        Ok(ContextStep::Done(out.into_iter().map(|(_, iid, body)| (iid, body)).collect()))
+        let (records, skip) = *read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        let mut rows = model_rows(records);
+        rows.drain(..skip.min(rows.len()));
+        Ok(ContextStep::Done(rows))
+    }
+
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        let read = self.context_io(lane, id, None)?;
+        Ok(model_rows(read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context").0).len())
+    }
+
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
+        let (records, _) = *self.context_io(lane, id, None)?.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
+        Ok(ContextRead(Box::new((records, skip))))
     }
 
     fn open_log(
@@ -755,6 +793,7 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
@@ -780,6 +819,7 @@ impl ThreadStore for MemStore {
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
@@ -791,6 +831,21 @@ impl ThreadStore for MemStore {
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
+    }
+
+    fn draft_write(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use super::turn_draft::DraftWrite;
+        let thread = id.as_str().to_owned();
+        let mut drafts = lock(&self.drafts);
+        match write {
+            DraftWrite::Append { rid, body } => drafts.entry((thread, rid.clone())).or_default().push(body.clone()),
+            DraftWrite::Replace { rid, body } => drop(drafts.insert((thread, rid.clone()), vec![body.clone()])),
+            DraftWrite::Remove { rid } => drop(drafts.remove(&(thread, rid.clone()))),
+            DraftWrite::Sweep { open } => drafts.retain(|(t, rid), _| *t != thread || open.contains(rid)),
+        }
+        drop(drafts);
+        self.committed.notify_waiters();
+        Ok(())
     }
 
     /// Rewinds cut the lineage, as the real store reads it.
@@ -885,6 +940,7 @@ impl ThreadStore for MemStore {
 pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
+    hook: Option<CommitHook>,
     held: Mutex<Option<(&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -900,7 +956,7 @@ const HOLD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 impl HeldCall {
     /// Resolves once the held call has been made and is waiting.
     pub async fn entered(&mut self, name: &str) {
-        let entered = tokio::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
+        let entered = mixdog_rt::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
         assert!(matches!(entered, Ok(Some(()))), "waiting for the store call {name} to be made");
     }
 
@@ -912,7 +968,7 @@ impl HeldCall {
 
 impl CallCounted {
     pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default() })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None })
     }
 
     /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
@@ -967,14 +1023,116 @@ impl ThreadStore for CallCounted {
         fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
+        fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
+        fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
-        fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
-        fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
     }
+
+    fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+        lock(&self.calls).push("open_log");
+        Ok(self.hooked(self.inner.open_log(lane, id, at)?))
+    }
+
+    fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        lock(&self.calls).push("create_log");
+        let (log, ordinal) = self.inner.create_log(lane, id, session)?;
+        Ok((self.hooked(log), ordinal))
+    }
+}
+
+/// Where a hooked log is when its hook runs: before a batch is handed to the store, between two of its records, or after the store
+/// acknowledged it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitPoint {
+    Before,
+    /// The first `written` records of the batch are on disk. The store's format (FORMAT.md §7: a crash during a batch leaves a
+    /// prefix of its frames, each complete one committed) makes every such prefix a state a kill can leave, so the hooked log
+    /// writes a batch one record at a time and calls the hook between them.
+    Within { written: usize },
+    After,
+}
+
+/// Called on the durability thread around each `commit` of a log opened through [`CallCounted::with_commit_hook`]; a hook that
+/// never returns holds the write there, so a parent can end the process at that point.
+pub type CommitHook = Arc<dyn Fn(CommitPoint) + Send + Sync>;
+
+struct HookedLog {
+    inner: Box<dyn SessionLog>,
+    hook: CommitHook,
+}
+
+impl SessionLog for HookedLog {
+    fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
+        (self.hook)(CommitPoint::Before);
+        let mut ordinals = Vec::with_capacity(batch.len());
+        for (written, record) in batch.chunks(1).enumerate() {
+            if written > 0 {
+                (self.hook)(CommitPoint::Within { written });
+            }
+            ordinals.extend(self.inner.commit(lane, record)?);
+        }
+        (self.hook)(CommitPoint::After);
+        Ok(ordinals)
+    }
+
+    fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        self.inner.retry(lane)
+    }
+
+    fn redact(&mut self, lane: &InLane<DurabilityIo>) {
+        self.inner.redact(lane);
+    }
+}
+
+impl CallCounted {
+    /// [`Self::new`] whose logs call `hook` around each commit.
+    pub fn with_commit_hook(inner: Arc<dyn ThreadStore>, hook: CommitHook) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook) })
+    }
+
+    fn hooked(&self, log: Box<dyn SessionLog>) -> Box<dyn SessionLog> {
+        match &self.hook {
+            Some(hook) => Box::new(HookedLog { inner: log, hook: hook.clone() }),
+            None => log,
+        }
+    }
+}
+
+/// The model context of a log's records: the last compaction's replacement, then the model rows after it.
+fn model_rows(records: Vec<(u64, Record)>) -> Vec<(ItemId, Value)> {
+    // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
+    let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
+    for (ordinal, record) in records {
+        match record {
+            Record::Compacted(compacted) => {
+                out = match compacted.replacement {
+                    Slot::Inline(entries) => entries.into_iter().map(|e| (ordinal, ItemId::from(e.iid), e.body)).collect(),
+                    _ => Vec::new(),
+                };
+            }
+            Record::Item(item) if item.model => {
+                if let Slot::Inline(body) = item.body {
+                    out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
+                }
+            }
+            // An amended row reads as its amend body, as the real store's context rows do.
+            Record::Amend(amend) => {
+                if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
+                    row.2 = body;
+                }
+            }
+            // A rewound row leaves the context, as it leaves the real store's.
+            Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
+            _ => {}
+        }
+    }
+    out.into_iter().map(|(_, iid, body)| (iid, body)).collect()
 }
 
 /// An amend replaces the body (and blob refs) of its live row, as the real store's readers see it.
@@ -1146,12 +1304,56 @@ pub type Script =
 /// Runs whose body the test sets.
 pub struct ScriptRuns {
     pub script: Mutex<Script>,
+    /// The input row each crashed run was recovered with.
+    pub crashed: Mutex<Vec<Option<mixdog_core_api::ids::ItemId>>>,
+    /// The draft each crashed run was recovered with.
+    pub crashed_drafts: Mutex<Vec<super::turn_draft::RunDraft>>,
 }
 
 impl RunFactory for ScriptRuns {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
         let script = lock(&self.script).clone();
         script(run)
+    }
+
+    /// A scripted run commits rows the script chose; its crash leaves none unless it left no draft: the conversation
+    /// then restarts as Node's reconnect recovery leaves it (`recover_after_restart`). The run host's own finalization,
+    /// of a draft too, is `RunHostFactory`'s.
+    fn crashed(&self, run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+        lock(&self.crashed).push(run.input.clone());
+        let undrafted = run.draft == super::turn_draft::RunDraft { input: run.draft.input.clone(), context_tokens: run.draft.context_tokens, ..Default::default() };
+        lock(&self.crashed_drafts).push(run.draft);
+        if !undrafted {
+            return super::seams::CrashedRows::default();
+        }
+        let bodies: Vec<Value> = run.context.iter().map(|(_, body)| body.clone()).collect();
+        let Ok(recovered) = mixdog_agent::interrupt::recover_after_restart(&bodies) else {
+            return super::seams::CrashedRows::default();
+        };
+        let (mut rows, mut replacement, mut changed) = (Vec::new(), Vec::new(), false);
+        for row in recovered {
+            match row {
+                mixdog_agent::interrupt::RecoveredRow::Kept { index, body } => {
+                    changed |= body != run.context[index].1;
+                    replacement.push((run.context[index].0.clone(), body));
+                }
+                mixdog_agent::interrupt::RecoveredRow::New { role, mut body } => {
+                    changed = true;
+                    let iid = super::run::new_item_id();
+                    // Classified as a live commit's row is, as the run host's finalization does: the restart line is the turn's cancelled end.
+                    struct NoBlobs;
+                    impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+                        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+                            Ok(None)
+                        }
+                    }
+                    let facts = super::user_facts::user_facts(&mut body, &NoBlobs);
+                    replacement.push((iid.clone(), body.clone()));
+                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: facts.visible, body, prompt: facts.prompt });
+                }
+            }
+        }
+        super::seams::CrashedRows { sealed: false, rows, context: changed.then_some(replacement), context_tokens: None }
     }
 }
 
@@ -1601,7 +1803,6 @@ pub struct Rig {
     /// Every turn's workspace admission and its release, in order.
     pub admissions: Arc<TestAdmission>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
-    pub prewarms: Arc<Prewarms>,
     /// The warmer's turn notes: each turn's `cacheWarmTurnKind` input, and how many ended.
     pub warms: Arc<RecWarmth>,
     /// The built-in skill names the turns read (None: the status cannot be read).
@@ -1933,17 +2134,6 @@ impl super::turn_warm::TurnWarmth for RecWarmth {
     }
 }
 
-/// The threads the effort judge was prewarmed for, in order.
-#[derive(Default)]
-pub struct Prewarms(pub Mutex<Vec<ThreadId>>, pub tokio::sync::Notify);
-
-impl super::EffortPrewarm for Prewarms {
-    fn prewarm(&self, thread: &ThreadId, _header: &Header) {
-        lock(&self.0).push(thread.clone());
-        self.1.notify_waiters();
-    }
-}
-
 /// The turn snapshot calls, in order: `settled:<thread>`, `stopped:<thread>`, `dispose`.
 #[derive(Default)]
 pub struct TestSnapshots(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
@@ -2043,6 +2233,8 @@ impl Rig {
             _data: data,
             store,
             runs: Arc::new(ScriptRuns {
+                crashed: Mutex::default(),
+                crashed_drafts: Mutex::default(),
                 script: Mutex::new(idle),
             }),
             feeds: Arc::new(RecFeeds::default()),
@@ -2051,7 +2243,6 @@ impl Rig {
             turn_starts: Arc::default(),
             admissions: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
-            prewarms: Arc::default(),
             warms: Arc::default(),
             builtin_skills: Arc::default(),
             ingests: Arc::default(),
@@ -2098,14 +2289,15 @@ impl Rig {
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),
-            effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
+            transcripts: None,
             sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
+            prompt_intake: Arc::new(super::AdmitAll),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),
             server_requests: self.sink.clone(),

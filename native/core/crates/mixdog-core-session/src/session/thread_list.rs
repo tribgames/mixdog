@@ -134,6 +134,35 @@ fn clean_text(value: Option<&serde_json::Value>, lower: bool) -> String {
     if lower { text.to_lowercase() } else { text }
 }
 
+/// The root owner an agent session works for while its turn is in flight (its `ownerSessionId ||
+/// parentSessionId`, with `owner: 'agent'` or an agent other than `lead`); `None` otherwise.
+fn working_agent_owner(handle: &super::SessionHandle) -> Option<String> {
+    handle.cell.run.load().as_ref()?;
+    let header = handle.cell.header.load();
+    let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
+    let agent = clean_text(header.get("agent"), true);
+    (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead")).then_some(owner)
+}
+
+impl super::SessionDirectory {
+    /// `inFlightSessionActivity()`: the loaded threads whose own turn is in flight (`working`),
+    /// and the threads an agent session with a turn in flight works for (`agentWorking`).
+    pub fn in_flight(&self) -> (Vec<ThreadId>, Vec<String>) {
+        let mut working = Vec::new();
+        let mut agents = Vec::new();
+        for id in self.loaded_ids() {
+            let Some(handle) = self.handle(&id) else { continue };
+            if handle.cell.run.load().is_some() {
+                working.push(id.clone());
+            }
+            if let Some(owner) = working_agent_owner(&handle).filter(|owner| !owner.is_empty() && *owner != id.as_str() && !agents.contains(owner)) {
+                agents.push(owner);
+            }
+        }
+        (working, agents)
+    }
+}
+
 impl ListOverlay for LiveListOverlay {
     fn live_work(&self) -> LiveWork {
         let mut live = LiveWork::default();
@@ -167,16 +196,12 @@ impl ListOverlay for LiveListOverlay {
                 }
             }
         }
-        let agent_working = self.directory.loaded_ids().into_iter().filter(|id| id != thread).any(|id| {
-            let Some(handle) = self.directory.handle(&id) else { return false };
-            if handle.cell.run.load().is_none() {
-                return false;
-            }
-            let header = handle.cell.header.load();
-            let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
-            let agent = clean_text(header.get("agent"), true);
-            owner == thread.as_str() && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead"))
-        });
+        let agent_working = self
+            .directory
+            .loaded_ids()
+            .into_iter()
+            .filter(|id| id != thread)
+            .any(|id| self.directory.handle(&id).and_then(|handle| working_agent_owner(&handle)).as_deref() == Some(thread.as_str()));
         if agent_working {
             overlay.agent_working = Some(true);
         }
@@ -1308,11 +1333,20 @@ mod tests {
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<crate::session::seams::ContextRead>) -> Result<crate::session::seams::ContextRead, CoreError> {
             self.inner.context_io(lane, id, read)
         }
+        fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+            self.inner.context_len(lane, id)
+        }
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<crate::session::seams::ContextRead, CoreError> {
+            self.inner.context_from_io(lane, id, skip)
+        }
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<crate::session::seams::SessionMeta>, CoreError>> {
             self.inner.session_meta(id)
         }
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
             self.inner.purge_deleted()
+        }
+        fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+            self.inner.archived_agent_parents(child)
         }
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<crate::session::seams::OffloadCopies, CoreError>> {
             self.inner.copies_of(id)
@@ -1330,6 +1364,9 @@ mod tests {
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
             let (inner, ordinal) = self.inner.create_log(lane, id, session)?;
             Ok((Box::new(GatedLog { inner, split: self.split.clone() }), ordinal))
+        }
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &crate::session::turn_draft::DraftWrite) -> Result<(), CoreError> {
+            self.inner.draft_write(lane, id, write)
         }
     }
 

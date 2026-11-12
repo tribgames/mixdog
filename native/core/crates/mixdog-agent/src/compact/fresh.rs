@@ -52,6 +52,28 @@ pub trait AttachmentSeam: Send + Sync {
     fn has_referencable_media(&self, message: &AgentMessage) -> bool;
     /// Tokens the message's attachments alone cost.
     fn attachment_tokens(&self, message: &AgentMessage) -> u64;
+    /// `referenceOversizedAttachments`: the transcript with the user messages whose attachments
+    /// would crowd `context_window` carried by reference; `None` when nothing is rewritten.
+    async fn preflight(&self, messages: &[AgentMessage], context_window: u64, native_pdf: bool) -> Option<Preflight> {
+        let _ = (messages, context_window, native_pdf);
+        None
+    }
+    /// `attachmentTextForPart` for the summarizer: a stored text attachment's text, `Gone` for a
+    /// blob that is permanently unreadable, `None` when the part is not one; `Err` is a transient
+    /// read failure.
+    async fn stored_text(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<super::text_utils::StoredText>, String> {
+        let _ = part;
+        Ok(None)
+    }
+}
+
+/// What an attachment preflight rewrote (`referenceOversizedAttachments`' result).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preflight {
+    pub messages: Vec<AgentMessage>,
+    pub referenced_messages: usize,
+    pub inline_tokens_before: u64,
+    pub budget_tokens: u64,
 }
 
 pub struct FreshContext<'a> {

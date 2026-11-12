@@ -1,0 +1,69 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-fs-other-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --work <temp dir>",
+  "compared": "each call's whole result text in order through the Rust tool the case names (schema argument names: `limit` for head_limit, `file_path` for read's path), and for apply_patch the patched file whole; markers: each recorded call's string through the Rust marker function of the same name. text-stats and shell-output-bytes test functions below the read tool (countTextStatsStreaming, capShellOutput/smartMiddleTruncate); their files are read by relative path through the read tool, the production entry point. text-stats: both tools answer a file holding NUL as binary before any line count, so the read tool's whole binary answer is what is compared.",
+  "excluded": {
+    "src/runtime/agent/orchestrator/tools/builtin/list-tool-integrity.test.mjs": {
+      "<label>: failed metadata is incomplete, uncached, and the next call re-reads (each label)": "gone: injected list metadata and the list result cache",
+      "a byte-truncated tree render is incomplete, not persisted, and re-walks": "gone: the tree tool",
+      "a list walk truncated by the walk deadline is incomplete and never cached": "gone: the list result cache",
+      "a paged list cache hit retains completeness": "gone: the list result cache",
+      "a paged tree is a complete page and is reused": "gone: the tree tool",
+      "a paginated complete find page stays complete and is reused": "gone: find-files page cache",
+      "a successful empty walk is explicitly traceable as integrity-checked": "gone: list telemetry hooks",
+      "aborted list work cannot poison the result cache": "gone: the list result cache",
+      "concurrent list subscribers all see the shared incomplete outcome": "gone: shared list flights",
+      "concurrent subscribers share a metadata-incomplete outcome": "gone: shared list flights",
+      "glob-shaped list forwards the caller outcome to the find flow": "difference (gaps-tools row 37): `list path:\"src/*.ts\"` gives glob results in Node, a not-found error in Rust",
+      "list and tree surface skipped subdirectories and never cache partial walks": "gone: the tree tool and the list result cache",
+      "native deep list rows that are not cache-safe are marked unsafe and not cached": "gone: the list result cache",
+      "root readdir failures are errors and stay uncached": "gone: injected readdirImpl and the list result cache"
+    },
+    "src/runtime/agent/orchestrator/tools/builtin/raw-content-publication.test.mjs": {
+      "every case (post-read field mismatches, failed/incomplete post-stat, stable publish and hit, mutated pre-stat, replacement during read, read failure, stale caller versions, invocation-local content, publication guards, zero-byte, BOM encodings, symlink)": "gone: each case asserts the shared raw-content cache (`rawContentCacheGet`) after a read; Rust has no raw-content cache, and the reads' own text (the file's text, or a V4A diff) is what the read and apply_patch replays already compare"
+    },
+    "src/runtime/shared/tool-output-marker.test.mjs": {
+      "cap markers … (the `cursor` call and the `fullPath` call)": "no Rust form: the Rust cap marker has no cursor or full-path argument (no Rust caller)",
+      "window markers … (the `unit: 'chars'` / `offsetKey: 'startIndex'` call)": "no Rust form: the Rust window marker has no offset key argument (no Rust caller uses another key)"
+    }
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 178052,
+      "path": "golden.json",
+      "sha256": "086271ba7af544ce6a9c6651abe7055d15e1a7cc90a410f9a76212f1f6e1a7d4"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-fs-other-cases.mjs",
+  "recorderSha256": "3813aebc5892e9266d9190698eab1429033cf7df386025bdd88e8a52f746d750",
+  "set": "fs-other-cases",
+  "totalBytes": 178052
+}

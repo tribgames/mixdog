@@ -26,6 +26,10 @@ impl SessionToken for Token {
     async fn session_token(&self) -> Result<String, ProviderError> {
         Ok("fixture-devin-session".to_owned())
     }
+
+    fn account(&self) -> String {
+        "fixture devin account".to_owned()
+    }
 }
 
 #[tokio::test]

@@ -1,0 +1,82 @@
+{
+  "note": "Node's standalone agent tool at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-agent-worker-cases.mjs",
+  "test": "scripts/tool-contracts/agent-worker.test.mjs",
+  "cases": [
+    {
+      "case": "agent read/list errors surface as Error results without runtime resolve",
+      "kind": "errors",
+      "recorded": {
+        "calls": [
+          {
+            "args": {
+              "type": "read",
+              "task_id": "task_missing_smoke"
+            },
+            "result": "Error: agent read/status: task \"task_missing_smoke\" not found"
+          },
+          {
+            "args": {
+              "type": "definitely_bad_type"
+            },
+            "result": "Error: agent: unknown type \"definitely_bad_type\""
+          }
+        ]
+      }
+    },
+    {
+      "case": "agent completion notifications route to the owner exactly once",
+      "kind": "notify",
+      "recorded": {
+        "start": "agent task: <task>\nstatus: running\ntype: spawn\ntarget: notify-smoke\nnotification: completion will be delivered; end the turn.",
+        "workerQueued": [
+          {
+            "sessionId": "<session>",
+            "message": {
+              "id": "<completion>",
+              "content": "<task-notification>\n<task-id>task_shell_notify_smoke</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit n/a)</summary>\n<result>\nnested background done for <session>\n</result>\n</task-notification>",
+              "text": "<task-notification>\n<task-id>task_shell_notify_smoke</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit n/a)</summary>\n<result>\nnested background done for <session>\n</result>\n</task-notification>",
+              "notificationKind": "completion_notification",
+              "mode": "task-notification",
+              "executionId": "task_shell_notify_smoke",
+              "execution": {
+                "surface": "shell",
+                "id": "task_shell_notify_smoke",
+                "status": "completed",
+                "resultType": "shell_task_result"
+              },
+              "enqueuedAt": 1772359200000
+            }
+          }
+        ],
+        "ownerNotifications": [
+          {
+            "sessionId": "sess_owner_notify_smoke",
+            "text": "background task\ntask_id: <task>\nsurface: agent\noperation: spawn\nlabel: notify-smoke\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: <time>\ntag: notify-smoke\nsessionId: <session>\nagent: worker\npreset: sonnet-high\nprovider: openai-oauth\nmodel: smoke-model\nfast: false\nclientHostPid: 424242",
+            "meta": {
+              "type": "agent_task_result",
+              "model_visible": false,
+              "execution_surface": "agent",
+              "execution_id": "<task>",
+              "status": "completed",
+              "instruction": "Agent \"<task>\" completed",
+              "caller_session_id": "sess_owner_notify_smoke"
+            }
+          },
+          {
+            "sessionId": "sess_owner_notify_smoke",
+            "text": "<task-notification>\n<task-id><task></task-id>\n<tag>notify-smoke</tag>\n<status>completed</status>\n<summary>Agent \"notify-smoke\" completed</summary>\n<result>\nworker completed\n</result>\n</task-notification>",
+            "meta": {
+              "type": "agent_task_result",
+              "execution_surface": "agent",
+              "execution_id": "<task>",
+              "status": "completed",
+              "instruction": "Agent \"<task>\" completed",
+              "caller_session_id": "sess_owner_notify_smoke",
+              "client_host_pid": "424242"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

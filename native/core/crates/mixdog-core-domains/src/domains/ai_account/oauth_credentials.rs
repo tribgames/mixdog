@@ -310,7 +310,7 @@ pub fn load_oauth_credentials(provider: &str, path: &Path, now_ms: i64, cursor_e
         }));
     }
     let raw = read_document(path)?;
-    match provider {
+    let loaded = match provider {
         "openai-oauth" => load_openai(&raw, now_ms as f64),
         "anthropic-oauth" => load_anthropic(&raw, path),
         "grok-oauth" => load_grok(&raw),
@@ -321,5 +321,16 @@ pub fn load_oauth_credentials(provider: &str, path: &Path, now_ms: i64, cursor_e
         "cursor-oauth" | "devin-oauth" => load_token_file(&raw),
         "antigravity-oauth" => load_antigravity(&raw),
         _ => None,
-    }
+    };
+    // The credentials of the loaded sign-in (the loaders' own fields) are credentials from this read on, this status read
+    // their source until its next read of the file.
+    let held: Vec<&str> = match &loaded {
+        Some(Value::Object(doc)) => LOADED_SECRETS.iter().filter_map(|field| doc.get(*field)?.as_str()).collect(),
+        _ => Vec::new(),
+    };
+    mixdog_ai::oauth::carried::keep(&format!("status {}", path.display()), &held);
+    loaded
 }
+
+/// The fields of a loaded sign-in that hold a credential.
+const LOADED_SECRETS: [&str; 8] = ["access_token", "refresh_token", "id_token", "api_key", "apiKey", "accessToken", "refreshToken", "token"];

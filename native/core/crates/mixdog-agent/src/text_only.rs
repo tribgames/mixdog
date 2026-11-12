@@ -12,10 +12,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::MediaSupport;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -29,6 +31,13 @@ pub trait MediaText: Send + Sync {
     /// before the request is checked; the same messages when there is nothing
     /// to convert. Cancel-safe.
     async fn prepare_pdf_text(&self, messages: Vec<Message>) -> Result<Vec<Message>, Box<ProviderError>>;
+
+    /// The same step for a route that takes media (`preparePdfTextForProvider(messages, provider)` of every
+    /// provider that sends a PDF as text, and the Office text its lowering extracts on any route): a PDF becomes
+    /// its text when `support` says the route takes no native PDF (or no document of any kind), an Office file its
+    /// extracted text, a stored file whose blob is gone its stand-in. The same messages when there is nothing to
+    /// convert. Cancel-safe.
+    async fn prepare_for_route(&self, messages: Vec<Message>, support: MediaSupport) -> Result<Vec<Message>, Box<ProviderError>>;
 
     /// `textFormOfFilePart` for a `File` or `Document` part: the text every
     /// provider's lowering produces for it, the unavailable-attachment
@@ -96,6 +105,12 @@ pub fn degrade_media_parts(
         let text = match part {
             ContentPart::Text(_, _) => None,
             ContentPart::Image(_) => Some(omitted_media_text("image")),
+            // A stored image is an image part in Node (`{type: 'image', attachmentRef}`), left out without its blob read.
+            ContentPart::File { source: BinarySource::AttachmentRef(_), mime_type, text: None, .. }
+                if js_trim(mime_type).to_lowercase().starts_with("image/") =>
+            {
+                Some(omitted_media_text("image"))
+            }
             ContentPart::File { .. } => Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("file"))),
             ContentPart::Document { .. } => {
                 Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("document")))

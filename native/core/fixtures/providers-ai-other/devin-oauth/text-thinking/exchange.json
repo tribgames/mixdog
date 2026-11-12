@@ -1,117 +1,117 @@
 {
+  "transports": [
+    "http"
+  ],
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://server.codeium.com",
+      "method": "POST",
+      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+      "headers": {
+        "host": "server.codeium.com",
+        "connection": "keep-alive",
+        "content-type": "application/proto",
+        "connect-protocol-version": "1",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "103"
+      },
+      "bodyBase64": "CmUKBmNoaXNlbBIJMC4wLjAtZGV2GihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMC4wLjAtZGV2YgZjaGlzZWzyAQUDBAYHCA==",
+      "served": {
+        "status": 200,
+        "contentType": "application/proto",
+        "bodyBase64": "CkQKDURldmluIEZpeHR1cmWQAcCaDLIBDWRldmluLWZpeHR1cmW6AR0gwJoMMgRgAXgBigENZGV2aW4tZml4dHVyZbABCA=="
+      }
+    },
+    {
+      "transport": "http",
+      "origin": "https://server.codeium.com",
+      "method": "POST",
+      "path": "/exa.auth_pb.AuthService/GetUserJwt",
+      "headers": {
+        "host": "server.codeium.com",
+        "connection": "keep-alive",
+        "content-type": "application/proto",
+        "connect-protocol-version": "1",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "107"
+      },
+      "bodyBase64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw=",
+      "served": {
+        "status": 200,
+        "contentType": "application/proto",
+        "bodyBase64": "ChBmaXh0dXJlLXVzZXItand0"
+      }
+    },
+    {
+      "transport": "http",
+      "origin": "https://server.codeium.com",
+      "method": "POST",
+      "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+      "headers": {
+        "host": "server.codeium.com",
+        "connection": "keep-alive",
+        "content-type": "application/connect+proto",
+        "connect-protocol-version": "1",
+        "connect-content-encoding": "gzip",
+        "connect-accept-encoding": "gzip",
+        "accept-encoding": "identity",
+        "user-agent": "connect-go/1.18.1 (go1.26.3)",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "content-length": "407"
+      },
+      "bodyBase64": "AQAAAZIfiwgAAAAAAAAKRZHNahRBFIWnEh2TRmEYNzIoFMUsoqSG7q6a7q4BCXGrq6wUEayf26Zmhq62qjqTkAxIniCP4DpLH8kHkCx8ADEz4t1cOOe7Z3FucpXsGzizDdVLO9xnaZpOsmzCRgcbNUAI1jU0ugU049qex84DlVpDCBuR7EDz6tHKNsatwux/gurrUxtgeYsG/866AJ7OV/En2nrD5x9ch6UHLPEWwjIEG6Js4mT0OhmXualEVUqqOGd0WrOKAp8KmmdFpXQBGauKARo9fefcAnctjqeAZRNW4CfVwzcv9tDg2+/dZze7L3v3c3dUHRz3er3Pdf3r6EQn/aVzi64dPj4BabDEZ3LZwejtJYkXLZAZcWoOOpJD0nrXgo8WApldkgVc/F1bKERvmy9kvT4kHr521oMhs4/30Kf1e6T6yQPZRTff2UPXaCyMMpnKCypKIyifCk1lzjnNOchcg5Kai+8I3aInmw9se/mBxqUWuUp5SatCppQbJqgw0tCpSYVmLK8F438AUvmGNtABAAA=",
+      "served": {
+        "status": 200,
+        "contentType": "application/connect+proto",
+        "bodyBase64": "AQAAADEfiwgAAAAAAAAK42LLLU6PT6vw4nXOzyvOTEktysxL11MIYinOTNcFAOA6C7kdAAAAAQAAACkfiwgAAAAAAAAK82J1yc9L1QtiSqtYxcielllRUlqUCgCJ3BjgFQAAAAEAAAAnH4sIAAAAAAAACpMSDMlIVShKLS7NKVHILFYwMdIDAChKSNkTAAAAAQAAACAfiwgAAAAAAAAK02C04hAQkeBQYNJgAQBiVzapDAAAAAIAAAACe30="
+      }
+    }
+  ],
   "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "devin-oauth/text-thinking",
+      "seed": 2632493388,
+      "samples": []
+    },
     "cryptoRandom": {
       "algorithm": "mulberry32 bytes",
-      "note": "only calls with a product frame on the stack",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
       "samples": [
         {
+          "kind": "randomUUID",
           "bytes": 16,
           "hex": "7c92b04786a0ed39ddad5d09c332f934",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/devin-wire-request.mjs#buildDevinChatRequest"
+          "site": "src/runtime/agent/orchestrator/providers/devin-wire-request.mjs#buildDevinChatRequest",
+          "n": 1
         },
         {
+          "kind": "randomUUID",
           "bytes": 16,
           "hex": "9dbd1b2697d9b59c624424ea2cebac49",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/devin.mjs#DevinOAuthProvider.send"
+          "site": "src/runtime/agent/orchestrator/providers/devin.mjs#DevinOAuthProvider.send",
+          "n": 1
         }
-      ],
-      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+      ]
     },
-    "notRecorded": "delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "retrySleeps": [],
     "otherProductTimerSites": [
       "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
       "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
     ],
-    "retrySleeps": [],
-    "rng": {
-      "algorithm": "mulberry32",
-      "samples": [],
-      "scenarioId": "devin-oauth/text-thinking",
-      "seed": 2632493388,
-      "seedDerivation": "fnv1a32(scenarioId)"
-    }
-  },
-  "records": [
-    {
-      "bodyBase64": "CmUKBmNoaXNlbBIJMC4wLjAtZGV2GihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMC4wLjAtZGV2YgZjaGlzZWzyAQUDBAYHCA==",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "connect-protocol-version": "1",
-        "connection": "keep-alive",
-        "content-length": "103",
-        "content-type": "application/proto",
-        "host": "server.codeium.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://server.codeium.com",
-      "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
-      "served": {
-        "bodyBase64": "CkQKDURldmluIEZpeHR1cmWQAcCaDLIBDWRldmluLWZpeHR1cmW6AR0gwJoMMgRgAXgBigENZGV2aW4tZml4dHVyZbABCA==",
-        "contentType": "application/proto",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "bodyBase64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw=",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "connect-protocol-version": "1",
-        "connection": "keep-alive",
-        "content-length": "107",
-        "content-type": "application/proto",
-        "host": "server.codeium.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://server.codeium.com",
-      "path": "/exa.auth_pb.AuthService/GetUserJwt",
-      "served": {
-        "bodyBase64": "ChBmaXh0dXJlLXVzZXItand0",
-        "contentType": "application/proto",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "bodyBase64": "AQAAAZIfiwgAAAAAAAAKRZHNahRBFIWnEh2TRmEYNzIoFMUsoqSG7q6a7q4BCXGrq6wUEayf26Zmhq62qjqTkAxIniCP4DpLH8kHkCx8ADEz4t1cOOe7Z3FucpXsGzizDdVLO9xnaZpOsmzCRgcbNUAI1jU0ugU049qex84DlVpDCBuR7EDz6tHKNsatwux/gurrUxtgeYsG/866AJ7OV/En2nrD5x9ch6UHLPEWwjIEG6Js4mT0OhmXualEVUqqOGd0WrOKAp8KmmdFpXQBGauKARo9fefcAnctjqeAZRNW4CfVwzcv9tDg2+/dZze7L3v3c3dUHRz3er3Pdf3r6EQn/aVzi64dPj4BabDEZ3LZwejtJYkXLZAZcWoOOpJD0nrXgo8WApldkgVc/F1bKERvmy9kvT4kHr521oMhs4/30Kf1e6T6yQPZRTff2UPXaCyMMpnKCypKIyifCk1lzjnNOchcg5Kai+8I3aInmw9se/mBxqUWuUp5SatCppQbJqgw0tCpSYVmLK8F438AUvmGNtABAAA=",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "identity",
-        "accept-language": "*",
-        "connect-accept-encoding": "gzip",
-        "connect-content-encoding": "gzip",
-        "connect-protocol-version": "1",
-        "connection": "keep-alive",
-        "content-length": "407",
-        "content-type": "application/connect+proto",
-        "host": "server.codeium.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "connect-go/1.18.1 (go1.26.3)"
-      },
-      "method": "POST",
-      "origin": "https://server.codeium.com",
-      "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
-      "served": {
-        "bodyBase64": "AQAAADEfiwgAAAAAAAAK42LLLU6PT6vw4nXOzyvOTEktysxL11MIYinOTNcFAOA6C7kdAAAAAQAAACkfiwgAAAAAAAAK82J1yc9L1QtiSqtYxcielllRUlqUCgCJ3BjgFQAAAAEAAAAnH4sIAAAAAAAACpMSDMlIVShKLS7NKVHILFYwMdIDAChKSNkTAAAAAQAAACAfiwgAAAAAAAAK02C04hAQkeBQYNJgAQBiVzapDAAAAAIAAAACe30=",
-        "contentType": "application/connect+proto",
-        "status": 200
-      },
-      "transport": "http"
-    }
-  ],
-  "transports": [
-    "http"
-  ]
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
 }

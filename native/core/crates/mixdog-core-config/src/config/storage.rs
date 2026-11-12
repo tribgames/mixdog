@@ -121,6 +121,17 @@ fn migrate(route: &Value, models: &[Value], now_ms: i64) -> Value {
     migrated_route(route, models, now_ms).unwrap_or_else(|| route.clone())
 }
 
+/// `migrateCodexRoute(route)` with its default catalog (`savedCatalog()`, the saved openai-oauth
+/// catalog of `data_dir`): an openai-oauth route moved to its successor, any other route as it is.
+pub fn migrate_codex_route(route: &Value, data_dir: &Path, now_ms: i64) -> Value {
+    migrate_codex_route_over(route, &saved_catalog(data_dir).unwrap_or_default(), now_ms)
+}
+
+/// `migrateCodexRoute(route, models)` over a catalog already read.
+pub fn migrate_codex_route_over(route: &Value, models: &[Value], now_ms: i64) -> Value {
+    migrate(route, models, now_ms)
+}
+
 /// `supersededCodexSettingsKey(key, models)`.
 fn superseded_settings_key(key: &str, models: &[Value], now_ms: i64) -> bool {
     key.strip_prefix("openai-oauth/").is_some_and(|model| successor(models, model, now_ms).is_some())

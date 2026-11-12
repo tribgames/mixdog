@@ -960,6 +960,30 @@ async fn the_copy_a_failed_write_left_queued_lands_with_the_heirs_next_write() {
     }
 }
 
+/// A refused carry takes its "being copied" mark off, and a write of that removal that fails once does not leave the heir
+/// marked: the source's reference query is not stopped by it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_carry_whose_unmarking_fails_once_leaves_no_mark() {
+    use mixdog_store::offload_sources as sets;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::MetaRecord;
+    let world = world("copy-in-progress").await;
+    let source = world.handle.id.clone();
+    let heir = ThreadId::from(format!("{}_heir", source.as_str()));
+    within("the heir is created", world.directory.create_with_id(heir.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
+    *lock(&world.rig.inherit.basis) = Some((10, 100, false));
+    let unmarking = |record: &Record| matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.unset.iter().any(|key| key == sets::INHERITING));
+    *lock(&world.rig.store.fail_when) = Some((Box::new(unmarking), false));
+    let forked = json!({ "threadId": source, "opId": "op-inherit", "intoThreadId": heir });
+    let answer = within("the inheritance answers", world.handle.request(request("thread/fork", forked, "op-inherit"))).await;
+    assert!(answer.is_err(), "the carry is refused: {answer:?}");
+    let header = world.rig.store.stored_header(&heir).expect("the heir's header");
+    assert_eq!(sets::mark(&header), None, "the mark is off: {header:?}");
+    let copies = world.rig.store.copies_of(&source).await;
+    assert!(copies.is_ok_and(|found| found.copies == [heir.as_str()]), "the source's prune reads the heir");
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+}
+
 /// Node's `thrown` (the save's fsync failed after its records were written): the barrier fails after its write.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_compaction_whose_barrier_failed_after_its_write_prunes_nothing() {
