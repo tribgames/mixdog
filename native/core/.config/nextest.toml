@@ -26,6 +26,77 @@ default-filter = '''package(mixdog-app-server-daemon) & (
   | test(/^compose_test_support::runner_tests::/)
 )'''
 
+# The other #[ignore]d tests, one profile per need. Each is run as `nextest run --profile <name> --run-ignored only` (the filter also matches
+# tests that are not ignored; only the ignored ones run) and fails when its filter matches nothing. A variable that is unset or wrong fails
+# its tests, it does not skip them. The memory tests of mixdog-services are in the `pg-cluster` group below: one cluster at a time.
+#
+# services-pg: mixdog-services' memory tests that need only a Postgres runtime. MIXDOG_PG_RUNTIME names an unpacked runtime directory
+# (the one `pg` uses). `a_killed_core` is the child process of a test of the profile, not a test of its own.
+[profile.services-pg]
+default-filter = '''package(mixdog-services) & test(/^memory::(tests|thread_search::tests)::/)
+  & not test(=memory::tests::boot::a_killed_core)
+  & not (
+      test(/^memory::tests::(embeddings|ingest|recall|reindex)::/)
+    | test(=memory::tests::service::over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_goldens)
+  )'''
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+# services-models: the tests that load a real model. MIXDOG_ORT_LIBRARY names the ONNX Runtime library (the Node product's
+# `onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll`); MIXDOG_MEMORY_MODELS a model cache holding
+# `Xenova/multilingual-e5-small` (the Node product's `<data>/memory-models`); MIXDOG_EFFORT_JUDGE_DIR the installed effort judge
+# (`model.onnx`, `tokenizer.json`, `calibration.json`); MIXDOG_PG_RUNTIME as above, for the memory tests among them.
+# `the_shipped_model_installs_and_embeds_a_probe_string` also downloads the model from the hub: it needs the network.
+[profile.services-models]
+default-filter = '''package(mixdog-services) & (
+    test(/^effort_judge::tests::/)
+  | test(/^model_install::/)
+  | test(/^memory::tests::(embeddings|ingest|recall|reindex)::/)
+  | test(=memory::tests::service::over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_goldens)
+)'''
+# One at a time: each loads a 120-150 MB graph, and the effort judge answers `warming` to a call that finds its load unfinished.
+test-threads = 1
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+# migration-corpus: the release gates over the migration corpus. MIXDOG_MIGRATION_CORPUS names the corpus (`v145/`, `dev146/`, `home/`,
+# `fixture-busy-seed/`, `manifest.json`); MIXDOG_CORPUS_DATA_DIR a directory whose `prompt-attachments/sha256/` holds the blobs the
+# corpus sessions name (`MIXDOG_DATA_DIR` is not used: the build gate points it at an empty directory).
+# The corpus manifest's `expected.systemMessages` is recorded from Node b6f10295a's own session reader by
+# benchmarks/rust-core/recorders/record-migration-system-messages.mjs, which writes its provenance (`systemMessagesRecording`) beside it; the
+# gates refuse an expectation of another recorder version, Node commit or corpus. Regenerate it after a recorder or library change with
+# `node benchmarks/rust-core/recorders/record-migration-system-messages.mjs --tree <b6f10295a export with node_modules> --corpus <migration-corpus dir>`.
+[profile.migration-corpus]
+default-filter = '''
+    package(mixdog-migrate)
+  | (package(mixdog-agent) & test(/^message_row::tests::/))
+  | (package(mixdog-core-session-replays) & test(/^transcript_golden::/))'''
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# tag-tree: the daemon's gates against the real 1.4.5 tag (LR §11). MIXDOG_TAG_TREE and MIXDOG_V145_TREE name the same directory: a
+# `git archive 69fe41b05` extraction with its `node_modules`; `node` must be on PATH. `core_child` is the child process of the gates.
+# They run one at a time (`tag-gates` group below); gate 3 repeats `MIXDOG_TAG_GATE_REPS` times (default 200, as LR asks).
+[profile.tag-tree]
+default-filter = '''package(mixdog-app-server-daemon) & (
+    (test(/^verdict::tag_gates::/) & not test(=verdict::tag_gates::core_child))
+  | test(/^legacy_clients::/)
+)'''
+slow-timeout = { period = "300s", terminate-after = 12 }
+
+# office-throughput: RL G8 through the real pool, the Node worker and the shared render browser. It needs LibreOffice, Chromium and `node`
+# on this machine, and is run as `nextest run --profile office-throughput --features test-support --run-ignored only -p mixdog-exthost`
+# on a machine with nothing else heavy running. `G8_SCALE=smoke` (the default) proves every call kind; `full` also asserts the ratios.
+# Not in the integration check yet: on the 2026-11-12 run the docx, xlsx and pdf calls answered in 11-15 s and the `html.to_pdf` call
+# (the shared render browser, Chrome found by `find_browser`) never answered within the 600 s the profile gives it.
+[profile.office-throughput]
+default-filter = 'package(mixdog-exthost) & test(=g8::office_throughput)'
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+# pwsh-50-mib: the 50 MiB PowerShell command, run as `nextest run --profile pwsh-50-mib --run-ignored only -p mixdog-app-server-daemon`.
+# It takes 53 s alone and 414 MiB of working set on top of its warm-up call, so the default profile runs the same assertion just over the
+# helper's 1 MiB input queue (`a_command_just_over_the_input_queue_answers_its_length`) instead.
+[profile.pwsh-50-mib]
+default-filter = 'package(mixdog-app-server-daemon) & test(=exec::tests::pwsh_50_mib_command)'
+slow-timeout = { period = "120s", terminate-after = 3 }
+
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
