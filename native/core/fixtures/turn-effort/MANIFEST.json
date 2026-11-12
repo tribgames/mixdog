@@ -25,7 +25,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-effort.mjs",
-  "recorderSha256": "6fad5f36d84d2210644904b46c822815badbe41f2cb5a1c22ae9f023a190c504",
+  "recorderSha256": "4ccc3adc44a5e9a2e5e3e3ade59d9c217a76677a01f965090350bc3ca698cd6a",
   "scenarios": [
     "fixed",
     "none",
