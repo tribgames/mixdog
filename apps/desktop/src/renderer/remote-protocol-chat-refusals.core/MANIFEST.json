@@ -1,0 +1,15 @@
+{
+  "count": 1,
+  "recordings": [
+    {
+      "file": "01.json",
+      "sha256": "db6481ab636b2af0a8fa925d729b9a83bfe39984afbcefaa642d671beb802b6c"
+    }
+  ],
+  "recorder": {
+    "remote-protocol-chat-refusals.record.mjs": "1a573881338ff85c6b395e8f2f69578996110befadcb800e97fcc3cb7baf4d10",
+    "../../../../packages/protocol-client/src/client.ts": "443b20b3b6aebccb9a5364bd43cf38e2ee4fe41ef5d0892221cc1e67f9622baa",
+    "../main/protocol/service-route.ts": "dd69a3cc59ef6ca98ff9a2b808e8161abab934bcd2168e54b445866facfe6634",
+    "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
+  }
+}

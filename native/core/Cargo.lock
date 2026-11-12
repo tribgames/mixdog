@@ -4033,6 +4033,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-protocol",
  "mixdog-rt",
+ "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde_json",
  "thiserror 2.0.21",

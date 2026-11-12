@@ -168,7 +168,8 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         target: { id: options.deviceId },
         connector,
         clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: options.version, kind: 'phone', build: options.build },
-        capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+        // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
+        capabilities: { optOutNotificationMethods: [], experimentalApi: false, feedRanges: true },
         threadReducer: options.threadReducer ?? sessionReducer,
         clock: { sleep },
         random,

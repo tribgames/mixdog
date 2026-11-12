@@ -186,6 +186,8 @@ pub(crate) struct DirInner {
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
     exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
+    /// Where a thread's moved live facts republish its roster row (every cell holds it).
+    live_rows: super::control::LiveRowsCell,
     /// The shutdown began: the session service is closed.
     closed: std::sync::atomic::AtomicBool,
     /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
@@ -325,6 +327,8 @@ struct Opened {
 
 impl SessionDirectory {
     pub fn new(deps: Arc<SessionDeps>) -> Self {
+        #[cfg(feature = "replay-settled")]
+        super::replay_settled::start();
         // Startup prune and the deadline timer for abandoned staged originals (`startStagedOriginalsPrune`).
         let prune = mixdog_rt::CancellationToken::new();
         deps.staged_originals.start_prune(deps.lanes.durability, deps.clock.clone(), prune.clone());
@@ -339,6 +343,7 @@ impl SessionDirectory {
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
+            live_rows: Default::default(),
             closed: Default::default(),
             teardowns: Default::default(),
             _prune: prune.drop_guard(),
@@ -855,6 +860,11 @@ impl SessionDirectory {
     /// Binds what a runtime's teardown does to its own session; once.
     pub fn set_exit_close(&self, hook: Arc<dyn ExitClose>) -> Result<(), &'static str> {
         self.inner.exit_close.set(hook).map_err(|_| "the exit close is already bound")
+    }
+
+    /// Binds where a thread's moved live facts (its turn, the approval it shows) republish its roster row; once.
+    pub fn set_live_rows(&self, rows: Arc<super::thread_edges::LiveRows>) -> Result<(), &'static str> {
+        self.inner.live_rows.set(rows).map_err(|_| "the live rows are already bound")
     }
 
     /// A stop was requested: the new-task attempts in flight end now, each as Node's attempt ends at the call it was awaiting when its
@@ -1435,6 +1445,8 @@ impl DirInner {
             limits.window_records + limits.reserve_records + limits.control_lane + 1,
         );
         let (dur_out, dur_rx) = mpsc::channel(8);
+        #[cfg(feature = "replay-settled")]
+        let settled = super::replay_settled::Lane::register(id.as_str(), &ctl_tx, &inbox_tx, &prod_tx);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
         let mut view = SessionView::build(
@@ -1482,6 +1494,7 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            live_rows: self.live_rows.clone(),
             compaction_cancel: Default::default(),
             pending_compact: Default::default(),
             gated: Default::default(),
@@ -1553,6 +1566,8 @@ impl DirInner {
                 dur_tx,
                 dur_rx,
                 directory: self.me.clone(),
+                #[cfg(feature = "replay-settled")]
+                settled,
             },
         );
         let mut actor = actor;

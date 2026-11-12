@@ -278,6 +278,17 @@ impl SessionHandle {
             let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
+        // `materializePastedTexts` at intake (`attachments/store.mjs:466-499`): an inline pasted text is stored as a blob before it is
+        // queued, so the prompt's stored row lists it among its attachments and every later reader names the same reference.
+        if let Some(texts) = req.params.pointer("/input/options/pastedTexts").filter(|texts| texts.is_object()).cloned() {
+            let store = self.deps.attachments.clone();
+            let texts = on_lane(self.deps.lanes.io, &cancel, move |lane| {
+                let mut texts = texts;
+                super::restore_hydrate::materialize_texts(&store, lane, &mut texts).map(|()| texts)
+            })
+            .await??;
+            req.params["input"]["options"]["pastedTexts"] = texts;
+        }
         // A full inbox must not hold the gate past the caller's cancel.
         // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
@@ -884,19 +895,30 @@ impl ThreadHandle for SessionHandle {
             let queued = Queued { qid: String::new(), entry: facts.entry.clone(), display: Value::Null };
             let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
             let store = self.deps.attachments.clone();
-            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw)).await;
+            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                let mut raw = raw;
+                if let Some(texts) = raw.get_mut("pastedTexts") {
+                    super::restore_hydrate::materialize_texts(&store, lane, texts)?;
+                }
+                super::restore_hydrate::hydrate(&store, lane, raw)
+            })
+            .await;
             match read {
                 Ok(Ok(hydrated)) => restored = Some(hydrated),
                 Ok(Err(error)) | Err(error) => unreadable = Some(error.to_string()),
             }
         }
-        let decision = stop::decide(&facts, restore_prompt, &canceller, steering, unreadable.is_some());
-        // The hand-back is recorded first: the actor reads it when the turn ends, which this abort may bring at once.
-        run.prompt.record(decision.reclaim.clone());
+        #[cfg(test)]
+        run.prompt.paused().await;
+        // Decided against the prompt's facts as they are now and recorded in the same hold, so an output commit cannot land between
+        // the two; the actor reads the hand-back when the turn ends, which this abort may bring at once.
+        let decision = run.prompt.decide_and_record(restore_prompt, &canceller, steering, unreadable.is_some());
+        // `abortGoalTurn(runtime, flags, steering, reason)` (`goal-turn-state.mjs:3-12`): a Stop's own reason is `user-cancel`
+        // (`abort.mjs:118`), the text a call the abort ends reads (`runtime abort (reason=user-cancel)`, `session-close.mjs:102`).
         let name = match decision.reason {
             stop::Reason::Interrupt => "interrupt",
             stop::Reason::KeepPrompt => "user-cancel-keep-prompt",
-            stop::Reason::UserCancel => mixdog_agent::cancel::CLI_ABORT,
+            stop::Reason::UserCancel => mixdog_agent::cancel::USER_CANCEL,
         };
         if let Err(error) = self.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)) {
             run.prompt.record(None);

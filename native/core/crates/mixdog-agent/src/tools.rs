@@ -750,7 +750,11 @@ async fn authorize(
     guards: &dyn TurnGuards,
 ) -> Result<GateCall, String> {
     let mut target = GateCall::new(name, arguments.clone()).at(cwd);
-    match gate.check_call(call_id, &target).await {
+    let decision = gate.check_call(call_id, &target).await;
+    if !matches!(decision, GateDecision::Ask(_)) && !mixdog_tools::policy::pipeline::USER_PROMPT_TOOLS.contains(&name) {
+        observer.event(RunEvent::Stage(Stage::Authorized));
+    }
+    match decision {
         GateDecision::Allow => {}
         GateDecision::Rewrite(rewritten) => target = rewritten,
         GateDecision::Deny(text) => return Err(text),

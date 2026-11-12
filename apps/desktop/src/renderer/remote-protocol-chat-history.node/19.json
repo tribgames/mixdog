@@ -1,0 +1,2683 @@
+{
+ "manifest": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "exact": true,
+  "filesVerified": 20655,
+  "node": "v22.20.0",
+  "epoch": 1900000000000,
+  "perfBase": 10000000,
+  "afterInputMs": 1000,
+  "replaced": [
+   "<pid:host>",
+   "<pid:daemon>",
+   "<port:model>",
+   "<port:daemon>"
+  ]
+ },
+ "name": "notify-allow-question",
+ "id": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+ "inputs": [
+  {
+   "at": 0,
+   "clock": 10,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 50,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 499,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 1000,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 1000,
+   "input": "host.startProject"
+  },
+  {
+   "at": 1,
+   "clock": 1001,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1010,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1500,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1510,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 2000,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 2000,
+   "input": "phone.submitNewTask"
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "HEAD / once plain first 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "prompt": "",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "HEAD / once plain first 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "prompt": "",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 3
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 4
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 5
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42514 a98bc9423192c520208e90a529873c1fccf69cb893f80f31f54ece365a30b8a0",
+   "prompt": "HOLD-APPROVAL ask about the file",
+   "step": 6
+  },
+  {
+   "at": 5,
+   "clock": 2001,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2009,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2010,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2016,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2017,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2025,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2033,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2050,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2100,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2109,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2110,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2150,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2200,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2216,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2225,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2226,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2250,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2300,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2800,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3000,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3001,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3010,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3500,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 4000,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 4000,
+   "input": "phone.answerApprovalNotification 0 allow shown"
+  },
+  {
+   "at": 11,
+   "clock": 4001,
+   "input": "clock"
+  },
+  {
+   "at": 11,
+   "clock": 4010,
+   "input": "clock"
+  },
+  {
+   "at": 11,
+   "clock": 5000,
+   "input": "clock"
+  },
+  {
+   "at": 11,
+   "clock": 5000,
+   "input": "phone.abortSession"
+  },
+  {
+   "at": 12,
+   "clock": 5001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5016,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5150,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5400,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6010,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 7000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 9000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 9400,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 10001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 11000,
+   "input": "clock"
+  }
+ ],
+ "history": [
+  {
+   "kind": "reply",
+   "input": "host.startProject",
+   "reply": {
+    "sessionId": "",
+    "items": [],
+    "queued": [],
+    "busy": false,
+    "commandBusy": false,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "desktopSession": {
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a"
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 0,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "",
+    "provider": "anthropic-oauth",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "anthropic-oauth",
+     "providerDefaults": [
+      {
+       "provider": "anthropic-oauth",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 0,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "requesting"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "kind": "reply",
+   "input": "phone.submitNewTask",
+   "reply": {
+    "accepted": true,
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "snapshot": {
+     "items": [
+      {
+       "kind": "user",
+       "id": "sub-notify-allow-question",
+       "text": "HOLD-APPROVAL ask about the file",
+       "at": 1900000002000,
+       "modelId": "harness-model",
+       "model": "harness-model",
+       "provider": "custom-harness",
+       "agent": "Default",
+       "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+       "device": "Phone A"
+      }
+     ],
+     "transcriptViewItems": null,
+     "transcriptViewRevision": 0,
+     "transcriptHistoryBefore": false,
+     "transcriptHistoryAfter": false,
+     "transcriptArchive": null,
+     "structureRevision": 1,
+     "streamingTail": null,
+     "toasts": [],
+     "progressHint": null,
+     "busy": true,
+     "commandBusy": false,
+     "commandStatus": null,
+     "spinner": {
+      "active": true,
+      "verb": "Architecting",
+      "startedAt": 1900000002000,
+      "responseLength": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "mode": "requesting"
+     },
+     "queued": [],
+     "thinking": null,
+     "toolApproval": null,
+     "toolApprovalsWaiting": 0,
+     "toolApprovalResult": null,
+     "promptRestore": null,
+     "lastTurn": null,
+     "stats": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 0,
+      "latestInputTokens": 0,
+      "latestOutputTokens": 0,
+      "latestCachedTokens": 0,
+      "latestCacheWriteTokens": 0,
+      "latestPromptTokens": 0,
+      "costUsd": 0,
+      "turns": 0,
+      "currentContextTokens": null,
+      "currentEstimatedContextTokens": 0,
+      "currentContextSource": "pending",
+      "currentContextUpdatedAt": null,
+      "usageReadout": null
+     },
+     "activeToolSummary": null,
+     "activeTools": null,
+     "promptHistoryList": [
+      "HOLD-APPROVAL ask about the file"
+     ],
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "sessionForkedFrom": null,
+     "clientHostPid": "<pid:daemon>",
+     "model": "harness-model",
+     "provider": "custom-harness",
+     "sessionProvider": null,
+     "sessionModel": null,
+     "effort": null,
+     "turnEffort": null,
+     "effortOptions": [],
+     "fast": false,
+     "fastCapable": false,
+     "autoEffort": true,
+     "modelParameters": {},
+     "contextPercent": null,
+     "contextWindow": null,
+     "rawContextWindow": null,
+     "effectiveContextWindowPercent": null,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+     "workspace": null,
+     "systemShell": {
+      "command": "",
+      "effective": "",
+      "source": "auto"
+     },
+     "webSearchRoute": {
+      "provider": "default",
+      "model": "default"
+     },
+     "autoClear": {
+      "enabled": true,
+      "idleMs": 3600000,
+      "unlimited": false,
+      "label": "1h",
+      "custom": false,
+      "providerCustom": false,
+      "providerDefault": 3600000,
+      "provider": "custom-harness",
+      "providerDefaults": [
+       {
+        "provider": "custom-harness",
+        "idleMs": 3600000,
+        "builtInMs": 3600000,
+        "unlimited": false,
+        "builtInUnlimited": false,
+        "custom": false
+       },
+       {
+        "provider": "default",
+        "idleMs": 3600000,
+        "builtInMs": 3600000,
+        "unlimited": false,
+        "builtInUnlimited": false,
+        "custom": false
+       }
+      ],
+      "minContextPercent": 10
+     },
+     "workflow": {
+      "id": "default",
+      "name": "Default",
+      "description": "Handle tasks as requested.",
+      "source": "built-in",
+      "delegatesAgents": true
+     },
+     "orchestrationMode": "balanced",
+     "pendingWorkflowSwitch": false,
+     "pendingOrchestrationModeSwitch": false,
+     "goal": null,
+     "quotaResume": null,
+     "todo": null,
+     "displayContextWindow": 0,
+     "compactBoundaryTokens": 0,
+     "autoCompactTokenLimit": 0,
+     "agentWorkers": [],
+     "agentJobs": [],
+     "agentScope": null,
+     "toolMode": "full",
+     "themeEpoch": 0,
+     "transcriptSpilled": {
+      "rows": 0,
+      "epoch": 0
+     },
+     "remoteEnabled": false,
+     "remoteSessionId": null
+    }
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "tool-approval"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": {
+     "id": "it_7443fdfe_1",
+     "name": "ask_user",
+     "kind": "question",
+     "args": {
+      "questions": [
+       {
+        "question": "Add the file?",
+        "header": "Add file",
+        "options": [
+         {
+          "label": "Yes",
+          "description": "Add it"
+         },
+         {
+          "label": "No",
+          "description": "Leave it out"
+         }
+        ]
+       }
+      ]
+     },
+     "cwd": null,
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "toolCallId": "call_hold_1",
+     "reason": "approval requested by hook",
+     "requestedAt": 1900000002000,
+     "timeoutMs": null,
+     "expiresAt": null
+    },
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     },
+     {
+      "kind": "tool",
+      "id": "it_7443fdfe_2",
+      "name": "__aggregate__",
+      "args": {
+       "categoryOrder": [
+        "Setup|Asking|Asked|user|users"
+       ]
+      },
+      "count": 1,
+      "completedCount": 0,
+      "categories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      },
+      "toolMembers": [
+       {
+        "kind": "tool",
+        "id": "call_hold_1",
+        "name": "ask_user",
+        "args": {
+         "questions": [
+          {
+           "question": "Add the file?",
+           "header": "Add file",
+           "options": [
+            {
+             "label": "Yes",
+             "description": "Add it"
+            },
+            {
+             "label": "No",
+             "description": "Leave it out"
+            }
+           ]
+          }
+         ]
+        },
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "errorCount": 0,
+        "callErrorCount": 0,
+        "exitErrorCount": 0,
+        "count": 1,
+        "completedCount": 0,
+        "headerFinalized": false,
+        "startedAt": 1900000002000
+       }
+      ],
+      "aggregate": true,
+      "result": null,
+      "rawResult": null,
+      "isError": false,
+      "expanded": false,
+      "headerFinalized": false,
+      "startedAt": 1900000002000,
+      "deferredDisplayReady": true
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "mode": "tool-use"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": {
+     "id": "it_7443fdfe_1",
+     "name": "ask_user",
+     "kind": "question",
+     "args": {
+      "questions": [
+       {
+        "question": "Add the file?",
+        "header": "Add file",
+        "options": [
+         {
+          "label": "Yes",
+          "description": "Add it"
+         },
+         {
+          "label": "No",
+          "description": "Leave it out"
+         }
+        ]
+       }
+      ]
+     },
+     "cwd": null,
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "toolCallId": "call_hold_1",
+     "reason": "approval requested by hook",
+     "requestedAt": 1900000002000,
+     "timeoutMs": null,
+     "expiresAt": null
+    },
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 10,
+     "latestInputTokens": 10,
+     "latestOutputTokens": 2,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 10,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": 10,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 1900000002000,
+     "usageReadout": {
+      "input": 10,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "output": 2,
+      "requestOutputTokens": 0,
+      "requestMs": 0
+     }
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     },
+     {
+      "kind": "tool",
+      "id": "it_7443fdfe_2",
+      "name": "__aggregate__",
+      "args": {
+       "categoryOrder": [
+        "Setup|Asking|Asked|user|users"
+       ]
+      },
+      "count": 1,
+      "completedCount": 0,
+      "categories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      },
+      "toolMembers": [
+       {
+        "kind": "tool",
+        "id": "call_hold_1",
+        "name": "ask_user",
+        "args": {
+         "questions": [
+          {
+           "question": "Add the file?",
+           "header": "Add file",
+           "options": [
+            {
+             "label": "Yes",
+             "description": "Add it"
+            },
+            {
+             "label": "No",
+             "description": "Leave it out"
+            }
+           ]
+          }
+         ]
+        },
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "errorCount": 0,
+        "callErrorCount": 0,
+        "exitErrorCount": 0,
+        "count": 1,
+        "completedCount": 0,
+        "headerFinalized": false,
+        "startedAt": 1900000002000
+       }
+      ],
+      "aggregate": true,
+      "result": null,
+      "rawResult": null,
+      "isError": false,
+      "expanded": false,
+      "headerFinalized": false,
+      "startedAt": 1900000002000,
+      "deferredDisplayReady": true
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "mode": "tool-use"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": {
+     "id": "it_7443fdfe_1",
+     "name": "ask_user",
+     "kind": "question",
+     "args": {
+      "questions": [
+       {
+        "question": "Add the file?",
+        "header": "Add file",
+        "options": [
+         {
+          "label": "Yes",
+          "description": "Add it"
+         },
+         {
+          "label": "No",
+          "description": "Leave it out"
+         }
+        ]
+       }
+      ]
+     },
+     "cwd": null,
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "toolCallId": "call_hold_1",
+     "reason": "approval requested by hook",
+     "requestedAt": 1900000002000,
+     "timeoutMs": null,
+     "expiresAt": null
+    },
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 10,
+     "latestInputTokens": 10,
+     "latestOutputTokens": 2,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 10,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": 10,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 1900000002000,
+     "usageReadout": {
+      "input": 10,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "output": 2,
+      "requestOutputTokens": 0,
+      "requestMs": 0
+     }
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     },
+     {
+      "kind": "tool",
+      "id": "it_7443fdfe_2",
+      "name": "__aggregate__",
+      "args": {
+       "categoryOrder": [
+        "Setup|Asking|Asked|user|users"
+       ]
+      },
+      "count": 1,
+      "completedCount": 0,
+      "categories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      },
+      "toolMembers": [
+       {
+        "kind": "tool",
+        "id": "call_hold_1",
+        "name": "ask_user",
+        "args": {
+         "questions": [
+          {
+           "question": "Add the file?",
+           "header": "Add file",
+           "options": [
+            {
+             "label": "Yes",
+             "description": "Add it"
+            },
+            {
+             "label": "No",
+             "description": "Leave it out"
+            }
+           ]
+          }
+         ]
+        },
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "errorCount": 0,
+        "callErrorCount": 0,
+        "exitErrorCount": 0,
+        "count": 1,
+        "completedCount": 0,
+        "headerFinalized": false,
+        "startedAt": 1900000002000
+       }
+      ],
+      "aggregate": true,
+      "result": null,
+      "rawResult": null,
+      "isError": false,
+      "expanded": false,
+      "headerFinalized": false,
+      "startedAt": 1900000002000,
+      "deferredDisplayReady": true
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "mode": "tool-use"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": {
+     "id": "it_7443fdfe_1",
+     "name": "ask_user",
+     "kind": "question",
+     "args": {
+      "questions": [
+       {
+        "question": "Add the file?",
+        "header": "Add file",
+        "options": [
+         {
+          "label": "Yes",
+          "description": "Add it"
+         },
+         {
+          "label": "No",
+          "description": "Leave it out"
+         }
+        ]
+       }
+      ]
+     },
+     "cwd": null,
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "toolCallId": "call_hold_1",
+     "reason": "approval requested by hook",
+     "requestedAt": 1900000002000,
+     "timeoutMs": null,
+     "expiresAt": null
+    },
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 10,
+     "latestInputTokens": 10,
+     "latestOutputTokens": 2,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 10,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": 10,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 1900000002000,
+     "usageReadout": {
+      "input": 10,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "output": 2,
+      "requestOutputTokens": 0,
+      "requestMs": 0
+     }
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     },
+     {
+      "kind": "tool",
+      "id": "it_7443fdfe_2",
+      "name": "__aggregate__",
+      "args": {
+       "categoryOrder": [
+        "Setup|Asking|Asked|user|users"
+       ]
+      },
+      "count": 1,
+      "completedCount": 0,
+      "categories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      },
+      "toolMembers": [
+       {
+        "kind": "tool",
+        "id": "call_hold_1",
+        "name": "ask_user",
+        "args": {
+         "questions": [
+          {
+           "question": "Add the file?",
+           "header": "Add file",
+           "options": [
+            {
+             "label": "Yes",
+             "description": "Add it"
+            },
+            {
+             "label": "No",
+             "description": "Leave it out"
+            }
+           ]
+          }
+         ]
+        },
+        "result": null,
+        "rawResult": null,
+        "isError": false,
+        "errorCount": 0,
+        "callErrorCount": 0,
+        "exitErrorCount": 0,
+        "count": 1,
+        "completedCount": 0,
+        "headerFinalized": false,
+        "startedAt": 1900000002000
+       }
+      ],
+      "aggregate": true,
+      "result": null,
+      "rawResult": null,
+      "isError": false,
+      "expanded": false,
+      "headerFinalized": false,
+      "startedAt": 1900000002000,
+      "deferredDisplayReady": true
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "mode": "tool-use"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": {
+     "id": "it_7443fdfe_1",
+     "name": "ask_user",
+     "kind": "question",
+     "args": {
+      "questions": [
+       {
+        "question": "Add the file?",
+        "header": "Add file",
+        "options": [
+         {
+          "label": "Yes",
+          "description": "Add it"
+         },
+         {
+          "label": "No",
+          "description": "Leave it out"
+         }
+        ]
+       }
+      ]
+     },
+     "cwd": null,
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "toolCallId": "call_hold_1",
+     "reason": "approval requested by hook",
+     "requestedAt": 1900000002000,
+     "timeoutMs": null,
+     "expiresAt": null
+    },
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 10,
+     "latestInputTokens": 10,
+     "latestOutputTokens": 2,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 10,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": 10,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 1900000002000,
+     "usageReadout": {
+      "input": 10,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "output": 2,
+      "requestOutputTokens": 0,
+      "requestMs": 0
+     }
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "kind": "reply",
+   "input": "phone.answerApprovalNotification 0 allow shown",
+   "reply": "open"
+  },
+  {
+   "kind": "reply",
+   "input": "phone.abortSession",
+   "reply": {
+    "aborted": true,
+    "restoreText": "",
+    "pastedImages": null,
+    "pastedTexts": null,
+    "discardPastedImages": null,
+    "discardPastedTexts": null,
+    "restoredSubmissionIds": []
+   }
+  },
+  {
+   "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-notify-allow-question",
+      "text": "HOLD-APPROVAL ask about the file",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d95ab15916e84e28bfd3daf0606e7fcf",
+      "device": "Phone A"
+     },
+     {
+      "kind": "tool",
+      "id": "it_7443fdfe_2",
+      "name": "__aggregate__",
+      "args": {
+       "categoryOrder": [
+        "Setup|Asking|Asked|user|users"
+       ]
+      },
+      "count": 1,
+      "completedCount": 1,
+      "categories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      },
+      "toolMembers": [
+       {
+        "kind": "tool",
+        "id": "call_hold_1",
+        "name": "ask_user",
+        "args": {
+         "questions": [
+          {
+           "question": "Add the file?",
+           "header": "Add file",
+           "options": [
+            {
+             "label": "Yes",
+             "description": "Add it"
+            },
+            {
+             "label": "No",
+             "description": "Leave it out"
+            }
+           ]
+          }
+         ]
+        },
+        "result": "Error: Session closed: runtime abort (reason=user-cancel)",
+        "rawResult": "Error: Session \"sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519\" closed: runtime abort (reason=user-cancel)",
+        "isError": true,
+        "errorCount": 1,
+        "callErrorCount": 1,
+        "exitErrorCount": 0,
+        "count": 1,
+        "completedCount": 1,
+        "headerFinalized": true,
+        "startedAt": 1900000002000,
+        "completedAt": 1900000005000
+       }
+      ],
+      "aggregate": true,
+      "result": "[status: cancelled]\n1 Failed",
+      "rawResult": "1. ask_user\nError: Session \"sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519\" closed: runtime abort (reason=user-cancel)",
+      "isError": true,
+      "expanded": false,
+      "headerFinalized": true,
+      "startedAt": 1900000002000,
+      "deferredDisplayReady": true,
+      "text": "[status: cancelled]\n1 Failed",
+      "errorCount": 1,
+      "callErrorCount": 1,
+      "exitErrorCount": 0,
+      "completedAt": 1900000005000,
+      "doneCategories": {
+       "Setup|Asking|Asked|user|users": {
+        "key": "Setup|Asking|Asked|user|users",
+        "category": "Setup",
+        "active": "Asking",
+        "done": "Asked",
+        "noun": "user",
+        "pluralNoun": "users",
+        "effect": false,
+        "count": 1
+       }
+      }
+     },
+     {
+      "kind": "turndone",
+      "id": "it_7443fdfe_3",
+      "checkpointId": "sub-notify-allow-question",
+      "elapsedMs": 3000,
+      "status": "cancelled",
+      "outputTokens": 2,
+      "thinkingElapsedMs": 0,
+      "toolCount": 1,
+      "verb": "Mapped",
+      "at": 1900000005000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "device": "Phone A",
+      "completionVerb": "Mapped",
+      "attemptId": "5b495bca-901c-4668-938a-5902e5c7e8bd"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 3,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": {
+     "id": "it_7443fdfe_1",
+     "approved": false,
+     "device": "",
+     "interrupted": true,
+     "at": 1900000005000
+    },
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 10,
+     "outputTokens": 2,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 10,
+     "latestInputTokens": 10,
+     "latestOutputTokens": 2,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 10,
+     "costUsd": 0,
+     "turns": 1,
+     "currentContextTokens": 10,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 1900000002000,
+     "usageReadout": {
+      "input": 10,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "output": 2,
+      "requestOutputTokens": 0,
+      "requestMs": 0
+     }
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-APPROVAL ask about the file"
+    ],
+    "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "preview": "HOLD-APPROVAL ask about the file",
+     "title": "HOLD-APPROVAL ask about the file",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "awaitingApproval": true,
+     "awaitingQuestion": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-APPROVAL ask about the file"
+    }
+   ]
+  },
+  {
+   "at": 13,
+   "clock": 5400,
+   "sessions": [
+    {
+     "id": "sess_desktop_0d15d5b6a8f4cc61bf738c313e943ccf3d204dfcd0f6d30372ec17facbc1d519",
+     "preview": "HOLD-APPROVAL ask about the file",
+     "title": "HOLD-APPROVAL ask about the file",
+     "updatedAt": 1900000005000,
+     "activityAt": 1900000005000,
+     "messageCount": 3,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-question\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-APPROVAL ask about the file"
+    }
+   ]
+  }
+ ]
+}

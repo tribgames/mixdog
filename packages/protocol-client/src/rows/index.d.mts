@@ -59,4 +59,5 @@ export function toolResultDisplay(message: { isError?: boolean }, rawText: strin
 export function isTranscriptHiddenControlToolName(name: unknown): boolean;
 export function isTranscriptHiddenToolItem(item: { name?: unknown; result?: unknown } | null | undefined): boolean;
 export function toolResultTerminalStatus(text: unknown): string;
+export function withCancelledResultMarker(text: unknown, item?: Record<string, unknown>): string;
 export function summarizeToolResult(name: string, args: unknown, resultText: string, isError?: boolean): string | null;

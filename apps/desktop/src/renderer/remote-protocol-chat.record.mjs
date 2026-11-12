@@ -101,14 +101,9 @@ await record('markSessionRead-unchanged', 'markSessionRead', [S, 3, false], { li
   return h.markSessionRead(S, 3, false);
 });
 await record('getTaskWorkspace', 'getTaskWorkspace', [], {}, (h) => h.getTaskWorkspace());
-await record('abortSession-restored', 'abortSession', [S, {}], {
-  abort: { ...full(S), aborted: true, restoreText: 'draft', restoredSubmissionIds: ['sub1'] },
-}, (h) => h.abortSession(S, {}));
 await record('abortSession-idle', 'abortSession', [S, {}], { abort: { ...full(S), aborted: false } }, (h) => h.abortSession(S, {}));
 await record('submitToSession-accepted', 'submitToSession', [S, 'hi', { id: 'sub1' }], { submit: { ...full(S), accepted: true } }, (h) =>
   h.submitToSession(S, 'hi', { id: 'sub1' }));
-await record('submitToSession-refused', 'submitToSession', [S, 'hi', { id: 'sub2' }], { submit: { ...full(S), accepted: false } }, (h) =>
-  h.submitToSession(S, 'hi', { id: 'sub2' }));
 await record('resolveToolApproval-approved', 'resolveToolApprovalForSession', [S, 'ap1', { approved: true }], {
   approve: { ...full(S), approved: true },
 }, (h) => h.resolveToolApprovalForSession(S, 'ap1', { approved: true }));
@@ -185,19 +180,8 @@ await record('readTranscriptItem-not-viewed', 'readTranscriptItem', [S, 'tool1']
   r.readTranscriptItem([S, 'tool1']), { client: clientOf({ viewedSessionIds: () => [] }) });
 await record('readTranscriptItem-not-held', 'readTranscriptItem', [S, 'nope'], { read: full(S, { items: toolRows }) }, (_h, r) =>
   r.readTranscriptItem([S, 'nope']), { client: clientOf() });
-const notifications = {
-  approvalAllowDecision: (_s, id) => (id === 'ap1' ? { approved: true, scope: 'once' } : undefined),
-  approvalPointerOnly: (_s, id) => id === 'ptr',
-};
-const notifNote = 'approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)';
-await record('answerApprovalNotification-answered', 'answerApprovalNotification', [S, 'ap1', 'allow'], { approve: { ...full(S), approved: true } },
-  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('answerApprovalNotification-settled', 'answerApprovalNotification', [S, 'ap1', 'deny'], { approve: { ...full(S), approved: false } },
-  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'deny']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('answerApprovalNotification-open', 'answerApprovalNotification', [S, 'ap2', 'allow'], {},
-  (_h, r) => r.answerApprovalNotification([S, 'ap2', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('resolveToolApproval-pointer-only', 'resolveToolApprovalForSession', [S, 'ptr', { approved: true }], {},
-  (_h, r) => r.resolveToolApprovalForSession([S, 'ptr', { approved: true }]), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+// A notification's Allow / Deny and the card's pointer-only refusal are recorded from Node's real push notifier over a real daemon
+// (remote-protocol-chat-history.record.mjs, the `notify-` cases).
 await record('provideSecretInput-true', 'provideSecretInput', ['req1', 's3cret'], {}, (_h, r) => r.provideSecretInput(['req1', 's3cret']), {
   client: clientOf(), hostReply: true, note: 'hostRequest (the window process) is scripted: the secret slot is not part of the daemon',
 });
@@ -220,8 +204,6 @@ const submitEcho = (accepted) => (a) => ({ ...full(a.sessionId), sessionId: a.se
 const createEcho = (a) => full(a.sessionId ?? 'sess_new_1');
 await record('submitNewTask-accepted', 'submitNewTask', ['build it', { id: 'sub9' }, {}], { create: createEcho, submit: submitEcho(true), unsubscribe: {}, list: { sessions: [] } },
   (_h, r) => r.submitNewTask(['build it', { id: 'sub9' }, {}]), { client: clientOf() });
-await record('submitNewTask-refused', 'submitNewTask', ['build it', { id: 'sub10' }, {}], { create: createEcho, submit: submitEcho(false), unsubscribe: {}, list: { sessions: [] } },
-  (_h, r) => r.submitNewTask(['build it', { id: 'sub10' }, {}]), { client: clientOf() });
 await record('submitNewTask-route', 'submitNewTask', ['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }],
   { create: createEcho, submit: submitEcho(true), configure: (a) => ({ ...full(a.sessionId), value: { provider: 'p2', model: 'm2' } }), unsubscribe: {}, list: { sessions: [] } },
   (_h, r) => r.submitNewTask(['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }]), { client: clientOf() });

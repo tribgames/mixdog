@@ -2,7 +2,7 @@
  * Tool-result status, display text, and aggregate-record helpers for the
  * session runtime.
  */
-import { hasBenignExitOutcome } from './tool-status.mjs';
+import { hasBenignExitOutcome, normalizeToolTerminalStatus, toolResultTerminalStatus } from './tool-status.mjs';
 import { isReadOnlyNavigationMiss } from './result-classification.mjs';
 import { STEP, formatAggregateDetailSteps, runSync, toolLoadingTargets } from './tool-surface.mjs';
 import { normalizeToolName } from './tool-primitives.mjs';
@@ -74,6 +74,31 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
     parts.push(solo && Number.isFinite(exitCode) ? `Exited ${exitCode}` : `${exitErrors} Exited non-zero`);
   }
   return parts.join(' · ');
+}
+
+const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
+
+function itemHasKnownTerminalStatus(item, texts = []) {
+  const settled = (token) => token === 'completed' || token === 'failed' || token === 'cancelled';
+  if (settled(normalizeToolTerminalStatus(item?.args?.status))) return true;
+  for (const text of texts) {
+    if (settled(toolResultTerminalStatus(text))) return true;
+  }
+  return false;
+}
+
+export function withCancelledResultMarker(text, item) {
+  const body = String(text || '');
+  // Do NOT inspect item.rawResult here: aggregate rawResult is child tool
+  // output (`1. grep\n<result>…`) that can incidentally contain a `status:`
+  // line, which would false-positive as an already-terminal status and skip
+  // the cancelled marker. Only result/text/body are session runtime-controlled
+  // collapsed detail (empty / status word / an existing marker), so they are
+  // the trustworthy terminal-status sources.
+  const sources = [item?.result, item?.text, body];
+  if (itemHasKnownTerminalStatus(item, sources)) return body;
+  if (!body.trim()) return `${CANCELLED_RESULT_STATUS_LINE}\n`;
+  return `${CANCELLED_RESULT_STATUS_LINE}\n${body}`;
 }
 
 /** The members' raw outputs as one numbered text (`1. grep\n…\n\n2. read\n…`).

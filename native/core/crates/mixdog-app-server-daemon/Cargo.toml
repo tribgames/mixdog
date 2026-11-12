@@ -89,16 +89,16 @@ windows-sys = { workspace = true, features = [
 mixdog-testkit = { workspace = true }
 # The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
 # `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
-mixdog-core = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-core = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
-mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 # The replay of Node's review-signal recording (`compose::review_restart_tests`).
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
@@ -141,7 +141,7 @@ mixdog-ledger = { workspace = true }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
-mixdog-services = { workspace = true, features = ["test-support"] }
+mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-exthost = { workspace = true, features = ["test-support"] }

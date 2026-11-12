@@ -162,7 +162,16 @@ pub struct Built {
 
 /// The service over `directory` and `workspaces`, with `registered` as the Projects and `task` as the task workspace.
 pub async fn build(directory: Arc<SessionDirectory>, workspaces: SessionWorkspaces, worktrees: Arc<Worktrees>, registered: Vec<String>, task: String) -> Built {
-    build_with(directory, workspaces, worktrees, None, registered, task).await
+    build_with(directory, workspaces, worktrees, None, Arc::new(NoRows), registered, task).await
+}
+
+/// Row publication with nothing to wait for.
+struct NoRows;
+
+impl super::thread_edges::RowsPublished for NoRows {
+    fn published(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// [`build`] with the archive hand-off going to `hand_off` instead of the real worktree maintenance over `worktrees`.
@@ -171,6 +180,7 @@ pub async fn build_with(
     workspaces: SessionWorkspaces,
     worktrees: Arc<Worktrees>,
     hand_off: Option<Arc<dyn ArchivedWorktrees>>,
+    rows: Arc<dyn super::thread_edges::RowsPublished>,
     registered: Vec<String>,
     task: String,
 ) -> Built {
@@ -199,6 +209,7 @@ pub async fn build_with(
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
         archive_stamps: stamps.clone(),
+        rows,
     });
     Built { settings, projects, notes, effort, agent_only, app, surface, stamps, ops }
 }

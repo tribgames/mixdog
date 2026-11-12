@@ -83,6 +83,9 @@ async fn an_idle_thread_with_a_running_goal_and_agent_job_sends_the_phone_nothin
     let published = |method: &str| rig.feeds.frames(handle.id.as_str()).iter().any(|(_, m, _)| m == method);
     eventually_on!(&[&rig.feeds.published], || (published("thread/goal/updated") && published("thread/agents/updated")).then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    // The setup's changes close their phone frame (phone_frame.rs `FRAME`) before the phone follows the thread.
+    tokio::time::advance(super::phone_frame::FRAME).await;
+    super::tests::caught_up(&handle).await;
 
     // The phone follows the thread: its snapshot is the baseline.
     let phone = MockConnection::new(ConnectionId(7), MockLimits::default());
@@ -118,6 +121,9 @@ async fn an_idle_thread_with_a_running_goal_and_agent_job_sends_the_phone_nothin
     directory.agent_activity(handle.id.as_str());
     let agent_frames = published_count(&rig, &handle.id, "thread/agents/updated");
     eventually_on!(&[&rig.feeds.published], || (published_count(&rig, &handle.id, "thread/agents/updated") > agent_frames).then_some(())).await;
+    // A change is read with the phone frame that closes it (phone_frame.rs `FRAME`): Node's one publication of it.
+    tokio::time::advance(super::phone_frame::FRAME).await;
+    super::tests::caught_up(&handle).await;
     let stage = received(&phone, &sub);
     delivered.push(stage.iter().any(|frame| frame["method"] == "thread/agents/updated" && frame["params"]["value"]["agentJobs"][0]["stage"] == "tool_running"));
 
@@ -125,6 +131,8 @@ async fn an_idle_thread_with_a_running_goal_and_agent_job_sends_the_phone_nothin
     let goal_frames = published_count(&rig, &handle.id, "thread/goal/updated");
     rig.goals.goal_control(&handle.id, json!({ "action": "pause" })).await.expect("the Goal pauses");
     eventually_on!(&[&rig.feeds.published], || (published_count(&rig, &handle.id, "thread/goal/updated") > goal_frames).then_some(())).await;
+    tokio::time::advance(super::phone_frame::FRAME).await;
+    super::tests::caught_up(&handle).await;
     let paused = received(&phone, &sub);
     delivered.push(paused.iter().any(|frame| frame["method"] == "thread/goal/updated" && frame["params"]["value"]["status"] == "paused"));
 

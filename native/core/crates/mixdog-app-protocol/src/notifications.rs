@@ -154,6 +154,7 @@ crate::notification_definitions! {
     ReasoningTextDelta => "item/reasoning/textDelta" (ItemDeltaParams) @thread,
     ReasoningSummaryTextDelta => "item/reasoning/summaryTextDelta" (ItemDeltaParams) @thread,
     ThreadHistoryReset => "thread/historyReset" (ThreadHistoryResetParams) @thread,
+    ThreadFrame => "thread/frame" (ThreadFrameParams) @thread,
     ThreadRuntimeUpdated => "thread/runtime/updated" (ThreadSectionParams<ThreadRuntime>) @thread,
     ThreadRouteUpdated => "thread/route/updated" (ThreadSectionParams<ThreadRoute>) @thread,
     ThreadContextUpdated => "thread/context/updated" (ThreadSectionParams<ThreadContext>) @thread,

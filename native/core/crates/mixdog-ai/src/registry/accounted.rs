@@ -26,7 +26,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
+use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid, wall_ms};
 
 /// The wrapped provider's stages behind the one every provider of the registry raises first: Node's admission scheduler
 /// announces a send as `requesting` once it is admitted (`admission-scheduler.mjs:592`), ahead of the adapter's own
@@ -123,9 +123,7 @@ impl AccountingDeps {
             ledger,
             scope: Arc::new(RequestScope),
             account: Arc::new(NoAccounts),
-            now: Arc::new(|| {
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
-            }),
+            now: Arc::new(wall_ms),
             new_id: Arc::new(random_uuid),
         }
     }

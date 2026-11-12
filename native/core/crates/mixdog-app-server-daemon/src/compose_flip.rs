@@ -2761,6 +2761,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
     let room_publication = mixdog_core::run_host::room_publication::wire(thread_list.clone(), b.sections.clone(), thread_deletions.clone(), agents.clone(), &catalog_index, directory.clone(), room_sessions.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
     let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
+    // A call that answers after its session's row is on the app feed waits for the index's projection, then the edge it reported.
+    let rows_published: Arc<dyn mixdog_core_session::session::thread_edges::RowsPublished> =
+        Arc::new(mixdog_core_session::session::thread_edges::IndexRowsPublished { fence: store_threads.clone(), edges: room_publication.edges });
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     // The rooms' first load (`agent-rooms.ts:353-362` `ready`), which every room call, a member forgotten and a member's relay await first: the rooms
@@ -3093,6 +3096,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
             surface: surface_generation.clone(),
             archive_stamps: archive_stamps.clone(),
+            rows: rows_published.clone(),
         },
     ));
     // The `session` tool's thread requests: the settings service answers its methods (`thread/setCwd`, the sidebar's), the directory the rest.
