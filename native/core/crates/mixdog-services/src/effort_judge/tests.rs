@@ -39,7 +39,8 @@ fn lane() -> crate::effort_judge::JudgeLanes {
 /// `timeout` while the 150 MB graph loads beside other work, and these tests check the answers, not the waits.
 fn real_model() -> Arc<EffortJudgeModel> {
     let timing = crate::effort_judge::JudgeTiming { cold: Duration::from_secs(90), warm: Duration::from_secs(60), queue: Duration::from_secs(60), ..Default::default() };
-    EffortJudgeModel::with_options(config(), lane(), crate::effort_judge::judge::JudgeOptions { timing, ..Default::default() }).expect("model")
+    let host = Some(crate::effort_judge::host_tests::real_host_launch(&config()));
+    EffortJudgeModel::with_options(config(), lane(), crate::effort_judge::judge::JudgeOptions { timing, host, ..Default::default() }).expect("model")
 }
 
 /// The input as the loop hands it over: raw results, not yet windowed.

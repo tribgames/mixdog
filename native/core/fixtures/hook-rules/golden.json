@@ -1,0 +1,208 @@
+{
+  "note": "the PreToolUse gate of a live Node hook bus while its rules are saved and removed",
+  "steps": [
+    {
+      "op": "call",
+      "tool": "setup",
+      "decision": null
+    },
+    {
+      "op": "add",
+      "rule": {
+        "tool": "setup",
+        "action": "ask"
+      },
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "setup",
+            "action": "ask",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "add",
+      "rule": {
+        "tool": "mcp__cal__*",
+        "action": "ask"
+      },
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "setup",
+            "action": "ask",
+            "enabled": true
+          },
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "call",
+      "tool": "setup",
+      "decision": {
+        "action": "ask",
+        "reason": "approval requested by hook rule for setup"
+      }
+    },
+    {
+      "op": "call",
+      "tool": "mcp__cal__create",
+      "decision": {
+        "action": "ask",
+        "reason": "approval requested by hook rule for mcp__cal__create"
+      }
+    },
+    {
+      "op": "call",
+      "tool": "read",
+      "decision": null
+    },
+    {
+      "op": "delete",
+      "index": 0,
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "call",
+      "tool": "setup",
+      "decision": null
+    },
+    {
+      "op": "call",
+      "tool": "mcp__cal__create",
+      "decision": {
+        "action": "ask",
+        "reason": "approval requested by hook rule for mcp__cal__create"
+      }
+    },
+    {
+      "op": "add",
+      "rule": {
+        "tool": "shell",
+        "action": "deny",
+        "reason": "no shell here"
+      },
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          },
+          {
+            "tool": "shell",
+            "action": "deny",
+            "enabled": true,
+            "reason": "no shell here"
+          }
+        ]
+      }
+    },
+    {
+      "op": "call",
+      "tool": "shell",
+      "decision": {
+        "action": "deny",
+        "reason": "no shell here"
+      }
+    },
+    {
+      "op": "enable",
+      "index": 1,
+      "enabled": false,
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          },
+          {
+            "tool": "shell",
+            "action": "deny",
+            "enabled": false,
+            "reason": "no shell here"
+          }
+        ]
+      }
+    },
+    {
+      "op": "call",
+      "tool": "shell",
+      "decision": null
+    },
+    {
+      "op": "enable",
+      "index": 1,
+      "enabled": true,
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          },
+          {
+            "tool": "shell",
+            "action": "deny",
+            "enabled": true,
+            "reason": "no shell here"
+          }
+        ]
+      }
+    },
+    {
+      "op": "call",
+      "tool": "shell",
+      "decision": {
+        "action": "deny",
+        "reason": "no shell here"
+      }
+    },
+    {
+      "op": "delete",
+      "index": 1,
+      "file": {
+        "toolBefore": [
+          {
+            "tool": "mcp__cal__*",
+            "action": "ask",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "delete",
+      "index": 0,
+      "file": {
+        "toolBefore": []
+      }
+    },
+    {
+      "op": "call",
+      "tool": "mcp__cal__create",
+      "decision": null
+    },
+    {
+      "op": "call",
+      "tool": "shell",
+      "decision": null
+    }
+  ]
+}

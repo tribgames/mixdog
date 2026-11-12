@@ -318,6 +318,17 @@ pub struct OpenedLog {
     pub append: AppendPosition,
 }
 
+/// What [`ThreadStore::history_before`] read.
+pub struct HistoryBefore {
+    pub rev: u64,
+    /// Oldest first; the last is the record of the oldest row the id can name.
+    pub records: Vec<ItemRecord>,
+    /// No row is older than `records`.
+    pub complete: bool,
+    /// How many rows the id can name (see `HistoryAnchor::named`).
+    pub named: u64,
+}
+
 /// An op of a thread as its log holds it (P §9.2): the indexed row and the frame that carries it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredOp {
@@ -391,6 +402,13 @@ pub trait ThreadStore: Send + Sync + 'static {
         let complete = all.len() <= rows;
         all.drain(..all.len().saturating_sub(rows));
         Ok((rev, all, complete))
+    }
+
+    /// The records from the oldest row a client's id `anchor` can name, back to at most `rows` records older than it
+    /// (oldest first, the named record last): a page older than a cursor reads the rows it shows, not the history from the
+    /// newest row to the cursor. `None` when the store cannot place the id (the caller reads the history as a whole).
+    fn history_before(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _anchor: &str, _rows: usize) -> Result<Option<HistoryBefore>, CoreError> {
+        Ok(None)
     }
 
     /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index

@@ -13,9 +13,11 @@ use futures::future::BoxFuture;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
+use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
 use mixdog_agent::agent_tool::error_text::PlainErrorText;
 use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
+use mixdog_agent::agent_tool::flow::job_starter::StartContext;
 use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::seams::*;
 use mixdog_agent::agent_tool::flow::spawn::SpawnFlowImpl;
@@ -135,6 +137,14 @@ pub(crate) struct Shared {
     messages: Mutex<Vec<Option<String>>>,
     /// The shells Node's reap left for the handoff (host.stoppedShellJobs), read once.
     stopped: Mutex<Option<StoppedShellJobs>>,
+    /// Per turn, the skill selection it was handed: `{ "skillSelection": text }`, or `{}` for none.
+    selections: Mutex<Vec<Value>>,
+    /// The agents below the worker as `(session, parent)`, in the order Node linked them.
+    children: Vec<(String, String)>,
+    /// The sessions whose close does not land (`tree.failClose`).
+    fail_close: Vec<String>,
+    /// What the tree's cancel answered, or the text it failed with (`treeCancel`).
+    tree_cancel: Mutex<Value>,
 }
 
 impl Shared {
@@ -167,12 +177,13 @@ impl TurnSessions for Sess {
     async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
         use std::sync::atomic::Ordering::SeqCst;
         log(&self.0.log, json!(["ask", handoff_content(&request.prompt, &request.attachments), request.cwd]));
+        lock(&self.0.selections).push(request.skill_selection.as_ref().map_or_else(|| json!({}), |text| json!({ "skillSelection": text })));
         let n = self.0.asks.fetch_add(1, SeqCst) + 1;
         self.0.in_flight.fetch_add(1, SeqCst);
         if self.0.hold_ask.contains(&n) {
             self.0.hold(n).notified().await;
         }
-        let result = self.script(&request);
+        let result = self.script(&request).await;
         self.0.in_flight.fetch_sub(1, SeqCst);
         result
     }
@@ -181,7 +192,7 @@ impl TurnSessions for Sess {
     }
 }
 impl Sess {
-    fn script(&self, request: &TurnRequest) -> Result<TurnResult, TurnError> {
+    async fn script(&self, request: &TurnRequest) -> Result<TurnResult, TurnError> {
         for step in &self.0.steps {
             if let Some(diff) = step.get("tool").and_then(Value::as_str) {
                 (request.hooks.on_tool_result)(&ToolResultMessage { ui_diff: Some(diff.to_owned()) });
@@ -198,6 +209,17 @@ impl Sess {
                 return Err(TurnError::new(s(error, "message")));
             } else if let Some(text) = step.get("say").and_then(Value::as_str) {
                 lock(&self.0.messages).push(Some(text.to_owned()));
+            } else if let Some(reason) = step.get("cancelTask").and_then(Value::as_str) {
+                let id = self.0.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).unwrap();
+                self.0.board.cancel(&id, reason, CancelNotice::Default);
+            } else if let Some(reason) = step.get("cancelTree").and_then(Value::as_str) {
+                // The entry `agent close` and the owner's teardown run: the session and the agents below it close, each after its jobs.
+                let session = s(&lock(&self.0.session), "id");
+                let outcome = cancel_agent_tree(&Closer(self.0.clone()), &self.0.board, &session, reason, CloseOptions::default()).await;
+                *lock(&self.0.tree_cancel) = match outcome {
+                    Ok(closed) => json!({ "returned": closed, "threw": null }),
+                    Err(message) => json!({ "returned": null, "threw": message }),
+                };
             } else if let Some(message) = step.get("stall").and_then(Value::as_str) {
                 // A stop by the progress watchdog: its sentence, and the handoff the abort carried, if any.
                 return Err(TurnError {
@@ -273,8 +295,18 @@ impl Sessions for Closer {
         log(&self.0.log, json!(format!("close:{id}:{reason}")));
         true
     }
+    async fn try_close_session(&self, id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        let closed = self.close_session(id, reason, options).await;
+        if self.0.fail_close.iter().any(|failing| failing == id) {
+            return Err(format!("agent session {id} could not be durably closed"));
+        }
+        Ok(closed)
+    }
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
+    }
+    fn child_session_ids(&self, parent: &str) -> Vec<String> {
+        self.0.children.iter().filter(|(_, p)| p == parent).map(|(id, _)| id.clone()).collect()
     }
     fn clear_statusline_route(&self, _: &str) {}
 }
@@ -648,6 +680,10 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         hold_ask: numbers(&scenario["holdAsk"]),
         messages: Mutex::new(vec![None]),
         stopped: Mutex::new(stopped_shells(host)),
+        selections: Mutex::default(),
+        children: scenario["tree"]["children"].as_array().map(|rows| rows.iter().map(|c| (s(c, "id"), s(c, "parent"))).collect()).unwrap_or_default(),
+        fail_close: scenario["tree"]["failClose"].as_array().map(|ids| ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect()).unwrap_or_default(),
+        tree_cancel: Mutex::new(Value::Null),
     };
     // The notifier needs the state (its notices); give it its own handle to the same lists.
     let notices = shared.notices.clone();
@@ -841,10 +877,30 @@ async fn a_spawn_equals_nodes() {
         let rig = rig(scenario, Some(&case["host"]));
         let context = SpawnContext {
             caller_session_id: Some("lead".into()),
-            session_id: None,
+            // Node's stale session id, which `callerSessionId || sessionId` never reaches while a caller is set.
+            session_id: scenario["context"]["sessionId"].as_str().map(str::to_owned),
             owner_session_id: Some(s(scenario, "owner")),
             client_host_pid: Some(4242),
         };
+        // The other jobs of a tree scenario, started by the sessions that own them before the worker's, and running (admitted, working) before its turn does.
+        let status: Arc<dyn Fn() + Send + Sync> = {
+            let l = rig.shared.log.clone();
+            Arc::new(move || log(&l, json!("status")))
+        };
+        let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), status);
+        let mut extra_jobs = Vec::new();
+        for job in scenario["tree"]["jobs"].as_array().into_iter().flatten() {
+            let meta = JobMeta { tag: Some(s(job, "tag")), session_id: job["sessionId"].as_str().map(str::to_owned), ..JobMeta::default() };
+            let start = StartContext { caller_session_id: Some(s(job, "caller")), client_host_pid: Some(4242), ..StartContext::default() };
+            let handle = starter
+                // The run of each ends with the scenario, after its state has been read, as the recording's do.
+                .start_job("spawn", meta, start, |_, _| std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>())
+                .expect("started");
+            extra_jobs.push((s(job, "as"), handle.task_id().to_owned()));
+        }
+        if !extra_jobs.is_empty() {
+            settle().await;
+        }
         let started = rig.spawn.start_deferred_spawn_job(
             &scenario["args"],
             scenario["callerCwd"].as_str().unwrap(),
@@ -863,9 +919,42 @@ async fn a_spawn_equals_nodes() {
         settle().await;
         settle().await;
         let (calls, notices) = drain(&rig, id.as_deref());
+        // The other jobs are named by their alias, as the recording names them.
+        let by_alias = |value: Value| {
+            let mut text = value.to_string();
+            for (alias, id) in &extra_jobs {
+                text = text.replace(id.as_str(), &format!("job_{alias}"));
+            }
+            serde_json::from_str::<Value>(&text).unwrap()
+        };
+        let (calls, notices) = (by_alias(calls), by_alias(notices));
         let final_value = id.as_deref().map_or(Value::Null, |id| masked(final_state(&rig, id, true), Some(id)));
-        let got = json!({ "startError": start_error, "pending": pending, "calls": calls, "notices": notices, "final": final_value });
+        // Node counted the calls its stale notify callback got; the core has no such callback, so what it
+        // observes is the completions delivered to the stale session id the context carries.
+        let stale_notices = context.session_id.as_deref().map_or(0, |stale| notices.as_array().unwrap().iter().filter(|n| n["session"] == stale).count());
+        let mut got = json!({ "startError": start_error, "pending": pending, "calls": calls, "notices": notices, "final": final_value });
         let mut want = case["result"].clone();
+        if want.get("staleNotifyCalls").is_some() {
+            got["staleNotifyCalls"] = json!(stale_notices);
+        }
+        if want.get("extraJobs").is_some() {
+            got["extraJobs"] = extra_jobs
+                .iter()
+                .map(|(alias, id)| {
+                    let mut state = final_state(&rig, id, true);
+                    state.as_object_mut().unwrap().remove("result");
+                    (alias.clone(), state)
+                })
+                .collect::<Map<String, Value>>()
+                .into();
+        }
+        if want.get("treeCancel").is_some() {
+            got["treeCancel"] = lock(&rig.shared.tree_cancel).clone();
+        }
+        // The turns' skill selections are compared where the scenario records them.
+        if want.get("selections").is_some() {
+            got["selections"] = Value::Array(lock(&rig.shared.selections).clone());
+        }
         for notice in want["notices"].as_array_mut().unwrap() {
             if notice.get("meta").is_some_and(Value::is_null) {
                 notice.as_object_mut().unwrap().remove("meta");
@@ -1187,6 +1276,9 @@ impl Sessions for RecordedCloses {
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
     }
+    fn child_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
     fn clear_statusline_route(&self, _: &str) {}
 }
 
@@ -1228,4 +1320,28 @@ async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reaso
         mixdog_agent::cancel::close_session_reason("sess_w1", "agent-task-cancel"),
         "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"
     );
+}
+
+/// `agent close` of an agent that has agents below it (`closeSession` is `cancelAgentTree`): the agents below close first,
+/// after the jobs bound to them, and the owner's job is cancelled with the close's reason.
+#[tokio::test(start_paused = true)]
+async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
+    backend();
+    let rig = rig(&json!({ "tree": { "children": [{ "id": "sess_c1", "parent": "sess_w1" }] } }), None);
+    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = JobMeta { tag: Some("kid".into()), session_id: Some("sess_c1".into()), ..JobMeta::default() };
+    let start = StartContext { caller_session_id: Some("sess_w1".into()), ..StartContext::default() };
+    let handle = starter
+        .start_job("spawn", meta, start, |_, _| std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>())
+        .expect("started");
+    settle().await;
+    let registry = Reg(rig.shared.clone());
+    let closer = Closer(rig.shared.clone());
+    let parts = CloseParts { registry: &registry, sessions: &closer, tasks: &rig.shared.board };
+    let view = close_resolved(parts, "sess_w1", "sess_w1", &Scope::default(), None, false).await.expect("closes");
+    assert!(view.closed);
+    let closes: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry.as_str().is_some_and(|e| e.starts_with("close:"))).cloned().collect();
+    assert_eq!(closes, [json!("close:sess_c1:agent-task-cancel"), json!("close:sess_c1:cli-agent-close"), json!("close:sess_w1:cli-agent-close")]);
+    let job = rig.shared.board.get(handle.task_id(), &Scope::default()).unwrap();
+    assert_eq!((job.status.as_str(), job.error.as_deref()), ("cancelled", Some("cli-agent-close")));
 }

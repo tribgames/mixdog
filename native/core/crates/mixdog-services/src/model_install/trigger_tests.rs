@@ -30,10 +30,16 @@ fn step() -> StepInput {
 /// fails the test instead of hanging it.
 async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
     let mut changes = tick.subscribe();
-    while !done() {
-        changes.changed().await.expect("tick lives");
-    }
+    let waited = async {
+        while !done() {
+            changes.changed().await.expect("tick lives");
+        }
+    };
+    mixdog_rt::time::timeout(UNTIL_LIMIT, waited).await.expect("the awaited state did not come before the limit (the product published no tick that made it true)");
 }
+
+/// How long [`until`] waits: longer than the slowest step it covers (a real model's download and load on a loaded machine).
+const UNTIL_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Lets queued background work run so a trigger that must NOT fire has had its chance.
 async fn settle() {
@@ -68,10 +74,16 @@ fn judge(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool) -> A
 }
 
 fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf) -> Arc<EffortJudgeModel> {
+    judge_hosted(dir, manifest, tick, explicit, ort_library, false)
+}
+
+/// `real_host`: the model loads in the real host process (the test binary is not `mixdogd`, which the product starts).
+fn judge_hosted(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf, real_host: bool) -> Arc<EffortJudgeModel> {
     let mut model = config(dir);
     model.explicit = explicit;
     model.ort_library = crate::effort_judge::model::OrtRuntime::Library(ort_library);
-    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), ..JudgeOptions::default() })
+    let host = real_host.then(|| crate::effort_judge::host_tests::real_host_launch(&model));
+    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), host, ..JudgeOptions::default() })
         .expect("judge")
 }
 
@@ -214,7 +226,7 @@ async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
     let files = Files::new();
     let server = files.serve().await;
     let tick = StateTick::default();
-    let model = judge_over(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort());
+    let model = judge_hosted(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort(), true);
 
     assert!(!model.is_ready(), "nothing is loaded before a judgment");
     model.probs(step()).await.expect("judged");

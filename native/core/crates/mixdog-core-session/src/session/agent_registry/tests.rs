@@ -2479,6 +2479,248 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
 }
 
+/// The stale-row pass and the scan guard against real Node's (`fixtures/agent-stale-rows/golden.json`, from
+/// `benchmarks/rust-core/recorders/record-agent-stale-rows.mjs`): the rows and sessions of Node's own stale-row tests
+/// go through a refresh, and the rows the index still holds, the tombstones it left and the scan's verdicts are
+/// compared whole. A session Node's manager reports a runtime stage for is a running turn here: the core's stage is
+/// only ever active inside a run.
+const STALE_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-stale-rows/golden.json");
+
+struct ConfigReap(Value);
+
+impl ReapWindow for ConfigReap {
+    fn terminal_reap_ms(&self, provider: &str) -> f64 {
+        mixdog_agent::compact::settings::agent_terminal_reap_ms(self.0.get("autoClear"), provider)
+    }
+}
+
+struct WorkLive {
+    open: HashSet<String>,
+    work: HashSet<String>,
+}
+
+impl LiveSessions for WorkLive {
+    fn loaded(&self) -> Vec<String> {
+        self.open.iter().cloned().collect()
+    }
+
+    fn header(&self, session: &str) -> Option<Row> {
+        self.open.contains(session).then(|| obj(json!({ "id": session })))
+    }
+
+    fn running(&self, session: &str) -> bool {
+        self.work.contains(session)
+    }
+
+    fn has_live_work(&self, session: &str) -> bool {
+        self.work.contains(session)
+    }
+
+    fn runtime_stage(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
+fn ids(value: &Value) -> HashSet<String> {
+    value.as_array().into_iter().flatten().map(|v| v.as_str().unwrap().to_owned()).collect()
+}
+
+#[tokio::test]
+async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
+    let golden: Value = serde_json::from_str(&STALE_GOLDEN).unwrap();
+    assert_eq!(golden["now"].as_i64(), Some(NOW));
+    for case in golden["scenarios"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let config = case.get("config").cloned().unwrap_or_else(|| json!({}));
+        let mgr = &case["mgr"];
+        let mut work = ids(&mgr["turnInFlight"]);
+        work.extend(ids(&mgr["pending"]));
+        work.extend(mgr["stages"].as_object().into_iter().flatten().map(|(id, _)| id.clone()));
+        let live = Arc::new(WorkLive { open: ids(&case["live"]), work });
+        let rig = Rig::new();
+        // The rows as Node's index handed them to the pass (its load settles a stored-running row its manager does not run).
+        for row in case["loaded"].as_array().unwrap() {
+            rig.store.write(row["sessionId"].as_str().unwrap(), Some(obj(row.clone())));
+        }
+        let registry = AgentRegistry::new(rig.store.clone(), live.clone(), Arc::new(ConfigReap(config.clone())), rig.clock.clone());
+        registry.refresh_tags_from_sessions(false, &Scope::default()).await;
+        // Node's index file maps, whole: each row and tombstone with its fields (the maps are compared as maps: the core
+        // keeps each row in its session's own header, which has no file order). A tombstone the core builds leaves out a field
+        // it has no value for where Node writes `null`, so a `null` member is left out of both sides; the tombstone's
+        // `sessionId` is the identity of the map holding it here.
+        let bare = |value: Value| Value::Object(value.as_object().unwrap().iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect());
+        let mut workers = serde_json::Map::new();
+        let mut tombstones = serde_json::Map::new();
+        for (id, map) in rig.store.listed() {
+            if map.contains_key("sessionId") && map.get("agent").and_then(Value::as_str) != Some("lead") {
+                workers.insert(id.clone(), bare(Value::Object(map.clone())));
+            }
+            if let Some(tombstone) = map.get("tombstone") {
+                let mut tombstone = tombstone.as_object().unwrap().clone();
+                tombstone.insert("sessionId".into(), json!(id));
+                tombstones.insert(tombstone_key(&tombstone), bare(Value::Object(tombstone)));
+            }
+        }
+        let want_workers = case["result"]["workers"].as_object().unwrap();
+        let want_tombstones = case["result"]["tombstones"].as_object().unwrap();
+        let want_bare = |map: &serde_json::Map<String, Value>| Value::Object(map.iter().map(|(k, v)| (k.clone(), bare(v.clone()))).collect());
+        assert_eq!(Value::Object(workers), want_bare(want_workers), "{name}: rows held");
+        assert_eq!(Value::Object(tombstones), want_bare(want_tombstones), "{name}: tombstones");
+
+        if let Some(sessions) = case["scan"].as_array() {
+            let scan = Rig::new();
+            *scan.store.sessions.lock().unwrap() = sessions.iter().map(|s| obj(s.clone())).collect();
+            scan.store.touch_sessions();
+            let registry = AgentRegistry::new(scan.store.clone(), Arc::new(WorkLive { open: HashSet::new(), work: HashSet::new() }), Arc::new(ConfigReap(config)), scan.clock.clone());
+            registry.reload().await;
+            let st = registry.lock();
+            let by_key = st.tombstone_index(registry.now());
+            let verdicts: Vec<bool> = sessions.iter().map(|s| registry.blocks_scan(&st, &obj(s.clone()), s["agentTag"].as_str().unwrap(), &by_key)).collect();
+            assert_eq!(json!(verdicts), case["result"]["blocked"], "{name}: scan");
+        }
+    }
+}
+
+mod job_views;
+
+/// The header seam of the close tests: a session whose header cannot be read fails its close; the stamps that land are kept in order.
+#[derive(Default)]
+struct Detaches {
+    failing: Vec<String>,
+    headers: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
+    /// The sessions whose close was refused, in order.
+    refused: Mutex<Vec<String>>,
+    /// The stamps that landed, in order: the session and whether it was an owner close.
+    stamps: Mutex<Vec<(String, bool)>>,
+}
+
+#[async_trait]
+impl ThreadState for Detaches {
+    async fn header(&self, thread: &ThreadId) -> Result<mixdog_store::schema::record::Header, mixdog_tools::orch::util::PortError> {
+        if self.failing.iter().any(|id| id == thread.as_str()) {
+            self.refused.lock().unwrap().push(thread.as_str().to_owned());
+            return Err(mixdog_tools::orch::util::PortError::Failed { capability: "session".into(), message: "the header cannot be written".into() });
+        }
+        Ok(self.headers.lock().unwrap().get(thread.as_str()).cloned().unwrap_or_default())
+    }
+    async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+        unreachable!("a close stamps through patch_header_if")
+    }
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        _: serde_json::Map<String, Value>,
+        set: serde_json::Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<serde_json::Map<String, Value>>, mixdog_tools::orch::util::PortError> {
+        self.stamps.lock().unwrap().push((thread.as_str().to_owned(), set.contains_key("ownerClosedAt")));
+        self.headers.lock().unwrap().entry(thread.as_str().to_owned()).or_default().extend(set);
+        Ok(None)
+    }
+    async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
+        Ok(())
+    }
+}
+
+/// A member of the agent tree whose durable close fails (the Node recording `flows/close_failures.json`, each member failing
+/// as its canonical close answering false): the tree's cancel, `agent close` and `closeAll` attempt every member and then fail
+/// with Node's text; a closeAll lists the failed tree under `failed`, not `closed`; the members that closed carry their stamp.
+#[tokio::test]
+async fn a_member_that_cannot_close_fails_the_close_as_node_recorded() {
+    use mixdog_agent::agent_tool::dispatch::CloseParts;
+    use mixdog_agent::agent_tool::host::CloseOptions;
+    use mixdog_agent::agent_tool::host::Registry;
+
+    use crate::session::SessionDirectory;
+
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    let cases: Vec<Value> = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/flows/close_failures.json")).unwrap();
+    let text = |value: &Value| value.as_str().unwrap().to_owned();
+    for case in &cases {
+        let failing: Vec<String> = case["failClose"].as_array().unwrap().iter().map(&text).collect();
+        for op in ["cancelTree", "close", "closeAll"] {
+            let label = format!("{} / {op}", case["name"].as_str().unwrap());
+            let want = &case["runs"][op];
+            let rig = Rig::new();
+            for (at_index, member) in case["members"].as_array().unwrap().iter().enumerate() {
+                let id = text(member);
+                let parent = case["links"].as_array().unwrap().iter().find(|link| link["id"] == *member).map_or("lead".to_owned(), |link| text(&link["parent"]));
+                let tag = id.trim_start_matches("sess_").to_owned();
+                let made = at(NOW - 3 * HOUR + at_index as i64);
+                rig.store.sessions.lock().unwrap().push(session(&id, &tag, &made, json!({ "parentSessionId": parent, "ownerSessionId": "lead" })));
+            }
+            // The worker index lists the members in Node's order (a row written is listed first).
+            for member in case["members"].as_array().unwrap().iter().rev() {
+                let id = text(member);
+                let parent = case["links"].as_array().unwrap().iter().find(|link| link["id"] == *member).map_or("lead".to_owned(), |link| text(&link["parent"]));
+                rig.store.write_row(&id, Some(worker_row(&id, id.trim_start_matches("sess_"), json!({ "parentSessionId": parent, "ownerSessionId": "lead" }))));
+            }
+            rig.store.touch_sessions();
+            let srig = crate::session::testing::Rig::new();
+            let directory = Arc::new(SessionDirectory::new(srig.deps()));
+            let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+            let threads = Arc::new(Detaches { failing: failing.clone(), ..Detaches::default() });
+            let sessions = AgentSessions::new(
+                directory,
+                threads.clone(),
+                registry.clone(),
+                Arc::new(Statusline::default()),
+                rig.clock.clone(),
+                Arc::new(ClosedShells::default()),
+                Arc::new(mixdog_tools::fs::ReadState::default()),
+            );
+            let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+            let scope = lead("lead");
+            registry.refresh_tags_from_sessions(false, &scope).await;
+            let view = |view: &mixdog_tools::orch::agent::ClosedView| json!({ "closed": view.closed, "tag": view.tag, "sessionId": view.session_id, "task_id": view.task_id });
+            let (returned, threw) = match op {
+                "cancelTree" => match mixdog_agent::agent_tool::dispatch::cancel_agent_tree(&sessions, &board, "sess_w1", "agent session cancelled", CloseOptions::default()).await {
+                    Ok(closed) => (json!(closed), Value::Null),
+                    Err(message) => (Value::Null, json!(message)),
+                },
+                "close" => {
+                    let parts = CloseParts { registry: &*registry, sessions: &sessions, tasks: &board };
+                    match mixdog_agent::agent_tool::dispatch::close_resolved(parts, "sess_w1", "w1", &scope, None, false).await {
+                        Ok(closed) => (view(&closed), Value::Null),
+                        Err(message) => (Value::Null, json!(message)),
+                    }
+                }
+                _ => {
+                    let report = sessions.close_all("lead", "cli-agent-close-all", false, &board).await.unwrap();
+                    let closed: Vec<Value> = report.closed.iter().map(view).collect();
+                    let failed: Vec<Value> = report.failed.iter().map(|(tag, error)| json!({ "tag": tag, "error": error })).collect();
+                    (json!({ "closed": closed, "failed": failed }), Value::Null)
+                }
+            };
+            assert_eq!(returned, want["returned"], "{label}: what it returned");
+            assert_eq!(threw, want["threw"].get("message").cloned().unwrap_or(Value::Null), "{label}: what it failed with");
+            let calls = want["calls"].as_array().unwrap();
+            // The closes of a member that cannot close are all attempted, once per visit.
+            let refused: Vec<Value> = calls.iter().filter(|call| call[0] == "close" && failing.contains(&text(&call[1]))).map(|call| call[1].clone()).collect();
+            assert_eq!(json!(*threads.refused.lock().unwrap()), json!(refused), "{label}: the refused closes");
+            // An owner close is recorded once per member that closed, in order.
+            let owned: Vec<Value> = calls.iter().filter(|call| call[0] == "ownerClosed").map(|call| call[1].clone()).collect();
+            let stamped: Vec<String> = threads.stamps.lock().unwrap().iter().filter(|(_, owner)| *owner).map(|(id, _)| id.clone()).collect();
+            assert_eq!(json!(stamped), json!(owned), "{label}: the owner closes");
+            // The members the recording left closed hold the close's stamp, with its reason, and no other does.
+            let headers = threads.headers.lock().unwrap();
+            for (member, terminal) in want["terminal"].as_object().unwrap() {
+                let reason = calls.iter().find(|call| call[0] == "close" && call[1] == *member).map(|call| call[2].clone());
+                let stamp = headers.get(member).and_then(|header| header.get("detachedReason")).cloned();
+                assert_eq!(stamp.is_some(), *terminal == true, "{label}: {member} closed");
+                if let (Some(stamp), Some(reason)) = (stamp, reason) {
+                    assert_eq!(stamp, reason, "{label}: {member} reason");
+                }
+            }
+        }
+    }
+}
+
 /// The owner's queue as the actor keeps it, for the restart notices: an id already queued is one entry, the owner takes entries,
 /// and the write is acknowledged when the test lets it (`gate`), or fails once with its entry rolled back.
 struct OwnerQueue {

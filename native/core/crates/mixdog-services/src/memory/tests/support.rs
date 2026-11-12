@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use tempfile::TempDir;
@@ -8,7 +7,23 @@ use tempfile::TempDir;
 use crate::memory::pg::cluster::{PgCluster, PgRuntime};
 use crate::memory::pg::db::{Db, Schema};
 
-static NEXT_PORT: AtomicU16 = AtomicU16::new(0);
+/// Where a test's cluster starts scanning for a port: one the OS just handed out, so parallel tests and other builds on this machine
+/// start apart, and never inside a range Windows reserves (Hyper-V / WinNAT keep 100-port blocks, 58284-58824 on 2026-11-12, that
+/// refuse every bind: a fixed range landed inside them and the scan of its 200 ports took 410 s and failed).
+///
+/// A start scans upward (`cluster::PORT_SPAN` ports): a port among the last `PORT_SPAN` of the range has fewer than that above it, so
+/// it is held and another is asked for. There are only `PORT_SPAN` such ports, so this ends.
+pub fn preferred_port() -> u16 {
+    let mut held = Vec::new();
+    loop {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the OS has a free port");
+        let port = listener.local_addr().expect("a bound address").port();
+        if port <= u16::MAX - crate::memory::pg::cluster::PORT_SPAN {
+            return port;
+        }
+        held.push(listener);
+    }
+}
 
 /// A throwaway cluster in a temp directory.
 pub struct TestPg {
@@ -23,9 +38,7 @@ impl TestPg {
             std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"),
         );
         let dir = tempfile::tempdir().expect("temp dir");
-        // Parallel tests (and other builds on this machine) scan from different starts.
-        let offset = NEXT_PORT.fetch_add(1, Ordering::Relaxed);
-        let preferred = 57000 + (std::process::id() % 800) as u16 * 8 + offset;
+        let preferred = preferred_port();
         let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
             .await
             .expect("postgres starts");

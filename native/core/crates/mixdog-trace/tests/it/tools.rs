@@ -40,6 +40,32 @@ fn tool_rows_and_failure_rows_match_node() {
     assert_eq!(lines(&failures), lines(g["failures"].as_str().unwrap()));
 }
 
+/// Node's own redaction test (`agent-trace-failures.test.mjs`) over the real `traceAgentTool`, both sinks whole
+/// (`fixtures/agent-trace-redaction/golden.json`, record-agent-trace-redaction.mjs): the structured error's bearer header, a
+/// session cancellation (a trace row, no failure row) and the `--password`, `-p` and URL userinfo values.
+#[test]
+fn the_trace_and_failure_sinks_redact_secrets_as_node_does() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-trace-redaction/golden.json");
+    let g: Value = mixdog_js::json_parse(&fs::read_to_string(path).unwrap()).unwrap();
+    let now = g["now"].as_i64().unwrap();
+    let slow = t::SlowTool::from_env(&|_| None);
+    let (mut trace, mut failures) = (String::new(), String::new());
+    for case in g["cases"].as_array().unwrap() {
+        let records = t::tool_records(case.as_object().unwrap(), &slow, now);
+        for record in std::iter::once(&records.tool).chain(records.slow.as_ref()) {
+            trace.push_str(&t::stringify(&Value::Object(t::build_row(record, now))));
+            trace.push('\n');
+        }
+        if let Some(row) = &records.failure {
+            failures.push_str(&t::stringify(row));
+            failures.push('\n');
+        }
+    }
+    assert_eq!(trace, g["trace"].as_str().unwrap());
+    assert_eq!(failures, g["failures"].as_str().unwrap());
+    assert!(!(trace + &failures).contains("hunter2"), "a credential reached a sink");
+}
+
 #[test]
 fn classify_tool_failure_matches_node() {
     let g = golden();

@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 15: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 16: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 15;
+PRAGMA user_version = 16;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -206,6 +206,16 @@ CREATE TABLE history (
 CREATE INDEX history_iid ON history(session, iid);
 CREATE INDEX history_page ON history(session, ordinal) WHERE visible = 1 AND superseded_rev IS NULL;
 CREATE INDEX history_model ON history(session, ordinal) WHERE model = 1 AND superseded_rev IS NULL;
+
+-- The ids besides `iid` by which a client names a row of the item at `ordinal`: a user row's submission id, a display row's
+-- own id. A cursor names a row by such an id, so finding it is a lookup, not a scan of the history. Whether the row is live
+-- is `history`'s.
+CREATE TABLE history_alias (
+    session TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    PRIMARY KEY (session, alias, ordinal)
+) WITHOUT ROWID;
 
 -- One row per `model_switch` frame: a display-only boundary on the anchor (anchor_ordinal,
 -- anchor_iid) — an `item` row, or a replacement entry of the `compacted` frame at
