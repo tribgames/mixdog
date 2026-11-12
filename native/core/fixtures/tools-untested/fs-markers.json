@@ -1,0 +1,143 @@
+{
+  "note": null,
+  "sizes": [
+    {
+      "bytes": 0,
+      "text": "0 bytes"
+    },
+    {
+      "bytes": 1,
+      "text": "1 bytes"
+    },
+    {
+      "bytes": 1023,
+      "text": "1023 bytes"
+    },
+    {
+      "bytes": 1024,
+      "text": "1 KB"
+    },
+    {
+      "bytes": 1536,
+      "text": "1.5 KB"
+    },
+    {
+      "bytes": 5120,
+      "text": "5 KB"
+    },
+    {
+      "bytes": 5220,
+      "text": "5.1 KB"
+    },
+    {
+      "bytes": 1048576,
+      "text": "1024 KB"
+    },
+    {
+      "bytes": 51200,
+      "text": "50 KB"
+    }
+  ],
+  "windows": [
+    {
+      "input": {
+        "from": 5,
+        "to": 27,
+        "total": 90,
+        "nextOffset": 28
+      },
+      "text": "[lines 5-27 of 90; offset:28 for more]"
+    },
+    {
+      "input": {
+        "from": 5,
+        "to": 90,
+        "total": 90
+      },
+      "text": "[lines 5-90 of 90]"
+    },
+    {
+      "input": {
+        "unit": "chars",
+        "from": 0,
+        "to": 10,
+        "total": 30,
+        "nextOffset": 10
+      },
+      "text": "[chars 0-10 of 30; offset:10 for more]"
+    },
+    {
+      "input": {
+        "from": 1,
+        "to": 5,
+        "total": 20,
+        "nextOffset": 6,
+        "capBytes": 512
+      },
+      "text": "[lines 1-5 of 20; output capped at 512 bytes; offset:6 for more]"
+    },
+    {
+      "input": {
+        "from": 1,
+        "to": 5,
+        "nextOffset": 6
+      },
+      "text": "[lines 1-5; offset:6 for more]"
+    },
+    {
+      "input": {
+        "from": 1,
+        "to": 5,
+        "capBytes": 51200
+      },
+      "text": "[lines 1-5; output capped at 50 KB]"
+    }
+  ],
+  "caps": [
+    {
+      "input": {
+        "limit": 5120,
+        "shown": "63 match row(s) shown",
+        "nextOffset": 63
+      },
+      "text": "[output capped at 5 KB; 63 match row(s) shown; offset:63 for more]"
+    },
+    {
+      "input": {
+        "limit": 1024
+      },
+      "text": "[output capped at 1 KB; narrow: restrict the path, pattern or scope]"
+    },
+    {
+      "input": {
+        "limit": 1536,
+        "narrow": "narrow the path"
+      },
+      "text": "[output capped at 1.5 KB; narrow: narrow the path]"
+    },
+    {
+      "input": {
+        "limit": "500 rows",
+        "narrow": "narrow the path"
+      },
+      "text": "[output capped at 500 rows; narrow: narrow the path]"
+    },
+    {
+      "input": {
+        "limit": 100,
+        "shown": "a"
+      },
+      "text": "[output capped at 100 bytes; a; narrow: restrict the path, pattern or scope]"
+    },
+    {
+      "input": {
+        "limit": "500 rows",
+        "shown": "x",
+        "nextOffset": 7,
+        "narrow": "n"
+      },
+      "text": "[output capped at 500 rows; x; offset:7 for more; narrow: n]"
+    }
+  ],
+  "notPortedFromNode": "capMarker's cursor and fullPath, windowMarker's offsetKey: the Rust markers have no caller that passes them"
+}
