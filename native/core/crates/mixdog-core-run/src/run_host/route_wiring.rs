@@ -447,6 +447,13 @@ mod tests {
             ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<mixdog_core_api::domain::provider::ProviderError>> {
                 Ok(messages)
             }
+            async fn prepare_for_route(
+                &self,
+                messages: Vec<mixdog_core_api::domain::provider::Message>,
+                _: mixdog_core_api::domain::provider::MediaSupport,
+            ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<mixdog_core_api::domain::provider::ProviderError>> {
+                Ok(messages)
+            }
             fn text_form(
                 &self,
                 _: &mixdog_core_api::domain::provider::ContentPart,

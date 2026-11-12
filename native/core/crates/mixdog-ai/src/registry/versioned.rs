@@ -74,6 +74,15 @@ impl ProviderAdapter for VersionedAdapter {
     fn cache_warm(&self) -> Option<&dyn mixdog_core_api::domain::cache_warm::CacheWarmSend> {
         self.inner.cache_warm()
     }
+    fn native_pdf(&self) -> bool {
+        self.inner.native_pdf()
+    }
+    fn native_documents(&self) -> Option<bool> {
+        self.inner.native_documents()
+    }
+    async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
+        self.inner.media_support(request).await
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }

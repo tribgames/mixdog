@@ -32,6 +32,10 @@ impl MediaText for Media {
         Ok(messages)
     }
 
+    async fn prepare_for_route(&self, messages: Vec<Message>, _: mixdog_core_api::domain::provider::MediaSupport) -> Result<Vec<Message>, Box<ProviderError>> {
+        Ok(messages)
+    }
+
     fn text_form(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>> {
         use base64::Engine as _;
         let ContentPart::File { source, mime_type, filename, .. } = part else {

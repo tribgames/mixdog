@@ -382,10 +382,22 @@ impl Run {
                 let resolved = match resolved {
                     // A text-only route reads and lowers its stored files itself.
                     Ok(messages) if self.config.text_only.is_none() => {
-                        let native_pdf = self.provider.native_pdf();
-                        or_cancelled(&self.cancel, crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), native_pdf))
-                            .await
-                            .ok_or(AgentError::Aborted)?
+                        // The engine this request goes to says what it takes as a document (a gateway's Messages
+                        // engine differs from its Chat wire).
+                        let support = self.provider.media_support(&request).await;
+                        let resolved = or_cancelled(
+                            &self.cancel,
+                            crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf),
+                        )
+                        .await
+                        .ok_or(AgentError::Aborted)?;
+                        // `preparePdfTextForProvider`, and the text of an Office file, for every provider.
+                        match (resolved, self.config.file_text.clone()) {
+                            (Ok(messages), Some(media)) => or_cancelled(&self.cancel, media.prepare_for_route(messages, support))
+                                .await
+                                .ok_or(AgentError::Aborted)?,
+                            (resolved, _) => resolved,
+                        }
                     }
                     other => other,
                 };

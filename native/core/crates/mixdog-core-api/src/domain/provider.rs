@@ -1088,6 +1088,13 @@ pub trait ModelStream: Send {
     fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>);
 }
 
+/// The document capabilities of one route (`providerTakesNativePdf`, `provider.nativeDocuments`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MediaSupport {
+    pub native_pdf: bool,
+    pub native_documents: Option<bool>,
+}
+
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &ProviderId;
@@ -1140,6 +1147,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// kind, so every document variant is lowered to text. Unset by default.
     fn native_documents(&self) -> Option<bool> {
         None
+    }
+    /// What the route `request` goes to takes as a document: Node asks the engine that sends it (a gateway's Messages
+    /// engine declares its own `nativePdf` / `nativeDocuments`, apart from the provider's flags for its Chat and
+    /// Responses wires). The provider's own flags by default; a wrapper forwards its inner provider's.
+    async fn media_support(&self, _request: &ModelRequest) -> MediaSupport {
+        MediaSupport { native_pdf: self.native_pdf(), native_documents: self.native_documents() }
     }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`
     /// may wait for its response headers and its first output, which the progress watchdog's

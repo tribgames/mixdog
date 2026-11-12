@@ -104,6 +104,13 @@ impl MediaText for NoMedia {
     ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<ProviderError>> {
         Ok(messages)
     }
+    async fn prepare_for_route(
+        &self,
+        messages: Vec<mixdog_core_api::domain::provider::Message>,
+        _: mixdog_core_api::domain::provider::MediaSupport,
+    ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<ProviderError>> {
+        Ok(messages)
+    }
     fn text_form(&self, _: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<String>, Box<ProviderError>> {
         Ok(None)
     }

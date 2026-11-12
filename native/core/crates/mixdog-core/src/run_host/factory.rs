@@ -2464,6 +2464,7 @@ mod tests {
                 step_auto_effort: None,
                 text_only: None,
                 attachments: None,
+                file_text: None,
                 model_max_output_tokens: None,
             }
         }
@@ -2748,7 +2749,7 @@ mod tests {
             work: rig.work.clone(),
             cycles: Arc::default(),
             config: Arc::new(Config),
-            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
+            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), media: None, heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
             ladder: Arc::new(NoLadder),
             shells: None,
             liveness,
