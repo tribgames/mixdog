@@ -10,10 +10,12 @@
 //   node benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs --tree <dir>
 import http from 'node:http';
 import net from 'node:net';
+import { mock } from 'node:test';
 import { begin, finish, importFrom, exact, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { createMemoryServiceLifecycle } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory-service-lifecycle.mjs');
+const { createMemoryDaemonLifecycle } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory-daemon-lifecycle.mjs');
 const { createLoopbackListener } = await importFrom(ctx.tree, 'src/runtime/shared/loopback-listener.mjs');
 
 const deferred = () => { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -246,6 +248,53 @@ for (const step of ['withdraw', 'closeListener', 'stopBackgroundWork', 'shutdown
   h.mark('stop (listener close and shutdown both throw)', { ...stopOutcome, aggregateHoldsTheInjectedErrorsInOrder: aggregateOk });
   add(310, 'multiple shutdown failures remain available after every cleanup is attempted', { steps: h.steps });
 }
+{
+  // Quit: the daemon releases its registration (daemon.mjs:372-378) and the memory process stops when its last client is gone
+  // (memory-daemon-lifecycle.mjs:60-74, wired at index.mjs:162-171 with log = __mixdogMemoryLog, its stderr, which the daemon's
+  // spawner mirrors into memory-runtime-proxy.log, daemon-spawn.mjs:110-115). The real createMemoryDaemonLifecycle over the real
+  // createMemoryServiceLifecycle whose stop fails; the grace timer runs on node:test's mock clock, moved by one explicit tick, and
+  // process.exit is captured (restored on every path).
+  const quits = [];
+  for (const [failing, endpoints] of [
+    ['storage', { shutdown: 'database close failed' }],
+    ['worker stop and storage', { stopBackgroundWork: 'worker termination failed', shutdown: 'database close failed' }],
+  ]) {
+    const h = harness((push) => Object.fromEntries(Object.entries(endpoints).map(([step, text]) => [step, async () => { push(step); throw new Error(text); }])));
+    await h.lifecycle.init();
+    const logs = [];
+    const exits = [];
+    const exited = deferred();
+    const realExit = process.exit;
+    process.exit = (code) => { exits.push(code); exited.resolve(); };
+    try {
+      mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+      let daemon;
+      try {
+        const alive = new Set([4242]);
+        daemon = createMemoryDaemonLifecycle({
+          daemonMode: true, idleTtlMs: 0, clientGraceMs: 10_000,
+          parsePositivePid: (pid) => (Number.isInteger(pid) && pid > 0 ? pid : null),
+          isPidAlive: (pid) => alive.has(pid),
+          isStopping: () => h.lifecycle.isStopping(),
+          stop: () => h.lifecycle.stop(),
+          log: (chunk) => { logs.push(chunk); },
+        });
+        daemon.registerClient(4242);
+        alive.delete(4242);
+        daemon.deregisterClient(4242);
+        mock.timers.tick(10_000);
+      } finally {
+        daemon?.reset();
+        mock.timers.reset();
+      }
+      await within('the memory process to exit after its failed client-grace stop', exited.promise, 30_000);
+    } finally {
+      process.exit = realExit;
+    }
+    quits.push({ failing, logs, exitCodes: exits, calls: h.calls });
+  }
+  cases.push({ name: 'at quit the last client leaves and the memory stop fails: what the memory process writes (memory-daemon-lifecycle.mjs:60-74)', quits });
+}
 
 finish(ctx, {
   url: import.meta.url,
@@ -253,7 +302,39 @@ finish(ctx, {
   golden: { domain: 'memory-service-lifecycle', source: 'src/runtime/memory/lib/memory-service-lifecycle.test.mjs', cases },
   extra: {
     entry: { runs: 'createMemoryServiceLifecycle (memory-service-lifecycle.mjs): init, stop, getInitialized, isStopping, getInitPromise; case 216 also the real createLoopbackListener (shared/loopback-listener.mjs) on an http.Server', notRun: 'the owners behind its callbacks (database initialize, port advert, background workers, storage shutdown): scripted endpoints appending to one ordered event log' },
-    replay: "mixdog-services memory/boot.rs: MemoryStack::start (:269, pub) and MemoryStack::stop (:614, pub) (a use opens the database once and concurrent uses share that opening; stop cancels and joins an opening nobody waits for, refuses a use while an opening is in flight, starts nothing when an opening ends after the stop gave up; tests memory/tests/boot.rs two_first_uses_share_one_install_and_see_its_outcome, a_stop_cancels_and_joins_an_opening_nobody_waits_for, a_use_after_stop_is_refused_while_an_opening_is_in_flight, an_opening_that_ends_after_the_stop_gave_up_starts_nothing). A replay maps per case: \"who gets the instance\" (same init promise, one `initialize`), \"what a cancelled acquisition leaves behind\" (state flags, no ready/advertise after stop), \"order of release\" (withdraw, close, stop-background, shutdown; workers before the request drain; storage last). Rust has no HTTP port to advertise: `advertise`/`withdraw`/`close`/`listen` map to the seams it has or are listed as work for the Rust side; the state flags and the order of the remaining owners are compared exactly",
+    replay: "mixdog-services memory/replays/service_lifecycle.rs against MemoryStack (memory/boot.rs): MemoryStack::start builds the stack over a scripted PgRuntimeSource::Install (Node's scripted initialize: logs its entry where Node's did, held at a gate, failing with the recorded text, or handing over MIXDOG_PG_RUNTIME so the opening reaches a real private cluster), a memory request's database use (stack.db().client()) is init(), MemoryStack::stop is stop(). Compared per step: the use's outcome (error name and message), state.initialized = MemoryStack::is_open, state.stopping = MemoryStack::is_stopping, the calls mapped initialize -> install entry, acquired -> the held install's release, stop-background/workers-stopped/workers-stop-throws -> the stop's background-work step, shutdown/storage-closed -> its storage release (both observed and failed through the development-only StopSeam, test-support), cleanupOrder/order -> those steps in order, sameInitPromiseWhilePending -> one install for concurrent uses, signalAbortedAtStop -> the install's cancel token at the stop, initializeCalled -> the install count, attempts -> installs over both cores of case 8. The next start after a stop is the next core's stack over the same profile (the core never reopens a stopped stack). What is the listener's or the port advert's alone is declared in `declared` (no client of memory in K1 reaches either: `listenerClients`). Case 18 (quit) runs the host's quit stop (MemoryStack::stop_for_quit, called by the composed core's memory stop step and its startup-failure release, mixdog-app-server-daemon compose_flip.rs) with the same failures injected through the StopSeam and compares the lines it writes to the memory worker's stderr (mixdog_rt::memory_stderr!, the core's memory-runtime-proxy.log) with `logs`' failure line, as the bytes node_log::bare writes",
+    listenerClients: {
+      claim: 'nothing in K1 connects to a memory listener or reads the memory port advert, so neither has a client-visible counterpart',
+      core: 'native/core has no memory listener, advert or discovery reader: the memory stack runs in the daemon (mixdog-app-server-daemon compose_flip.rs MemoryStack::start) and is reached by in-process calls',
+      desktop: 'apps/desktop reaches memory only through the core control RPC (apps/desktop/src/main/session-host.ts:1004,1011 transport.invokeControl); no file under apps/ reads discovery/memory.json',
+      cli: 'apps/ holds desktop, mixdogd-npm, mobile, relay: none reads the memory advert or connects to a memory port',
+      nodeReadersDeletedAtK1: [
+        'src/runtime/shared/service-discovery.mjs:81,108 readLiveServiceAdvert/readServicePort (K1 delete list, scratch/rust-core/k1/delete-list.md:3215)',
+        'src/runtime/agent/orchestrator/mcp/client-transport.mjs:48,53 and client-config.mjs:15 (delete-list.md:1822,1818)',
+        'src/runtime/agent/orchestrator/agent-trace-io.mjs:232 (delete-list.md:1778)',
+        'src/session-runtime/services/memory-runtime-proxy/discovery.mjs:27 and rpc.mjs:88, the memory runtime proxy (src/session-runtime/**, delete-list.md:3343)',
+        'src/runtime/memory/lib/memory-port-advertiser.mjs:65 and memory-config-flags.mjs:7 (src/runtime/memory/lib/**, delete-list.md:2999)',
+      ],
+    },
+    declared: [
+      { what: 'calls start and error', reason: 'log lines (runtime/memory/index.mjs:578,580); the error itself is compared as the use\'s outcome' },
+      { what: 'calls ready', reason: 'a log line and the idle timer (index.mjs:582-588); readiness is compared as state.initialized' },
+      { what: 'calls listen, advertise, withdraw, close, listener-closing; cleanupOrder withdraw, closeListener; order listener-closing', reason: "the HTTP listener and the port advert: the core's memory serves no HTTP and writes no advert; nothing in K1 connects to one (`listenerClients`)" },
+      { what: 'state.hasInitPromise', reason: 'read only by the HTTP router (http-router.mjs:36), which the in-process memory does not serve' },
+      { what: 'the calls after `error` in cases 5 and 8 (step 0)', reason: 'the stop a failed initialization runs on itself (memory-service-lifecycle.mjs:55-59) releases the listener and storage that was never opened; the core releases a partly opened cluster inside the opening (boot.rs release_on_failure) and runs no stop' },
+      { case: 2, what: 'secondStopIsTheSamePromise', reason: 'the core\'s stop has one caller, the host\'s shutdown' },
+      { case: 3, what: 'listenCalled', reason: 'no listener' },
+      { case: 16, step: 1, what: 'the step while the request drain is open', reason: 'the drain is the listener\'s closing (memory-service-lifecycle.mjs:83-91); its worker-stop call is compared with the last step' },
+      { case: 4, reason: 'a late listener result: the listener alone' },
+      { case: 6, reason: 'a listener failure: the listener alone' },
+      { case: 10, reason: 'a real listener closed at stop: the listener alone (the pending initialization refused at stop is case 2)' },
+      { case: 12, reason: 'withdraw fails: the port advert alone' },
+      { case: 13, reason: 'closeListener fails: the listener alone' },
+      { case: 17, reason: 'the aggregate holds the listener close failure: the listener alone (the storage failure alone is case 9)' },
+      { case: 18, what: 'logs: the `daemon client grace elapsed (…); shutting down` line', reason: "Daemon mode is in scope: the core's memory replaces the memory process the host forks, not an in-process memory. The host reaches memory only through the proxy (standalone/daemon.mjs:221 getStandaloneMemoryRuntime, session-runtime/runtime-modules.mjs:19), which forks it with MIXDOG_MEMORY_DAEMON=1 (memory-runtime-proxy/daemon-spawn.mjs:55), so the client grace is armed there (index.mjs:159,162-171; memory-daemon-lifecycle.mjs:60-74): the host's quit deregisters its client (daemon.mjs:375, client-registry.mjs:76-85), deregisterClient arms the 10 s grace (memory-daemon-lifecycle.mjs:98-102; MEMORY_CLIENT_GRACE_MS, index.mjs:161), registerClient cancels it (:87-93), and its callback prunes dead clients and looks at nothing else (:64-65): a call in progress does not delay the stop. The core has no grace, by decision (decisions.md, WORK-PACKAGES §8: idle stop — the core stops immediately when the last client leaves and no work is running, no grace timer): its memory shares the host's process, so nothing outlives the host that a later client could re-register with, and a grace the host waited out would delay its quit by 10 s. At quit it stops at once (MemoryStack::stop_for_quit), through the same failing steps; a line naming the elapsed grace would be untrue; the failure line is compared" },
+      { case: 18, what: 'exitCodes', reason: 'the exit code of the separate memory process (process.exit(1)); the core\'s memory has no process of its own, and the daemon\'s exit code at quit is its own' },
+      { case: 18, what: 'calls', reason: 'the scripted endpoints\' calls, compared in cases 9 and 14-16' },
+    ],
     exclusions: 'none: every test of the file is recorded (the three-step failure loop is recorded for four steps; shutdown is a further shape)',
     normalised: { 'error identity': 'the test asserts error === the injected object; recorded as errorIsTheInjectedObject / aggregateHoldsTheInjectedErrorsInOrder booleans', 'listener port': 'case 216: the real ephemeral port is written <port> in the advertise/ready events; only the observable result of connecting after stop (ECONNREFUSED)' },
   },

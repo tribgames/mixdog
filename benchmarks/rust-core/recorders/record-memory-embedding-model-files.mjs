@@ -12,6 +12,7 @@ import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { ensureModelFile, ensureModelGraph } = await importFrom(ctx.tree, 'src/runtime/memory/lib/embedding-model-files.mjs');
+const { getEmbeddingModelGraphFile } = await importFrom(ctx.tree, 'src/runtime/memory/lib/embedding-model-config.mjs');
 const realFetch = globalThis.fetch;
 
 function files(dir) {
@@ -49,7 +50,16 @@ async function session(setup, steps, hub) {
         writeFileSync(join(cacheDir, step.write.path), Buffer.from(step.write.bytesHex, 'hex'));
       }
       const before = requests.length;
-      const answer = await capture(async () => relative(cacheDir, await (step.call === 'graph' ? ensureModelGraph : ensureModelFile)(cacheDir, step.model, step.file)).split(sep).join('/'));
+      const rel = (path) => relative(cacheDir, path).split(sep).join('/');
+      // `worker`: the embedding worker's own sequence (embedding-worker.mjs:286-287 loadTokenizer, :303-307 createExtractor):
+      // tokenizer.json, tokenizer_config.json, then the graph its config names; the three paths in that order.
+      const answer = step.call === 'worker'
+        ? await capture(async () => [
+          rel(await ensureModelFile(cacheDir, step.model, 'tokenizer.json')),
+          rel(await ensureModelFile(cacheDir, step.model, 'tokenizer_config.json')),
+          rel(await ensureModelGraph(cacheDir, step.model, getEmbeddingModelGraphFile(step.model, step.dtype ?? undefined))),
+        ])
+        : await capture(async () => rel(await (step.call === 'graph' ? ensureModelGraph : ensureModelFile)(cacheDir, step.model, step.file)));
       out.steps.push({ ...step, ...answer, requests: requests.slice(before), cacheAfter: files(cacheDir) });
     }
   } finally {
@@ -92,6 +102,21 @@ const further = [
     { 'org/model/resolve/main/config.json': { status: 200, body: '{}' } }),
   await session([{ path: GRAPH, bytesHex: hex('graph') }], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {}),
 ];
+// The worker's whole install over one hub: a cold cache, a cache with a damaged tokenizer config and the weights missing,
+// a healthy cache, and a hub that fails the tokenizer.
+const fullHub = {
+  'org/model/resolve/main/tokenizer.json': { status: 200, body: '{"model":{}}' },
+  'org/model/resolve/main/tokenizer_config.json': { status: 200, body: '{"model_max_length":256}' },
+  'org/model/resolve/main/onnx/model.onnx_data': { status: 200, body: 'weights' },
+  'org/model/resolve/main/onnx/model.onnx': { status: 200, body: 'graph' },
+};
+const worker = { call: 'worker', model: 'org/model', dtype: null };
+const install = [
+  await session([], [worker], fullHub),
+  await session([{ path: 'org/model/tokenizer.json', bytesHex: hex('{"model":{}}') }, { path: 'org/model/tokenizer_config.json', bytesHex: nul(16) }, { path: GRAPH, bytesHex: hex('graph') }, { path: `${GRAPH}_data`, bytesHex: '' }], [worker], fullHub),
+  await session([{ path: 'org/model/tokenizer.json', bytesHex: hex('{"model":{}}') }, { path: 'org/model/tokenizer_config.json', bytesHex: hex('{"model_max_length":256}') }, { path: GRAPH, bytesHex: hex('graph') }, { path: `${GRAPH}_data`, bytesHex: hex('weights') }], [worker], fullHub),
+  await session([], [worker], { 'org/model/resolve/main/tokenizer.json': { status: 503, body: 'busy' } }),
+];
 
 finish(ctx, {
   url: import.meta.url,
@@ -103,12 +128,12 @@ finish(ctx, {
       { name: 'an intact cached graph with empty or NUL external weights fetches only the weights', session: graphCase },
       { name: 'empty, NUL-filled or unparsable cached model files are fetched again', session: fileCase },
       { name: 'further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache', sessions: further },
+      { name: "the embedding worker's install (beyond the test file): cold, damaged, healthy, failing hub", sessions: install },
     ],
   },
   extra: {
     entry: { runs: 'ensureModelFile and ensureModelGraph (embedding-model-files.mjs) over a real temp cache directory, with the real atomic-file/file-has-data helpers', notRun: 'the Hugging Face Hub: globalThis.fetch is a scripted endpoint (status and body per URL), recorded with every request' },
-    rustWork: "The Rust install (mixdog-services memory/embed/install.rs:131 install, :140 body) cannot be pointed at the arbitrary config.json / vocab.txt downloads these recordings hold, and its request order differs from Node's. Rust: tokenizer.json, tokenizer_config.json (each only when unusable), then the graph's `_data` weights, then the graph. Node, as recorded: only the files its readiness check found missing or damaged, in this order per session: the external weights `onnx/model.onnx_data`, then the graph `onnx/model.onnx` (cold cache); `tokenizer_config.json` and `config.json` / `vocab.txt` as the sessions that start from those file sets request them (see each session's steps[].requests, in order). Work for the Rust side: decide whether config.json / vocab.txt belong in the install (Rust has no counterpart today) and the tokenizer-first order; a replay compares requests in the recorded order only for the sessions whose files Rust also downloads",
-    replay: "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
+    replay: "mixdog-services memory/embed/install.rs (pub): ensure_model_file / ensure_model_graph for the test file's steps, and install (what EmbeddingProvider::install runs) for the worker's sequence of case 4. A replay (memory/replays/model_files.rs) serves the recorded hub answers from a local server and compares every request as it arrives (url, method, headers, body) in order, the result or error, and the files left in the cache",
     exclusions: 'request init is recorded as passed (null: Node passes none, so no header is sent)',
     normalised: { 'temp cache dir': 'paths are relative to the cache dir', 'partial file name': 'process id in "<file>.<pid>.part" written as <pid> (no partial remains after a step)' },
   },

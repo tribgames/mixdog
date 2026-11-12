@@ -1,5 +1,6 @@
 //! Embeddings: model profiles, the Unigram tokenizer and ONNX inference.
 
+pub mod compress;
 pub mod config;
 pub mod engine;
 pub mod install;

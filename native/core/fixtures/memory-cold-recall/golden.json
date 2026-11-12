@@ -1,0 +1,78 @@
+{
+  "clockMs": 1748736000000,
+  "appended": {
+    "ok": true,
+    "id": 1,
+    "changes": 1
+  },
+  "entries": [
+    {
+      "id": 1,
+      "ts": 1748736000000,
+      "role": "user",
+      "score": null,
+      "status": null,
+      "content": "the kettle descaling schedule is every second sunday",
+      "element": null,
+      "is_root": 0,
+      "summary": null,
+      "category": null,
+      "embedding": null,
+      "chunk_root": null,
+      "concept_id": null,
+      "project_id": null,
+      "search_tsv": "'descal':11C 'descaling':3C 'everi':14C 'every':6C 'is':5C 'kettl':10C 'kettle':2C 'schedul':12C 'schedule':4C 'second':7C,15C 'sunday':8C,16C 'the':1C",
+      "session_id": "sess-cold",
+      "source_ref": "manual:1748736000000-57380",
+      "error_count": 0,
+      "reviewed_at": null,
+      "source_turn": null,
+      "time_source": null,
+      "duplicate_of": null,
+      "last_seen_at": null,
+      "summary_hash": null,
+      "chunk_quality": null,
+      "supersedes_id": null
+    }
+  ],
+  "steps": [
+    {
+      "label": "recall while the model is still loading",
+      "args": {
+        "query": "kettle descaling"
+      },
+      "result": {
+        "text": "[2025-06-01 00:00 +00:00] u: the kettle descaling schedule is every second sunday [pending] #1",
+        "content": [
+          {
+            "type": "text",
+            "text": "[2025-06-01 00:00 +00:00] u: the kettle descaling schedule is every second sunday [pending] #1"
+          }
+        ],
+        "isError": false
+      },
+      "coldWaitMs": 3000,
+      "loadPendingAfterAnswer": true,
+      "loadsStarted": 1
+    },
+    {
+      "label": "recall after the load ended",
+      "args": {
+        "query": "kettle descaling"
+      },
+      "result": {
+        "text": "[2025-06-01 00:00 +00:00] u: the kettle descaling schedule is every second sunday [pending] #1",
+        "content": [
+          {
+            "type": "text",
+            "text": "[2025-06-01 00:00 +00:00] u: the kettle descaling schedule is every second sunday [pending] #1"
+          }
+        ],
+        "isError": false
+      },
+      "coldWaitMs": 3000,
+      "loadPendingAfterAnswer": false,
+      "loadsStarted": 1
+    }
+  ]
+}

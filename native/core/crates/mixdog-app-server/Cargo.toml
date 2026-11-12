@@ -67,3 +67,4 @@ fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode",
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-app-server = { path = ".", features = ["replay-controls"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
+mixdog-services = { workspace = true, features = ["test-support"] }
