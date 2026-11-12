@@ -8,7 +8,7 @@ use mixdog_core_api::domain::ext::ExtExit;
 
 /// Only the child's owner (`owner::Owner`) calls [`kill_group`](Self::kill_group), and on Unix
 /// always before the leader is reaped; nothing here signals on its own, not even on drop.
-pub(crate) struct Containment {
+pub struct Containment {
     os: os::Handle,
 }
 
@@ -22,7 +22,7 @@ impl Containment {
     /// Puts `child` (just spawned, from [`spawn_command`](crate::process::spawn_command)) under
     /// containment. On Windows the child was created suspended: it joins its job before it runs a
     /// single instruction and is resumed here, so nothing it starts is outside the job.
-    pub(crate) fn attach(child: &tokio::process::Child) -> std::io::Result<Self> {
+    pub fn attach(child: &tokio::process::Child) -> std::io::Result<Self> {
         #[cfg(test)]
         if FAIL_NEXT_ATTACH.with(std::cell::Cell::take) {
             return Err(std::io::Error::other("attach failed (injected by the test)"));
