@@ -24,6 +24,18 @@ export const MAINTENANCE_EVENT_DELAY_MS = 1_000;
 // setTimeout's largest delay; a later deadline is re-armed when this fires.
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
+const REAL_TIMERS = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (timer) => clearTimeout(timer),
+};
+let timers = REAL_TIMERS;
+/** Test seam: the pass's two timers on a scheduler of the test's own (null:
+ *  the real ones), so a test's clock decides when they fire and nothing
+ *  else on that clock has to be advanced with them. */
+export function _setMaintenanceTimersForTest(next) {
+  timers = next || REAL_TIMERS;
+}
+
 const tasks = new Map(); // steps() -> nextDeadline(since) (ms, Infinity for none)
 let deadlineTimer = null;
 let eventTimer = null;
@@ -64,7 +76,7 @@ async function runPass() {
  *  once it ends); resolves when no pass is left to run. */
 export function runAgentMaintenancePass() {
   if (eventTimer) {
-    clearTimeout(eventTimer);
+    timers.clearTimeout(eventTimer);
     eventTimer = null;
   }
   if (running) {
@@ -87,7 +99,7 @@ export function runAgentMaintenancePass() {
 // The single timer: the earliest deadline of every task after the last pass
 // began. One already passed runs the next pass now.
 function armDeadline() {
-  if (deadlineTimer) clearTimeout(deadlineTimer);
+  if (deadlineTimer) timers.clearTimeout(deadlineTimer);
   deadlineTimer = null;
   const since = lastPassStart;
   let next = Infinity;
@@ -106,7 +118,7 @@ function armDeadline() {
     void runAgentMaintenancePass();
     return;
   }
-  deadlineTimer = setTimeout(
+  deadlineTimer = timers.setTimeout(
     () => {
       deadlineTimer = null;
       if (Date.now() >= next) void runAgentMaintenancePass();
@@ -126,7 +138,7 @@ export function agentMaintenanceSettled() {
  *  soon, however many events arrive meanwhile. */
 export function requestAgentMaintenance() {
   if (eventTimer || tasks.size === 0) return;
-  eventTimer = setTimeout(runAgentMaintenancePass, MAINTENANCE_EVENT_DELAY_MS);
+  eventTimer = timers.setTimeout(runAgentMaintenancePass, MAINTENANCE_EVENT_DELAY_MS);
   eventTimer.unref?.();
 }
 
@@ -141,9 +153,9 @@ export function registerAgentMaintenance(task, nextDeadline = () => Infinity) {
     registered = false;
     tasks.delete(task);
     if (tasks.size > 0) return;
-    if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (deadlineTimer) timers.clearTimeout(deadlineTimer);
     deadlineTimer = null;
-    if (eventTimer) clearTimeout(eventTimer);
+    if (eventTimer) timers.clearTimeout(eventTimer);
     eventTimer = null;
   };
 }

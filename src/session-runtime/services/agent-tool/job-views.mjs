@@ -46,6 +46,7 @@ export function createJobViews({
     isSessionBusy,
     ensureProvider,
     list,
+    progress,
     sessionProgressExtras: progress.sessionProgressExtras,
     jobWorkerSnapshot: progress.jobWorkerSnapshot,
     listJobs: render.listJobs,

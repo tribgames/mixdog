@@ -1,6 +1,7 @@
 import { contentCarriesLiveMedia } from '../../providers/media-normalization.mjs';
 import { publishSessionPersistence } from './session-persistence-events.mjs';
 import { raiseDesktopNotice } from '../../../../shared/desktop-notice-host.mjs';
+import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
@@ -52,8 +53,13 @@ export function setLiveSession(session) {
   _liveSessions.set(session.id, session);
 }
 
+// A live copy going changes which copy answers for the session (agent status
+// reads it), so it is announced; a copy set is announced by the save that
+// follows it (_publishLiveSession).
 export function _clearLiveSession(id) {
-  if (id) _liveSessions.delete(id);
+  if (!id || !_liveSessions.delete(id)) return false;
+  emitSessionActivityChange(id);
+  return true;
 }
 
 // Live snapshots that still carry inline media bytes (the stored record holds

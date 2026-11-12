@@ -432,8 +432,12 @@ export async function createLocalSessionRuntime({
     onChange: runtimePulse.publishWorkspace,
   });
   headWatch.retarget();
+  // Per-row agent status subscriptions (api.onAgentStatusRows), re-pointed
+  // when the runtime's session changed.
+  const agentRowFollowers = new Set();
   const stopStatusWatch = statusWatch.start(sessionStatusScheduler(), () => {
     headWatch.retarget();
+    for (const follow of agentRowFollowers) follow();
     runtimePulse();
     // A sub-agent's approval made before this session loaded (or bound its id).
     adoptDelegatedApprovals();
@@ -606,6 +610,26 @@ export async function createLocalSessionRuntime({
   bag.runTurn = createRunTurn(bag);
   bag.doctor = { runDoctorChecks, formatDoctorReport };
   const api = createSessionApi(bag);
+  // Every row change of this session's agent status as it happens (wire
+  // contract; the full list is api.getAgentStatus). A subscription follows the
+  // session the runtime holds; its status pass re-checks after a session change.
+  api.onAgentStatusRows = (listener) => {
+    if (typeof runtime.onAgentStatusRows !== 'function' || typeof listener !== 'function') return () => {};
+    let subscription = null;
+    const follow = () => {
+      const sessionId = String(runtime.id || '');
+      if (subscription && subscription.sessionId === sessionId) return;
+      subscription?.stop();
+      subscription = sessionId ? runtime.onAgentStatusRows(listener) : null;
+    };
+    agentRowFollowers.add(follow);
+    follow();
+    return () => {
+      agentRowFollowers.delete(follow);
+      subscription?.stop();
+      subscription = null;
+    };
+  };
   rearmGoalContinuationOnSessionBoundaries({ api, bag });
   void Promise.resolve(bag.restoreLeadSteeringFromDisk())
     .catch(() => {})

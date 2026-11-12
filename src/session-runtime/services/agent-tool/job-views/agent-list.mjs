@@ -88,6 +88,63 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
   return row;
 }
 
+// Test seam: `onRowDerived()` hears every list row built (status counting tests).
+let onRowDerived = null;
+export function _setRowDerivedCounterForTest(listener) {
+  onRowDerived = typeof listener === 'function' ? listener : null;
+}
+
+/** One entry of agentSessionEntries as list() shows it, or null when list()
+ *  leaves it out (`includeTerminal` etc. as list's options). */
+export function agentListRow(
+  { mgr, progress },
+  { tag, session, indexRow, loaded },
+  { now = Date.now(), memoryOnly = false, includeTerminal = false, includeIdle = false, includeClosed = false } = {}
+) {
+  const runtime = mgr.getSessionRuntime?.(session.id);
+  // Whether a row is listed depends on its status and stage alone, so a
+  // finished worker is dropped before its progress is read: that read
+  // loads the worker's stored session, and a Lead's status pulse (every
+  // 2 s) would otherwise read every worker it ever ran, whole transcripts
+  // on first sight, synchronously on the daemon loop.
+  const state = rowState(session, runtime);
+  if (
+    !includeTerminal &&
+    !isActiveWorkerRow(state) &&
+    !(includeIdle && isOpenIdleRow(state)) &&
+    !(includeClosed && state.status === 'closed')
+  )
+    return null;
+  onRowDerived?.();
+  return agentRow({
+    tag,
+    session,
+    indexRow,
+    runtime,
+    // A tag-bound entry is the getSession answer itself; an index row or
+    // a scanned summary is only a projection and still reads the session
+    // (the pulse from memory: session-record.mjs).
+    progress: progress.sessionProgressExtras(
+      session.id,
+      session.agent || null,
+      now,
+      null,
+      loaded
+        ? { loaded: session, memoryOnly }
+        : memoryOnly
+          ? { loaded: progress.memorySession(session.id), memoryOnly }
+          : {}
+    ),
+    now,
+  });
+}
+
+/** Whether `session` (an index row's or a tag's) is listed by the status read:
+ *  its status and stage alone decide (agentListRow's filter). */
+export function isListedStatusEntry(mgr, session) {
+  return isActiveWorkerRow(rowState(session, mgr.getSessionRuntime?.(session.id)));
+}
+
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
   // `memoryOnly` (the status pulse): rows come from the in-memory worker index
   // and live sessions alone; no session record is read (tag-refresh.mjs).
@@ -102,44 +159,15 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
     refreshTagsFromSessions({ scanSessions, context, memoryOnly });
     const now = Date.now();
     const rows = [];
-    for (const { tag, session, indexRow, loaded } of agentSessionEntries({ scanSessions, context, memoryOnly })) {
-      const runtime = mgr.getSessionRuntime?.(session.id);
-      // Whether a row is listed depends on its status and stage alone, so a
-      // finished worker is dropped before its progress is read: that read
-      // loads the worker's stored session, and a Lead's status pulse (every
-      // 2 s) would otherwise read every worker it ever ran, whole transcripts
-      // on first sight, synchronously on the daemon loop.
-      const state = rowState(session, runtime);
-      if (
-        !includeTerminal &&
-        !isActiveWorkerRow(state) &&
-        !(includeIdle && isOpenIdleRow(state)) &&
-        !(includeClosed && state.status === 'closed')
-      )
-        continue;
-      rows.push(
-        agentRow({
-          tag,
-          session,
-          indexRow,
-          runtime,
-          // A tag-bound entry is the getSession answer itself; an index row or
-          // a scanned summary is only a projection and still reads the session
-          // (the pulse from memory: session-record.mjs).
-          progress: progress.sessionProgressExtras(
-            session.id,
-            session.agent || null,
-            now,
-            null,
-            loaded
-              ? { loaded: session, memoryOnly }
-              : memoryOnly
-                ? { loaded: progress.memorySession(session.id), memoryOnly }
-                : {}
-          ),
-          now,
-        })
-      );
+    for (const entry of agentSessionEntries({ scanSessions, context, memoryOnly })) {
+      const row = agentListRow({ mgr, progress }, entry, {
+        now,
+        memoryOnly,
+        includeTerminal,
+        includeIdle,
+        includeClosed,
+      });
+      if (row) rows.push(row);
     }
     return rows;
   };

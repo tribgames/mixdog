@@ -101,7 +101,7 @@ export function createWorkerTurns({
       ...settledWorkerStatus(finalStatus, stalled, job),
       finishedAt: new Date().toISOString(),
     });
-    notifyStatusChange();
+    notifyStatusChange({ sessionId });
   }
 
   function turnStarted(sessionId, owner, { turnId, startedAt, submissionIds = [] }) {
@@ -122,7 +122,7 @@ export function createWorkerTurns({
       turnStartedAt: new Date(startedAt).toISOString(),
     });
     owner.current = { turnId, job, watchdog: null };
-    notifyStatusChange();
+    notifyStatusChange({ sessionId });
   }
 
   // The turn's ask has started: its model work, which the progress watchdog

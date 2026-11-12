@@ -97,6 +97,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     readTagTombstoneIndex: reads.readTagTombstoneIndex,
     readTagTombstones:(context = {}) => readAllTagTombstones().filter((row) => rowMatchesContext(row, context)),
     readWorkerRows,
+    rowFeed: reads.rowFeed,
     resolveTombstoneOwners: reads.resolveTombstoneOwners,
     /** `listener()` runs when what the reads answer may have changed: the
      *  rows or tombstones, or a legacy tombstone's resolved owner. */

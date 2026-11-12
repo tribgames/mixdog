@@ -10,6 +10,7 @@ import {
   LIVE_MEDIA_RETENTION_MS,
   _messagesCarryLiveMedia,
   hasSessionSaveFailure,
+  _clearLiveSession,
 } from './live-state.mjs';
 import { _summaryCacheVersions } from './summary-cache.mjs';
 import { sessionRecordStampSync } from './session-log-reader.mjs';
@@ -38,7 +39,7 @@ export function evictLiveSession(id) {
   if (!id || _hasPendingPersistence(id)) return false;
   // An evicted session's parsed disk document goes with its snapshot.
   forgetSessionLoadCache(id);
-  return _liveSessions.delete(id);
+  return _clearLiveSession(id);
 }
 
 /**
@@ -77,7 +78,7 @@ export function evictIdleLiveSessions(options = {}) {
       const lastActive = Math.max(session?.updatedAt || 0, session?.lastUsedAt || 0);
       if (lastActive > 0 && now - lastActive <= LIVE_MEDIA_RETENTION_MS) continue;
     }
-    _liveSessions.delete(id);
+    _clearLiveSession(id);
     forgetSessionLoadCache(id);
     // With no pending persistence the rollback-race version counter for
     // this id is dead weight — reclaim it too (it regrows from 1 on the

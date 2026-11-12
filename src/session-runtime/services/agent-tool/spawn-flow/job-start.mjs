@@ -39,6 +39,9 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
       ...(clientHostPid ? { clientHostPid } : {}),
     });
     let task;
+    // The status sets list this owner's jobs again (agent-tool.mjs notifyStatusChange).
+    const jobChanged = () =>
+      notifyStatusChange({ jobsOf: task?.ownerSessionId || '', sessionId: task?.meta?.sessionId });
     const admissionController = new AbortController();
     task = startBackgroundTask({
       surface: 'agent',
@@ -63,7 +66,7 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
             );
           } catch {}
         }
-        setImmediate(notifyStatusChange);
+        setImmediate(jobChanged);
       },
       run: async () => {
         const lease = await resourceAdmission.acquire('agent', {
@@ -82,7 +85,7 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
           await lease.release();
           // startBackgroundTask stamps the terminal state in its next promise
           // continuation; publish after that continuation, not before it.
-          setImmediate(notifyStatusChange);
+          setImmediate(jobChanged);
         }
       },
     });
@@ -100,7 +103,7 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
     // The model's tool call that started this job owns it (its result message
     // carries the id: agent-task-starts.mjs).
     recordAgentTaskStart(notifyContext?.toolCallId, task.taskId);
-    notifyStatusChange();
+    jobChanged();
     return task;
   };
 }

@@ -16,6 +16,22 @@ export function emitSessionActivityChange(sessionId = '') {
   emit(listeners, sessionId);
 }
 
+// An agent job owned by a session was registered or reached its end
+// (background-tasks.mjs): the job lists that may show it are listed again.
+// Apart from the activity pulse, which fires on every stage change and names
+// no job.
+const jobListeners = new Set();
+
+export function onSessionJobsChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  jobListeners.add(listener);
+  return () => jobListeners.delete(listener);
+}
+
+export function emitSessionJobsChange(ownerSessionId = '') {
+  emit(jobListeners, ownerSessionId);
+}
+
 // A turn started on a session: the one point every turn passes through, whoever
 // started it. Unlike the activity pulse it never fires on a settle or a wait.
 const turnStartListeners = new Set();

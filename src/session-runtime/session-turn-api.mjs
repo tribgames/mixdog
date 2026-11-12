@@ -33,6 +33,8 @@ export function createSessionTurnApi(deps) {
     interruptTaskWait: session.interruptTaskWait,
     readModelMessages: session.readModelMessages,
     onAgentStatusChange: session.onAgentStatusChange,
+    agentStatusList: session.agentStatusList,
+    onAgentStatusRows: session.onAgentStatusRows,
     agentControl: agent.agentControl,
     taskControl: agent.taskControl,
     stopShellJob: agent.stopShellJob,

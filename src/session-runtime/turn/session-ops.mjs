@@ -146,12 +146,36 @@ export function createSessionOps(deps) {
     return switchProject(resolveCwdPath(path), { classifyByMembership: true });
   }
 
+  // The scope agentStatusState reads (agent-tool-routing.mjs): this session's agents.
+  const statusContext = () => ({
+    callerSessionId: getSession()?.id || null,
+    clientHostPid: getSession()?.clientHostPid || process.pid,
+  });
+
   return {
     clear,
     rewindMessages,
     compact,
     setToolMode,
     agentStatus: () => agentStatusState(),
+    /** The full per-row status list of this session (wire.md), or null before it has one. */
+    agentStatusList() {
+      const context = statusContext();
+      if (!context.callerSessionId || typeof agentTool.getStatusList !== 'function') return null;
+      return { sessionId: context.callerSessionId, ...agentTool.getStatusList(context) };
+    },
+    /** `listener(frame)` hears this session's per-row status frames (wire.md);
+     *  returns `{ sessionId, stop }` — the session the subscription follows. */
+    onAgentStatusRows(listener) {
+      const context = statusContext();
+      if (!context.callerSessionId || typeof agentTool.onStatusRows !== 'function') {
+        return { sessionId: null, stop() {} };
+      }
+      const stop = agentTool.onStatusRows(context, (frame) =>
+        listener({ sessionId: context.callerSessionId, ...frame })
+      );
+      return { sessionId: context.callerSessionId, stop };
+    },
     interruptTaskWait,
     readModelMessages,
     onAgentStatusChange: (listener) => agentTool.onStatusChange?.(listener) || (() => {}),

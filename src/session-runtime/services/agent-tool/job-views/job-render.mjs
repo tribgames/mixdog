@@ -29,36 +29,43 @@ function jobHead({ taskId, type, status, startedAt, finishedAt, error }, source,
   };
 }
 
+/** A task summary (listBackgroundTasks) as the job list shows it. */
+export function jobListRow(progress, task, now = Date.now(), memoryOnly = false) {
+  const head = jobHead({ ...task, taskId: task.task_id, type: task.operation }, task);
+  if (isTerminalJobStatus(task.status)) return { ...head, ...terminalJobFrozenFields(task.status, now) };
+  return {
+    ...head,
+    ...progress.jobWorkerSnapshot(task.sessionId, { memoryOnly }),
+    ...progress.sessionProgressExtras(
+      task.sessionId,
+      task.agent || null,
+      now,
+      task.status,
+      memoryOnly ? { loaded: progress.memorySession(task.sessionId), memoryOnly } : {}
+    ),
+  };
+}
+
+/** Whether a job row of a scope asking for terminal `wantedPid` is listed. */
+export function jobRowInTerminal(row, wantedPid) {
+  if (!wantedPid) return true;
+  const pid = positiveInt(row.clientHostPid);
+  // Spawn-prep rows have no worker session (and therefore no pid) yet;
+  // they already passed taskMatchesScope, so the queued spawn stays
+  // visible instead of vanishing until a pool slot frees up (user bug:
+  // "spawned 5, only 4 listed").
+  return pid ? pid === wantedPid : true;
+}
+
 export function createJobRender({ progress }) {
   /** `memoryOnly` (the status pulse): worker sessions come from memory
    *  (session-progress memorySession), never from their records. */
   function listJobs(context = {}, { memoryOnly = false } = {}) {
     const wantedPid = terminalPidForContext(context);
     const now = Date.now();
-    const rows = listBackgroundTasks({ surface: 'agent', context }).map((task) => {
-      const head = jobHead({ ...task, taskId: task.task_id, type: task.operation }, task);
-      if (isTerminalJobStatus(task.status)) return { ...head, ...terminalJobFrozenFields(task.status, now) };
-      return {
-        ...head,
-        ...progress.jobWorkerSnapshot(task.sessionId, { memoryOnly }),
-        ...progress.sessionProgressExtras(
-          task.sessionId,
-          task.agent || null,
-          now,
-          task.status,
-          memoryOnly ? { loaded: progress.memorySession(task.sessionId), memoryOnly } : {}
-        ),
-      };
-    });
-    if (!wantedPid) return rows;
-    return rows.filter((row) => {
-      const pid = positiveInt(row.clientHostPid);
-      // Spawn-prep rows have no worker session (and therefore no pid) yet;
-      // they already passed taskMatchesScope, so the queued spawn stays
-      // visible instead of vanishing until a pool slot frees up (user bug:
-      // "spawned 5, only 4 listed").
-      return pid ? pid === wantedPid : true;
-    });
+    return listBackgroundTasks({ surface: 'agent', context })
+      .map((task) => jobListRow(progress, task, now, memoryOnly))
+      .filter((row) => jobRowInTerminal(row, wantedPid));
   }
 
   /** Before the worker session exists, live progress is empty and the status

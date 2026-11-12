@@ -21,6 +21,113 @@ export function _setRowWorkCounterForTest(listener) {
   onRowWork = typeof listener === 'function' ? listener : null;
 }
 
+// Whether a tombstone leaves `row` readable as work (the one admission rule).
+const admits = (row, byKey) => !tombstoneBlocksWork(row, findTagTombstone(row, byKey));
+
+function sameFields(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) if (!Object.is(a[key], b[key])) return false;
+  return true;
+}
+
+/**
+ * The served rows kept by session id, and what changed between two served
+ * documents: a document arrives whole (this process's write re-projects it,
+ * another process's write is re-read), so the change is one keyed comparison
+ * per document instead of a walk per reader. `rows()`: session id ->
+ * `{ row, seq, admitted }`, `seq` the row's place in the document's order
+ * (rows iterate in their writer's keyed order: a new key comes last); `byTag`.
+ * `subscribe(listener)` hears `{ sids, tags }` after every changed document:
+ * the session ids whose row changed, came, went or changed admission, and the
+ * tags of those rows and of every tombstone that changed.
+ */
+function createRowFeed(readRows, readTombstoneIndex) {
+  let servedRows = null;
+  let servedTombstones = null;
+  let bySid = new Map();
+  const byTag = new Map();
+  const listeners = new Set();
+  let seq = 0;
+
+  const tagSet = (tag) => {
+    let set = byTag.get(tag);
+    if (!set) byTag.set(tag, (set = new Set()));
+    return set;
+  };
+
+  function sync() {
+    const rows = readRows();
+    const tombstones = readTombstoneIndex();
+    if (rows === servedRows && tombstones === servedTombstones) return;
+    const sids = new Set();
+    const tags = new Set();
+    if (tombstones !== servedTombstones) {
+      const before = servedTombstones || new Map();
+      const after = tombstones;
+      onRowWork?.(before.size + after.size);
+      for (const [key, row] of after) if (!sameFields(before.get(key), row)) tags.add(row.tag);
+      for (const [key, row] of before) if (!after.has(key)) tags.add(row.tag);
+    }
+    servedRows = rows;
+    servedTombstones = tombstones;
+    onRowWork?.(rows.length);
+    const next = new Map();
+    // A surviving row met after a new one, or before one it used to follow,
+    // means the document reordered: its rows take fresh places in order.
+    let reordered = false;
+    let lastSeq = -1;
+    let sawNew = false;
+    for (const row of rows) {
+      if (next.has(row.sessionId)) continue;
+      const old = bySid.get(row.sessionId);
+      if (old) {
+        if (sawNew || old.seq < lastSeq) reordered = true;
+        lastSeq = old.seq;
+      } else sawNew = true;
+      const rec = { row, seq: old ? old.seq : 0, admitted: admits(row, tombstones) };
+      if (!old || old.admitted !== rec.admitted || !sameFields(old.row, row)) {
+        sids.add(row.sessionId);
+        tags.add(row.tag);
+        if (old && old.row.tag !== row.tag) tags.add(old.row.tag);
+      }
+      next.set(row.sessionId, rec);
+    }
+    for (const [sid, old] of bySid) {
+      if (next.has(sid)) continue;
+      sids.add(sid);
+      tags.add(old.row.tag);
+      byTag.get(old.row.tag)?.delete(sid);
+    }
+    for (const [sid, rec] of next) {
+      const old = bySid.get(sid);
+      if (old && old.row.tag !== rec.row.tag) byTag.get(old.row.tag)?.delete(sid);
+      tagSet(rec.row.tag).add(sid);
+      if (reordered) {
+        rec.seq = ++seq;
+        sids.add(sid);
+      } else if (!old) rec.seq = ++seq;
+    }
+    for (const [tag, set] of byTag) if (set.size === 0) byTag.delete(tag);
+    bySid = next;
+    if (sids.size === 0 && tags.size === 0) return;
+    const change = { sids, tags };
+    for (const listener of [...listeners]) listener(change);
+  }
+
+  return {
+    sync,
+    rows: () => bySid,
+    byTag: (tag) => byTag.get(tag),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 export function createWorkerRowReads(store, mgr) {
   // Every projection below is a pure function of the store's parsed arrays
   // (whose identity changes exactly when the store's document does: a write,
@@ -59,9 +166,7 @@ export function createWorkerRowReads(store, mgr) {
       // An index nothing writes to still meets new scopes; their lists are cheap to rebuild.
       if (rowView.scoped.size >= SCOPED_VIEWS_MAX) rowView.scoped.clear();
       onRowWork?.(rows.length);
-      admitted = rows.filter(
-        (row) => rowMatchesContext(row, context) && !tombstoneBlocksWork(row, findTagTombstone(row, byKey))
-      );
+      admitted = rows.filter((row) => rowMatchesContext(row, context) && admits(row, byKey));
       rowView.scoped.set(key, admitted);
     }
     return admitted;
@@ -161,6 +266,7 @@ export function createWorkerRowReads(store, mgr) {
 
   return {
     readWorkerRows,
+    rowFeed: createRowFeed(() => store.readSnapshot().rows, readTagTombstoneIndex),
     readAllTagTombstones,
     readTagTombstoneIndex,
     resolveTombstoneOwners,

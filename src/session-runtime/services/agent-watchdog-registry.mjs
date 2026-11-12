@@ -3,6 +3,7 @@
 // of agents costs a single interval; the timer stops as soon as the last
 // watchdog is released. Abort policy itself lives in the runtime module.
 import { randomUUID } from 'node:crypto';
+import { emitSessionActivityChange } from '../../runtime/shared/session-activity-signal.mjs';
 import { armTurnTimeout } from '../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import {
   abortAgentProgressWatchdog,
@@ -56,7 +57,16 @@ export function createProgressWatchdogRegistry({ mgr }) {
     state.linked = true;
     // Failed sweeps count from when the watchdog can actually stop the turn.
     state.anchorTs = Date.now();
+    // Agent status shows whether the watchdog is armed.
+    emitSessionActivityChange(state.sessionId);
     return true;
+  }
+
+  // Agent status shows the last check's error (getProgressWatchdogState).
+  function setError(state, error) {
+    if (state.error === error) return;
+    state.error = error;
+    emitSessionActivityChange(state.sessionId);
   }
 
   function check(state) {
@@ -71,7 +81,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
     const { anchorTs } = state;
     const now = Date.now();
     state.lastCheckedAt = now;
-    state.error = null;
+    setError(state, null);
     const snapshot =
       typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
     const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
@@ -126,7 +136,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
           check(state);
           state.lastSuccessfulCheckAt = Date.now();
         } catch (error) {
-          state.error = String(error?.message || error);
+          setError(state, String(error?.message || error));
           const compared = state.lastSuccessfulCheckAt
             ? { at: state.lastSuccessfulCheckAt, field: 'last_successful_check_at' }
             : { at: state.anchorTs, field: 'anchor_ts' };
@@ -169,13 +179,20 @@ export function createProgressWatchdogRegistry({ mgr }) {
         onProgress: typeof onProgress === 'function' ? onProgress : null,
         lastProgressSignature: '',
       };
-      link(state);
+      // An abort ends the watchdog's armed state (getProgressWatchdogState).
+      state.controller.signal.addEventListener('abort', () => emitSessionActivityChange(sessionId), { once: true });
       watched.set(sessionId, state);
+      link(state);
+      // The registration (its policy) replaces any earlier one for the session.
+      emitSessionActivityChange(sessionId);
       ensureTimer();
       return {
         stop: () => {
           state.unlink?.();
-          if (watched.get(sessionId) === state) watched.delete(sessionId);
+          if (watched.get(sessionId) === state) {
+            watched.delete(sessionId);
+            emitSessionActivityChange(sessionId);
+          }
           stopTimerIfIdle();
         },
       };

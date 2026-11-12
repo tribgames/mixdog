@@ -38,6 +38,9 @@ export function createEntryDisposal({
     try {
       entry.unsubscribe?.();
     } catch {}
+    try {
+      entry.unsubscribeAgentStatus?.();
+    } catch {}
     sessions.delete(entry);
     if (entry.indexedSessionId && sessionsById.get(entry.indexedSessionId) === entry) {
       sessionsById.delete(entry.indexedSessionId);
