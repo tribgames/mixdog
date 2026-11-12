@@ -162,11 +162,14 @@ fn folded_rows(
     edit: impl FnOnce(&std::path::Path),
 ) -> (BTreeMap<String, Vec<FoldedRow>>, BTreeMap<String, usize>) {
     let (_dir, roots, complete) = migrate_corpus(data_rel, edit);
-    let prefixes = crate::run::tests::system_prefixes(data_rel, &roots, &complete).into_iter().map(|(id, p)| (id, p.len())).collect();
+    let mut prefixes = BTreeMap::new();
     let rows = crate::session::target::read_sessions(&roots, &complete.manifest_sha256)
         .unwrap()
         .into_iter()
-        .map(|(id, folded)| (id, folded.rows))
+        .map(|(id, folded)| {
+            prefixes.insert(id.clone(), crate::run::tests::header_system_messages(&folded.header).len());
+            (id, folded.rows)
+        })
         .collect();
     (rows, prefixes)
 }
