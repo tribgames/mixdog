@@ -1,5 +1,8 @@
 {
   "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-read-cache.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --patch-bin <mixdog-patch executable>",
+  "exclusions": {
+    "replay-read-cache.mjs (the replay through a mixdogd process)": "skips two scenarios it cannot drive through a daemon, and each is replayed whole in-process by mixdog-core run_host/session_read_cache_replay.rs instead: 'the session closed and resumed between the turns' (a_closed_and_resumed_session_reads_like_nodes) and every scenario with a `direct` phase, cache calls in a recorded order with no turn between them ('a turn still reading after its session was closed': a_turn_still_reading_after_its_close_fills_the_cache_the_reopened_session_finds, which compares every recorded lookup)"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -54,7 +57,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-read-cache.mjs",
-  "recorderSha256": "6563f6b61b452b4b620c79b7e1036124ce060e01cf8bd599f1ec4079c86c8f40",
+  "recorderSha256": "122151a20dc52e5a769a733f81362dfbac7eeb41a62ab22d1e568775024e9766",
   "set": "read-cache",
   "syntheticInputs": {
     "betweenTurns": "write: the file rewritten on disk by the recorder; compact: runSessionCompaction(session, { mode: manual, force: true, provider }); close: closeSession(id, resume-away, { tombstone: false }) then the next askSession on the same id; direct: setReadCached / tryReadCached / setScopedToolCached / tryScopedToolCached / clearReadDedupSession called in the recorded order under one session id",
