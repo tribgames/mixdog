@@ -11,7 +11,9 @@
 // (the same for an Anthropic stream's error event, a Gemini or Antigravity refusal, a Cursor end-frame error and token exchange, a Grok refresh refusal)
 // and node-patches/node-fix-cursor-end-frame-error.patch (a Connect end frame carrying an error reaches the bridge as that error, not as the
 // `aborted` its own cancel raises), and node-patches/node-fix-scrub-canonical-credential.patch (the credential is found through the
-// canonical view of the text, whatever its escapes, and a short one as a whole token).
+// canonical view of the text, whatever its escapes, and a short one as a whole token; what the process ever attached or was granted stays
+// a credential until it ends, so a later refusal that repeats a replaced or an earlier credential is redacted: the cases run in one
+// process, in the order below, and the replay runs them in one process too).
 //   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch [--only <case>]
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -327,6 +329,11 @@ const cursorTooLargeRoute = [
 // The key of the encoding cases: `/` and `+` are what an encoder rewrites.
 const WIDE_KEY = 'long/key+value';
 const WIDE_BASE64 = Buffer.from(WIDE_KEY).toString('base64');
+// The keys of two sends of one process, the second's refusal repeating the first's.
+const EARLY_KEY = 'fixture-early-key-5c2e7a';
+const LATE_KEY = 'fixture-late-key-91ab04';
+// The OpenAI OAuth refresh and the catalog read of the HTTP/SSE route: no attempt of the send.
+const openaiRefreshAux = (record) => (record.path === '/oauth/token' ? json(200, { access_token: 'fixture-refreshed-token', refresh_token: 'fixture-refresh-token-2', expires_in: 3600, token_type: 'Bearer' }) : record.method === 'GET' ? json(200, {}) : undefined);
 // A JWT-shaped key short enough in its first segment that the recorder's secret scan does not take it for a live token.
 const JWT_KEY = 'eyJ0eXAi.cGF5bG9hZC1maXh0dXJlLWtleQ.c2lnbmF0dXJlLWZpeHR1cmU';
 // A body written as it stands.
@@ -488,8 +495,24 @@ const routes = [
     // The HTTP/SSE request is refused 401: one forced refresh and one reissue, a request of its own (review 1122y, item 4) whose
     // `requesting` names a first attempt again; it is refused as not retryable.
     [json(401, openaiError('invalid_request_error', 'expired token')), json(400, openaiError('invalid_request_error', 'bad field'))],
-    (record) => (record.path === '/oauth/token' ? json(200, { access_token: 'fixture-refreshed-token', refresh_token: 'fixture-refresh-token-2', expires_in: 3600, token_type: 'Bearer' }) : record.method === 'GET' ? json(200, {}) : undefined),
+    openaiRefreshAux,
   ],
+  [
+    'openai-oauth-http-redacts-the-superseded-credential-after-a-refresh',
+    'src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs:160',
+    { provider: 'openai-oauth', credentials: { 'openai-oauth.json': OAUTH }, env: { MIXDOG_OAI_TRANSPORT: 'http-sse' } },
+    () => new OpenAIOAuthProvider({}),
+    'gpt-5.5',
+    // The first request carried `fixture-access-token` and was refused 401; the refresh supplied `fixture-refreshed-token`, and the
+    // reissue's refusal repeats the credential that was replaced and the new one (review 1123v, item 1): what the process ever
+    // attached stays a credential, so the error text carries both redacted.
+    [json(401, openaiError('invalid_request_error', 'expired token')), json(400, openaiError('invalid_request_error', 'the previous value fixture-access-token was replaced by fixture-refreshed-token'))],
+    openaiRefreshAux,
+  ],
+  // A key an earlier send of the process carried is a credential for every later one (a pooled connection, a gateway): the second
+  // send's refusal repeats the first send's key and its own, both redacted (review 1123v, item 1).
+  geminiEcho('gemini-redacts-the-earlier-send-of-a-key-in-a-400', EARLY_KEY, json(400, geminiError(400, 'INVALID_ARGUMENT', `the credential ${EARLY_KEY} was refused for this model`))),
+  geminiEcho('gemini-redacts-the-key-of-an-earlier-send-in-a-400', LATE_KEY, json(400, geminiError(400, 'INVALID_ARGUMENT', `the credential ${EARLY_KEY} of the earlier send and ${LATE_KEY} were refused`))),
   [
     'antigravity-redacts-an-opaque-credential-in-a-400',
     'src/runtime/agent/orchestrator/providers/antigravity-transport.mjs:55',

@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 304694,
+      "bytes": 324912,
       "path": "cases.json",
-      "sha256": "029554fb0c7c6eb901de9137156dd44e308431764f20918aaeeac4bca3fd7856"
+      "sha256": "d5c80ee1dc910af8aee1879e0db238c67fc4cbaf36666757afcf2ab911bb857c"
     }
   ],
   "inputs": [
@@ -159,6 +159,10 @@
       "level": "wire"
     },
     {
+      "id": "openai-oauth-http-redacts-the-superseded-credential-after-a-refresh",
+      "level": "wire"
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "level": "wire"
     },
@@ -231,6 +235,14 @@
       "level": "wire"
     },
     {
+      "id": "gemini-redacts-the-earlier-send-of-a-key-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-the-key-of-an-earlier-send-in-a-400",
+      "level": "wire"
+    },
+    {
       "id": "antigravity-redacts-an-opaque-credential-in-a-400",
       "level": "wire"
     },
@@ -290,32 +302,36 @@
       {
         "file": "node-fix-scrub-canonical-credential.patch",
         "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
-          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs"
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs"
         ],
-        "sha256": "9eb700733f801f3ed280e3c86f8c2f799bead0b5df9023c8a70f074c52acf6a1"
+        "sha256": "f7e40fbb62af6a2e19f7a54de0f08c291ea8a85f2a315b8d0e201f5cbbf4a1d8"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 20
+      "filesDifferingFromCommit": 23
     },
-    "srcSha256": "6b10a4dd2eea980237299408a76c8a22da09508fb397793a0e33b1eb370ac91d",
+    "srcSha256": "20a9783427103180e7fc080a4d1b69ff88ab2119edc370f9fbeb2017ff841ad2",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "c6c3abb7845ce6bef4d4d1759f81ca3346b602ee1c4d18447383627b60c9e73b",
+  "recorderSha256": "3ca3621ca1312f0ca9047a974d52e5b922255dbb7dbc38f76d9412b3c5611486",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 304694,
+  "totalBytes": 324912,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

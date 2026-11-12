@@ -100,8 +100,18 @@ const cases = [
   ['refused long%252Fkey%252Bvalue and long&#47;key&#x2B;value', ['long/key+value']],
   ['{"msg":"long\\u002fkey+value"}', ['long/key+value']],
   ['Bearer-less abc1234, xabc1234 and abc12345', ['abc1234']],
+  // `%uXXXX` escapes, and a form's `+` for a space and its reading back (review 1123v, item 2).
+  ['refused %u0061%u0062%u0063%u0064%u0065%u0066%u0067%u0068 and %u0061bcdefgh now', ['abcdefgh']],
+  ['refused abcdefgh+ijkl and abcdefgh%20ijkl and abcdefgh%2Bijkl', ['abcdefgh ijkl']],
+  ['refused abcdefgh ijkl and abcdefgh+ijkl', ['abcdefgh+ijkl']],
 ];
-const out = cases.map(([text, secrets]) => ({ text, secrets, scrubbed: scrubOAuthSecrets(text, secrets), muse: scrubMuseSecrets(text, secrets), summary: oauthBodySummary(text, secrets) }));
+// What the process attached stays a credential until it ends (the patched Node's registry, fed by the values every scrub is
+// given): a case is a call of its own, so the registry starts empty for each.
+const { resetRegistry } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs');
+const out = cases.map(([text, secrets]) => {
+  resetRegistry();
+  return { text, secrets, scrubbed: scrubOAuthSecrets(text, secrets), muse: scrubMuseSecrets(text, secrets), summary: oauthBodySummary(text, secrets) };
+});
 writeJson(join(outDir, 'golden.json'), { domain: 'oauth-scrub', recorder: 'benchmarks/rust-core/recorders/record-oauth-scrub.mjs', cases: out });
 writeSetManifest(outDir, {
   set: 'oauth-scrub',

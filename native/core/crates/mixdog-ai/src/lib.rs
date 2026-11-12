@@ -45,6 +45,7 @@ pub fn reset_process_state() {
     admission::settings::reset_process_lane_settings();
     claude_floors::reset_process();
     oauth::single_flight::reset();
+    oauth::carried::reset_registry();
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
     providers::grok::reset_process_state();

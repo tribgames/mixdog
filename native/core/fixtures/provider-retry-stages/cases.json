@@ -6482,6 +6482,374 @@
       ]
     },
     {
+      "id": "openai-oauth-http-redacts-the-superseded-credential-after-a-refresh",
+      "source": "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs:160",
+      "input": {
+        "provider": "openai-oauth",
+        "credentials": {
+          "openai-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000,
+            "account_id": "acct-fixture",
+            "email": "fixture@example.invalid"
+          }
+        },
+        "env": {
+          "MIXDOG_OAI_TRANSPORT": "http-sse"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth HTTP fallback 400: the previous value [REDACTED] was replaced by [REDACTED]",
+          "code": "invalid_request_error",
+          "props": {
+            "initialResponseError": true,
+            "providerError": {
+              "message": "the previous value [REDACTED] was replaced by [REDACTED]",
+              "type": "invalid_request_error"
+            },
+            "providerErrorCode": "invalid_request_error",
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting",
+            "payload": {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "retry": false
+            }
+          },
+          {
+            "stage": "requesting",
+            "payload": {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "retry": false
+            }
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 2
+          }
+        ],
+        "stderr": [
+          "[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE\n",
+          "[openai-oauth] Token 401, refreshing...\n",
+          "[openai-oauth] Token refreshed, expires in 3600s\n"
+        ],
+        "attemptRequests": [
+          0,
+          2
+        ],
+        "draws": {
+          "first": 27,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 2
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://chatgpt.com",
+          "path": "/backend-api/codex/responses",
+          "headers": [
+            [
+              "host",
+              "chatgpt.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "OpenAI-Beta",
+              "responses=experimental"
+            ],
+            [
+              "originator",
+              "codex_cli_rs"
+            ],
+            [
+              "chatgpt-account-id",
+              "acct-fixture"
+            ],
+            [
+              "x-client-request-id",
+              "fa5cef1426129f0019f23db6aef1519f"
+            ],
+            [
+              "User-Agent",
+              "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+            ],
+            [
+              "version",
+              "0.166.0"
+            ],
+            [
+              "x-codex-beta-features",
+              "remote_compaction_v2"
+            ],
+            [
+              "session_id",
+              "mixdog-codex"
+            ],
+            [
+              "session-id",
+              "mixdog-codex"
+            ],
+            [
+              "thread-id",
+              "mixdog-codex"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "498"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"expired token\",\"type\":\"invalid_request_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://auth.openai.com",
+          "path": "/oauth/token",
+          "headers": [
+            [
+              "host",
+              "auth.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "99"
+            ]
+          ],
+          "body": "grant_type=refresh_token&refresh_token=fixture-refresh-token&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"access_token\":\"fixture-refreshed-token\",\"refresh_token\":\"fixture-refresh-token-2\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://chatgpt.com",
+          "path": "/backend-api/codex/responses",
+          "headers": [
+            [
+              "host",
+              "chatgpt.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-refreshed-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "OpenAI-Beta",
+              "responses=experimental"
+            ],
+            [
+              "originator",
+              "codex_cli_rs"
+            ],
+            [
+              "chatgpt-account-id",
+              ""
+            ],
+            [
+              "x-client-request-id",
+              "b8cb844dd64432481fd40efeb9210bbd"
+            ],
+            [
+              "User-Agent",
+              "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+            ],
+            [
+              "version",
+              "0.166.0"
+            ],
+            [
+              "x-codex-beta-features",
+              "remote_compaction_v2"
+            ],
+            [
+              "session_id",
+              "mixdog-codex"
+            ],
+            [
+              "session-id",
+              "mixdog-codex"
+            ],
+            [
+              "thread-id",
+              "mixdog-codex"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "498"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"the previous value fixture-access-token was replaced by fixture-refreshed-token\",\"type\":\"invalid_request_error\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "source": "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141",
       "input": {
@@ -6624,7 +6992,7 @@
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -6942,7 +7310,7 @@
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -7260,7 +7628,7 @@
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -7617,7 +7985,7 @@
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 2,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -7970,7 +8338,7 @@
           "count": 1,
           "uuidFirst": 5,
           "uuidCount": 5,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -8377,7 +8745,7 @@
           "count": 2,
           "uuidFirst": 10,
           "uuidCount": 5,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -8760,7 +9128,7 @@
           "count": 1,
           "uuidFirst": 15,
           "uuidCount": 4,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9013,7 +9381,7 @@
           "count": 1,
           "uuidFirst": 19,
           "uuidCount": 4,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9221,7 +9589,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9398,7 +9766,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9577,7 +9945,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9756,7 +10124,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -9935,7 +10303,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10114,7 +10482,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10293,7 +10661,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10472,7 +10840,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10651,7 +11019,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10830,7 +11198,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -10915,6 +11283,364 @@
             "status": 400,
             "contentType": "application/json",
             "body": "{\"error\":{\"code\":400,\"message\":\"the payload cGF5bG9hZC1maXh0dXJlLWtleQ and the signature c2lnbmF0dXJlLWZpeHR1cmU were refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-the-earlier-send-of-a-key-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] was refused for this model\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] was refused for this model",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] was refused for this model",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 4,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-early-key-5c2e7a",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-early-key-5c2e7a"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential fixture-early-key-5c2e7a was refused for this model\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-the-key-of-an-earlier-send-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] of the earlier send and [REDACTED] were refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] of the earlier send and [REDACTED] were refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] of the earlier send and [REDACTED] were refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 4,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-late-key-91ab04",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-late-key-91ab04"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential fixture-early-key-5c2e7a of the earlier send and fixture-late-key-91ab04 were refused\",\"status\":\"INVALID_ARGUMENT\"}}"
           }
         }
       ]
@@ -11016,7 +11742,7 @@
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 1,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },
@@ -11214,7 +11940,7 @@
           "count": 0,
           "uuidFirst": 24,
           "uuidCount": 0,
-          "bytes16First": 2,
+          "bytes16First": 4,
           "bytes16Count": 0
         }
       },

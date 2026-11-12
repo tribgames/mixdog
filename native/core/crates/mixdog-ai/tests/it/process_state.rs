@@ -25,6 +25,7 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/google/adapter.rs", "ANNOUNCED", Reset("google::adapter::reset_announced()")),
     ("providers/google/cache/registry.rs", "SHARED", Reset("Registry::reset_shared()")),
     ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
+    ("oauth/carried.rs", "REGISTRY", Reset("oauth::carried::reset_registry()")),
     ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
     ("random.rs", "NEXT", Reset("random::script(Vec::new())")),

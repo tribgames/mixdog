@@ -106,6 +106,9 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         | "gemini-redacts-each-segment-of-a-jwt-credential-in-a-400"
         | "gemini-keeps-an-ordinary-field-named-code-in-a-400"
         | "openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again"
+        | "openai-oauth-http-redacts-the-superseded-credential-after-a-refresh"
+        | "gemini-redacts-the-earlier-send-of-a-key-in-a-400"
+        | "gemini-redacts-the-key-of-an-earlier-send-in-a-400"
         | "antigravity-redacts-an-opaque-credential-in-a-400"
         | "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh"
         | "cursor-token-exchange-redacts-an-opaque-credential" => (0, None),
@@ -137,7 +140,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 43, "the recorded cases");
+    assert_eq!(set.cases.len(), 46, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,

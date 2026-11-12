@@ -5,7 +5,7 @@
 //! (`cursor-api`) of [`AccessToken`]. Credential files, the refresh lock and
 //! the poll-login flow belong to the shared OAuth plumbing.
 
-use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::CURSOR_EXCHANGE;
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -150,7 +150,7 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
                 ],
                 body: b"{}".to_vec(),
             },
-            TOKEN_EXCHANGE,
+            CURSOR_EXCHANGE,
         )
         .await?;
     let success = head.is_success();

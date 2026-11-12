@@ -6,14 +6,20 @@
 //! the userinfo of the URL and a key in its query (`key`, `api_key`, `access_token`, `token`), and the secret fields of an
 //! OAuth token request, which is known by its kind (a body with a top-level `grant_type`), never by a field name found in an
 //! arbitrary body. The credentials are the exchange's own: the guard redacts them from that exchange's answer (its redirects
-//! included), and a retry is another exchange with its own. Nothing is remembered across exchanges.
+//! included). What the transport attached stays a credential until the process ends: [`remember`] keeps it in a
+//! process-wide registry (so the old credential of a refreshed token, or the key of an earlier request, is found in the text of
+//! a later one), and so are the tokens a token response grants ([`remember_grant`]), since they are attached next. The
+//! registry holds at most [`REGISTRY_CAP`] values, the oldest dropped first, and its matcher ([`remembered`]) is built once
+//! per registry version.
 //!
 //! **How it is found.** Never by a list of spellings. The text is read through a canonical view ([`canonical`]) with a map from
 //! each byte of the view back to the source bytes it came from: percent-escapes (either hex case) decoded, JSON escapes
-//! (`\/`, `\uXXXX` and surrogate pairs, …) and HTML character references (`&#47;`, `&#x2F;`, `&sol;`, …) unescaped, NUL bytes
+//! (`\/`, `\uXXXX` and surrogate pairs, …), `%uXXXX` escapes and HTML character references (`&#47;`, `&#x2F;`, `&sol;`, …) unescaped, NUL bytes
 //! (the high half of UTF-16 text) dropped, each repeated until nothing changes; then a single line break inside a base64 run
 //! (a wrapped line) is removed. In that view one automaton looks for every credential and for its base64 and base64url forms
-//! at the three byte alignments (padding optional). A JWT credential's segments count one by one. A match redacts the whole
+//! at the three byte alignments (padding optional). A credential holding a space is also looked for with `+` for the space,
+//! and one holding a `+` with a space for it (a form encoder's and decoder's reading of each other); the view itself keeps a
+//! `+` a `+`. A JWT credential's segments count one by one. A match redacts the whole
 //! source span it came from (`long%252Fkey%252Bvalue` becomes one `[REDACTED]`). A credential shorter than
 //! [`WHOLE_TOKEN_BELOW`] bytes counts only as a whole token (the bytes around it are not letters, digits, `_` or `-`): it is
 //! redacted after `Bearer ` or in a header without eating a part of an ordinary word. Text in which no credential is found
@@ -40,6 +46,17 @@ const MAX_TOKEN_BODY: usize = 64 * 1024;
 /// The secret fields of an OAuth token request (RFC 6749 and its grant extensions).
 const TOKEN_FIELDS: [&str; 10] =
     ["refresh_token", "code", "code_verifier", "device_code", "assertion", "client_assertion", "client_secret", "password", "subject_token", "actor_token"];
+/// The fields of a token response that name the credentials it grants (OAuth's, and Cursor's exchange in its own spelling).
+const GRANT_FIELDS: [&str; 6] = ["access_token", "refresh_token", "id_token", "accessToken", "refreshToken", "idToken"];
+/// A token response larger than this grants nothing that is remembered (a grant is a few kilobytes).
+pub const MAX_GRANT_BODY: usize = 256 * 1024;
+/// The process-wide registry holds at most this many values; over it the oldest are dropped. A daemon has a handful of
+/// accounts (ten is generous) and each refresh adds an access token and, at most, an id token that differ from the last: 512
+/// values are the last ~25 refreshes of every one of ten accounts, many days at the usual refresh interval of hours. The
+/// cost is paid only when all of them are 1.2 KiB JWTs: then (`a_full_registry_costs_one_build_per_version`) the automaton
+/// has 5.9 million states, ~140 MiB, built in about 3 s once per registry version, and a 1 MiB stream passes in ~0.3 s;
+/// ordinary keys are a few hundred bytes each, a hundredth of that.
+pub const REGISTRY_CAP: usize = 512;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Provenance
@@ -113,32 +130,48 @@ fn percent_decode(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// The secret fields of a token request: a form or JSON body with a top-level `grant_type`. Any other body carries none.
-fn of_token_request(body: &[u8], out: &mut Vec<String>) {
+/// The fields of a token request (a form or JSON body with a top-level `grant_type`), the secret ones in the order they are
+/// listed; `None` for any other body.
+fn token_request_fields(body: &[u8]) -> Option<Vec<(String, String)>> {
     if body.is_empty() || body.len() > MAX_TOKEN_BODY {
-        return;
+        return None;
     }
     if body[0] == b'{' {
-        let Ok(serde_json::Value::Object(fields)) = serde_json::from_slice::<serde_json::Value>(body) else { return };
-        if !fields.get("grant_type").is_some_and(serde_json::Value::is_string) {
-            return;
-        }
-        for name in TOKEN_FIELDS {
-            if let Some(value) = fields.get(name).and_then(serde_json::Value::as_str) {
-                add(out, value);
-            }
-        }
-        return;
+        let serde_json::Value::Object(fields) = serde_json::from_slice::<serde_json::Value>(body).ok()? else { return None };
+        fields.get("grant_type").filter(|grant| grant.is_string())?;
+        return Some(TOKEN_FIELDS.iter().filter_map(|name| Some(((*name).to_owned(), fields.get(*name)?.as_str()?.to_owned()))).collect());
     }
     let pairs: Vec<(String, String)> = url::form_urlencoded::parse(body).map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
-    if !pairs.iter().any(|(name, _)| name == "grant_type") {
-        return;
-    }
-    for (name, value) in &pairs {
+    pairs.iter().any(|(name, _)| name == "grant_type").then_some(pairs)
+}
+
+/// Whether `body` is a token request: its answer is the grant, which arrives whole.
+pub fn is_token_request(body: &[u8]) -> bool {
+    token_request_fields(body).is_some()
+}
+
+/// The secret fields of a token request. Any other body carries none.
+fn of_token_request(body: &[u8], out: &mut Vec<String>) {
+    for (name, value) in token_request_fields(body).unwrap_or_default() {
         if TOKEN_FIELDS.contains(&name.as_str()) {
-            add(out, value);
+            add(out, &value);
         }
     }
+}
+
+/// Remembers the credentials a token response (a JSON object) grants: they are attached to the requests that follow.
+pub fn remember_grant(body: &[u8]) {
+    if body.len() > MAX_GRANT_BODY {
+        return;
+    }
+    let Some(serde_json::Value::Object(fields)) = serde_json::from_slice::<serde_json::Value>(body).ok() else { return };
+    let mut granted = Vec::new();
+    for name in GRANT_FIELDS {
+        if let Some(value) = fields.get(name).and_then(serde_json::Value::as_str) {
+            add(&mut granted, value);
+        }
+    }
+    remember(&granted);
 }
 
 /// The credentials the transport attached to `request` (see the module's rule).
@@ -212,6 +245,12 @@ fn json_unit_prefix(rest: &[u8]) -> bool {
 fn escape_at(bytes: &[u8], i: usize) -> Escape {
     let rest = &bytes[i..];
     match rest[0] {
+        // `%uXXXX`, the escape of JavaScript's `escape()`, is a UTF-16 unit like a JSON `\uXXXX`.
+        b'%' if rest.get(1) == Some(&b'u') => match hex4(rest, 2) {
+            Some(unit) => char::from_u32(unit).map_or(Escape::None, |c| Escape::Char(6, c)),
+            None if rest.len() < 6 && rest.iter().skip(2).all(|b| hex(*b).is_some()) => Escape::Unfinished,
+            None => Escape::None,
+        },
         b'%' => match (rest.get(1).copied().map(hex), rest.get(2).copied().map(hex)) {
             (Some(Some(high)), Some(Some(low))) => Escape::Byte(3, high * 16 + low),
             (None, _) | (Some(Some(_)), None) => Escape::Unfinished,
@@ -449,6 +488,10 @@ fn patterns_of(secret: &str, out: &mut Vec<(Vec<u8>, Kind)>) {
     if secret.contains(' ') {
         plain.push(secret.replace(' ', "+"));
     }
+    // ...and a form decoder reads that `+` back as a space (not for a credential that would begin or end with one).
+    if secret.contains('+') && !secret.starts_with('+') && !secret.ends_with('+') {
+        plain.push(secret.replace('+', " "));
+    }
     // A JWT's segments, each echoed alone.
     let segments: Vec<&str> = secret.split('.').collect();
     if segments.len() == 3 && segments[0].starts_with("eyJ") && segments.iter().all(|s| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')) {
@@ -474,80 +517,129 @@ fn patterns_of(secret: &str, out: &mut Vec<(Vec<u8>, Kind)>) {
     }
 }
 
-/// A multi-pattern automaton (Aho-Corasick): built once per exchange, one pass over each text.
+/// No pattern ends at the state.
+const NO_PATTERN: u32 = u32::MAX;
+
+/// A multi-pattern automaton (Aho-Corasick): one pass over each text. Built compactly (25 bytes a state, children as a
+/// sibling list) because the registry's automaton holds every credential the process ever attached.
 struct Automaton {
+    /// The state after the first byte of a pattern (0: none).
     root: Box<[u32; 256]>,
-    edges: Vec<Vec<(u8, u32)>>,
+    /// A state's first child and its next sibling (0: none), and the byte that leads to it.
+    first: Vec<u32>,
+    sibling: Vec<u32>,
+    byte: Vec<u8>,
     fail: Vec<u32>,
     depth: Vec<u32>,
-    /// The patterns that end at each state (its own and its fail chain's).
-    ends: Vec<Vec<u32>>,
+    /// The pattern that ends at the state, and the nearest state on its fail chain where one does (0: none).
+    own: Vec<u32>,
+    dict: Vec<u32>,
 }
 
 impl Automaton {
-    fn new(patterns: &[Vec<u8>]) -> Self {
-        let mut edges: Vec<Vec<(u8, u32)>> = vec![Vec::new()];
-        let mut depth = vec![0_u32];
-        let mut ends: Vec<Vec<u32>> = vec![Vec::new()];
-        for (id, pattern) in patterns.iter().enumerate() {
+    fn child(&self, state: usize, byte: u8) -> Option<u32> {
+        if state == 0 {
+            return Some(self.root[usize::from(byte)]).filter(|to| *to != 0);
+        }
+        let mut at = self.first[state];
+        while at != 0 {
+            if self.byte[at as usize] == byte {
+                return Some(at);
+            }
+            at = self.sibling[at as usize];
+        }
+        None
+    }
+
+    fn new<'a>(patterns: impl Iterator<Item = &'a [u8]>) -> Self {
+        let mut a = Self {
+            root: Box::new([0_u32; 256]),
+            first: vec![0],
+            sibling: vec![0],
+            byte: vec![0],
+            fail: vec![0],
+            depth: vec![0],
+            own: vec![NO_PATTERN],
+            dict: vec![0],
+        };
+        for (id, pattern) in patterns.enumerate() {
             let mut state = 0_usize;
             for &byte in pattern {
-                state = match edges[state].iter().find(|(b, _)| *b == byte) {
-                    Some(&(_, to)) => to as usize,
+                state = match a.child(state, byte) {
+                    Some(to) => to as usize,
                     None => {
-                        let to = edges.len();
-                        edges[state].push((byte, to as u32));
-                        edges.push(Vec::new());
-                        depth.push(depth[state] + 1);
-                        ends.push(Vec::new());
-                        to
+                        let to = a.first.len() as u32;
+                        let depth = a.depth[state] + 1;
+                        a.first.push(0);
+                        a.byte.push(byte);
+                        a.fail.push(0);
+                        a.depth.push(depth);
+                        a.own.push(NO_PATTERN);
+                        a.dict.push(0);
+                        if state == 0 {
+                            a.root[usize::from(byte)] = to;
+                            a.sibling.push(0);
+                        } else {
+                            let head = a.first[state];
+                            a.sibling.push(head);
+                            a.first[state] = to;
+                        }
+                        to as usize
                     }
                 };
             }
-            ends[state].push(id as u32);
+            a.own[state] = id as u32;
         }
-        for list in &mut edges {
-            list.sort_unstable();
-        }
-        let mut root = Box::new([0_u32; 256]);
-        for &(byte, to) in &edges[0] {
-            root[usize::from(byte)] = to;
-        }
-        let mut fail = vec![0_u32; edges.len()];
-        let mut queue: std::collections::VecDeque<usize> = edges[0].iter().map(|(_, to)| *to as usize).collect();
-        while let Some(state) = queue.pop_front() {
-            for &(byte, to) in &edges[state].clone() {
-                let to = to as usize;
-                let mut back = fail[state] as usize;
+        let mut queue: Vec<u32> = a.root.iter().copied().filter(|to| *to != 0).collect();
+        let mut head = 0;
+        while head < queue.len() {
+            let state = queue[head] as usize;
+            head += 1;
+            let mut child = a.first[state];
+            while child != 0 {
+                let byte = a.byte[child as usize];
+                let mut back = a.fail[state] as usize;
                 let target = loop {
-                    if let Some(&(_, next)) = edges[back].iter().find(|(b, _)| *b == byte) {
-                        break next as usize;
+                    if let Some(next) = a.child(back, byte) {
+                        break next;
                     }
                     if back == 0 {
                         break 0;
                     }
-                    back = fail[back] as usize;
+                    back = a.fail[back] as usize;
                 };
-                fail[to] = if target == to { 0 } else { target as u32 };
-                let inherited = ends[fail[to] as usize].clone();
-                ends[to].extend(inherited);
-                queue.push_back(to);
+                a.fail[child as usize] = target;
+                a.dict[child as usize] = if a.own[target as usize] != NO_PATTERN { target } else { a.dict[target as usize] };
+                queue.push(child);
+                child = a.sibling[child as usize];
             }
         }
-        Self { root, edges, fail, depth, ends }
+        a
     }
 
     fn step(&self, mut state: u32, byte: u8) -> u32 {
         loop {
-            if state == 0 {
-                return self.root[usize::from(byte)];
+            if let Some(to) = self.child(state as usize, byte) {
+                return to;
             }
-            let edges = &self.edges[state as usize];
-            if let Ok(at) = edges.binary_search_by_key(&byte, |(b, _)| *b) {
-                return edges[at].1;
+            if state == 0 {
+                return 0;
             }
             state = self.fail[state as usize];
         }
+    }
+
+    /// Calls `found` with each pattern that ends at `state`.
+    fn ending(&self, state: u32, mut found: impl FnMut(u32)) {
+        let mut at = if self.own[state as usize] != NO_PATTERN { state } else { self.dict[state as usize] };
+        while at != 0 {
+            found(self.own[at as usize]);
+            at = self.dict[at as usize];
+        }
+    }
+
+    fn states(&self) -> usize {
+        self.first.len()
     }
 }
 
@@ -565,7 +657,8 @@ pub struct Context {
 
 /// The credentials of one exchange, found in any text that comes back.
 pub struct Matcher {
-    patterns: Vec<(Vec<u8>, Kind)>,
+    /// The length and kind of each pattern (the automaton holds the bytes).
+    patterns: Vec<(usize, Kind)>,
     automaton: Automaton,
 }
 
@@ -588,16 +681,25 @@ impl Matcher {
             patterns_of(credential, &mut all);
         }
         // One pattern per byte string, the loosest kind kept.
+        let mut at: std::collections::HashMap<Vec<u8>, usize> = std::collections::HashMap::new();
         let mut patterns: Vec<(Vec<u8>, Kind)> = Vec::new();
         for (bytes, kind) in all.into_iter().filter(|(bytes, _)| !bytes.is_empty()) {
-            match patterns.iter_mut().find(|(known, _)| *known == bytes) {
-                Some(known) if kind == Kind::Anywhere => known.1 = Kind::Anywhere,
+            match at.get(&bytes) {
+                Some(&known) if kind == Kind::Anywhere => patterns[known].1 = Kind::Anywhere,
                 Some(_) => {}
-                None => patterns.push((bytes, kind)),
+                None => {
+                    at.insert(bytes.clone(), patterns.len());
+                    patterns.push((bytes, kind));
+                }
             }
         }
-        let automaton = Automaton::new(&patterns.iter().map(|(bytes, _)| bytes.clone()).collect::<Vec<_>>());
-        Self { patterns, automaton }
+        let automaton = Automaton::new(patterns.iter().map(|(bytes, _)| bytes.as_slice()));
+        Self { patterns: patterns.into_iter().map(|(bytes, kind)| (bytes.len(), kind)).collect(), automaton }
+    }
+
+    /// How many states the automaton has (a measure of its cost).
+    pub fn states(&self) -> usize {
+        self.automaton.states()
     }
 
     /// The matcher of values a caller names (`scrubOAuthSecrets(text, secretValues)`).
@@ -638,10 +740,10 @@ impl Matcher {
                 }
             }
             state = self.automaton.step(state, byte);
-            for &id in &self.automaton.ends[state as usize] {
-                let (pattern, kind) = &self.patterns[id as usize];
-                found.push((at + 1 - pattern.len(), at + 1, *kind));
-            }
+            self.automaton.ending(state, |id| {
+                let (len, kind) = self.patterns[id as usize];
+                found.push((at + 1 - len, at + 1, kind));
+            });
         }
         if !last {
             let depth = self.automaton.depth[state as usize] as usize;
@@ -739,6 +841,71 @@ impl Matcher {
         error.code = error.code.map(|code| self.redact_str(&code));
         error
     }
+}
+
+/// The credentials a process has attached, oldest first, and the matcher of them as of the last change.
+pub struct Registry {
+    cap: usize,
+    values: std::collections::VecDeque<String>,
+    matcher: Option<Arc<Matcher>>,
+}
+
+impl Registry {
+    pub const fn new(cap: usize) -> Self {
+        Self { cap, values: std::collections::VecDeque::new(), matcher: None }
+    }
+
+    /// Keeps `credentials`; over the cap the oldest go. A value seen again becomes the newest (the set, and so the matcher,
+    /// does not change).
+    pub fn remember(&mut self, credentials: &[String]) {
+        for credential in credentials.iter().map(|c| c.trim()).filter(|c| !c.is_empty()) {
+            match self.values.iter().position(|known| known == credential) {
+                Some(at) => {
+                    if let Some(value) = self.values.remove(at) {
+                        self.values.push_back(value);
+                    }
+                }
+                None => {
+                    self.values.push_back(credential.to_owned());
+                    self.matcher = None;
+                }
+            }
+        }
+        while self.values.len() > self.cap {
+            self.values.pop_front();
+            self.matcher = None;
+        }
+    }
+
+    /// The matcher of every value held, built when the set last changed and handed on as it is until it changes again.
+    pub fn matcher(&mut self) -> Arc<Matcher> {
+        self.matcher.get_or_insert_with(|| Arc::new(Matcher::new(&self.values.iter().cloned().collect::<Vec<_>>()))).clone()
+    }
+}
+
+static REGISTRY: std::sync::Mutex<Registry> = std::sync::Mutex::new(Registry::new(REGISTRY_CAP));
+
+fn registry() -> std::sync::MutexGuard<'static, Registry> {
+    REGISTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A replay starts as a new process: the registry is empty.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_registry() {
+    *registry() = Registry::new(REGISTRY_CAP);
+}
+
+/// Keeps what the transport attached to a request for the rest of the process (see the module's rule).
+pub fn remember(credentials: &[String]) {
+    if !credentials.is_empty() {
+        registry().remember(credentials);
+    }
+}
+
+/// The matcher of every credential this process ever attached: built once per registry version, shared by every response
+/// text of every request.
+pub fn remembered() -> Arc<Matcher> {
+    registry().matcher()
 }
 
 /// A text that arrives in chunks, redacted as it arrives: the end of a chunk that may still become a credential (the

@@ -57,6 +57,10 @@ pub const NODE_DISPATCHER: Exchange = Exchange::new(Liveness::unary(secs(600)), 
 /// (`antigravity-oauth-tokens.mjs:341`) and Cursor (`cursor-auth.mjs:359`): a miss reads as the `TimeoutError`.
 pub const TOKEN_EXCHANGE: Exchange = credential_signal(secs(30));
 
+/// Cursor's exchange of an API key or refresh token for an access token (`cursor-auth.mjs:222`): [`TOKEN_EXCHANGE`] whose
+/// answer names the credentials it grants (often the refresh token it was sent) without a `grant_type` in the request.
+pub const CURSOR_EXCHANGE: Exchange = TOKEN_EXCHANGE.grant();
+
 /// An auth call under `AbortSignal.timeout(wait)` that refuses redirects.
 pub const fn credential_signal(wait: Duration) -> Exchange {
     Exchange::new(Liveness::unary(wait), Redirect::Error, Surface::FetchSignal)

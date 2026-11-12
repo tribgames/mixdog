@@ -29,7 +29,9 @@ pub fn redact(text: &str, secrets: &[String]) -> String {
     for secret in ordered {
         out = out.replace(secret.as_str(), REDACTED);
     }
-    out
+    // A Connect body is exempt from the transport guard (its frames carry their length): what this decoder reads out of it
+    // is redacted of every credential the process ever attached, in any encoding.
+    crate::oauth::carried::remembered().redact_str(&out)
 }
 
 /// One line, bounded; empty for markup or control characters (binary or
