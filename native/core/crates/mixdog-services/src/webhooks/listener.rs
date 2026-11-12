@@ -114,6 +114,23 @@ async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: 
 }
 
 async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
+    // Node expires a connection that has sent nothing only when its connection check comes, somewhere in
+    // `connectionsCheckingInterval` after `headersTimeout`; until then the connection is read and a request is served.
+    // The end of that window is taken here: a connection still silent at it is answered Node's bare 408.
+    let expiry = mixdog_rt::time::Instant::now() + HEADERS_TIMEOUT + CONNECTIONS_CHECKING_INTERVAL;
+    let mut first = [0u8; 1];
+    tokio::select! {
+        peeked = stream.peek(&mut first) => {
+            if !matches!(peeked, Ok(n) if n > 0) {
+                return;
+            }
+        }
+        () = mixdog_rt::time::sleep_until(expiry) => {
+            linger(stream, Some(BARE_REQUEST_TIMEOUT.to_vec())).await;
+            return;
+        }
+        () = stop.cancelled() => return,
+    }
     let farewell = Arc::new(Mutex::new(None));
     let state = Arc::new(ConnState::default());
     let handler = {
@@ -145,12 +162,8 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
     tokio::select! {
         ended = connection.as_mut() => {
             // Node answers a head that did not complete in time with its bare 408, unless it has written to the socket already.
-            // A connection that never sent a byte is expired the same way, but only by Node's connection check, which runs
-            // on `connectionsCheckingInterval`: it is answered at the end of that window after `headersTimeout`.
+            // The head's time runs from its first byte (Node restarts it when a message begins), which is when this began.
             if ended.is_err_and(|e| e.is_timeout()) && !state.replied.load(Ordering::Acquire) {
-                if !state.received.load(Ordering::Acquire) {
-                    mixdog_rt::time::sleep(CONNECTIONS_CHECKING_INTERVAL).await;
-                }
                 *farewell.lock().expect("the farewell slot is never held across a panic") = Some(BARE_REQUEST_TIMEOUT.to_vec());
             }
             return;
@@ -182,8 +195,6 @@ struct ConnState {
     idle: AtomicBool,
     /// A reply was written on this connection (Node answers a timed-out head with a 408 only before that).
     replied: AtomicBool,
-    /// A byte has been read from the peer.
-    received: AtomicBool,
 }
 
 impl Lingering {
@@ -208,7 +219,6 @@ impl AsyncRead for Lingering {
         let polled = self.socket().poll_read(cx, buf);
         if matches!(polled, Poll::Ready(Ok(()))) && buf.filled().len() > before {
             self.idle_timer = None;
-            self.state.received.store(true, Ordering::Release);
         }
         polled
     }
