@@ -54,6 +54,10 @@ pub trait SessionOps: Send + Sync {
     /// Clear in place, the transcript first copied to `archive_as`; rejects while a turn runs.
     async fn clear(&self, session_id: &str, archive_as: &str) -> Result<(), RoomError>;
     async fn delete(&self, session_id: &str) -> Result<(), RoomError>;
+    /// The room log's `roomMembers` header field: who is in the room.
+    async fn set_room_members(&self, _session_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
 }
 
 fn task_session_params(mut params: Map<String, Value>, workspace: String) -> Value {
@@ -124,6 +128,14 @@ impl<S: RoomStore> SessionHomePorts<S> {
         // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
         for gone in left {
             self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
+        }
+        // The rooms' records are saved already: what their logs record follows, and a failure of it ends the call before any
+        // conversation is deleted, so a rebuilt room never lists a member this call is removing.
+        let mut rooms: Vec<&str> = left.iter().map(|l| l.room_id.as_str()).collect();
+        rooms.dedup();
+        for room_id in rooms {
+            let members = self.rooms.get(room_id).await?.config.members;
+            self.room_host.record_members(room_id, &members).await?;
         }
         let publish = CancellationToken::new();
         let listing = self.room_host.republish_catalog(&publish).await?;
@@ -283,6 +295,13 @@ impl RoomHost for SessionRoomHost {
             }
         }
         failed
+    }
+
+    async fn record_members(&self, room_id: &str, members: &[String]) -> Result<(), RoomError> {
+        match mixdog_core_base::rooms::ids::room_session_id(room_id) {
+            Some(session_id) => self.sessions.set_room_members(&session_id, members).await,
+            None => Ok(()),
+        }
     }
 
     async fn republish_catalog(&self, publish: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {

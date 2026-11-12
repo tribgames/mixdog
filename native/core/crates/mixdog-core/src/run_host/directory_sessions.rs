@@ -184,6 +184,10 @@ impl SessionOps for DirectorySessions {
         self.request(&thread, "thread/clear", Self::op_params(&thread, json!({}))).await.map(|_| ()).map_err(port)
     }
 
+    async fn set_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        self.patch(session_id, Map::from_iter([("roomMembers".to_owned(), json!(members))])).await
+    }
+
     async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
         let thread = ThreadId::from(session_id);
         match self.request(&thread, "thread/delete", Self::op_params(&thread, json!({}))).await {
