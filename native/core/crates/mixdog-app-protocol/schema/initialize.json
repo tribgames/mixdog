@@ -37,37 +37,6 @@
         }
       ]
     },
-    "ClassLimits": {
-      "properties": {
-        "c0": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "c1": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "c2": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "c3": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "c0",
-        "c1",
-        "c2",
-        "c3"
-      ],
-      "type": "object"
-    },
     "ConnectionInfo": {
       "description": "What the core knows about this connection.",
       "properties": {
@@ -202,14 +171,6 @@
           "minimum": 0.0,
           "type": "integer"
         },
-        "inflight": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/ClassLimits"
-            }
-          ],
-          "description": "Per-connection in-flight cap per request class."
-        },
         "maxBlobPageBytes": {
           "format": "uint64",
           "minimum": 0.0,
@@ -293,7 +254,6 @@
         "controlReserveBytes",
         "eventBudgetBytes",
         "heartbeatTickMs",
-        "inflight",
         "maxBlobPageBytes",
         "maxBlobPutChunkBytes",
         "maxConnections",

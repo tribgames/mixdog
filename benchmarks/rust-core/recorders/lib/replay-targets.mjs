@@ -134,6 +134,10 @@ export const REPLAY_TARGETS = {
     protocolMethods: ['thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492'],
     notPublic: ['mixdog-core-session/src/session/inheritance.rs:100 `carry_into` is pub(super): it is reached through thread/fork'],
   },
+  'session-call-lanes': {
+    protocolMethods: ['every method but initialize is admitted through the call lanes (mixdog-app-server/src/server.rs:117 `lane_of`: turn/interrupt, thread/approval/answer and the other control calls never queue; thread/start, thread/read, thread/resume, turn/start, project and terminal calls are interactive)'],
+    notPublic: ['mixdog-app-server/src/lanes.rs:241 `CallLanes` is pub(crate): the replay is the crate\'s own test (tests/call_lanes.rs)'],
+  },
   'session-lane-backlog-cases': {
     missing: ['the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found'],
   },

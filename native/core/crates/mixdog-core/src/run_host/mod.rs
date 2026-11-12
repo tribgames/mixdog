@@ -143,8 +143,6 @@ pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
-#[cfg(test)]
-mod session_route_state_replay;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;

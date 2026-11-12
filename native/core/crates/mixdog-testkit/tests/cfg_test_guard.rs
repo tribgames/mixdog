@@ -40,11 +40,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod session_route_state_replay;",
-        "a replay that stays in the library because it uses `context_world::tests::{Fixed, Quiet, WindowFacts}`, which are crate-private and compiled for the library's tests only",
-    ),
-    (
         "mixdog-core-session/src/session/mod.rs",
         "mod message_sanitize_replay;",
         "a module of tests only (the `session-message-sanitize` recording replayed over the inline tests' rig): no other module uses it, so a replay build loses nothing by not compiling it",

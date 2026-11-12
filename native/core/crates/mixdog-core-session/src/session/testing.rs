@@ -950,6 +950,7 @@ impl ThreadStore for MemStore {
 pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
+    hook: Option<CommitHook>,
     held: Mutex<Option<(&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -965,7 +966,7 @@ const HOLD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 impl HeldCall {
     /// Resolves once the held call has been made and is waiting.
     pub async fn entered(&mut self, name: &str) {
-        let entered = tokio::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
+        let entered = mixdog_rt::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
         assert!(matches!(entered, Ok(Some(()))), "waiting for the store call {name} to be made");
     }
 
@@ -977,7 +978,7 @@ impl HeldCall {
 
 impl CallCounted {
     pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default() })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: None })
     }
 
     /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
@@ -1037,9 +1038,76 @@ impl ThreadStore for CallCounted {
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
-        fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
-        fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
         fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
+    }
+
+    fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+        lock(&self.calls).push("open_log");
+        Ok(self.hooked(self.inner.open_log(lane, id, at)?))
+    }
+
+    fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        lock(&self.calls).push("create_log");
+        let (log, ordinal) = self.inner.create_log(lane, id, session)?;
+        Ok((self.hooked(log), ordinal))
+    }
+}
+
+/// Where a hooked log is when its hook runs: before a batch is handed to the store, between two of its records, or after the store
+/// acknowledged it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitPoint {
+    Before,
+    /// The first `written` records of the batch are on disk. The store's format (FORMAT.md §7: a crash during a batch leaves a
+    /// prefix of its frames, each complete one committed) makes every such prefix a state a kill can leave, so the hooked log
+    /// writes a batch one record at a time and calls the hook between them.
+    Within { written: usize },
+    After,
+}
+
+/// Called on the durability thread around each `commit` of a log opened through [`CallCounted::with_commit_hook`]; a hook that
+/// never returns holds the write there, so a parent can end the process at that point.
+pub type CommitHook = Arc<dyn Fn(CommitPoint) + Send + Sync>;
+
+struct HookedLog {
+    inner: Box<dyn SessionLog>,
+    hook: CommitHook,
+}
+
+impl SessionLog for HookedLog {
+    fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
+        (self.hook)(CommitPoint::Before);
+        let mut ordinals = Vec::with_capacity(batch.len());
+        for (written, record) in batch.chunks(1).enumerate() {
+            if written > 0 {
+                (self.hook)(CommitPoint::Within { written });
+            }
+            ordinals.extend(self.inner.commit(lane, record)?);
+        }
+        (self.hook)(CommitPoint::After);
+        Ok(ordinals)
+    }
+
+    fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        self.inner.retry(lane)
+    }
+
+    fn redact(&mut self, lane: &InLane<DurabilityIo>) {
+        self.inner.redact(lane);
+    }
+}
+
+impl CallCounted {
+    /// [`Self::new`] whose logs call `hook` around each commit.
+    pub fn with_commit_hook(inner: Arc<dyn ThreadStore>, hook: CommitHook) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default(), hook: Some(hook) })
+    }
+
+    fn hooked(&self, log: Box<dyn SessionLog>) -> Box<dyn SessionLog> {
+        match &self.hook {
+            Some(hook) => Box::new(HookedLog { inner: log, hook: hook.clone() }),
+            None => log,
+        }
     }
 }
 

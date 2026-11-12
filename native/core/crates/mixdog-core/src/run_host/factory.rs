@@ -20,7 +20,7 @@ use mixdog_agent::env::{
     ToolHooks, TranscriptSink, TurnGuards,
 };
 use mixdog_agent::compact::blob_reads::with_blobs;
-use mixdog_agent::env::CommitError;
+use mixdog_agent::env::{CommitError, NotDurable};
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
@@ -378,6 +378,8 @@ struct DraftClock {
 struct PortSink {
     jobs: Jobs,
     done: watch::Receiver<u64>,
+    /// Each commit the store refused, by ticket: a settled ticket that is listed here was never made durable.
+    failed: Arc<Mutex<Vec<(u64, String)>>>,
     port: RunPort,
     rows: Arc<StoredRows>,
     live: LiveTurnPublisher,
@@ -502,19 +504,24 @@ impl PortSink {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
+        let failed = Arc::new(Mutex::new(Vec::new()));
+        let failures = failed.clone();
         drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
             while let Some(job) = queue.recv().await {
+                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`); the failure is also kept
+                // for the wait that gates the next step, which must never take a refused row for a saved one.
                 let n = match job {
                     Job::Commit(n, item) => {
-                        // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                         if let Err(error) = worker.commit_item(item).await {
                             tracing::warn!("[session] message save failed: {error:?}");
+                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
                     Job::Compact(n, compaction) => {
                         if let Err(error) = worker.compacted(compaction).await {
                             tracing::warn!("[session] compaction save failed: {error:?}");
+                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
@@ -536,7 +543,7 @@ impl PortSink {
             #[cfg(any(test, feature = "test-support"))]
             taken: Mutex::default(),
         };
-        Arc::new(Self { jobs, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
+        Arc::new(Self { jobs, done, failed, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
     }
 
     /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
@@ -747,13 +754,19 @@ impl TranscriptSink for PortSink {
         }
     }
 
-    async fn durable(&self, ticket: Ticket) {
+    /// Waits for the row as Node's turn waits for its save (`awaitPreviousTurnDurable`, `turn-durability.mjs:99`): with no bound of its
+    /// own (a cancelled run stops waiting, `Run::until_durable`), and a row the store refused is the turn's storage error.
+    async fn durable(&self, ticket: Ticket) -> Result<(), NotDurable> {
+        let not_saved = |cause: String| NotDurable(format!("Session {}: the conversation is not saved to disk, so the next turn cannot start ({cause})", self.port.thread().as_str()));
         if ticket.0 == 0 {
-            let _ = self.port.input_durable().await;
-            return;
+            return self.port.input_durable().await.map_err(|error| not_saved(format!("{error:?}")));
         }
         let mut done = self.done.clone();
-        let _ = done.wait_for(|d| *d >= ticket.0).await;
+        done.wait_for(|d| *d >= ticket.0).await.map_err(|_| not_saved("the session's writer ended".to_owned()))?;
+        match lock(&self.failed).iter().find(|(n, _)| *n <= ticket.0) {
+            Some((_, cause)) => Err(not_saved(cause.clone())),
+            None => Ok(()),
+        }
     }
 }
 
@@ -2028,6 +2041,70 @@ mod tests {
         let _ = AtomicI64::new(0);
     }
 
+    /// The provider that, when its request arrives, makes the store refuse the next write (the assistant row the reply commits).
+    struct RefusesNextSave {
+        inner: Arc<Scripted>,
+        refuse: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for RefusesNextSave {
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.inner.attempt(request).await
+        }
+    }
+
+    /// A row the store refused is no acknowledgement (Node: `TurnPersistenceError`, `turn-durability.mjs:20`): the tool the
+    /// assistant row gated does not run, no second request is made, and the turn fails with the storage error.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_row_save_fails_the_turn_before_the_tool_it_gated() {
+        let scripted = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::TextDelta("looking".into()),
+                StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let provider = Arc::new(RefusesNextSave { inner: scripted.clone(), refuse: rig.store.fail_next.clone() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+
+        let stored = || format!("{:?}", rig.store.records(&id));
+        eventually_on_awaiting(|| "the turn's storage failure in the store".to_owned(), &[handle.stepped()], || stored().contains("is not saved to disk").then_some(())).await;
+        assert_eq!(lock(&scripted.requests).len(), 1, "no request follows a row that was not saved");
+        assert!(!stored().contains("echo:"), "the tool did not run: {}", stored());
+    }
+
     /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
     /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
     /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
@@ -2941,20 +3018,37 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
-        turn_world_with(provider, Arc::new(NoMcp), Vec::new(), false).await
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, None).await
     }
 
     /// [`turn_world`] whose sessions take their MCP tools from `mcp`, and whose registry resolves `connected` by name
     /// whatever the folder, as `McpAwareResolver` resolves a ready server's tool (`McpHub::tool_in`); `lead`: the turn
     /// settings are a Lead surface host's (`LeadSurfaceHost`, the MCP fold and the refresh every call starts with) over the world's threads.
     async fn turn_world_with(provider: Arc<dyn ProviderAdapter>, mcp: Arc<dyn super::super::session_tools::SessionMcp>, connected: Vec<Arc<dyn Tool>>, lead: bool) -> World {
+        turn_world_full(provider, mcp, connected, lead, None, None).await
+    }
+
+    /// [`turn_world`] over `threads` (the rig's memory store when `None`) with `pool` as the tool pool (`list` and `Skill`
+    /// when `None`).
+    async fn turn_world_over(provider: Arc<dyn ProviderAdapter>, threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>, pool: Option<Vec<Arc<dyn Tool>>>) -> World {
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, threads, pool).await
+    }
+
+    async fn turn_world_full(
+        provider: Arc<dyn ProviderAdapter>,
+        mcp: Arc<dyn super::super::session_tools::SessionMcp>,
+        connected: Vec<Arc<dyn Tool>>,
+        lead: bool,
+        threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>,
+        pool: Option<Vec<Arc<dyn Tool>>>,
+    ) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
         let ledger = Arc::new(Ledger::default());
         let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
         let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
-        let mut pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
+        let mut pool: Vec<Arc<dyn Tool>> = pool.unwrap_or_else(|| vec![named("list"), named("Skill")]);
         // A Lead world's bridge sessions reach their deferred tools through the product's `call_tool`.
         let late_catalog = Arc::new(LateCatalog::default());
         if lead {
@@ -3028,11 +3122,16 @@ mod tests {
             liveness,
             search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
             deps: Box::new({
-                let store = rig.store.clone();
+                // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
+                let production_surface = threads.is_some();
+                let store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
                 let rig_deps = rig.deps_parts(store);
                 move |runs| {
                     let mut deps = rig_deps;
                     deps.runs = runs;
+                    if production_surface {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                    }
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
                     // A Lead world's sessions are judged by the surface the composition derives from the header (`compose_flip`).
                     if lead {

@@ -3,6 +3,7 @@
 mod actor;
 mod admission;
 mod approvals;
+mod call_lanes;
 mod closing;
 mod control;
 mod dispatch;
@@ -17,6 +18,7 @@ mod queues;
 mod routing;
 mod sample;
 mod session_transport;
+mod wire;
 mod storm;
 mod subscriptions;
 
@@ -82,6 +84,10 @@ pub(crate) struct GateDomain {
     pub(crate) permits: Semaphore,
     /// Each call's hold on its reply (`CallContext::after_answer`), in call order.
     pub(crate) held: Mutex<Vec<mixdog_rt::CancellationToken>>,
+    /// What each call, in the order they start, answers when it has its permit; a call past the list answers `{ "done": tag }`.
+    pub(crate) answers: Mutex<std::collections::VecDeque<Value>>,
+    /// How many calls have started.
+    pub(crate) started: watch::Sender<usize>,
 }
 
 impl GateDomain {
@@ -105,9 +111,11 @@ impl DomainService for GateDomain {
         let tag = format!("{}:{tag}", req.method);
         self.held.lock().unwrap().push(req.ctx.after_answer.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
+        self.started.send_modify(|count| *count += 1);
+        let answer = self.answers.lock().unwrap().pop_front();
         self.permits.acquire().await.unwrap().forget();
         self.log.lock().unwrap().push(format!("end {tag}"));
-        Ok(Reply::Value(json!({ "done": tag })))
+        Ok(Reply::Value(answer.unwrap_or_else(|| json!({ "done": tag }))))
     }
 
     fn notify(&self, _: Method, _: Value, _: ConnectionId) -> Admit {
@@ -129,6 +137,8 @@ pub(crate) struct TestCore {
     scoped: Mutex<HashMap<mixdog_core_api::ids::FeedId, Arc<dyn FeedSource>>>,
     opens: AtomicUsize,
     loads: AtomicUsize,
+    /// A real thread directory that serves every thread not registered here, in place of the mock's.
+    directory: Mutex<Option<Arc<dyn ThreadDirectory>>>,
 }
 
 type Build = Box<dyn Fn() -> Arc<dyn ThreadHandle> + Send + Sync>;
@@ -168,6 +178,15 @@ impl TestCore {
             .insert(ThreadId::from(id), Box::new(build));
     }
 
+    /// `directory` serves every thread not registered with [`TestCore::load`] or [`TestCore::cold`].
+    pub(crate) fn serve_threads(&self, directory: Arc<dyn ThreadDirectory>) {
+        *crate::sharded::lock(&self.directory) = Some(directory);
+    }
+
+    fn fallback(&self) -> Option<Arc<dyn ThreadDirectory>> {
+        crate::sharded::lock(&self.directory).clone()
+    }
+
     /// `open` calls the server made.
     pub(crate) fn opens(&self) -> usize {
         self.opens.load(Ordering::Acquire)
@@ -183,7 +202,10 @@ impl TestCore {
 impl ThreadDirectory for TestCore {
     fn get(&self, id: &ThreadId) -> Option<Arc<dyn ThreadHandle>> {
         let loaded = crate::sharded::lock(&self.threads).loaded.get(id).cloned();
-        loaded.or_else(|| self.mock.threads().get(id))
+        loaded.or_else(|| match self.fallback() {
+            Some(directory) => directory.get(id),
+            None => self.mock.threads().get(id),
+        })
     }
 
     async fn open(
@@ -204,11 +226,17 @@ impl ThreadDirectory for TestCore {
                 return Ok(handle);
             }
         }
-        self.mock.threads().open(id, ctx).await
+        match self.fallback() {
+            Some(directory) => directory.open(id, ctx).await,
+            None => self.mock.threads().open(id, ctx).await,
+        }
     }
 
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        self.mock.threads().request(req).await
+        match self.fallback() {
+            Some(directory) => directory.request(req).await,
+            None => self.mock.threads().request(req).await,
+        }
     }
 }
 
@@ -364,6 +392,8 @@ impl Rig {
                         log: Mutex::new(Vec::new()),
                         permits: Semaphore::new(0),
                         held: Mutex::new(Vec::new()),
+                        answers: Mutex::default(),
+                        started: watch::channel(0).0,
                     };
                     (name, Arc::new(gate))
                 })
@@ -373,6 +403,7 @@ impl Rig {
             scoped: Mutex::default(),
             opens: AtomicUsize::new(0),
             loads: AtomicUsize::new(0),
+            directory: Mutex::default(),
         });
         let outgoing = Outgoing::new();
         let origins: Arc<Mutex<std::collections::HashMap<ConnectionId, Origin>>> = Arc::default();

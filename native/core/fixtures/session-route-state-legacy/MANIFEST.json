@@ -1,0 +1,58 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-route-state-legacy.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "entry": "NO PATCH APPLIED: the tree is exactly the reference commit (product.exact, no `patches`). Saved the heir session of the inheritance cases (inheritanceRouteTarget of an anthropic-oauth claude-opus-5 route with a 500000 window, no messages) through the real session store (store.mjs saveSessionAsync on a temp MIXDOG_DATA_DIR) and read it back with loadSession: the stored header of a session this Node wrote. Checked here that it holds neither offloadSources nor offloadSourcesRules.",
+  "exclusions": [
+    "no value is normalised: the header is the one loadSession returned, whole; Date.now() is not fixed, so its stamps are this run's (the replay compares the header the core stores with the recorded one whole, whatever the stamps)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1429,
+      "path": "recording.json",
+      "sha256": "17ac145b35d85eb78db9e13b6694080a2efe6dc3c27e7504d53c562b856c33a2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "567e31cf4d690d0623a96e871e1190bf780ea698f93c57e6ab7534dfd3a6dc31"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-route-state-legacy.mjs",
+  "recorderSha256": "277c2d8991b608cca6853e3417d1cd125ba76a3e92df18ebcd95155dcff66ed7",
+  "replay": "mixdog-core-replays tests/dispatch/route_state.rs a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save: the recorded header, unchanged, is the stored header of a thread opened by the core; a save (thread/name/set) leaves it as it was but for the fields the rename writes.",
+  "set": "session-route-state-legacy",
+  "testFile": "src/session-runtime/session-lifecycle.test.mjs",
+  "totalBytes": 1429,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

@@ -576,6 +576,17 @@ mod tests {
         Some((text, rows))
     }
 
+    /// The restart recovery's stored mark (`meta.restartRecovery`, FORMAT.md §5.2) comes back byte for byte, and no field of the
+    /// provider's message carries it.
+    #[test]
+    fn the_recovery_mark_round_trips_and_stays_off_the_wire() {
+        let row = json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "sentRequestTail": true, "restartRecovery": true } });
+        let message = message_of(&row).unwrap();
+        assert_eq!(row_of(&message), row);
+        let sent = format!("{:?}", message.wire());
+        assert!(!sent.contains("restartRecovery"), "{sent}");
+    }
+
     #[test]
     fn rows_round_trip_through_the_message() {
         let mut call = AgentMessage::assistant("looking", vec![ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({"a": 1}), native_type: None }]);
