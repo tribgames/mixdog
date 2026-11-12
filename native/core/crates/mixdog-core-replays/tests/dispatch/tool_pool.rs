@@ -1020,6 +1020,170 @@ impl mixdog_services::task_reports::host::AgentRegistry for PendingOwners {
     }
 }
 
+// --- the production listing (`fixtures/session-listing`) -------------------------------------------------------------------
+// The session-control sets script the catalog (the recorder answered `listSessions` / `readRow` itself), so `session action=list` is
+// compared there through [`ScriptedListing`]; the listing the product binds, [`StoreListing`] over the store, is compared here against
+// Node's real catalog over the same sessions.
+
+/// The runtime facts of the recorded turns in flight (`inFlightSessionActivity()` of the recording).
+struct Facts {
+    working: HashSet<String>,
+    agent_working: HashSet<String>,
+}
+
+impl mixdog_core_session::session::thread_list::ListOverlay for Facts {
+    fn of(&self, thread: &ThreadId) -> mixdog_core_session::session::thread_list::RowOverlay {
+        mixdog_core_session::session::thread_list::RowOverlay {
+            working: self.working.contains(thread.as_str()).then_some(true),
+            agent_working: self.agent_working.contains(thread.as_str()).then_some(true),
+            ..Default::default()
+        }
+    }
+}
+
+/// The agent pool of a daemon with no workers: `StoreListing::page` and `row` never read it.
+struct NoWorkers;
+
+#[async_trait]
+impl mixdog_core_agents::agents::PoolStore for NoWorkers {
+    async fn agent_index(&self) -> Option<Value> {
+        None
+    }
+    async fn lead_index(&self) -> Option<Value> {
+        None
+    }
+    async fn headers(&self, ids: &[String]) -> Vec<Option<Map<String, Value>>> {
+        vec![None; ids.len()]
+    }
+}
+
+impl mixdog_core_agents::agents::PoolLive for NoWorkers {
+    fn now(&self) -> f64 {
+        0.0
+    }
+    fn running(&self) -> HashSet<String> {
+        HashSet::new()
+    }
+    fn awaiting_shell(&self) -> HashSet<String> {
+        HashSet::new()
+    }
+    fn live_session(&self, _: &str) -> Option<Value> {
+        None
+    }
+    fn runtime_entry(&self, _: &str) -> Option<mixdog_core_agents::agents::RuntimeEntry> {
+        None
+    }
+    fn ledger_tokens(&self, _: &[(String, Vec<String>)]) -> HashMap<String, String> {
+        HashMap::new()
+    }
+    fn stall_warn_ms(&self, _: Option<&str>) -> f64 {
+        0.0
+    }
+}
+
+/// What the store's rows hold beyond Node's JSON catalog rows (the recording's manifest declares them).
+const INDEX_ONLY: [&str; 9] = ["parentSessionId", "presetName", "effort", "fast", "modelParameters", "permissionMode", "schemaAllowedTools", "taskType", "compactCount"];
+/// The stat of Node's session file, which a store with no such file holds as 0.
+const STORAGE_STAMP: [&str; 2] = ["storageMtimeMs", "storageSize"];
+
+/// Node's row for the comparison: it holds none of the store's index-only fields; the stat of its file is dropped.
+fn node_row(row: &Value) -> Map<String, Value> {
+    let mut row = row.as_object().expect("a row").clone();
+    for key in INDEX_ONLY {
+        assert!(!row.contains_key(key), "Node's row holds {key}");
+    }
+    for key in STORAGE_STAMP {
+        row.remove(key);
+    }
+    row
+}
+
+/// The core's row for the comparison: the index-only fields and the file stat are dropped.
+fn core_row(row: &Map<String, Value>) -> Map<String, Value> {
+    let mut row = row.clone();
+    for key in INDEX_ONLY.into_iter().chain(STORAGE_STAMP) {
+        row.remove(key);
+    }
+    row
+}
+
+/// Every page, malformed cursor, row by id, archived flag and live overlay of Node's real catalog, asked of the production
+/// `StoreListing` over a `SqliteStore` holding the same sessions: whole, in recorded order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_production_listing_answers_as_nodes_real_catalog_does() {
+    use mixdog_core::run_host::tool_pool::session_control::SessionListing;
+    use mixdog_store::sqlite::DirtyMark;
+    use mixdog_store::sqlite::SqliteStore;
+    use mixdog_store::summary::CatalogHead;
+
+    let g: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-listing/golden.json")).expect("golden");
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let store = Arc::new(
+        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &CancellationToken::new(), move |lane| SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root))
+            .expect("lane")
+            .await
+            .expect("job ran")
+            .expect("index"),
+    );
+    // The sessions Node's recorder wrote as records, seeded as headers (the records hold no messages).
+    for record in g["sessions"].as_array().expect("sessions") {
+        let mut header = record.as_object().expect("record").clone();
+        header.remove("messages");
+        let session = header["id"].as_str().expect("id").to_owned();
+        store.upsert(CatalogHead { session, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("seeded");
+    }
+    let directory = world(0, &json!({ "provider": "anthropic", "model": "claude-sonnet-4" })).await;
+    let listing = |facts: Facts| {
+        let pool = Arc::new(mixdog_core_agents::agents::AgentPool::new(Arc::new(NoWorkers), Arc::new(NoWorkers)));
+        mixdog_core::run_host::tool_pool::session_control::StoreListing::new(store.clone(), Arc::new(facts), directory.directory.clone(), pool, Arc::new(|| 0))
+    };
+    let idle = listing(Facts { working: HashSet::new(), agent_working: HashSet::new() });
+    let strings = |value: &Value| -> HashSet<String> { value.as_array().expect("ids").iter().map(|id| id.as_str().expect("id").to_owned()).collect() };
+    let live = listing(Facts { working: strings(&g["live"]["working"]), agent_working: strings(&g["live"]["agentWorking"]) });
+    let archived = strings(&g["archived"]);
+    assert!(!archived.is_empty() && !g["live"]["working"].as_array().expect("working").is_empty(), "the recording holds archived and working sessions");
+
+    let walked = |walks: &Value, listing: &'static str| -> Vec<(String, Value)> { walks.as_array().expect(listing).iter().map(|walk| (listing.to_owned(), walk.clone())).collect() };
+    for (which, walk) in walked(&g["walks"], "idle").into_iter().map(|w| (&idle, w)).chain(walked(&g["liveWalks"], "live").into_iter().map(|w| (&live, w))) {
+        let limit = walk.1["limit"].as_u64().expect("limit") as usize;
+        for page in walk.1["pages"].as_array().expect("pages") {
+            let context = format!("{} limit {limit} cursor {}", walk.0, page["cursor"]);
+            let got = which.page(limit, page["cursor"].as_str()).await.unwrap_or_else(|error| panic!("{context}: {error}"));
+            let rows: Vec<Map<String, Value>> = got.rows.iter().map(|listed| core_row(&listed.row)).collect();
+            let want: Vec<Map<String, Value>> = page["sessions"].as_array().expect("sessions").iter().map(node_row).collect();
+            assert_eq!(rows, want, "{context}: the rows, whole and in order");
+            assert_eq!(got.next_cursor.as_deref(), page["nextCursor"].as_str(), "{context}: the next cursor");
+            for listed in &got.rows {
+                assert_eq!(listed.archived, archived.contains(listed.row["id"].as_str().expect("id")), "{context}: archived flag of {}", listed.row["id"]);
+            }
+        }
+    }
+    for case in g["cursors"].as_array().expect("cursors") {
+        let context = format!("cursor {}", case["cursor"]);
+        let got = idle.page(case["limit"].as_u64().expect("limit") as usize, case["cursor"].as_str()).await;
+        match case.get("threw") {
+            Some(threw) => assert_eq!(got.err().as_deref(), threw["message"].as_str(), "{context}: refused as Node refuses it"),
+            None => {
+                let got = got.unwrap_or_else(|error| panic!("{context}: {error}"));
+                let rows: Vec<Map<String, Value>> = got.rows.iter().map(|listed| core_row(&listed.row)).collect();
+                let want: Vec<Map<String, Value>> = case["sessions"].as_array().expect("sessions").iter().map(node_row).collect();
+                assert_eq!(rows, want, "{context}: the rows");
+                assert_eq!(got.next_cursor.as_deref(), case["nextCursor"].as_str(), "{context}: the next cursor");
+            }
+        }
+    }
+    for entry in g["rows"].as_array().expect("rows") {
+        let id = entry["id"].as_str().expect("id");
+        let got = idle.row(id).await.expect("a row");
+        assert_eq!(got.as_ref().map(|listed| core_row(&listed.row)), entry["row"].as_object().map(|_| node_row(&entry["row"])), "row of {id}");
+        if let Some(listed) = got {
+            assert_eq!(listed.archived, archived.contains(id), "archived flag of {id}");
+        }
+    }
+}
+
 /// The store's listing over a case's scripted catalog: its pages in order, its rows by id and the live work laid over.
 struct ScriptedListing {
     catalog: Arc<ScriptedCatalog>,
