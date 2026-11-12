@@ -155,3 +155,14 @@ test("a member's speech is posted with its session's sensitive values as the mar
   );
   assert.deepEqual(posted.rows.map((row) => row.text), ['the code is [redacted]', 'other says 482913']);
 });
+
+test('a post or reaction the store drops (the log was detached since it was loaded) fails instead of reporting success', async () => {
+  const notices = [];
+  const dropping = { saveSession: async () => 'dropped', live: () => ({ notice: (_id, notice) => notices.push(notice) }) };
+  const { session, delivery } = memory(undefined, dropping);
+  await assert.rejects(delivery.append(ROOM_LOG, [speech('lost')]), /not available/);
+  assert.deepEqual(notices, [], 'a row that was not written is not shown');
+  const user = { id: 'u1', kind: 'user', at: 1, text: 'hi', to: ['gh'], toName: ['GH'] };
+  await memory(session).delivery.append(ROOM_LOG, [user]);
+  await assert.rejects(delivery.react(ROOM_LOG, { agentId: 'gh', emoji: '👍' }), /not available/);
+});
