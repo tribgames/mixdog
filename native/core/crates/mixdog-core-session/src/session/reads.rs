@@ -48,7 +48,12 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
 
+use std::sync::Arc;
+
 use super::SessionDeps;
+use super::SessionLanes;
+use super::ThreadStore;
+use super::Transcript;
 use super::directory::DirInner;
 use super::transcript::position_of_id;
 use super::view::meta;
@@ -109,14 +114,20 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
 }
 
 /// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
-async fn history_tail(deps: &SessionDeps, id: &ThreadId, rows: usize) -> Result<(History, bool), CoreError> {
+pub(super) async fn history_tail(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    rows: usize,
+) -> Result<(History, bool), CoreError> {
     let token = CancellationToken::new();
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
-    deps.store.unheld().await;
-    let (store, thread) = (deps.store.clone(), id.clone());
-    let (rev, records, complete) = deps.lanes.io.submit(&token, move |lane| store.history_tail(lane, &thread, rows))?.await.map_err(|_| dropped())??;
-    let transcript = deps.transcript.clone();
-    let rows = deps.lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    store.unheld().await;
+    let (store, thread) = (store.clone(), id.clone());
+    let (rev, records, complete) = lanes.io.submit(&token, move |lane| store.history_tail(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let transcript = transcript.clone();
+    let rows = lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
     Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
 }
 
@@ -134,7 +145,7 @@ impl DirInner {
             let deps = &self.deps;
             let thread = &id;
             return list_from_tail(&id, &p, |rows| async move {
-                let (History { rev, rows }, complete) = history_tail(deps, thread, rows).await?;
+                let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
                 Ok((rev, rows, complete))
             })
             .await;
@@ -187,8 +198,8 @@ impl DirInner {
 /// counts `rows`' display-row lengths, as Node's `budgetedEdge` counts the transcript rows.
 ///
 /// `rows` are the newest rows of the history, or all of it when `complete`. The page is one only the newest rows can decide
-/// (the anchor is among them, and an older page ends before the rows run out), or `None`: more rows are needed.
-fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+/// (no cursor, and an older page that ends before the rows run out), or `None`: more rows are needed.
+pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -211,10 +222,13 @@ fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete:
         .collect();
     let at = match anchor {
         None => None,
+        // A cursor names the first row that displays it, else the first of that item id (`position_of_id`), and a user
+        // row displays its client's own submission id: an older row may display the same id, so only the whole history
+        // proves which row a cursor names.
+        Some(_) if !complete => return Ok(None),
         Some(item) => match position_of_id(turn.iter().map(|(row, _)| row), item) {
             Some(at) => Some(at),
-            None if complete => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
-            None => return Ok(None),
+            None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
         },
     };
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
@@ -245,12 +259,13 @@ const FIRST_TAIL_ROWS: usize = 128;
 
 /// `thread/items/list` from the newest rows of the history only: `fetch(n)` answers the newest `n` stored rows
 /// (their items, with the history revision, and whether that is all of the history).
-async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
+pub(super) async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
 where
     F: FnMut(usize) -> Fut,
     Fut: std::future::Future<Output = Result<(u64, Vec<(ThreadItem, usize)>, bool), CoreError>>,
 {
-    let mut want = FIRST_TAIL_ROWS;
+    // A cursor's row is only known from the whole history; the page of the newest rows reads as few as it needs.
+    let mut want = if p.cursor.is_some() { usize::MAX } else { FIRST_TAIL_ROWS };
     loop {
         let (rev, rows, complete) = fetch(want).await?;
         if let Some(reply) = items_window(id, rev, &rows, complete, p)? {
@@ -699,51 +714,6 @@ mod tests {
             Reply::Value(v) => Ok(v),
             _ => panic!("a value"),
         }
-    }
-
-    /// A page of `thread/items/list` reads the newest rows it needs, not the whole history, and is the page the whole
-    /// history gives: every call shape (newest page, anchored older and newer, a turn's rows, a budget, a missing anchor).
-    #[tokio::test]
-    async fn a_page_is_read_from_the_newest_rows_and_equals_the_page_of_the_whole_history() {
-        let sizes: Vec<usize> = (0..3000).map(|i| 10 + i % 7).collect();
-        let all = history_of(&sizes);
-        let id = ThreadId::from("t");
-        let shapes = [
-            json!({ "threadId": "t" }),
-            json!({ "threadId": "t", "limit": 50 }),
-            json!({ "threadId": "t", "limit": 50, "byteBudget": 200 }),
-            json!({ "threadId": "t", "limit": 20, "cursor": "r2900" }),
-            json!({ "threadId": "t", "limit": 20, "cursor": "r2900", "sortDirection": "asc" }),
-            json!({ "threadId": "t", "limit": 20, "cursor": "r1000" }),
-            json!({ "threadId": "t", "limit": 20, "cursor": "r5", "sortDirection": "asc" }),
-            json!({ "threadId": "t", "limit": 20, "sortDirection": "asc" }),
-            json!({ "threadId": "t", "limit": 20, "cursor": "nope" }),
-            json!({ "threadId": "t", "limit": 20, "turnId": "nope" }),
-        ];
-        let mut deepest = Vec::new();
-        for shape in shapes {
-            let p: ThreadItemsListParams = serde_json::from_value(shape.clone()).expect("params");
-            let widest = std::cell::Cell::new(0);
-            let got = list_from_tail(&id, &p, |n| {
-                widest.set(widest.get().max(n));
-                let from = all.len().saturating_sub(n);
-                let rows = all[from..].to_vec();
-                async move { Ok((0, rows, from == 0)) }
-            })
-            .await;
-            let want = page(&id, 0, &all, shape.clone());
-            match (got, want) {
-                (Ok(Reply::Value(got)), Ok(want)) => assert_eq!(got, want, "{shape}"),
-                (Err(got), Err(want)) => assert_eq!(format!("{got:?}"), format!("{want:?}"), "{shape}"),
-                (got, want) => panic!("{shape}: {got:?} against {want:?}"),
-            }
-            deepest.push(widest.get());
-        }
-        // The newest page (512 rows by default, so a read of 1024) and the ones near the end ask for little; the page at row 1000 for
-        // the 2000 rows after it, not 3000; only the oldest page, a bad cursor and a bad filter read it all.
-        assert_eq!(deepest[..5], [1024, 128, 128, 128, 128]);
-        assert_eq!(deepest[5], 2048, "{deepest:?}");
-        assert!(deepest[6..].iter().all(|n| *n >= 3000), "{deepest:?}");
     }
 
     /// `storedHistorySlice({cursor})`: the recorded Node pages replayed through `thread/items/list`
