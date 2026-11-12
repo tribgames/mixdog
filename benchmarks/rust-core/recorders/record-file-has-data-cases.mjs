@@ -10,14 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
-import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 
-REPLAY_TARGETS['file-has-data-cases'] = {
-  rust: [
-    { path: 'native/core/crates/mixdog-services/src/local_provider/catalog.rs', line: 29, name: 'file_has_data' },
-    { path: 'native/core/crates/mixdog-services/src/local_provider/catalog.rs', line: 42, name: 'exact_file' },
-  ],
-};
 const set = openSet('file-has-data-cases', import.meta.url);
 const { fileHasData, fileHasDataAsync } = await set.load('src/runtime/shared/file-has-data.mjs');
 const { exactLocalProviderFile } = await set.load('src/runtime/local-provider/catalog.mjs');
