@@ -2,6 +2,7 @@
 //! total, and the top processes), free space per drive and, on request, the processes matching a name. One short sample, a hard
 //! 1.8 s deadline: whatever is not ready by then is reported as unavailable instead of holding the call.
 
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -42,11 +43,44 @@ const GB: f64 = 1024.0 * 1024.0 * 1024.0;
 
 pub struct MachineTool {
     spec: ToolSpec,
+    host: Arc<dyn MachineHost>,
+}
+
+/// Where the readings come from: the machine itself, or a test's own source.
+#[async_trait]
+pub(super) trait MachineHost: Send + Sync {
+    async fn cpu_busy(&self, ctx: &ToolContext) -> u64;
+    async fn memory(&self, ctx: &ToolContext) -> (f64, f64);
+    async fn processes(&self, ctx: &ToolContext) -> Option<Vec<Process>>;
+    async fn drives(&self, ctx: &ToolContext) -> Option<Vec<Drive>>;
+}
+
+struct SystemHost;
+
+#[async_trait]
+impl MachineHost for SystemHost {
+    async fn cpu_busy(&self, ctx: &ToolContext) -> u64 {
+        host::cpu_busy(ctx).await
+    }
+    async fn memory(&self, ctx: &ToolContext) -> (f64, f64) {
+        host::memory(ctx).await
+    }
+    async fn processes(&self, ctx: &ToolContext) -> Option<Vec<Process>> {
+        host::processes(ctx).await
+    }
+    async fn drives(&self, ctx: &ToolContext) -> Option<Vec<Drive>> {
+        host::drives(ctx).await
+    }
 }
 
 impl MachineTool {
     pub fn new() -> Self {
-        Self { spec: spec_from_def(MACHINE_SPEC, true, &[]) }
+        Self { spec: spec_from_def(MACHINE_SPEC, true, &[]), host: Arc::new(SystemHost) }
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_host(host: Arc<dyn MachineHost>) -> Self {
+        Self { spec: spec_from_def(MACHINE_SPEC, true, &[]), host }
     }
 }
 
@@ -56,17 +90,17 @@ impl Default for MachineTool {
     }
 }
 
-struct Process {
-    pid: u64,
-    name: String,
-    cpu: f64,
-    memory: f64,
+pub(super) struct Process {
+    pub(super) pid: u64,
+    pub(super) name: String,
+    pub(super) cpu: f64,
+    pub(super) memory: f64,
 }
 
-struct Drive {
-    root: String,
-    free: f64,
-    total: f64,
+pub(super) struct Drive {
+    pub(super) root: String,
+    pub(super) free: f64,
+    pub(super) total: f64,
 }
 
 /// `Number.prototype.toFixed`: the nearest value, and the larger one of two equally near.
@@ -359,11 +393,11 @@ impl Tool for MachineTool {
             .unwrap_or_default();
         let filter = mixdog_js::js_to_lowercase(&shown);
         let (cpu, processes, drives) = futures::join!(
-            host::cpu_busy(ctx),
-            async { mixdog_rt::time::timeout(MACHINE_DEADLINE, host::processes(ctx)).await.ok().flatten() },
-            async { mixdog_rt::time::timeout(MACHINE_DEADLINE, host::drives(ctx)).await.ok().flatten() },
+            self.host.cpu_busy(ctx),
+            async { mixdog_rt::time::timeout(MACHINE_DEADLINE, self.host.processes(ctx)).await.ok().flatten() },
+            async { mixdog_rt::time::timeout(MACHINE_DEADLINE, self.host.drives(ctx)).await.ok().flatten() },
         );
-        let (free_mem, total_mem) = host::memory(ctx).await;
+        let (free_mem, total_mem) = self.host.memory(ctx).await;
         let mut lines = vec![
             format!("cpu: {cpu}% busy of {} cores ({} ms sample)", cores() as u64, CPU_SAMPLE.as_millis()),
             format!("memory: {} available of {} ({}% used)", gb(free_mem), gb(total_mem), ((100.0 * (total_mem - free_mem)) / total_mem + 0.5).floor()),

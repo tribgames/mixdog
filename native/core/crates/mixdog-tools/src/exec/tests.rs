@@ -44,6 +44,10 @@ struct FakeProcesses {
     /// Every handle whose input was closed, and every handle killed, in order.
     closed: Mutex<Vec<ProcessHandle>>,
     killed: Mutex<Vec<ProcessHandle>>,
+    /// Every process ends at once with status 0 and no output, whatever it was asked to run.
+    exit_at_once: std::sync::atomic::AtomicBool,
+    /// The folder of every spawn request, in order.
+    cwds: Mutex<Vec<AbsPath>>,
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -69,6 +73,7 @@ impl ProcessManager for FakeProcesses {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
+        self.cwds.lock().unwrap().push(request.cwd.clone());
         // A script fed on stdin acts when it arrives.
         if !request.stdin_piped {
             self.act(script, &request.handle, &tx, &mut seq);
@@ -129,7 +134,9 @@ impl FakeProcesses {
     /// What the process of `script` prints and how it ends.
     fn act(&self, script: &str, handle: &ProcessHandle, tx: &Chan, seq: &mut u64) {
         let exit = |status, killed| ProcessExit { status, killed };
-        if script == "run-limited" {
+        if self.exit_at_once.load(std::sync::atomic::Ordering::SeqCst) {
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "run-limited" {
             self.limited.lock().unwrap().insert(handle.clone());
         } else if let Some(tee) = script
             .split("-FilePath '")
@@ -248,6 +255,11 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
 }
 
 fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
+    rig_shell(tokens, elevation, notifier, false)
+}
+
+/// The rig of a session whose shell is PowerShell (`powershell`) or a POSIX one.
+fn rig_shell(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>, powershell: bool) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
     let runtime = ExecRuntime::new(ExecConfig {
@@ -272,7 +284,7 @@ fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, noti
         shell: Arc::new(FixedShell("/bin/sh".into())),
         script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
-        powershell: false,
+        powershell,
         warm_standby: false,
         now_ms: Arc::new(golden_ms),
     });
@@ -2329,20 +2341,22 @@ fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonVal
 }
 
 /// A call's context over the recorded workspace, offering the tools the case names (null: no session information).
-fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue) -> ToolContext {
-    let mut c = ctx(rig, "cover");
+fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) -> ToolContext {
+    let mut c = ctx(rig, call);
     c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
     c.cwd = AbsPath::new(root).unwrap();
     c.options.offered_tools = offers.as_array().map(|tools| Arc::new(tools.iter().map(|t| t.as_str().unwrap().to_owned()).collect()));
     c
 }
 
-/// The guard on Node's recorded table (`record-shell-cover.mjs`): every command under both shell families, the tools the
-/// session offers, and the refusal text or the call that runs with its notes. Path rules differ per platform, so the table
-/// is replayed on the platform it was recorded on.
+/// Node's recorded table (`record-shell-cover.mjs`) through the shell tool itself, every command under both shell families:
+/// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
+/// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
+/// so the table is replayed on the platform it was recorded on.
 #[cfg(windows)]
 #[tokio::test]
-async fn the_shell_guard_covers_what_node_covers() {
+async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
+    use std::sync::atomic::Ordering::SeqCst;
     let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
     assert_eq!(doc["platform"], "win32");
     let dir = tempfile::tempdir().unwrap();
@@ -2350,56 +2364,46 @@ async fn the_shell_guard_covers_what_node_covers() {
     let forward = root.to_string_lossy().replace('\\', "/");
     let back = root.to_string_lossy().into_owned();
     let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
-    let rig = rig();
+    let spelled = |p: &str| p.replace('\\', "/").trim_start_matches("//?/").to_ascii_lowercase();
+    let rigs = [("posix", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, false)), ("powershell", rig_shell(mixdog_rt::testing::tokens(), Arc::new(OsPromptElevation), None, true))];
+    for (_, rig) in &rigs {
+        rig.processes.exit_at_once.store(true, SeqCst);
+    }
     let mut failures = Vec::new();
     let cases = doc["cases"].as_array().unwrap();
-    for case in cases {
-        let c = cover_ctx(&rig, &root, &case["offers"]);
-        let command = case["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
-        let cwd = case["args"]["cwd"].as_str().map(|c| c.replace("<WS>", &forward));
-        let powershell = case["shellType"] == "powershell";
-        let got = super::guard::guard_call(&c, &command, cwd.as_deref(), false, powershell).await;
+    for (n, case) in cases.iter().enumerate() {
+        let rig = &rigs.iter().find(|(shell, _)| case["shellType"] == *shell).unwrap().1;
+        let c = cover_ctx(rig, &root, &case["offers"], &format!("cover{n}"));
+        let mut args = serde_json::json!({ "command": case["args"]["command"].as_str().unwrap().replace("<WS>", &forward) });
+        if let Some(cwd) = case["args"]["cwd"].as_str() {
+            args["cwd"] = cwd.replace("<WS>", &forward).into();
+        }
+        let spawned = rig.processes.cwds.lock().unwrap().len();
+        let outcome = rig.shell.call(&c, args).await;
         let want = &case["result"];
-        let same = match &got {
-            super::guard::Guarded::Refused(text) => want["failure"].as_str() == Some(fix(text).as_str()),
-            super::guard::Guarded::Run { command, cwd, notes } => {
-                want["failure"].is_null()
-                    && want["args"]["command"].as_str() == Some(fix(command).as_str())
-                    && want["args"]["cwd"].as_str() == cwd.as_deref().map(fix).as_deref()
-                    && want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).eq(notes.iter().map(|n| fix(n)).collect::<Vec<_>>().iter().map(String::as_str))
+        let same = match (&outcome, want["failure"].as_str()) {
+            (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
+            (Ok(_), None) => {
+                let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
+                let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
+                // An inline `node -e` script is the one command the tool itself moves into a file before it starts.
+                let hoisted = command.starts_with("node -e");
+                let ran = if case["shellType"] == "posix" {
+                    matches!(rig.processes.seen.lock().unwrap().last(), Some((CommandSpec::Shell { script, .. }, _)) if *script == command || (hoisted && script.starts_with("node \"")))
+                } else {
+                    rig.processes.fed.lock().unwrap().last().is_some_and(|script| script.contains(&command) || (hoisted && script.contains("node \"")))
+                };
+                let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
+                let text = fix(&body(outcome));
+                ran && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && want["notes"].as_array().unwrap().iter().all(|note| text.contains(note.as_str().unwrap()))
             }
+            _ => false,
         };
         if !same {
-            failures.push(format!("{} {} offers {}\n  want {want}\n  got  {got:?}", case["shellType"], case["args"], case["offers"]));
+            failures.push(format!("{} {} offers {}\n  want {want}", case["shellType"], case["args"], case["offers"]));
         }
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
-}
-
-/// The refusal reaches the caller through the shell tool itself, as an error with Node's text: nothing runs.
-#[cfg(windows)]
-#[tokio::test]
-async fn the_shell_tool_refuses_a_covered_command_with_nodes_text() {
-    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
-    let forward = root.to_string_lossy().replace('\\', "/");
-    let rig = rig();
-    let mut refused = 0;
-    for case in doc["cases"].as_array().unwrap() {
-        let failure = case["result"]["failure"].as_str().unwrap_or("");
-        // The rig's shell is a POSIX one.
-        if case["shellType"] != "posix" || case["args"].get("cwd").is_some() || !failure.contains("the built-in tools cover this command") {
-            continue;
-        }
-        let c = cover_ctx(&rig, &root, &case["offers"]);
-        let command = case["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
-        let outcome = rig.shell.call(&c, serde_json::json!({ "command": command })).await;
-        let Err(e) = outcome else { panic!("{command} was run") };
-        assert_eq!(e.message_for_model.replace(&forward, "<WS>"), failure, "{command}");
-        refused += 1;
-    }
-    assert!(refused > 30, "{refused} refusals replayed");
 }
 
 /// What the `machine` tool prints, as the recorder writes it: each reading a placeholder, the wording, the order of the
@@ -2443,12 +2447,40 @@ fn machine_shape(text: &str) -> String {
     out.join("\n")
 }
 
-/// Node's `machine` on its recorded arguments: the same sections, wording and refusals, whatever the machine's own readings.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// A machine of the test's own: thirty processes, two drives, fixed readings, nothing sampled and no clock.
+struct FixedMachine {
+    /// Processes that never answer (the tool's own deadline ends the wait).
+    hung: bool,
+}
+
+#[async_trait]
+impl super::machine::MachineHost for FixedMachine {
+    async fn cpu_busy(&self, _: &ToolContext) -> u64 {
+        7
+    }
+    async fn memory(&self, _: &ToolContext) -> (f64, f64) {
+        (8.0 * 1024.0 * 1024.0 * 1024.0, 16.0 * 1024.0 * 1024.0 * 1024.0)
+    }
+    async fn processes(&self, _: &ToolContext) -> Option<Vec<super::machine::Process>> {
+        if self.hung {
+            std::future::pending().await
+        }
+        Some((0..30).map(|i| super::machine::Process { pid: 100 + i, name: format!("svc-e{i}"), cpu: i as f64 / 3.0, memory: (i as f64 + 1.0) * 5_000_000.0 }).collect())
+    }
+    async fn drives(&self, _: &ToolContext) -> Option<Vec<super::machine::Drive>> {
+        Some(vec![
+            super::machine::Drive { root: "C:\\".into(), free: 50e9, total: 500e9 },
+            super::machine::Drive { root: "D:\\".into(), free: 150e9, total: 1000e9 },
+        ])
+    }
+}
+
+/// Node's `machine` on its recorded arguments: the same sections, wording and refusals, over a machine the test supplies.
+#[tokio::test(start_paused = true)]
 async fn machine_has_nodes_shape() {
     let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/machine-tool/cases.json")).unwrap();
-    let rig = real_rig();
-    let tool = MachineTool::new();
+    let rig = rig();
+    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: false }));
     let mut failures = Vec::new();
     for (n, case) in doc["cases"].as_array().unwrap().iter().enumerate() {
         let (refused, text) = match tool.call(&ctx(&rig, &format!("machine{n}")), case["input"].clone()).await {
@@ -2460,19 +2492,24 @@ async fn machine_has_nodes_shape() {
         };
         let want = &case["result"];
         let shaped = machine_shape(&text);
-        let mut expected = want["text"].as_str().unwrap().to_owned();
-        // A machine too loaded to list its processes in time is told so (the tool's own deadline; Node's recorder refuses to
-        // record that answer): the process sections give way to that one line and nothing else changes.
-        if shaped.contains("processes: unavailable (no answer within the deadline)") {
-            let lines: Vec<&str> = expected.split('\n').collect();
-            let from = lines.iter().position(|l| *l == "top by cpu:").unwrap();
-            let to = lines.iter().position(|l| l.starts_with("drives")).unwrap();
-            let tail = lines.iter().position(|l| l.starts_with("processes matching")).unwrap_or(lines.len());
-            expected = [&lines[..from], &["processes: unavailable (no answer within the deadline)"][..], &lines[to..tail]].concat().join("\n");
-        }
-        if shaped != expected || refused != want["isError"].as_bool().unwrap() {
+        if shaped != want["text"].as_str().unwrap() || refused != want["isError"].as_bool().unwrap() {
             failures.push(format!("{}\n  want {}\n  got  {shaped}", case["name"], want["text"]));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Processes that do not answer within the tool's deadline are reported as unavailable and the rest is still told; the
+/// deadline runs on the test's clock.
+#[tokio::test(start_paused = true)]
+async fn machine_reports_processes_that_miss_its_deadline() {
+    let rig = rig();
+    let tool = MachineTool::with_host(Arc::new(FixedMachine { hung: true }));
+    let started = tokio::time::Instant::now();
+    let text = body(tool.call(&ctx(&rig, "machine"), serde_json::json!({ "process": "svc" })).await);
+    assert_eq!(started.elapsed(), std::time::Duration::from_millis(1800));
+    assert_eq!(
+        machine_shape(&text),
+        "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\nprocesses: unavailable (no answer within the deadline)\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB"
+    );
 }
