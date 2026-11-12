@@ -1,4 +1,4 @@
-//! Windows: `LockFileEx` over the whole range of `daemon-owner.lock`, opened
+//! Windows: `LockFileEx` over `daemon-owner.lock` from SQLite's pending byte up, opened
 //! without `FILE_SHARE_DELETE`. That handle keeps the lock file, the data dir
 //! and every ancestor from being deleted or renamed while the core runs, and
 //! the barrier is held open the same way, so revalidation has nothing to check.
@@ -29,6 +29,11 @@ use super::AcquireError;
 use super::DataDir;
 use super::LOCK_FILE;
 
+/// SQLite's pending byte, where Node's lock (an exclusive SQLite transaction)
+/// and every SQLite lock byte begin. Bytes below it stay unlocked, so the lock
+/// file can still be read, by the owner too.
+const LOCK_START: u32 = 0x4000_0000;
+
 pub(super) struct LockFile {
     _file: File,
 }
@@ -46,15 +51,17 @@ pub(super) fn lock(dir: &DataDir) -> Result<LockFile, AcquireError> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .open(dir.path().join(LOCK_FILE))
         .map_err(AcquireError::Unavailable)?;
-    // SAFETY: a zeroed OVERLAPPED is a valid offset-0 descriptor.
+    // SAFETY: a zeroed OVERLAPPED is a valid descriptor; only its offset is set.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-    // SAFETY: valid file handle and OVERLAPPED; the range is the whole file space.
+    overlapped.Anonymous.Anonymous.Offset = LOCK_START;
+    // SAFETY: valid file handle and OVERLAPPED; the range runs from LOCK_START
+    // to the end of the file space.
     let ok = unsafe {
         LockFileEx(
             file.as_raw_handle() as HANDLE,
             LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
             0,
-            u32::MAX,
+            u32::MAX - LOCK_START,
             u32::MAX,
             &mut overlapped,
         )

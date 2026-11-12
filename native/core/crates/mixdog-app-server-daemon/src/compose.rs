@@ -860,6 +860,8 @@ mod review_restart_tests;
 mod office_startup_tests;
 #[cfg(test)]
 mod session_send_tests;
+#[cfg(test)]
+mod session_project_tests;
 
 #[cfg(test)]
 mod tests {

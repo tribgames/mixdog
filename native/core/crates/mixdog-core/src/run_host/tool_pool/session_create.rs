@@ -633,7 +633,7 @@ impl CreateHost for DirectoryCreate {
 
     async fn request_worktree(&self, session_id: &str, input: Value) -> Result<Value, CreateFailure> {
         let params = json!({ "threadId": session_id, "opId": uuid::Uuid::now_v7().to_string(), "input": input });
-        ThreadRequests::request(&*self.directory, &ThreadId::from(session_id), "thread/requestWorktree", params).await.map_err(|error| match error {
+        super::session_port::directory_call(&self.directory, &ThreadId::from(session_id), "thread/requestWorktree", params).await.map_err(|error| match error {
             CoreError::DomainError { code, message, detail, .. } => CreateFailure {
                 code: code.map(|c| c.to_string()),
                 message: message.map(|m| m.to_string()).unwrap_or_default(),
@@ -645,6 +645,6 @@ impl CreateHost for DirectoryCreate {
 
     async fn delete_session(&self, session_id: &str) -> Result<Value, String> {
         let params = json!({ "threadId": session_id, "opId": uuid::Uuid::now_v7().to_string() });
-        ThreadRequests::request(&*self.directory, &ThreadId::from(session_id), "thread/delete", params).await.map_err(|e| format!("{e:?}"))
+        super::session_port::directory_call(&self.directory, &ThreadId::from(session_id), "thread/delete", params).await.map_err(|e| format!("{e:?}"))
     }
 }

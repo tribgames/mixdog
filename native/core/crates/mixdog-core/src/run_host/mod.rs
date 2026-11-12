@@ -27,6 +27,8 @@ mod process_tests;
 mod migrated_fixture;
 #[cfg(test)]
 mod wire_parity_tests;
+#[cfg(test)]
+mod native_request_bytes_node_cases;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod mcp_fold;
@@ -100,6 +102,7 @@ pub mod explorer_host;
 pub mod explorer_env;
 pub mod tidy_write_host;
 pub mod session_catalog;
+mod deferred_select;
 pub mod prompt_rebuild;
 pub mod surface_host;
 pub mod tool_availability;

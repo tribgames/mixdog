@@ -43,6 +43,23 @@ impl EffectiveProviders {
         Self { builder, keys, env }
     }
 
+    /// The files a change of which changes [`Self::load`]'s answer beside the config (the OAuth probes' inputs).
+    pub fn credential_inputs(&self) -> Vec<std::path::PathBuf> {
+        self.builder.credential_inputs()
+    }
+
+    /// The earliest moment ahead at which a present OAuth credential stops being a sign-in, so [`Self::load`]'s answer
+    /// changes with no file changing (`loaded.expiresAt` of `observeOAuthCredentialExpiry`); `None` when none does.
+    pub async fn credential_expiry(&self) -> Option<f64> {
+        let mut earliest: Option<f64> = None;
+        for name in OAUTH_ALWAYS.iter().chain(OAUTH_DEV_GATED.iter()) {
+            if let Some(until) = self.builder.oauth_credential_expiry(name).await {
+                earliest = Some(earliest.map_or(until, |at| at.min(until)));
+            }
+        }
+        earliest
+    }
+
     /// `buildDefaultConfig({ detectCredentials }).providers`.
     async fn defaults(&self, detect: bool) -> Map<String, Value> {
         let mut providers = Map::new();

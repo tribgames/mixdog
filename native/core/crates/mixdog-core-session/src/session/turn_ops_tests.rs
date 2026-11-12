@@ -517,6 +517,25 @@ async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_the_prompt
     gate.notify_one();
 }
 
+/// The session tool's `compact` (`workspace-tools.mjs:268`, `turn-settle.mjs:118`): the request only
+/// marks the thread while its turn runs; the turn's completion runs one manual compaction.
+#[tokio::test(start_paused = true)]
+async fn a_scheduled_compaction_runs_once_the_turn_completes() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    let scheduled = call(&handle, "thread/compact/start", json!({ "options": { "afterTurn": true } }), "k-1").await.expect("answered");
+    assert_eq!(scheduled, Value::Null);
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing runs while the turn does");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&rig.compaction.calls).len() >= 4).then_some(())).await;
+    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "invalidate"]);
+}
+
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the

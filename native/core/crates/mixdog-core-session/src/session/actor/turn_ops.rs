@@ -41,8 +41,15 @@ impl SessionActor {
                     Ok(params) => params,
                     Err(error) => return Err((error, tx)),
                 };
-                self.compact_start(req.op.clone(), tx, params.options);
-                return Ok(());
+                // `{afterTurn: true}`: the session tool's `compact` (`workspace-tools.mjs:268`) only marks
+                // the thread; the turn's completion runs it.
+                if params.options.as_ref().and_then(|options| options.get("afterTurn")) == Some(&Value::Bool(true)) {
+                    self.compact_scheduled = true;
+                    Ok(Value::Null)
+                } else {
+                    self.compact_start(req.op.clone(), tx, params.options);
+                    return Ok(());
+                }
             }
             // The session tool's `compact` (`pendingCompactSessionIds`): runs once the turn settles.
             "thread/compact/schedule" => {

@@ -3018,22 +3018,29 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
-        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, None).await
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false).await
     }
 
     /// [`turn_world`] whose sessions take their MCP tools from `mcp`, and whose registry resolves `connected` by name
     /// whatever the folder, as `McpAwareResolver` resolves a ready server's tool (`McpHub::tool_in`); `lead`: the turn
     /// settings are a Lead surface host's (`LeadSurfaceHost`, the MCP fold and the refresh every call starts with) over the world's threads.
     async fn turn_world_with(provider: Arc<dyn ProviderAdapter>, mcp: Arc<dyn super::super::session_tools::SessionMcp>, connected: Vec<Arc<dyn Tool>>, lead: bool) -> World {
-        turn_world_full(provider, mcp, connected, lead, None, None).await
+        turn_world_full(provider, mcp, connected, lead, None, None, Arc::new(MockFileService::default()), false).await
     }
 
     /// [`turn_world`] over `threads` (the rig's memory store when `None`) with `pool` as the tool pool (`list` and `Skill`
     /// when `None`).
     async fn turn_world_over(provider: Arc<dyn ProviderAdapter>, threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>, pool: Option<Vec<Arc<dyn Tool>>>) -> World {
-        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, threads, pool).await
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, threads, pool, Arc::new(MockFileService::default()), false).await
     }
 
+    /// [`turn_world`] over the tools `pool` and the file service `files` its tools read and write through; with
+    /// `header_surfaces` the tool surface of a thread is the one its header names (`HeaderToolSurfaces`), not the rig's empty one.
+    async fn turn_world_files(provider: Arc<dyn ProviderAdapter>, pool: Vec<Arc<dyn Tool>>, files: Arc<dyn mixdog_core_api::domain::fs::FileService>, header_surfaces: bool) -> World {
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, Some(pool), files, header_surfaces).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn turn_world_full(
         provider: Arc<dyn ProviderAdapter>,
         mcp: Arc<dyn super::super::session_tools::SessionMcp>,
@@ -3041,6 +3048,8 @@ mod tests {
         lead: bool,
         threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>,
         pool: Option<Vec<Arc<dyn Tool>>>,
+        files: Arc<dyn mixdog_core_api::domain::fs::FileService>,
+        header_surfaces: bool,
     ) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
@@ -3092,7 +3101,7 @@ mod tests {
                 clock: clock.clone(),
             },
             next: next.clone(),
-            files: Arc::new(MockFileService::default()),
+            files,
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
@@ -3136,6 +3145,8 @@ mod tests {
                     // A Lead world's sessions are judged by the surface the composition derives from the header (`compose_flip`).
                     if lead {
                         deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(surfaces_from));
+                    } else if header_surfaces {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
                     }
                     deps
                 }
@@ -3173,7 +3184,7 @@ mod tests {
             let host = super::super::surface_host::tests::lead_host_over(threads.clone(), threads.clone(), mcp);
             assert!(path.turn_settings.bind(Arc::new(host)).is_ok());
             // As `compose_flip` binds it: the directory's running headers, the Lead's exclusions, the bridge definitions.
-            let catalog = super::super::session_catalog::SessionCatalog::new(directory.clone(), threads, surfaces_from_catalog, Arc::new(super::super::surface_host::tests::Bridge(super::super::surface_host::tests::node_bridge())), clock.clone())
+            let catalog = super::super::session_catalog::SessionCatalog::new(directory.clone(), threads.clone(), threads, surfaces_from_catalog, Arc::new(super::super::surface_host::tests::Bridge(super::super::surface_host::tests::node_bridge())), clock.clone())
                 .with_refresh(path.turn_settings.clone());
             assert!(late_catalog.0.set(Arc::new(catalog)).is_ok());
         } else {
@@ -3970,6 +3981,18 @@ mod tests {
     // An inline module's path is resolved from `src/run_host/factory/tests/`.
     #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
     mod tests_manifest;
+
+    #[path = "../explicit_skills_node_cases.rs"]
+    mod explicit_skills_node_cases;
+
+    #[path = "../skill_wire_node_cases.rs"]
+    mod skill_wire_node_cases;
+
+    #[path = "../completion_node_cases.rs"]
+    mod completion_node_cases;
+
+    #[path = "../live_cwd_node_cases.rs"]
+    mod live_cwd_node_cases;
 
     #[path = "../../offload_prune_turn_tests.rs"]
     mod offload_prune_turn_tests;

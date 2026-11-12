@@ -110,7 +110,11 @@ fn read_document(path: &Path) -> Probe<Document> {
             _ => Probe::Unreadable,
         },
         Err(err) if err.kind() == io::ErrorKind::NotFound => Probe::Absent,
-        Err(_) => Probe::Unreadable,
+        Err(error) => {
+            // Node's watched-file cache logs the re-read of a watched input that failed (`watched-file-cache.mjs`), and keeps going.
+            tracing::warn!("[watch] re-read of {} failed: {error}", path.display());
+            Probe::Unreadable
+        }
     }
 }
 

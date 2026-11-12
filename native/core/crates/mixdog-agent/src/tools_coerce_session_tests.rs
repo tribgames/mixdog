@@ -33,6 +33,7 @@ fn env(tools: ToolSet) -> CallEnv {
         guards: Arc::new(crate::env::NoGuards),
         mcp: None,
         prepared: false,
+        live_cwd: None,
         clock: Arc::new(Epoch),
         tool_env: ToolEnv {
             thread_id: ThreadId::from("t"),

@@ -12,6 +12,8 @@ mod observe;
 mod uinput;
 mod wayland;
 mod x11;
+#[cfg(test)]
+mod session_node_cases;
 
 use super::unsupported::Unsupported;
 use super::{AppEntry, Background, Button, Desktop, Launched, Wid, WinState, WindowInfo};

@@ -48,9 +48,10 @@ fn scope_json(scope: &Scope) -> Value {
 }
 
 /// One scenario's world: what the fakes answer from and the log they write.
-struct World {
-    json: Value,
-    trace: Mutex<Vec<Value>>,
+#[derive(Default)]
+pub(crate) struct World {
+    pub(crate) json: Value,
+    pub(crate) trace: Mutex<Vec<Value>>,
     /// Insertion-ordered `tag -> session id`.
     tags: Mutex<Vec<(String, String)>>,
     tag_agents: Mutex<HashSet<String>>,
@@ -74,7 +75,7 @@ impl World {
     }
 }
 
-struct Fakes(Arc<World>);
+pub(crate) struct Fakes(pub(crate) Arc<World>);
 
 #[async_trait]
 impl Registry for Fakes {
@@ -367,7 +368,7 @@ impl Environment for Fakes {
     }
 }
 
-struct Caller1;
+pub(crate) struct Caller1;
 impl CallerScopes for Caller1 {
     fn scope_of(&self, _thread: &mixdog_protocol::ThreadId) -> Scope {
         Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }

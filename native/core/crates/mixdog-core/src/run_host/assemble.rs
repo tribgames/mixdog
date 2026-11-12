@@ -273,7 +273,7 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 /// `snapshotProviderRequestTools` at a request boundary: `tools` as the provider is sent them, with the catalog tools the
 /// transcript's native tool searches (`native`, [`super::factory::native_searches`]) reference. The turn's boundary and
 /// the snapshot both take the request's tools here.
-fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+pub(crate) fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
     let provider = text(header, "provider").to_lowercase();
     let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
     super::context_world::snapshot_tools(header, tools, referenced, &provider)
@@ -629,6 +629,11 @@ impl RunParts for HostRunParts {
         // a side question's attempts do not (Node's `send-phase` is the loop's).
         config.request_begin = Some(super::tool_exclusions::request_begin(s.exclusions.clone(), thread.clone(), s.directory.clone()));
         config.options = options;
+        // `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
+        config.live_cwd = {
+            let live = directory.live_header(thread);
+            Some(Arc::new(move || live.header().get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()).and_then(AbsPath::new)))
+        };
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;

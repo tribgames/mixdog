@@ -704,7 +704,8 @@ impl Run {
                     self.streamed_ids.insert(call.id.clone());
                 }
                 self.emit(RunEvent::ToolCallObserved(call.clone()));
-                self.try_eager(&call).await;
+                let started_in = self.live_cwd();
+                self.try_eager(&call, &started_in).await;
             }
         }
         if !builder.completed() {

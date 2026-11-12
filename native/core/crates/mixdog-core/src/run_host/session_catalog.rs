@@ -15,7 +15,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::env::Clock;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::threads::HeaderUpdate;
+use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_store::schema::record::HeaderChange;
 use mixdog_core_session::session::HeaderToolSurfaces;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::ToolSurfaceSource;
@@ -30,6 +33,10 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use super::deferred_manifest::server_label;
+use super::deferred_select::render_tool_search;
+use super::deferred_select::scope_mode;
+use super::surface_host::thread_mode;
+use super::tool_exposure::is_tool_bridge_enabled;
 use super::route_schema::Verdict;
 use super::route_schema::schema_verdict;
 use super::tool_surface::SELECT_ALIASES;
@@ -58,14 +65,24 @@ impl RunningHeaders for SessionDirectory {
     }
 }
 
+/// `mcpStatus()` for a thread's MCP scope: `{servers: [{name, status}, ..]}`. A status that cannot be
+/// read is `Value::Null` (Node's `pendingAndFailedMcpServers` reads a throwing getter as none).
+#[async_trait]
+pub trait McpServerStatus: Send + Sync {
+    async fn status(&self, thread: &ThreadId) -> Value;
+}
+
 pub struct SessionCatalog {
     sessions: Arc<dyn RunningHeaders>,
     threads: Arc<dyn ThreadState>,
+    updates: Arc<dyn HeaderUpdates>,
     surfaces: HeaderToolSurfaces,
     host: Arc<dyn SurfaceHost>,
     clock: Arc<dyn Clock>,
     /// The turn settings that refresh a thread's MCP catalog before `load_tool` reads it.
     mcp: Option<Arc<dyn TurnSettings>>,
+    /// The servers' status a native `load_tool` names pending and failed servers from.
+    status: Option<Arc<dyn McpServerStatus>>,
 }
 
 impl SessionCatalog {
@@ -77,15 +94,24 @@ impl SessionCatalog {
         self
     }
 
-    /// `exclusions` is the one `RouteExclusions` the session surfaces are built from.
+    /// A native `load_tool` reads the MCP servers' status through `status` (`{ mcpStatus }`).
+    #[must_use]
+    pub fn with_status(mut self, status: Arc<dyn McpServerStatus>) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    /// `exclusions` is the one `RouteExclusions` the session surfaces are built from; `threads`
+    /// reads a header and `updates` writes it where it has one writer (one object is both).
     pub fn new(
         sessions: Arc<dyn RunningHeaders>,
         threads: Arc<dyn ThreadState>,
+        updates: Arc<dyn HeaderUpdates>,
         exclusions: Arc<dyn mixdog_core_session::session::RouteExclusions>,
         host: Arc<dyn SurfaceHost>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        Self { sessions, threads, surfaces: HeaderToolSurfaces::new(exclusions), host, clock, mcp: None }
+        Self { sessions, threads, updates, surfaces: HeaderToolSurfaces::new(exclusions), host, clock, mcp: None, status: None }
     }
 
     fn running(&self, thread: &ThreadId) -> Option<(Arc<Header>, Value)> {
@@ -187,50 +213,90 @@ fn without_error_prefix(text: &str) -> &str {
 }
 
 /// A server whose instruction text the session has not been told yet.
-struct Pending {
-    server: String,
-    hash: String,
-    block: String,
+pub(super) struct Pending {
+    pub(super) server: String,
+    pub(super) hash: String,
+    pub(super) block: String,
+}
+
+/// `mcpServerSelection(tools, requested)`: the names of the tools `mcp__<server>` stands for; none
+/// for any other name.
+pub(super) fn mcp_server_selection(tools: &[Value], requested: &str) -> Vec<String> {
+    let key = mixdog_js::js_trim(requested);
+    let has_prefix = key.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("mcp__"));
+    let server = &key[if has_prefix { 5 } else { 0 }..];
+    // `/^mcp__(.+)$/i`: `.` matches no line terminator.
+    if !has_prefix || server.is_empty() || server.contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
+        return Vec::new();
+    }
+    let server = server.to_lowercase();
+    tools.iter().filter(|t| server_of(t).to_lowercase() == server).map(tool_name).collect()
+}
+
+/// `announceMcpServers(session, pending)`: the servers told, each with the hash of the text told.
+pub(super) fn announce_mcp_servers(session: &mut Value, pending: &[Pending]) {
+    if pending.is_empty() {
+        return;
+    }
+    let Some(map) = session.as_object_mut() else { return };
+    let mut announced = map.get("mcpInstructionsAnnounced").and_then(Value::as_array).cloned().unwrap_or_default();
+    for entry in pending {
+        let server = Value::String(entry.server.clone());
+        if !announced.contains(&server) {
+            announced.push(server);
+        }
+    }
+    let mut hashes = map.get("mcpInstructionHashes").and_then(Value::as_object).cloned().unwrap_or_default();
+    for entry in pending {
+        hashes.insert(entry.server.clone(), Value::String(entry.hash.clone()));
+    }
+    map.insert("mcpInstructionsAnnounced".to_owned(), Value::Array(announced));
+    map.insert("mcpInstructionHashes".to_owned(), Value::Object(hashes));
 }
 
 impl SessionCatalog {
     /// `pendingMcpInstructions(session, resolvableCatalog(session), names)`.
     fn pending_instructions(&self, session: &Value, names: &[String]) -> Vec<Pending> {
-        let Some(texts) = session.get("mcpServerInstructions").and_then(Value::as_object) else { return Vec::new() };
-        if names.is_empty() {
-            return Vec::new();
-        }
         // The deferred catalog, or the session's own tools when nothing is deferred.
         let mut catalog = self.union(session);
         if catalog.is_empty() {
             catalog = session.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
         }
-        let catalog = self.within_policy(&catalog, session);
-        let announced = strings(session, "mcpInstructionsAnnounced");
-        let hashes = session.get("mcpInstructionHashes").and_then(Value::as_object);
-        let mut seen = HashSet::new();
-        let mut pending = Vec::new();
-        for name in names {
-            let by_name = catalog.iter().find(|t| tool_name(t) == *name);
-            let server = by_name.map_or_else(|| parse_mcp_tool_name(name).map(|(s, _)| s).unwrap_or_default(), server_of);
-            if server.is_empty() || seen.contains(&server) || server_label(&server).is_empty() {
-                continue;
-            }
-            let text = sanitize_instructions(texts.get(&server).and_then(Value::as_str).unwrap_or_default());
-            if text.is_empty() {
-                continue;
-            }
-            let hash = instruction_hash(&text);
-            // Told already, and the text is the one told.
-            if announced.contains(&server) && hashes.and_then(|h| h.get(&server)).and_then(Value::as_str) == Some(hash.as_str()) {
-                continue;
-            }
-            pending.push(Pending { block: format!("## {server}\n{text}"), hash, server: server.clone() });
-            seen.insert(server);
-        }
-        pending
+        pending_mcp_instructions(session, &self.within_policy(&catalog, session), names)
     }
 }
+
+/// `pendingMcpInstructions(session, catalog, names)`.
+pub(super) fn pending_mcp_instructions(session: &Value, catalog: &[Value], names: &[String]) -> Vec<Pending> {
+    let Some(texts) = session.get("mcpServerInstructions").and_then(Value::as_object) else { return Vec::new() };
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let announced = strings(session, "mcpInstructionsAnnounced");
+    let hashes = session.get("mcpInstructionHashes").and_then(Value::as_object);
+    let mut seen = HashSet::new();
+    let mut pending = Vec::new();
+    for name in names {
+        let by_name = catalog.iter().find(|t| tool_name(t) == *name);
+        let server = by_name.map_or_else(|| parse_mcp_tool_name(name).map(|(s, _)| s).unwrap_or_default(), server_of);
+        if server.is_empty() || seen.contains(&server) || server_label(&server).is_empty() {
+            continue;
+        }
+        let text = sanitize_instructions(texts.get(&server).and_then(Value::as_str).unwrap_or_default());
+        if text.is_empty() {
+            continue;
+        }
+        let hash = instruction_hash(&text);
+        // Told already, and the text is the one told.
+        if announced.contains(&server) && hashes.and_then(|h| h.get(&server)).and_then(Value::as_str) == Some(hash.as_str()) {
+            continue;
+        }
+        pending.push(Pending { block: format!("## {server}\n{text}"), hash, server: server.clone() });
+        seen.insert(server);
+    }
+    pending
+}
+
 #[async_trait]
 impl CatalogView for SessionCatalog {
     fn available(&self, thread: &ThreadId) -> Vec<ToolDoc> {
@@ -265,16 +331,8 @@ impl CatalogView for SessionCatalog {
 
     /// `mcpServerSelection(available, requested)`: the tools `mcp__<server>` stands for.
     fn mcp_server_members(&self, thread: &ThreadId, requested: &str) -> Vec<String> {
-        let key = mixdog_js::js_trim(requested);
-        let has_prefix = key.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("mcp__"));
-        let server = &key[if has_prefix { 5 } else { 0 }..];
-        // `/^mcp__(.+)$/i`: `.` matches no line terminator.
-        if !has_prefix || server.is_empty() || server.contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
-            return Vec::new();
-        }
-        let server = server.to_lowercase();
         let Some((_, session)) = self.running(thread) else { return Vec::new() };
-        self.available_tools(&session).iter().filter(|t| server_of(t).to_lowercase() == server).map(tool_name).collect()
+        mcp_server_selection(&self.available_tools(&session), requested)
     }
 
     /// `pendingMcpInstructions(session, resolvableCatalog(session), names)` as text.
@@ -326,6 +384,37 @@ impl CatalogView for SessionCatalog {
         {
             tracing::warn!("[mcp] catalog refresh failed: {error}");
         }
+    }
+
+    /// `renderToolSearch(args, session, scopeMode(session), { mcpStatus })` off the bridge: one
+    /// header update on the session actor, so the load reads the header it writes and nothing
+    /// lands in between. The route's exclusions and the servers' status are read before it.
+    async fn load_native(&self, thread: &ThreadId, args: &Value) -> Option<Result<String, String>> {
+        let (header, session) = self.running(thread)?;
+        if is_tool_bridge_enabled(&session) {
+            return None;
+        }
+        let excluded = self.surfaces.surface(thread, &header).route_excluded.clone();
+        let status = match &self.status {
+            Some(status) => status.status(thread).await,
+            None => Value::Null,
+        };
+        let (host, clock, args) = (self.host.clone(), self.clock.clone(), args.clone());
+        let (told, heard) = tokio::sync::oneshot::channel::<String>();
+        let update: HeaderUpdate = Box::new(move |header| {
+            let mut session = Value::Object(header.clone());
+            let surface = ToolSurface { host: host.as_ref(), clock: clock.as_ref() };
+            let mode = scope_mode(&session, thread_mode(header));
+            let text = render_tool_search(&surface, &mut session, &args, &mode, &excluded, &status);
+            let _ = told.send(text);
+            let Value::Object(after) = session else { return HeaderChange { set: Map::new(), unset: Vec::new() } };
+            let set = after.into_iter().filter(|(key, value)| header.get(key) != Some(value)).collect();
+            HeaderChange { set, unset: Vec::new() }
+        });
+        if let Err(error) = self.updates.update_header(thread, update).await {
+            return Some(Err(format!("load_tool could not update the session: {error:?}")));
+        }
+        Some(heard.await.map_err(|_| "load_tool: the header update did not run".to_owned()))
     }
 
     /// `resolveBridgeTarget` after the argument checks.
@@ -398,6 +487,19 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl HeaderUpdates for Store {
+        async fn update_header(&self, _: &ThreadId, update: HeaderUpdate) -> Result<(), PortError> {
+            let mut header = self.0.lock().expect("store");
+            let change = update(&header);
+            header.extend(change.set);
+            for key in change.unset {
+                header.remove(&key);
+            }
+            Ok(())
+        }
+    }
+
     struct Host;
 
     impl SurfaceHost for Host {
@@ -418,7 +520,7 @@ mod tests {
     }
 
     fn catalog(store: &Arc<Store>) -> SessionCatalog {
-        SessionCatalog::new(store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Host), Arc::new(Now))
+        SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Host), Arc::new(Now))
     }
 
     /// `load_tool` and `call_tool` over the sessions of `fixtures/tool-pool/catalog.json`, as

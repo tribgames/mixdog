@@ -757,3 +757,5 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
     awaiting("the stop", stack.stop()).await.expect("stops");
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }
+
+mod shared_open;

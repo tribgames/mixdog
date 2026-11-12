@@ -243,7 +243,7 @@ fn deferred_mode(mode: &str) -> &'static str {
 
 /// A thread's tool mode: the `toolMode` its start or `thread/setToolMode` wrote; a thread from
 /// before that key is `readonly` or `full` by its spec.
-fn thread_mode(header: &Header) -> &'static str {
+pub(super) fn thread_mode(header: &Header) -> &'static str {
     match header.get("toolMode").and_then(Value::as_str) {
         Some(mode) => normalize_tool_mode(mode),
         None if header.get("toolSpec") == Some(&tool_spec_for_mode("readonly")) => "readonly",

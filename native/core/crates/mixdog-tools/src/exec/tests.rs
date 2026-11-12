@@ -39,6 +39,8 @@ struct FakeProcesses {
     quiet: std::sync::atomic::AtomicBool,
     /// A kill that cannot be sent (the process manager refuses it).
     refuse_kill: std::sync::atomic::AtomicBool,
+    /// Woken by each spawn (one permit is kept), so a test waits for the process it runs.
+    spawned: tokio::sync::Notify,
     /// A write to a process's input that fails (its pipe broke).
     refuse_write: std::sync::atomic::AtomicBool,
     /// Every handle whose input was closed, and every handle killed, in order.
@@ -75,6 +77,7 @@ impl ProcessManager for FakeProcesses {
         }
         self.senders.lock().unwrap().insert(request.handle.clone(), (tx, seq));
         self.receivers.lock().unwrap().insert(request.handle.clone(), rx);
+        self.spawned.notify_one();
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
 
@@ -202,10 +205,15 @@ impl ScriptSyntax for AwaitIsTopLevel {
     }
 }
 
-struct NoPublisher;
-impl mixdog_spawn::tasks::TaskPublisher for NoPublisher {
-    fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {}
-    fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {}
+/// The strip states the registry publishes: each publication is counted, so a test waits for the change it caused.
+struct Strips(tokio::sync::watch::Sender<u64>);
+impl mixdog_spawn::tasks::TaskPublisher for Strips {
+    fn thread_updated(&self, _: &str, _: &mixdog_spawn::tasks::ShellJobsState) {
+        self.0.send_modify(|published| *published += 1);
+    }
+    fn host_updated(&self, _: &mixdog_spawn::tasks::HostShellJobs) {
+        self.0.send_modify(|published| *published += 1);
+    }
     fn schedule_expiry(&self, _: u64) {}
 }
 
@@ -221,6 +229,8 @@ pub(super) struct Rig {
     pub(super) runtime: Arc<ExecRuntime>,
     dir: tempfile::TempDir,
     processes: Arc<FakeProcesses>,
+    /// The registry's publications of the strips, counted.
+    strips: tokio::sync::watch::Receiver<u64>,
     /// What the tool sees: the fake, or the real manager of a test that runs real processes.
     manager: Arc<dyn ProcessManager>,
     review: Arc<super::settle::RecordingReview>,
@@ -250,8 +260,9 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
 fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
+    let (published, strips) = tokio::sync::watch::channel(0u64);
     let runtime = ExecRuntime::new(ExecConfig {
-        tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(NoPublisher), golden_ms)),
+        tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(Strips(published)), golden_ms)),
         lanes: IoLanes {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
@@ -284,6 +295,7 @@ fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, noti
         dir,
         manager: processes.clone(),
         processes,
+        strips,
         review,
         tokens,
     }
@@ -2291,3 +2303,7 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
+
+mod node_cases;
+
+mod unconfirmed_foreground;

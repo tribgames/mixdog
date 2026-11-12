@@ -16,6 +16,8 @@ mod sys_unix;
 #[cfg(windows)]
 mod sys_windows;
 #[cfg(test)]
+mod node_cases;
+#[cfg(test)]
 mod tests;
 
 use std::fmt;

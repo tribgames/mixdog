@@ -1,5 +1,6 @@
-//! `load_tool` and `call_tool`: the fixed tool bridge. `load_tool` describes tools by name (it
-//! never grants execution); `call_tool` runs one deferred tool through the ordinary pipeline, so
+//! `load_tool` and `call_tool`: the fixed tool bridge. On the bridge `load_tool` describes tools
+//! by name (it never grants execution); off it the catalog loads them (`CatalogView::load_native`).
+//! `call_tool` runs one deferred tool through the ordinary pipeline, so
 //! a bridged call is judged exactly like a direct one. Continuation tokens carry only a
 //! position and grant no authority.
 
@@ -125,6 +126,13 @@ pub trait CatalogView: Send + Sync {
     /// `refreshDeferredMcpToolCatalog(session)` before `load_tool` reads the catalog: the connected names and the
     /// late pool follow the live registry. A catalog that is not fed by one has nothing to refresh.
     async fn refresh(&self, _thread: &ThreadId) {}
+    /// `renderToolSearch` on a session that is not on the bridge (native and fixed-surface
+    /// providers): the call loads the named deferred tools into the session and answers with what
+    /// it did. `None`: the session is on the bridge, and `load_tool` describes.
+    /// `Err`: the session could not be read or updated.
+    async fn load_native(&self, _thread: &ThreadId, _args: &Value) -> Option<Result<String, String>> {
+        None
+    }
 }
 
 /// The ordinary execution pipeline (policy, hooks, approval, deadline) for a named tool.
@@ -265,10 +273,14 @@ fn fits(page: &Page<'_>) -> bool {
     text.len() <= DESCRIBE_MAX_BYTES && estimate_tokens(&text) <= DESCRIBE_MAX_TOKENS
 }
 
-/// `load_tool` as the session runs it: the page, and when the page carried MCP instruction text,
-/// the record that the session was told it (only the servers of the entries that made the page).
+/// `load_tool` as the session runs it: off the bridge, the catalog's load; on it, the page, and
+/// when the page carried MCP instruction text, the record that the session was told it (only the
+/// servers of the entries that made the page).
 pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
     catalog.refresh(thread).await;
+    if let Some(loaded) = catalog.load_native(thread, args).await {
+        return loaded.map_err(|reason| ToolError::new(ToolErrorCode::Unavailable { capability: "session".to_owned(), reason: reason.clone() }, reason));
+    }
     let page = describe(catalog, thread, args)?;
     let parsed: Value = serde_json::from_str(&page).expect("a described page is JSON");
     if parsed.get("mcpInstructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {

@@ -164,9 +164,12 @@ fn main() {
                 "instructions": "mock instructions"}})),
             (Some("tools/list"), Some(id)) => {
                 let cursor = message["params"]["cursor"].as_str();
-                let result = match cursor {
-                    None => json!({"tools": [tool("echo"), tool("slow")], "nextCursor": "p2"}),
-                    Some(_) => {
+                // `MOCK_TOOLS` (a JSON list of names): exactly those tools, in one page.
+                let named: Option<Vec<String>> = std::env::var("MOCK_TOOLS").ok().and_then(|raw| serde_json::from_str(&raw).ok());
+                let result = match (named, cursor) {
+                    (Some(names), _) => json!({"tools": names.iter().map(|name| json!({"name": name, "inputSchema": {"type": "object"}})).collect::<Vec<_>>()}),
+                    (None, None) => json!({"tools": [tool("echo"), tool("slow")], "nextCursor": "p2"}),
+                    (None, Some(_)) => {
                         let mut tools = vec![tool("big"), tool("fail"), tool("hang"), tool("crash"),
                                              tool("elicit"), tool("grow"), tool("cancels")];
                         if shared.grown.load(Ordering::SeqCst) {
