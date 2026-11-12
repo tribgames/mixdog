@@ -69,6 +69,10 @@ pub const PROVIDER_ID: &str = "devin-oauth";
 #[async_trait]
 pub trait SessionToken: Send + Sync {
     async fn session_token(&self) -> Result<String, ProviderError>;
+
+    /// The account this login belongs to: what stays the same when its session token is replaced and differs between
+    /// accounts (the credential file, the identity the sign-in returned).
+    fn account(&self) -> String;
 }
 
 /// Everything a codec needs for one turn of one account.
@@ -363,7 +367,7 @@ impl ProviderAdapter for DevinAdapter {
         let token = self.token.session_token().await?;
         let rows = self.cached_rows(&token).await?;
         let row = rows.into_iter().find(|r| r.id == model);
-        let session = session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &token).await?;
+        let session = session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &self.token.account(), &token).await?;
         // The server threads turns that share one cascade id.
         let cascade_id = request
             .options

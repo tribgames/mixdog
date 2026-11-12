@@ -247,6 +247,21 @@ impl ApiKeyStore {
         Ok(self.get(provider).await?.unwrap_or_default())
     }
 
+    /// The slot [`Self::resolve`] reads `provider`'s key from (a variable, the provider's config entry, a keychain
+    /// account): what stays the same when the key in it is replaced and differs between keys of different slots.
+    pub fn slot(&self, provider: &str, config: &KeyConfig) -> String {
+        if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
+            return format!("env {env}");
+        }
+        if config.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
+            return format!("config {provider}");
+        }
+        match self.environment_key_name(provider.trim()) {
+            Some(name) => format!("env {name}"),
+            None => keychain_source(&api_key_account(provider.trim())),
+        }
+    }
+
     /// `hasProviderApiKey`: [`Self::resolve`]'s precedence without reading a value.
     pub async fn has_resolved(&self, provider: &str, config: &KeyConfig) -> Result<bool, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {

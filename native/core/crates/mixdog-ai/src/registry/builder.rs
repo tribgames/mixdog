@@ -1249,7 +1249,8 @@ impl DefaultProviderBuilder {
         let http = self.env.http.clone();
         let tokens: Arc<dyn crate::providers::cursor::AccessToken> = if name == "cursor-api" {
             let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
-            Arc::new(ApiKeyAccess::new(http.clone(), key))
+            let slot = self.env.keys.slot(name, &key_config(cfg));
+            Arc::new(ApiKeyAccess::new(http.clone(), key, slot))
         } else {
             Arc::new(FileAccess::new(http.clone(), self.file(name)?))
         };

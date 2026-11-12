@@ -276,6 +276,7 @@ async fn request_user_jwt(
 pub async fn exchange_user_jwt(
     http: &dyn HttpSend,
     base_url: &str,
+    account: &str,
     session_token: &str,
 ) -> Result<UserSession, ProviderError> {
     if session_token.is_empty() {
@@ -303,7 +304,7 @@ pub async fn exchange_user_jwt(
         return Err(protocol_error("Devin GetUserJwt returned no user JWT"));
     }
     // The user JWT every chat call carries is a credential before any does; the account's next one replaces it.
-    crate::oauth::carried::keep(&crate::oauth::carried::derived_source("devin user jwt", base_url), &[&decoded.user_jwt]);
+    crate::oauth::carried::keep(&crate::oauth::carried::derived_source("devin user jwt", account), &[&decoded.user_jwt]);
     let custom = decoded.custom_api_server_url.trim();
     Ok(UserSession {
         jwt: decoded.user_jwt,
@@ -328,6 +329,52 @@ mod tests {
             .expect_err("never answers");
         assert_dispatcher("devinUnary", &transport);
         assert_thrown("devinUnary", &error.message);
+    }
+
+    /// A network that answers every GetUserJwt with the next user JWT of `prefix`.
+    fn jwt_network(prefix: &'static str) -> crate::providers::listing_row::testing::Replay {
+        let n = std::sync::atomic::AtomicUsize::new(0);
+        crate::providers::listing_row::testing::Replay::new(move |_| {
+            let jwt = format!("{prefix}-{}", n.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+            let mut body = vec![0x0a, jwt.len() as u8];
+            body.extend_from_slice(jwt.as_bytes());
+            (200, body)
+        })
+    }
+
+    /// Two accounts live at once on one server: the other's rotations and unrelated retirements past the cap never retire
+    /// a live user JWT.
+    #[tokio::test]
+    async fn two_accounts_keep_their_user_jwts_through_each_others_rotations() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let a_net = jwt_network("user-jwt-of-a");
+        let b_net = jwt_network("user-jwt-of-b");
+        let a = exchange_user_jwt(&a_net, "https://x.test", "id a", "session-a").await.unwrap().jwt;
+        let mut b = Vec::new();
+        for _ in 0..3 {
+            b.push(exchange_user_jwt(&b_net, "https://x.test", "id b", "session-b").await.unwrap().jwt);
+        }
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file the-unrelated-account-of-the-devin-test.json", &[&format!("devin-pair-unrelated-{i:05}")]);
+        }
+        let registry = carried::registry();
+        assert!(registry.holds(&a), "account A's live user JWT stays");
+        assert!(registry.holds(b.last().unwrap()), "account B's live user JWT stays");
+        assert!(!registry.holds(&b[0]), "B's replaced user JWT retired");
+    }
+
+    #[tokio::test]
+    async fn one_accounts_ten_rotations_pin_one_user_jwt() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let net = jwt_network("ten-user-jwt");
+        for _ in 0..10 {
+            exchange_user_jwt(&net, "https://x.test", "id ten", "session-ten").await.unwrap();
+        }
+        let counts = carried::registry().counts();
+        assert_eq!(counts.held, 1);
+        assert!(counts.retired <= carried::RETIRED_CAP && counts.carried <= carried::CARRIED_CAP);
     }
 
     #[test]
