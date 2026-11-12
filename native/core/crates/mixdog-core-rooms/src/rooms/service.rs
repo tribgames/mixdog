@@ -59,6 +59,11 @@ pub trait RoomHost: Send + Sync {
     async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError>;
     /// Deletes each session; the number that could not be deleted.
     async fn delete_sessions(&self, session_ids: &[String]) -> usize;
+    /// Keeps who is in the room on the room's log, the one record a rebuilt room takes its members from (a member session proves
+    /// nothing: the removal of its member may have failed to delete it). Called with the membership before it is saved.
+    async fn record_members(&self, _room_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
     /// `startSessionOver`: the session is cleared in place and its conversation kept under a new archived id
     /// (`None` when it had nothing to keep).
     async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;
@@ -274,7 +279,9 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         let session_id = room_session_id(&room_id).ok_or_else(|| RoomError::Port("room id is invalid".into()))?;
         let params = self.task_params(route).await;
         self.host.create_session(&session_id, &params).await?;
-        self.rooms.create(&config_input(input, None), &room_id, now).await?;
+        let created = self.rooms.create(&config_input(input, None), &room_id, now).await?;
+        // A room without the record is not rebuilt, and nothing else is lost: its failure is not the call's.
+        let _ = self.host.record_members(&room_id, &created.config.members).await;
         let _ = self.host.rename_session(&session_id, &probe.name).await;
         self.host.republish_catalog(&replied.hold()).await?;
         Ok(json!({ "sessionId": session_id, "roomId": room_id }))
@@ -303,7 +310,18 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
             max_messages: input.get("maxMessages").and_then(Value::as_f64),
             share_tools: input.get("shareTools").and_then(Value::as_bool),
         };
-        let updated = self.rooms.update(room_id, &patch).await?;
+        // The record goes first: a failed save after it leaves the record with fewer or other members than the room, never the
+        // room without a member the record still lists.
+        if merged_config.members != current.config.members {
+            self.host.record_members(room_id, &merged_config.members).await?;
+        }
+        let updated = match self.rooms.update(room_id, &patch).await {
+            Ok(updated) => updated,
+            Err(error) => {
+                let _ = self.host.record_members(room_id, &current.config.members).await;
+                return Err(error);
+            }
+        };
         if !updated.gone.is_empty() {
             self.runner.cancel_owed_to(room_id, &updated.gone);
         }

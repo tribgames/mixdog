@@ -106,6 +106,9 @@ impl SessionOps for RenameLists {
     async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
         self.sessions.delete(session_id).await
     }
+    async fn set_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        self.sessions.set_room_members(session_id, members).await
+    }
 }
 
 #[cfg(test)]
