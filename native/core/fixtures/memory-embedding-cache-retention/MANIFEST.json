@@ -16,7 +16,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -50,6 +50,16 @@
       ],
       "sha256": "2329fb7b43f5a7bd105f3d87b8e969fe7d7b1f50161e360ebe9b0c8a69bf33f2"
     },
+    "patches": [
+      {
+        "file": "node-fix-embedding-cache-max-rows.patch",
+        "paths": [
+          "src/runtime/memory/lib/embedding-cache-retention.mjs",
+          "src/runtime/memory/lib/embedding-cache-retention.test.mjs"
+        ],
+        "sha256": "2329fb7b43f5a7bd105f3d87b8e969fe7d7b1f50161e360ebe9b0c8a69bf33f2"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,

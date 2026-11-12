@@ -1,32 +1,32 @@
 {
   "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-channels-owned-runtime.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "declared": [
+    {
+      "reason": "the event pipeline: the product's webhook receiver (channels/ports.rs WebhookAutomation) has no event pipeline to construct, wire, start or stop",
+      "what": "calls pipeline.new, pipeline.reload, pipeline.start, pipeline.stop, wire.events, wire.webhook; state.eventPipeline"
+    },
+    {
+      "reason": "the receiver object's construction: the product has a service and a listener, and starts the listener with the settings",
+      "what": "calls webhook.new (its `enabled` argument is compared with the one the product starts its listener with)"
+    },
+    {
+      "reason": "Node's hot reload of the receiver's config; WebhookAutomation::sync_turn re-listens only when the port changed (ports.rs, `bound` check), so a reload with the recorded unchanged settings makes no listener call",
+      "what": "calls webhook.reload"
+    },
+    {
+      "reason": "Node's start returns at once while the server exists (webhook/listener-lifecycle.mjs:15); the product keeps its listening listener (ports.rs sync_turn), so it makes no call",
+      "what": "calls webhook.start of a receiver that already listens (no webhook.new in the step)"
+    },
+    {
+      "case": 7,
+      "reason": "after the failed start Node keeps the receiver object it made, which never listened; the product has no such object, and its listener, whose start failed, does not listen",
+      "what": "state.webhookServer"
+    }
+  ],
   "entry": {
     "notRun": "the collaborators behind module boundaries (config file load, WebhookServer, EventPipeline, status snapshot writer, provider init, runtime-paths advert/lock files, scheduler): each only appends its name and arguments to the call log, as the Node test does; advert and ownership files are Node-only",
     "runs": "createOwnedRuntime (owned-runtime.mjs) with its owned-runtime/ phases: startOwnedRuntime, stopOwnedRuntime, startAutomationRuntime, reloadRuntimeConfig, over the same dependency bag worker.mjs hands it (getters/setters, notify, scheduler, logOwnership)"
   },
-  "declared": [
-    {
-      "what": "calls pipeline.new, pipeline.reload, pipeline.start, pipeline.stop, wire.events, wire.webhook; state.eventPipeline",
-      "reason": "the event pipeline: the product's webhook receiver (channels/ports.rs WebhookAutomation) has no event pipeline to construct, wire, start or stop"
-    },
-    {
-      "what": "calls webhook.new (its `enabled` argument is compared with the one the product starts its listener with)",
-      "reason": "the receiver object's construction: the product has a service and a listener, and starts the listener with the settings"
-    },
-    {
-      "what": "calls webhook.reload",
-      "reason": "Node's hot reload of the receiver's config; WebhookAutomation::sync_turn re-listens only when the port changed (ports.rs, `bound` check), so a reload with the recorded unchanged settings makes no listener call"
-    },
-    {
-      "what": "calls webhook.start of a receiver that already listens (no webhook.new in the step)",
-      "reason": "Node's start returns at once while the server exists (webhook/listener-lifecycle.mjs:15); the product keeps its listening listener (ports.rs sync_turn), so it makes no call"
-    },
-    {
-      "case": 7,
-      "what": "state.webhookServer",
-      "reason": "after the failed start Node keeps the receiver object it made, which never listened; the product has no such object, and its listener, whose start failed, does not listen"
-    }
-  ],
   "exclusions": "none beyond `declared` and the Node-only calls named in `replay`: every other logged call of every step is in the golden",
   "fileCount": 1,
   "files": [
@@ -39,7 +39,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -77,7 +77,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-owned-runtime.mjs",
-  "recorderSha256": "89b9a5e4a6c0fa774a33469d2fec2c29f70fa285ee9977a7a2f6a5a54ba98f39",
+  "recorderSha256": "c1eefac442508c38163a7aceb940b93fe0771a1f0d8ba9789fd7b31889176da1",
   "replay": "Public Rust entries (mixdog-services channels/runtime.rs): ChannelLifecycle::start_bridge (:349), ChannelLifecycle::stop_owned_runtime (:354), ChannelRuntime::start_automation (:166), ChannelRuntime::reload_runtime (:316) and ChannelLifecycle::reload_config (:393); the private start_bridge_turn/reload_turn are reached through them. A replay drives them over the product's own WebhookAutomation (a real WebhookService, recording settings and listener behind it) with a recording scheduler, and compares per case the ordered call list the product made (notify method and params, scheduler.reload schedules and options, the listener's start with the settings it was given and its stop), the end state and the stderr lines; what has no counterpart is in `declared`. Rust has no advert/lock files and no snapshot writer: those entries (advert, advert.clear, locks.release, snapshot.*, currentOwnerState, ownership logs) are Node-only calls, listed as work for the Rust side if parity is wanted. The acquisition (notify ↔ the core's remoteSession client event) is announced as the bridge connects, before the providers' init and the arming, on both sides (owned-start.mjs:52-56, channels/runtime.rs activate_bridge): an arming that fails afterwards (case 7) leaves it announced; only a call refused before the bridge connects announces nothing",
   "set": "channels-owned-runtime",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",

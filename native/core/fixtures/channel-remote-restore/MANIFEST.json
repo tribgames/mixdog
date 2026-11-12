@@ -19,7 +19,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -46,13 +46,27 @@
       ],
       "sha256": "e409ee5c2641b53a39a6a95eb4099340009ac58b8ff7b8b3f139ef4822f2cda6"
     },
+    "patches": [
+      {
+        "file": "node-fix-restore-deleted-session.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/store-summary-reader.mjs",
+          "src/standalone/channel-transport.mjs",
+          "src/standalone/channel-transport/remote-binding-restore.test.mjs",
+          "src/standalone/channel-transport/remote-binding.mjs",
+          "src/standalone/daemon-stored-session-views.mjs",
+          "src/standalone/daemon.mjs"
+        ],
+        "sha256": "e409ee5c2641b53a39a6a95eb4099340009ac58b8ff7b8b3f139ef4822f2cda6"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
       "filesDifferingFromCommit": 6
     },
-    "srcSha256": "ea117cfb2375ccc30bd1c4cce321877bf366e21649ad8b8c6c872ab1c61848f8",
+    "srcSha256": "522c40e482565bbdc56d9e2b7717bb82e8354151fec62829c785d405d38302d4",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

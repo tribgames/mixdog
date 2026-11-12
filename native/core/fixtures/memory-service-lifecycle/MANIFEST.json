@@ -93,7 +93,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -144,7 +144,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs",
-  "recorderSha256": "c0876a66088e7044161bb0ea090b8b515f374c276daa64b2d87141361373174c",
+  "recorderSha256": "5589bb86551d61b0be746da4065224999cb3603e7c36c561237a2b57e5cc80fc",
   "replay": "mixdog-services memory/replays/service_lifecycle.rs against MemoryStack (memory/boot.rs): MemoryStack::start builds the stack over a scripted PgRuntimeSource::Install (Node's scripted initialize: logs its entry where Node's did, held at a gate, failing with the recorded text, or handing over MIXDOG_PG_RUNTIME so the opening reaches a real private cluster), a memory request's database use (stack.db().client()) is init(), MemoryStack::stop is stop(). Compared per step: the use's outcome (error name and message), state.initialized = MemoryStack::is_open, state.stopping = MemoryStack::is_stopping, the calls mapped initialize -> install entry, acquired -> the held install's release, stop-background/workers-stopped/workers-stop-throws -> the stop's background-work step, shutdown/storage-closed -> its storage release (both observed and failed through the development-only StopSeam, test-support), cleanupOrder/order -> those steps in order, sameInitPromiseWhilePending -> one install for concurrent uses, signalAbortedAtStop -> the install's cancel token at the stop, initializeCalled -> the install count, attempts -> installs over both cores of case 8. The next start after a stop is the next core's stack over the same profile (the core never reopens a stopped stack). What is the listener's or the port advert's alone is declared in `declared` (no client of memory in K1 reaches either: `listenerClients`). Case 18 (quit) runs the host's quit stop (MemoryStack::stop_for_quit, called by the composed core's memory stop step and its startup-failure release, mixdog-app-server-daemon compose_flip.rs) with the same failures injected through the StopSeam and compares the lines it writes to the memory worker's stderr (mixdog_rt::memory_stderr!, the core's memory-runtime-proxy.log) with `logs`' failure line, as the bytes node_log::bare writes",
   "set": "memory-service-lifecycle",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",

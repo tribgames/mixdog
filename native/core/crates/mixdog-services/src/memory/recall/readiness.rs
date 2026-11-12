@@ -329,7 +329,7 @@ mod tests {
         tokio::pin!(call);
         assert!(futures::poll!(&mut call).is_pending());
         tokio::time::advance(Duration::from_secs(30)).await;
-        let outcome = tokio::time::timeout(Duration::from_secs(1), call).await.expect("the wait ended 30 s after it began");
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(1), call).await.expect("the wait ended 30 s after it began");
         assert_eq!(outcome, Ok(RecallEmbedding::Timeout));
     }
 
@@ -343,7 +343,7 @@ mod tests {
         cancel.cancel();
         assert_eq!(call.await, Err("aborted".to_owned()));
         release.send(answer).expect("the embedding is running");
-        tokio::time::timeout(Duration::from_secs(5), reports).await.expect("a report for the cancelled embedding").expect("report")
+        mixdog_rt::time::timeout(Duration::from_secs(5), reports).await.expect("a report for the cancelled embedding").expect("report")
     }
 
     #[tokio::test(flavor = "current_thread")]
