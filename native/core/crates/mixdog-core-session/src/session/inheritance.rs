@@ -21,6 +21,9 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::SessionHandle;
 
+/// How many times the removal of a refused carry's "being copied" mark is tried before it is given up.
+const UNMARK_TRIES: usize = 3;
+
 /// A carry that failed, and whether its append was attempted (rows of it may be in the heir's log).
 struct Carry {
     error: CoreError,
@@ -168,8 +171,13 @@ impl SessionDirectory {
         let (count, compacted) = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
             Ok(done) => done,
             Err(Carry { error, appended: false }) => {
-                // A failed unmarking leaves the mark to this boot (point 3's rule): safe.
-                let _ = patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT]).await;
+                // A mark left standing stops every reference query of the heir until the process restarts, so a failed
+                // removal is tried again (a failed write is not kept: the next one is a write of its own).
+                for _ in 0..UNMARK_TRIES {
+                    if patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT]).await.is_ok() {
+                        break;
+                    }
+                }
                 return Err(error);
             }
             Err(Carry { error, appended: true }) => return Err(error),
