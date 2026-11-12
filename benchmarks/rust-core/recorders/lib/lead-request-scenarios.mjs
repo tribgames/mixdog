@@ -10,12 +10,14 @@ export const ROUTES = {
 
 // A stdio MCP server of one tool: what a user's connected server is, without a network or a package. `{DATA}` in a setting is the data
 // directory of the side that reads it.
-export const mcpStub = ({ instructions, description = 'Echo the text back.' } = {}) => `import { createInterface } from 'node:readline';
-const tools = [{ name: 'echo', description: ${JSON.stringify(description)}, inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to echo.' } }, required: ['text'] } }];
+// With `gate`, the stub holds its `initialize` answer until the side that started it sends one byte on a loopback connection (`{GATE_PORT}` is
+// that side's gate port): a server that is slow to connect, whose handshake the recorder owns.
+export const mcpStub = ({ instructions, description = 'Echo the text back.', gate = false } = {}) => `import { createInterface } from 'node:readline';
+${gate ? "import { connect } from 'node:net';\nconst held = new Promise((resolve) => connect({ port: {GATE_PORT}, host: '127.0.0.1' }).once('data', resolve));\n" : ''}const tools = [{ name: 'echo', description: ${JSON.stringify(description)}, inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'What to echo.' } }, required: ['text'] } }];
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\\n');
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
-  if (message.method === 'initialize') reply(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'stub', version: '1.0.0' }, ...(${JSON.stringify(instructions ?? null)} === null ? {} : { instructions: ${JSON.stringify(instructions ?? null)} }) });
+  ${gate ? "if (message.method === 'initialize') await held;\n  " : ''}if (message.method === 'initialize') reply(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'stub', version: '1.0.0' }, ...(${JSON.stringify(instructions ?? null)} === null ? {} : { instructions: ${JSON.stringify(instructions ?? null)} }) });
   else if (message.method === 'tools/list') reply(message.id, { tools });
   else if (message.method === 'tools/call') reply(message.id, { content: [{ type: 'text', text: message.params.arguments.text }] });
   else if (message.id !== undefined) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'unknown' } }) + '\\n');
@@ -86,6 +88,18 @@ export const LEAD_SCENARIOS = [
   },
   // The one-line entry of a connected server in the deferred listing: the first sentence of its MCP instructions (without an account sentence, `<`/`>`
   // and the closing stop), else its first tool's description; and the line is cut at 98 characters.
+  // A server slow to connect: its handshake is held by a gate the side that records or replays owns. `mcpGate: 'held'` submits the turn while the
+  // connect is in flight (the server is not in the first request's deferred listing, and joins later through the late-tool announcement);
+  // `'released'` opens the gate and waits for the connect to settle first (the server is in it).
+  ...['held', 'released'].map((mcpGate) => ({
+    name: `mcp-slow-submitted-${mcpGate === 'held' ? 'before' : 'after'}-connect`,
+    route: 'anthropic',
+    mcp: true,
+    mcpGate,
+    path: ['node'],
+    config: withAgent({ mcpServers: { stub: { command: 'node', args: ['{DATA}/mcp-stub.mjs'] } } }),
+    data: { 'mcp-stub.mjs': mcpStub({ instructions: 'Echo text back to the user. Use it only when asked to repeat something.', gate: true }) },
+  })),
   {
     name: 'mcp-server-instructions',
     route: 'anthropic',

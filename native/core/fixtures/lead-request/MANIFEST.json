@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2009707,
+      "bytes": 2138741,
       "path": "golden.json",
-      "sha256": "8895e5f97ba737165c354cf4a59da3eee5acb67665721ed56acba18d23659156"
+      "sha256": "9af7345906ba5960d6ebf602ea2e8d1c9bf0f525d6dfc78eb14a04d2bd4c0110"
     }
   ],
   "inputs": [
@@ -15,7 +15,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lead-request-scenarios.mjs",
-      "sha256": "9b2306d4447945c4f277c6da711fed5ac7d78ad257681c1ff86f3cd976819d8b"
+      "sha256": "8ed02e4c983bf077bbe2b8eb616406bb2893cbb1d1e9c2969d2dcc8582f148f4"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/offline-network.mjs",
@@ -74,7 +74,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lead-request.mjs",
-  "recorderSha256": "d7e0d02b0b9e5401b62a70398e6b66307b68de96ef8f5a429c358b47419755b6",
+  "recorderSha256": "a8c20dc04ab1682e63bc29e92af338e8b4a0a0d012a8e44a2086d1f8fbd7788b",
   "scope": {
     "covered": "the desktop lead thread (session.create with a desktopSession, then submit)",
     "notCovered": [
@@ -83,5 +83,5 @@
     ]
   },
   "set": "lead-request",
-  "totalBytes": 2009707
+  "totalBytes": 2138741
 }
