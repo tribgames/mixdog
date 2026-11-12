@@ -67,6 +67,11 @@ param(
     [string]$CoreBinary = '',
     # Ends right before the detached worker would start and prints what it would do; changes nothing.
     [switch]$StopBeforeSwap,
+    # A script the detached worker runs with nothing of the install running, right before a full replacement:
+    # `-CoreExe <the staged mixdogd>` (a failure ends the deploy, the old app is started again), and `-Undo` when the
+    # replacement fails after it ran. The switch from a 1.4.5 install uses it for the last backup and the data
+    # conversion, so the new app starts on converted data and a failed swap leaves 1.4.5 its own data.
+    [string]$BeforeSwapScript = '',
     [int]$FeedPort = 9357
 )
 
@@ -219,6 +224,8 @@ function Start-FastDirectWorker {
         + " -FastArtifactDir $(ConvertTo-PowerShellLiteral $FastArtifactDir)" `
         + " -CoreBuildRoot $(ConvertTo-PowerShellLiteral $coreBuildRoot)" `
         + $(if ($CoreBinary) { " -CoreBinary $(ConvertTo-PowerShellLiteral $CoreBinary)" } else { '' }) `
+        + $(if ($BeforeSwapScript) { " -BeforeSwapScript $(ConvertTo-PowerShellLiteral $BeforeSwapScript)" } else { '' }) `
+        + " -DrainLimitSeconds $DrainLimitSeconds" `
         + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
     return Start-DetachedDeployWorker -ModeName 'FastDirect' -WorkerLabel 'fast deploy' `
         -WorkerArguments $workerArguments
@@ -496,6 +503,12 @@ function Stop-Daemon {
     $aborted = $false
     while (-not $process.WaitForExit(10000)) {
         $waited += 10
+        if (-not (Get-DaemonRecord) -and $waited -ge 30) {
+            # Seen on a profile copy: the drain ended and the core took its discovery file away, but its process
+            # stayed. Everything is stored by then; the process ends with the install's other processes.
+            Write-Host "    the core (pid $($record.pid)) is drained and unpublished but still alive after $waited s; it is ended with the installed processes"
+            return
+        }
         $status = Get-CoreRunningWork
         $titles = (@($status.running) | ForEach-Object { $_.title }) -join '; '
         Write-Host "    waiting for the core to become idle ($waited s): $titles"
@@ -950,7 +963,17 @@ function Install-UnpackedBuild {
             }
         } while ($true)
     }
+    $beforeSwapRan = $false
+    $shell = (Get-Command pwsh.exe -ErrorAction Stop).Source
     try {
+        if ($BeforeSwapScript) {
+            Write-Step "running $BeforeSwapScript"
+            Write-FastDirectReceipt -Status 'before-swap' -Detail $BeforeSwapScript
+            $beforeSwapRan = $true
+            & $shell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $BeforeSwapScript `
+                -CoreExe (Join-Path $unpackedDir 'resources\core\mixdogd.exe')
+            if ($LASTEXITCODE -ne 0) { throw "$BeforeSwapScript exited with $LASTEXITCODE" }
+        }
         New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
         # Every entry the build produced is app-owned: an Electron upgrade also
         # changes the Chromium files beside Mixdog.exe, and a new executable
@@ -970,7 +993,8 @@ function Install-UnpackedBuild {
             Start-DetachedMixdogApp
             $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
             if (-not $fresh) { throw 'Fast-deployed Mixdog did not publish a fresh daemon.' }
-            if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
+            # A first start reads the whole converted profile before the window is composed.
+            if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 180)) {
                 throw 'Fast-deployed Mixdog did not open a visible application window.'
             }
             $script:daemonAfter = $fresh
@@ -989,6 +1013,15 @@ function Install-UnpackedBuild {
                 if ($item.HadInstalled -and (Test-Path -LiteralPath $item.Backup)) {
                     Move-WithRetry $item.Backup $item.Installed "restore $(Split-Path -Leaf $item.Installed)"
                 }
+            }
+        }
+        if ($beforeSwapRan) {
+            # The old app must not start on what the script changed: it is undone first, and an undo that fails
+            # leaves the app closed (the message names what to run).
+            Write-Step "undoing $BeforeSwapScript"
+            & $shell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $BeforeSwapScript -Undo
+            if ($LASTEXITCODE -ne 0) {
+                throw "The deploy failed ($($failure.Exception.Message)) and `"$BeforeSwapScript -Undo`" exited with $($LASTEXITCODE): the app was not started. Run that undo, then start Mixdog."
             }
         }
         Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -1249,6 +1282,10 @@ if ($FastDirect -and -not $FastDirectWorker) {
         Write-Host "  1. close the app: $(if ($appBefore.Count) { 'pid ' + ($appBefore.ProcessId -join ', ') } else { '(not running)' })"
         Write-Host "  2. $drain"
         Write-Host '  3. force-stop what still holds files under the install dir (after 10 s)'
+        if ($BeforeSwapScript) {
+            if (-not $fastPlan.full) { throw '-BeforeSwapScript runs only before a full replacement; this plan swaps single artifacts.' }
+            Write-Host "  3a. run $BeforeSwapScript -CoreExe $(Join-Path $unpackedDir 'resources\core\mixdogd.exe') (a failure ends the deploy; -Undo runs if step 4 or 5 fails)"
+        }
         Write-Host "  4. $(if ($fastPlan.full) { "replace every entry of $InstallDir with $unpackedDir (the old ones are kept aside until the new app has published a core)" } else { "swap the changed artifacts (shell: $(@($fastPlan.targets).Count -gt 0), core: $([bool]$fastPlan.core), runtime package: $([bool]$fastPlan.runtime))" })"
         Write-Host '  5. start the app and wait for a fresh daemon.json and a visible window; on failure restore step 4'
         Write-Host "plan current: yes (inputs match the plan); installed now: $installedBefore; target: $targetVersion; core: $(if ($CoreBinary) { $CoreBinary } else { 'built by cargo' })"
@@ -1295,6 +1332,9 @@ elseif ($FastDirect) {
         # Let the launching Mixdog shell return before this independent worker
         # terminates the app and daemon that owned it.
         Start-Sleep -Seconds 2
+        if ($BeforeSwapScript -and -not $fastPlan.full) {
+            throw '-BeforeSwapScript runs only before a full replacement; this plan swaps single artifacts. Nothing was stopped.'
+        }
         Write-Step 'stopping the installed app'
         Stop-MixdogApp
         Write-Step 'stopping the session daemon'
