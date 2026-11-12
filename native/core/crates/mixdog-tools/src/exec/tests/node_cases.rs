@@ -26,6 +26,32 @@ async fn until<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
         .unwrap_or_else(|_| panic!("{what}: not within {STEP_MS} ms"))
 }
 
+/// Set in the process [`in_own_process`] starts.
+const OWN_PROCESS: &str = "MIXDOG_EXEC_TEST_OWN_PROCESS";
+
+/// A test that replaces or edits the whole process environment (the shell tool reads it as Node's `process.env`, so the
+/// tests of its end are written against it) runs in a process of its own: its edits would otherwise reach the tests that run
+/// beside it on the other threads of this binary (a temp dir under the Windows folder, no `PATH`, no `SystemRoot`). The
+/// caller's process is left untouched; this re-runs the test in the binary and fails with what the run printed. Whether the
+/// test is to run its body here. The run's own waits carry their deadlines (`until`, the tests' paused clocks).
+fn in_own_process(test: &str) -> bool {
+    if std::env::var_os(OWN_PROCESS).is_some() {
+        return true;
+    }
+    let mut run = std::process::Command::new(std::env::current_exe().unwrap());
+    run.args([test, "--exact", "--nocapture", "--test-threads=1"]).env(OWN_PROCESS, "1");
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut run, 0x0800_0000);
+    let out = run.output().unwrap();
+    assert!(
+        out.status.success(),
+        "{test} in a process of its own: {}\n{}\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    false
+}
 /// One spawned process of [`Stepped`]: the test sends its events; `pulled` counts the reads of the job's collector, so a
 /// count past an event's position means the job has taken that event in.
 struct Run {
@@ -205,6 +231,9 @@ fn recorded_skill_runtime() -> SkillRuntime {
 #[cfg(windows)]
 #[tokio::test]
 async fn the_shell_env_is_nodes_whole_env_for_each_daemon_env() {
+    if !in_own_process("exec::tests::node_cases::the_shell_env_is_nodes_whole_env_for_each_daemon_env") {
+        return;
+    }
     let case = scenario("spawn-env");
     let processes = Stepped::new(|_| vec![(None, Vec::new(), 0)]);
     let (rig, shell, _) = stepped_rig(processes.clone(), |config| {
@@ -355,6 +384,9 @@ async fn long_commands_run_from_nodes_hoisted_files() {
 /// promoted as `promoteAtTimeout` says; with neither it never ends on its own.
 #[tokio::test(start_paused = true)]
 async fn every_deadline_plan_is_what_the_tool_does_with_the_call() {
+    if !in_own_process("exec::tests::node_cases::every_deadline_plan_is_what_the_tool_does_with_the_call") {
+        return;
+    }
     const VARS: [&str; 3] = ["MIXDOG_SHELL_AUTO_BACKGROUND_MS", "BASH_MAX_TIMEOUT_MS", "MIXDOG_SHELL_BACKGROUND_MAX_MS"];
     const NEVER: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
     for (n, case) in scenario("deadline-plan")["cases"].as_array().unwrap().iter().enumerate() {
@@ -581,6 +613,9 @@ async fn live_descendants_are_tracked_and_cancelled_as_in_node() {
 #[cfg(windows)]
 #[tokio::test]
 async fn a_live_command_past_its_hold_answers_nodes_background_text() {
+    if !in_own_process("exec::tests::node_cases::a_live_command_past_its_hold_answers_nodes_background_text") {
+        return;
+    }
     let case = scenario("auto-background-live");
     // SAFETY: the test runner (nextest) runs each test in a process of its own.
     unsafe { std::env::set_var("MIXDOG_SHELL_AUTO_BACKGROUND_MS", case["holdMs"].to_string()) };
