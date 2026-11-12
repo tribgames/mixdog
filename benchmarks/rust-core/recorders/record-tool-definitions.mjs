@@ -40,7 +40,7 @@ writeJson(join(stage, 'definitions.json'), fixture);
 writeSetManifest(stage, {
   set: 'tool-definitions',
   recorder,
-  command: `node ${recorder} --tree <tree>${patched ? ` --patch ${identity.patch.file}` : ''}`,
+  command: `node ${recorder} --tree <tree>${patched ? ` --patch ${patched}` : ''}`,
   ...(patched ? { identity } : { identityTree: tree }),
   extra: recorderProvenance(import.meta.url),
 });

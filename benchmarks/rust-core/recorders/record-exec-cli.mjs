@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 // The child's tap (loaded there with --import); imported here so the manifest lists it.
 import './lib/exec-cli-tap.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
@@ -412,14 +412,15 @@ async function main() {
   if (process.platform !== 'win32') throw new Error('the CLI recording sends console control events: Windows only');
   const args = parseArgs();
   const tree = resolveTree(args);
-  const identity = exactProductIdentity(tree, args.get('commit'));
+  // `--patch <file>[,<file>…]`: the tree is the commit with those Node changes applied; the manifest names them.
+const identity = args.get('patch') ? nodeTreeIdentity(args, tree, args.get('commit')) : exactProductIdentity(tree, args.get('commit'));
   const finalDir = join(FIXTURES_ROOT, 'exec-cli');
   const stage = stageSet(finalDir);
   const runtimeSource = args.get('runtime') ?? process.env.MIXDOG_PG_RUNTIME;
   if (!runtimeSource || !existsSync(join(runtimeSource, 'bin'))) throw new Error('--runtime <unpacked PostgreSQL runtime> (or MIXDOG_PG_RUNTIME) is required: the daemon of the beside-daemon case installs it instead of downloading one');
   const asset = runtimeAsset(tree, runtimeSource);
   for (const name of Object.keys(CASES)) writeJson(join(stage, `${name}.json`), await runCase(tree, name, runtimeSource, asset));
-  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url), besideDaemon: 'the beside-daemon case starts Node\'s daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case\'s data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon\'s own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended', exclusions: EXCLUSIONS, stderrNotCompared: STDERR_NOT_COMPARED, othersNotCompared: OTHERS_NOT_COMPARED } });
+  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url), besideDaemon: 'the beside-daemon case starts Node\'s daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case\'s data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon\'s own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended', exclusions: EXCLUSIONS, stderrNotCompared: STDERR_NOT_COMPARED, othersNotCompared: OTHERS_NOT_COMPARED } });
   commitStage(stage, finalDir);
 }
 await main();

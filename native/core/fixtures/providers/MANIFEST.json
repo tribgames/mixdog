@@ -61,9 +61,9 @@
       "sha256": "69f043c41a84c9002df2a49b7a990e2242aeacf73a8ad4dbed57e77cbd7c8119"
     },
     {
-      "bytes": 97707,
+      "bytes": 105813,
       "path": "anthropic-shared-prefix/cases.json",
-      "sha256": "9b205a1a5f36711d5b2811a80b69088fea9b4affcf891431587e2c2cb6f1500a"
+      "sha256": "45a96384b3d56bb6d883b0f1371741b22dd314c737763b5978286b38dae12363"
     },
     {
       "bytes": 3500,
@@ -610,5 +610,15 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 2567060
+  "totalBytes": 2575166,
+  "reRecorded": [
+    {
+      "path": "anthropic-shared-prefix/cases.json",
+      "command": "node benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patch applied>",
+      "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "patch": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "patchSha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088",
+      "why": "the read tool definition (tail) and the machine tool changed the tool definitions these requests carry by hash"
+    }
+  ]
 }
