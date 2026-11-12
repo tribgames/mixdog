@@ -52,6 +52,9 @@ pub(crate) enum Ctl {
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
+    /// A client resumed the thread: what its queue holds from before a restart drains, as the desktop's resume drains the
+    /// rows it restored (`restoreLeadSteeringFromDisk`, then the release hook, `session-api/lifecycle/resume.mjs:72`).
+    Resumed,
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
     CwdApplied { changed: bool },
@@ -241,6 +244,9 @@ pub(crate) struct ControlCell {
     /// The records the actor accepted that the store has not acknowledged, after its last step.
     #[cfg(any(test, feature = "test-support"))]
     pub unacked: std::sync::atomic::AtomicUsize,
+    /// The records handed to the store and not yet acknowledged or failed, after the actor's last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub handed: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
@@ -257,6 +263,12 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub recovered: std::sync::atomic::AtomicBool,
+    /// No draft file write is queued or running and none owed (a removal or sweep to try again), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub drafts_settled: std::sync::atomic::AtomicBool,
     /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]
@@ -329,6 +341,15 @@ impl ControlCell {
         *ended = true;
         self.subscribers.fetch_or(CLOSING, SeqCst);
         self.closed.store(true, SeqCst);
+    }
+
+    /// A close that failed is undone (`SessionActor::close_undone`): attaches are admitted again and the thread is live.
+    pub fn reopen(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
+        *ended = false;
+        self.subscribers.fetch_and(!CLOSING, SeqCst);
+        self.closed.store(false, SeqCst);
     }
 
     /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).

@@ -249,6 +249,103 @@ impl RunFactory for RunHostFactory {
         let (parts, liveness, search_usage) = (self.parts.clone(), self.liveness.clone(), self.search_usage.clone());
         Box::pin(drive(parts, liveness, search_usage, run))
     }
+
+    fn crashed(&self, run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
+        crashed_rows(run)
+    }
+}
+
+/// `recoverTurnCheckpoint` of a run the process died in. A sealed turn (its answer committed, stamped with the turn's
+/// completion) stays as it is. Otherwise its draft is finalized as `finalizeTurnInterruptionSnapshot(.., 'process-crash')`
+/// finalizes the checkpoint: the partial reply, every unanswered call closed as cancelled and the restart line are
+/// committed, and the model context restarts on the finalized transcript, with `sentRequestTail` on the message the
+/// request ended with (as [`close_cancelled`] leaves a stopped turn).
+fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
+    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
+    use mixdog_core_session::session::CrashedRows;
+    use mixdog_protocol::message_class::RowFacts;
+    use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
+    struct NoAttachments;
+    impl Blobs for NoAttachments {
+        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, ReadError> {
+            Ok(None)
+        }
+    }
+    let mut known: Vec<(ItemId, AgentMessage)> = Vec::with_capacity(run.context.len());
+    for (iid, body) in &run.context {
+        match message_of(body) {
+            Ok(message) => known.push((iid.clone(), message)),
+            Err(error) => {
+                tracing::error!("[turn-checkpoint] the crashed turn is not finalized: its context holds a row this build cannot read: {error}");
+                return CrashedRows::default();
+            }
+        }
+    }
+    let input = run.input.as_ref().and_then(|input| known.iter().position(|(iid, _)| iid == input));
+    // The turn's own rows follow its input row: any of them is output (`responseStarted`).
+    let answered = input.is_some_and(|at| at + 1 < known.len());
+    let sealed = answered
+        && run.context.last().is_some_and(|(_, body)| body.get("role").and_then(Value::as_str) == Some("assistant") && body.pointer("/meta/transcript/completion").is_some());
+    if sealed {
+        return CrashedRows { sealed: true, ..CrashedRows::default() };
+    }
+    // The turn was sealed (its final reply drafted) but the reply's row never landed: the reply is committed as that row
+    // and the turn ends finished, as Node brings a sealed checkpoint back (`turn-checkpoint-recovery.mjs`).
+    if let Some(row) = run.draft.sealed.clone() {
+        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], ..CrashedRows::default() };
+    }
+    // A recovery whose rows landed but whose end record did not (the process died again in between) left the restart line
+    // closing the turn: finalized again, the turn is rebuilt with that line at the same place, which is kept, not added again.
+    let restart = |message: &AgentMessage| message.role() == Role::User && message.text() == mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+    let mut transcript: Vec<AgentMessage> = known.iter().map(|(_, message)| message.clone()).collect();
+    if answered && transcript.last().is_some_and(restart) {
+        transcript.pop();
+    }
+    let draft = run.draft;
+    let calls = message_of(&json!({ "role": "assistant", "content": "", "toolCalls": draft.calls })).map(|message| message.tool_calls().to_vec()).unwrap_or_default();
+    let results = draft.results.iter().filter_map(|row| message_of(row).ok()).collect();
+    let finalized = finalize_interrupted_turn(Interrupted {
+        transcript,
+        current_user_text: input.map(|at| known[at].1.text()).unwrap_or_default(),
+        response_started: draft.started || answered,
+        partial_assistant: draft.text,
+        partial_reasoning: draft.reasoning,
+        observed_tool_calls: calls,
+        observed_tool_results: results,
+        phase: if draft.tools { Phase::Tools } else { Phase::Streaming },
+        reason: AbortReason::ProcessCrash,
+    });
+    if !finalized.response_preserved {
+        return CrashedRows::default();
+    }
+    let mut rows = Vec::new();
+    let mut replacement: Vec<(ItemId, Value)> = Vec::new();
+    for (index, message) in finalized.transcript.iter().enumerate() {
+        let (iid, mut body) = match known.get(index).filter(|(_, was)| was == message || (restart(was) && restart(message))) {
+            Some((iid, _)) => (iid.clone(), run.context[index].1.clone()),
+            None => {
+                let (iid, mut body) = (new_item_id(), row_of(message));
+                let role = match message.role() {
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                    _ => "user",
+                };
+                // The restart line is classified as a live commit's is (a cancel line shows as the turn's end); it names
+                // no attachment, so no attachment is read.
+                let facts = row_facts(&mut body, &mut UserText::new(&NoAttachments)).unwrap_or(RowFacts { visible: true, prompt: None });
+                rows.push(ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: facts.visible, body: body.clone(), prompt: facts.prompt });
+                (iid, body)
+            }
+        };
+        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
+            let meta = object.entry("meta").or_insert_with(|| json!({}));
+            if let Some(meta) = meta.as_object_mut() {
+                meta.insert("sentRequestTail".into(), Value::Bool(true));
+            }
+        }
+        replacement.push((iid, body));
+    }
+    CrashedRows { sealed: false, rows, context: Some(replacement), context_tokens: None }
 }
 
 pub(super) use mixdog_core_session::session::run::new_item_id;
@@ -262,22 +359,31 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 enum Job {
     Commit(u64, ItemCommit),
     Compact(u64, mixdog_core_session::session::run::Compaction),
+    Draft(u64, Value),
+}
+
+/// `TURN_CHECKPOINT_THROTTLE_MS` (`ask-turn-state.mjs:14`): streamed text is drafted at most this often; every other
+/// change of the draft is written at once (`checkpoint.schedule(true)`).
+const DRAFT_THROTTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// When the draft was last written, and whether a throttled write is armed.
+#[derive(Default)]
+struct DraftClock {
+    last: Option<tokio::time::Instant>,
+    armed: bool,
 }
 
 /// `TranscriptSink` over the run's port: commits go to the actor in order on one task, and
 /// `durable` waits for that task. `Ticket(0)` is the turn's input row, which the actor committed.
 struct PortSink {
-    jobs: mpsc::UnboundedSender<Job>,
+    jobs: Jobs,
     done: watch::Receiver<u64>,
-    seq: AtomicU64,
     port: RunPort,
     rows: Arc<StoredRows>,
     live: LiveTurnPublisher,
     turn: Mutex<Vec<AgentMessage>>,
     /// The item the shown assistant text belongs to, until its message commits.
     streaming: Arc<Mutex<Option<ItemId>>>,
-    /// `markAssistantMessageCommitted` empties it.
-    observed: Arc<Mutex<Observed>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
@@ -290,6 +396,7 @@ struct PortSink {
     /// (`appendAssistantTurnMessage` writes them on that message).
     terminal: Mutex<Option<(u32, u64)>>,
     applied: AppliedSkills,
+    drafted: Mutex<DraftClock>,
 }
 
 /// Where the skills a prompt loaded are stamped: the thread's row of that prompt.
@@ -334,6 +441,51 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The run's jobs in order, and the draft they take from: what a draft takes from `observed`, and an assistant commit
+/// empties of it, is numbered and queued while `observed` is held, so no draft of a message lands after the message's row.
+struct Jobs {
+    /// `markAssistantMessageCommitted` empties it.
+    observed: Arc<Mutex<Observed>>,
+    seq: AtomicU64,
+    tx: mpsc::UnboundedSender<Job>,
+    /// Called once a draft's body is taken, before it is queued.
+    #[cfg(any(test, feature = "test-support"))]
+    taken: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Jobs {
+    /// Queues what the draft gained since its last write.
+    fn draft(&self) {
+        let mut observed = lock(&self.observed);
+        if let Some(body) = observed.undrafted() {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(taken) = lock(&self.taken).take() {
+                taken();
+            }
+            self.queue(&mut observed, |n| Job::Draft(n, body));
+        }
+    }
+
+    /// Queues a row of the run (an assistant message's ends its draft), after the seal of the turn's reply if any.
+    fn row(&self, assistant: bool, sealed: Option<Value>, item: ItemCommit) -> u64 {
+        let mut observed = lock(&self.observed);
+        if assistant {
+            observed.message_committed();
+        }
+        if let Some(sealed) = sealed {
+            self.queue(&mut observed, |n| Job::Draft(n, sealed));
+        }
+        self.queue(&mut observed, |n| Job::Commit(n, item))
+    }
+
+    /// Numbers and queues one job; `_held` is the observed record, held by the caller.
+    fn queue(&self, _held: &mut Observed, job: impl FnOnce(u64) -> Job) -> u64 {
+        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = self.tx.send(job(n));
+        n
+    }
+}
+
 impl PortSink {
     fn spawn(
         port: RunPort,
@@ -366,11 +518,63 @@ impl PortSink {
                         }
                         n
                     }
+                    // Node reports a failed checkpoint write and goes on (`[turn-checkpoint] write failed`).
+                    Job::Draft(n, body) => {
+                        if let Err(error) = worker.draft(body).await {
+                            tracing::warn!("[turn-checkpoint] write failed: {error:?}");
+                        }
+                        n
+                    }
                 };
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied })
+        let jobs = Jobs {
+            observed,
+            seq: AtomicU64::new(0),
+            tx: jobs,
+            #[cfg(any(test, feature = "test-support"))]
+            taken: Mutex::default(),
+        };
+        Arc::new(Self { jobs, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
+    }
+
+    /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
+    /// older than [`DRAFT_THROTTLE`], else once that much time has passed.
+    fn draft(self: &Arc<Self>, now: bool) {
+        let wait = {
+            let mut clock = lock(&self.drafted);
+            let at = tokio::time::Instant::now();
+            match clock.last {
+                Some(last) if !now && at < last + DRAFT_THROTTLE => {
+                    if std::mem::replace(&mut clock.armed, true) {
+                        return;
+                    }
+                    last + DRAFT_THROTTLE - at
+                }
+                _ => {
+                    clock.last = Some(at);
+                    drop(clock);
+                    self.write_draft();
+                    return;
+                }
+            }
+        };
+        let sink = self.clone();
+        drop(tokio::spawn(async move {
+            mixdog_rt::time::sleep(wait).await;
+            {
+                let mut clock = lock(&sink.drafted);
+                clock.armed = false;
+                clock.last = Some(tokio::time::Instant::now());
+            }
+            sink.write_draft();
+        }));
+    }
+
+    /// Queues what the draft gained since its last write, in order with the run's rows.
+    fn write_draft(&self) {
+        self.jobs.draft();
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -446,7 +650,7 @@ impl PortSink {
 
     /// Every queued commit is durable (or failed).
     async fn flush(&self) {
-        let last = self.seq.load(Ordering::SeqCst);
+        let last = self.jobs.seq.load(Ordering::SeqCst);
         let mut done = self.done.clone();
         let _ = done.wait_for(|d| *d >= last).await;
     }
@@ -460,9 +664,13 @@ fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> mixdog_core_session::sess
 #[async_trait]
 impl TranscriptSink for PortSink {
     async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
+        // A save writes the throttled draft first (the transcript snapshot hook's `flushNow`): a crash at the row's write
+        // leaves what streamed of it.
+        self.write_draft();
         let mut row = row_of(message);
+        let mut terminal = None;
         if message.role() == Role::Assistant {
-            let terminal = lock(&self.terminal).take();
+            terminal = lock(&self.terminal).take();
             self.stamp_assistant(&mut row, message, terminal);
         }
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
@@ -485,13 +693,12 @@ impl TranscriptSink for PortSink {
         } else {
             (row, true, None)
         };
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.rows.record(message, row.clone());
         if message.role() == Role::Tool {
             // The authoritative result is in the transcript now: an early notice of it is no longer pending
             // (`recordToolResult` deletes it).
             if let Some(id) = message.tool_call_id() {
-                lock(&self.observed).results.retain(|early| early.tool_call_id() != Some(id));
+                lock(&self.jobs.observed).results.retain(|early| early.tool_call_id() != Some(id));
             }
             if let Some(hook) = &self.on_tool_result {
                 hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
@@ -503,15 +710,9 @@ impl TranscriptSink for PortSink {
             self.live.publish(&turn, &*self.rows);
         }
         let shown = if message.role() == Role::Assistant { lock(&self.streaming).take() } else { None };
-        if message.role() == Role::Assistant {
-            let mut observed = lock(&self.observed);
-            observed.text.clear();
-            observed.reasoning.clear();
-            observed.calls.clear();
-            // The shown item is the message's item: a later rewrite of the context names it by this id.
-            if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
-                lock(&self.iids).insert(id.clone(), iid.clone());
-            }
+        // The shown item is the message's item: a later rewrite of the context names it by this id.
+        if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
+            lock(&self.iids).insert(id.clone(), iid.clone());
         }
         let role = match message.role() {
             Role::System => "system",
@@ -520,16 +721,17 @@ impl TranscriptSink for PortSink {
             Role::Tool => "tool",
             Role::Developer => "developer",
         };
+        // The turn's final reply seals its draft first (`sealed` checkpoint), durable before the row is sent: a turn whose
+        // reply row then fails to land is still recovered finished.
+        let sealed = terminal.is_some().then(|| json!({ "sealed": row.clone() }));
         let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt };
-        let _ = self.jobs.send(Job::Commit(n, item));
-        Ok(Ticket(n))
+        Ok(Ticket(self.jobs.row(message.role() == Role::Assistant, sealed, item)))
     }
 
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let replacement = messages.iter().map(|m| (self.iid_of(m), row_of(m))).collect();
         let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
-        let _ = self.jobs.send(Job::Compact(n, compaction));
+        self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
     }
 
     fn message_id(&self) -> String {
@@ -592,6 +794,51 @@ struct Observed {
     calls: Vec<mixdog_core_api::domain::provider::ToolCall>,
     /// Results that settled but were not committed in call order (`__earlyNotify`).
     results: Vec<AgentMessage>,
+    /// How much of the above the run's draft holds (`journalDelta`'s cursor): the lengths of `text`, `reasoning` and
+    /// `calls`, the phase, and the early results not yet written.
+    drafted_text: usize,
+    drafted_reasoning: usize,
+    drafted_calls: usize,
+    drafted_tools: bool,
+    undrafted_results: Vec<Value>,
+}
+
+impl Observed {
+    /// `markAssistantMessageCommitted`: the message holds what was drafted of it.
+    fn message_committed(&mut self) {
+        self.text.clear();
+        self.reasoning.clear();
+        self.calls.clear();
+        self.drafted_text = 0;
+        self.drafted_reasoning = 0;
+        self.drafted_calls = 0;
+    }
+
+    /// What the draft gained since its last write (a `draft` record's body, `RunDraft`), or `None`.
+    fn undrafted(&mut self) -> Option<Value> {
+        let mut body = serde_json::Map::new();
+        if self.text.len() > self.drafted_text {
+            body.insert("text".into(), json!(self.text[self.drafted_text..]));
+            self.drafted_text = self.text.len();
+        }
+        if self.reasoning.len() > self.drafted_reasoning {
+            body.insert("reasoning".into(), json!(self.reasoning[self.drafted_reasoning..]));
+            self.drafted_reasoning = self.reasoning.len();
+        }
+        if self.calls.len() > self.drafted_calls {
+            let calls = row_of(&AgentMessage::assistant("", self.calls[self.drafted_calls..].to_vec()));
+            body.insert("calls".into(), calls.get("toolCalls").cloned().unwrap_or_default());
+            self.drafted_calls = self.calls.len();
+        }
+        if !self.undrafted_results.is_empty() {
+            body.insert("results".into(), Value::Array(std::mem::take(&mut self.undrafted_results)));
+        }
+        if self.tools != self.drafted_tools {
+            body.insert("tools".into(), json!(self.tools));
+            self.drafted_tools = self.tools;
+        }
+        (!body.is_empty()).then_some(Value::Object(body))
+    }
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -618,6 +865,8 @@ struct PortObserver {
     requests: std::sync::atomic::AtomicU32,
     /// The tool calls the current request's response streamed, `{ id, name, arguments }`.
     streamed_calls: Mutex<Vec<Value>>,
+    /// Writes the run's draft (`checkpoint.schedule`) as the record above changes.
+    sink: Arc<PortSink>,
     /// The thread's model context, whose sensitive marks a tool batch's execution calls set.
     context: mixdog_core_session::session::run::ModelContext,
 }
@@ -702,6 +951,8 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Stage("requesting".to_owned(), None));
             }
             RunEvent::ProviderSendStarted => {
+                lock(&self.observed).tools = false;
+                self.sink.draft(true);
                 let index = self.requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 lock(&self.streamed_calls).clear();
                 let _ = self.out.send(Shown::ModelRequest(index, mixdog_app_protocol::v2::thread::ModelRequestPhase::Started, None));
@@ -732,6 +983,7 @@ impl RunObserver for PortObserver {
                     observed.started = true;
                     observed.text.push_str(&text);
                 }
+                self.sink.draft(false);
                 self.text(text);
             }
             RunEvent::ReasoningDelta(text) => {
@@ -743,6 +995,7 @@ impl RunObserver for PortObserver {
                     observed.started = true;
                     observed.reasoning.push_str(&text);
                 }
+                self.sink.draft(false);
                 self.reasoning(text);
             }
             RunEvent::Stage(Stage::Notice { message, tone }) => {
@@ -813,6 +1066,7 @@ impl RunObserver for PortObserver {
                     observed.tools = true;
                     observed.calls.extend(calls.iter().cloned());
                 }
+                self.sink.draft(true);
                 self.end_reasoning();
                 self.progress.stage("tool_running");
                 for call in &calls {
@@ -826,9 +1080,13 @@ impl RunObserver for PortObserver {
                     self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
                 }
                 if !self.cancel.is_cancelled() {
-                    let mut observed = lock(&self.observed);
-                    observed.started = true;
-                    observed.results.push(message);
+                    {
+                        let mut observed = lock(&self.observed);
+                        observed.started = true;
+                        observed.undrafted_results.push(row_of(&message));
+                        observed.results.push(message);
+                    }
+                    self.sink.draft(true);
                 }
             }
             _ => {}
@@ -1267,7 +1525,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()), context: context.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()), context: context.clone(), sink: sink.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1419,6 +1677,9 @@ async fn drive(
 
 #[cfg(test)]
 mod tests {
+    #[path = "../../turn_durability_replay.rs"]
+    mod turn_durability_replay;
+
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicI64;
     use std::time::Duration;
@@ -1439,6 +1700,93 @@ mod tests {
     use super::*;
     use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
+
+    /// The process died again after a recovery's rows landed and before its end record: the next recovery keeps the restart
+    /// line where it stands and adds no second one.
+    #[test]
+    fn a_recovery_whose_rows_landed_adds_no_second_restart_line() {
+        use mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+        let row = |role: &str, text: &str| json!({ "role": role, "content": text });
+        let context = vec![
+            (ItemId::from("in"), row("user", "do the task")),
+            (ItemId::from("partial"), row("assistant", "partial streamed answer")),
+            (ItemId::from("restart"), row("user", PROCESS_RESTART_INTERRUPT_MESSAGE)),
+        ];
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { started: true, input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        assert!(left.rows.is_empty(), "no row is added: {:?}", left.rows.iter().map(|row| row.body.clone()).collect::<Vec<_>>());
+        let kept: Vec<String> = left.context.expect("the context restarts on the turn").into_iter().map(|(iid, _)| iid.as_str().to_owned()).collect();
+        assert_eq!(kept, ["in", "partial", "restart"]);
+    }
+
+    /// A run that died with nothing drafted (only its draft's opening body) is finalized from its rows alone, as Node's reconnect
+    /// recovery finalizes it (`recover_after_restart`, which the session crate's scripted runs answer a crash with): the same
+    /// rows are added, in the same order.
+    #[test]
+    fn a_draftless_crash_is_finalized_as_the_reconnect_recovery_finalizes_it() {
+        let context = vec![
+            (ItemId::from("in"), json!({ "role": "user", "content": "read a" })),
+            (ItemId::from("call"), json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] })),
+        ];
+        let bodies: Vec<Value> = context.iter().map(|(_, body)| body.clone()).collect();
+        let reconnect: Vec<(String, Value)> = mixdog_agent::interrupt::recover_after_restart(&bodies)
+            .expect("recovered")
+            .into_iter()
+            .filter_map(|row| match row {
+                mixdog_agent::interrupt::RecoveredRow::New { role, body } => Some((role.to_owned(), body)),
+                mixdog_agent::interrupt::RecoveredRow::Kept { .. } => None,
+            })
+            .collect();
+        assert!(!reconnect.is_empty());
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        let added: Vec<(String, Value)> = left.rows.into_iter().map(|row| (row.role.unwrap_or_default(), row.body)).collect();
+        let shape = |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
+        assert_eq!(shape(&added), shape(&reconnect));
+    }
+
+    /// A throttled draft takes the streamed text while the message's row commits on another thread: the draft is queued
+    /// before the row (a draft after it would recover the message a second time). The row's commit runs at the first moment
+    /// it can: at once if nothing holds the draft between taking and queuing it, else once the draft lets go.
+    #[test]
+    fn a_draft_taken_while_its_message_commits_is_queued_before_the_row() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let observed = Observed { started: true, text: "reading".into(), ..Observed::default() };
+        let jobs = Arc::new(Jobs { observed: Arc::new(Mutex::new(observed)), seq: AtomicU64::new(0), tx, taken: Mutex::default() });
+        let later: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+        let (committer, pending) = (jobs.clone(), later.clone());
+        *lock(&jobs.taken) = Some(Box::new(move || {
+            let free = jobs_free(&committer);
+            let commit = move || {
+                let item = ItemCommit { iid: ItemId::from("row"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "reading" }), prompt: None };
+                committer.row(true, None, item);
+            };
+            if free {
+                commit();
+            } else {
+                *lock(&pending) = Some(std::thread::spawn(commit));
+            }
+        }));
+        jobs.draft();
+        if let Some(thread) = lock(&later).take() {
+            thread.join().expect("the commit");
+        }
+        let mut order = Vec::new();
+        while let Ok(job) = rx.try_recv() {
+            order.push(match job {
+                Job::Draft(_, body) => format!("draft {}", body["text"].as_str().unwrap_or_default()),
+                Job::Commit(_, item) => format!("row {}", item.iid.as_str()),
+                Job::Compact(..) => "compact".to_owned(),
+            });
+        }
+        assert_eq!(order, ["draft reading", "row row"]);
+    }
+
+    fn jobs_free(jobs: &Jobs) -> bool {
+        jobs.observed.try_lock().is_ok()
+    }
 
     struct Steps(VecDeque<StreamEvent>);
 
@@ -3188,6 +3536,9 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for MovingCwd {
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
         fn id(&self) -> &ProviderId {
             self.inner.id()
         }

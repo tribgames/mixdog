@@ -143,7 +143,8 @@ impl DeleteHold {
     }
 
     /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
-    /// and a later open finds it gone. False when the mark was not applied.
+    /// and a later open finds it gone. False when the mark was not applied: the close failed, and the thread stays
+    /// open with what it holds (`SessionActor::close_undone`).
     pub(crate) async fn mark(self, directory: &DirInner) -> bool {
         let mut set = serde_json::Map::new();
         set.insert(mixdog_store::summary::DELETED.into(), Value::Bool(true));
@@ -157,7 +158,7 @@ impl DeleteHold {
         let applied = matches!(self.marked.await, Ok(Ok(())));
         let id = &self.handle.id;
         let mut shard = lock(directory.shard(id));
-        if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
+        if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
             shard.remove(id);
             #[cfg(any(test, feature = "test-support"))]
             directory.left.notify_waiters();
@@ -1032,6 +1033,18 @@ impl DirInner {
         }
     }
 
+    /// A close of the thread of `cell` failed on a write (`SessionActor::close_undone`): while its slot is still this
+    /// thread's, the thread is open again, under the shard lock, and the session stays loaded. False when the directory
+    /// let it go (shutdown, a failed create).
+    pub(crate) fn reopen(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+        let shard = lock(self.shard(id));
+        let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
+        if ours {
+            cell.reopen();
+        }
+        ours
+    }
+
     /// Holds the minted `id` of a control start ([`Starting`]).
     fn start(&self, id: &ThreadId) -> Result<Starting, CoreError> {
         let mut shard = lock(self.shard(id));
@@ -1445,6 +1458,8 @@ impl DirInner {
             #[cfg(any(test, feature = "test-support"))]
             unacked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
+            handed: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             retry_blocked: Default::default(),
@@ -1452,6 +1467,10 @@ impl DirInner {
             ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            recovered: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            drafts_settled: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
             #[cfg(any(test, feature = "test-support"))]
@@ -1586,6 +1605,7 @@ impl DirInner {
                     value: json!({}),
                     seed: spec.seed,
                     settings: spec.settings,
+                    kept: spec.method.as_str() == "thread/fork",
                 },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
@@ -1663,6 +1683,11 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     state.has_older = log.has_older || state.has_older;
     for (ordinal, record) in log.tail {
         apply(&mut state, ordinal, record);
+    }
+    for (rid, draft) in log.drafts {
+        if let Some(run) = state.runs.get_mut(&rid) {
+            run.restore(draft);
+        }
     }
     state.prompt_history =
         super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted);

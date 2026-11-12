@@ -111,8 +111,10 @@ pub(crate) struct SessionState {
     pub header: Header,
     pub history_rev: u64,
     pub lineage_start: u64,
-    /// Runs started without a terminal phase.
-    pub runs: BTreeMap<String, ()>,
+    /// Runs started without a terminal phase, with their drafts (`draft` records).
+    pub runs: BTreeMap<String, super::turn_draft::RunDraft>,
+    /// The input row of the run whose `run{started}` is next: `(rid, iid)`.
+    pub next_input: Option<(String, String)>,
     pub approvals: BTreeMap<String, PendingApprovalRow>,
     pub queue: Vec<Queued>,
     pub window: VecDeque<WindowItem>,
@@ -249,6 +251,15 @@ impl SessionState {
                 }
             }
             Record::Item(item) => {
+                if let Some(turn) = item.turn.as_ref() {
+                    match (item.role.as_ref().map(|role| role.as_str()), self.runs.get_mut(turn.as_str())) {
+                        (Some("assistant"), Some(draft)) => draft.message_committed(),
+                        (Some("user"), Some(draft)) if draft.input.is_none() => draft.input = Some(item.iid.as_str().to_owned()),
+                        // A run's input row precedes its `run{started}`.
+                        (Some("user"), None) => self.next_input = Some((turn.as_str().to_owned(), item.iid.as_str().to_owned())),
+                        _ => {}
+                    }
+                }
                 if let Some(prompt) = item.prompt_text() {
                     prompt_history::push_session(&mut self.prompt_session, prompt);
                     self.remerge_prompts();
@@ -314,7 +325,10 @@ impl SessionState {
             }
             Record::Run(run) => match run.phase {
                 RunPhase::Started => {
-                    self.runs.insert(run.rid.as_str().to_owned(), ());
+                    let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
+                    self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
+                    // Node's `state.busy` is set when `runTurn` begins; the run's end clears the section below.
+                    self.sections.runtime.get_or_insert_with(ThreadRuntime::default).busy = true;
                 }
                 RunPhase::Attempt => {}
                 RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
@@ -413,6 +427,11 @@ impl SessionState {
                 while self.window.len() > self.view_items {
                     self.window.pop_front();
                     self.has_older = true;
+                }
+            }
+            Record::Draft(draft) => {
+                if let (Some(run), Slot::Inline(body)) = (self.runs.get_mut(draft.rid.as_str()), &draft.body) {
+                    run.apply(body);
                 }
             }
             Record::Op(_) | Record::Checkpoint(_) => {}
