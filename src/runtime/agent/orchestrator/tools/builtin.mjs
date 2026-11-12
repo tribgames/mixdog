@@ -32,6 +32,7 @@ import { extractIpynbText, extractPdfText } from './builtin/read-special-files.m
 import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
 import { formatToolStartProgress } from './progress-message.mjs';
 import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
+import { executeMachineTool } from './builtin/machine-tool.mjs';
 import { prepareGrepArgs, validateBuiltinArgs } from './builtin/arg-guard.mjs';
 import {
   parseLineLimitArg,
@@ -171,6 +172,7 @@ const _readToolHelpers = {
   renderReadLine,
   resolveAgainstCwd,
   smartReadTruncate,
+  countLogicalLinesBytesSync,
   streamReadRange,
   streamSmartReadSummary,
   sliceReadBodyByLines,
@@ -476,6 +478,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
         return executeFuzzyFindTool(args, workDir, options);
       case 'list':
         return executeListTool(args, workDir, options);
+      case 'machine':
+        return executeMachineTool(args ?? {});
       case 'tree':
         return executeTreeTool(args, workDir, options);
       case 'find_files':

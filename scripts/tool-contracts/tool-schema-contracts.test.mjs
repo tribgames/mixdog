@@ -387,7 +387,7 @@ test('read schema exposes canonical scalar and batch windows', () => {
     throw new Error('read range args must use the scalar integer contract');
   }
   if (
-    Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit', 'pages'].includes(key)) ||
+    Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit', 'tail', 'pages'].includes(key)) ||
     readSchema.additionalProperties !== false
   ) {
     throw new Error('read schema must not expose legacy arguments');

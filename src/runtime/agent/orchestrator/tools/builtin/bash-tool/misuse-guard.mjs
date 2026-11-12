@@ -5,19 +5,23 @@
 //      to background + task wait);
 //   2. a plain leading `cd <dir>` moves into the `cwd` argument;
 //   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the
-//      read / grep / list tools — a note now, a rejection when the mode flips;
+//      read / grep / list tools as a note; a command the built-in tools cover
+//      whole (every statement a read / search / listing / plain git) is
+//      rejected instead, naming the tool call that replaces it (tool-cover.mjs),
+//      when the session offers those tools;
 //   4. a command mentioning `git … worktree add` is rejected (worktrees go
 //      through the git tool; a textual check, so mentions as data are too).
 import { shellSplitPipelineSegments, shellSplitSegments, shellTokenize } from '../shell-analysis.mjs';
 import { resolveShellFor } from '../shell-runtime.mjs';
 import { formatShellToolFailure } from './result-format.mjs';
+import { commandName, coveringToolCalls, TEXT_FILTERS } from './tool-cover.mjs';
 import { addsUnmanagedWorktree } from './worktree-add-guard.mjs';
 
-/** `warn` runs the read with a note; `reject` returns the block without running. */
-const SHELL_FILE_READ_MODE = 'warn';
 export const SHELL_FILE_READ_NOTE = 'Note: use the read / grep / list tools for files instead of the shell.';
-const SHELL_FILE_READ_BLOCK =
-  'Blocked: use read / grep / list for files instead of the shell (read takes offset/limit for a window of a large file).';
+const coveredBlock = (calls) =>
+  `Blocked: the built-in tools cover this command, so it was not run. Call instead: ${calls
+    .map((call) => `${call.tool} ${JSON.stringify(call.args)}`)
+    .join('; ')}`;
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -108,41 +112,8 @@ const POSIX_READERS = {
 // token is a plain value; both are read off the operand count.
 const OPERAND_FLAGS = new Set(['-path', '-literalpath', '-pattern', '-e', '--regexp', '-f', '--file']);
 const VALUE_FLAGS = new Set(['-encoding', '-filter', '-include', '-exclude', '-g', '--glob', '-t', '--type']);
-// A later pipeline stage that only shapes text; anything else is a program
-// the first stage feeds.
-const TEXT_FILTERS = new Set([
-  'select-object',
-  'select',
-  'select-string',
-  'sls',
-  'where-object',
-  'sort-object',
-  'sort',
-  'measure-object',
-  'format-table',
-  'format-list',
-  'ft',
-  'fl',
-  'out-string',
-  'out-host',
-  'head',
-  'tail',
-  'grep',
-  'egrep',
-  'rg',
-  'wc',
-  'uniq',
-  'cut',
-  'findstr',
-]);
 const FIND_WRITERS = new Set(['-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprintf', '-fls']);
 const BENIGN_REDIRECT_TARGET = /^(?:&\d|\$null|\/dev\/null|nul)$/i;
-
-const commandName = (token) =>
-  String(token ?? '')
-    .toLowerCase()
-    .replace(/^.*[\\/]/, '')
-    .replace(/\.exe$/, '');
 
 // The path/pattern operands of a stage, or null when it writes a file.
 function stageOperands(args) {
@@ -226,14 +197,16 @@ function recordFileRead(telemetry, entry) {
 }
 
 /**
- * Apply the four guards to a shell call.
+ * Apply the four guards to a shell call. `offers(toolName)` says whether the
+ * calling session has that tool; without it a covered command only gets the
+ * note, because a session (a foreign adapter's shell) may lack the tools.
  * @returns {{ failure: string } | { args: object, notes: string[] }} the
  *   rejection, or the call to run (a leading `cd` moved into `cwd`) with the
  *   lines to add to its result.
  */
 export function guardShellCall(
   args,
-  { shellType, fileReadMode = SHELL_FILE_READ_MODE, agent = null, sessionId = null, telemetry = null } = {}
+  { shellType, cwd = null, offers = null, agent = null, sessionId = null, telemetry = null } = {}
 ) {
   if (!isPlainObject(args) || typeof args.command !== 'string') return { args, notes: [] };
   const notes = [];
@@ -248,10 +221,19 @@ export function guardShellCall(
     if (sleepFailure) return { failure: sleepFailure };
   }
   if (addsUnmanagedWorktree(guarded.command)) return { failure: formatShellToolFailure(SHELL_WORKTREE_ADD_BLOCK) };
+  // A replacement call resolves its paths against the session directory, so a command run elsewhere is never covered.
+  const covering =
+    typeof offers === 'function' && guarded.cwd == null
+      ? coveringToolCalls(guarded.command, shellType, { cwd: cwd ?? process.cwd() })
+      : null;
+  if (covering?.every((call) => offers(call.tool))) {
+    const first = shellTokenize(shellSplitSegments(guarded.command)[0])?.[0];
+    recordFileRead(telemetry, { mode: 'reject', tool: covering[0].tool, command: commandName(first), agent, sessionId });
+    return { failure: formatShellToolFailure(coveredBlock(covering)) };
+  }
   const read = detectShellFileRead(guarded.command, shellType);
   if (read) {
-    recordFileRead(telemetry, { mode: fileReadMode, tool: read.tool, command: read.command, agent, sessionId });
-    if (fileReadMode === 'reject') return { failure: formatShellToolFailure(SHELL_FILE_READ_BLOCK) };
+    recordFileRead(telemetry, { mode: 'warn', tool: read.tool, command: read.command, agent, sessionId });
     notes.push(SHELL_FILE_READ_NOTE);
   }
   return { args: guarded, notes };

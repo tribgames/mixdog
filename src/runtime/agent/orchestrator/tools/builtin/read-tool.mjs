@@ -8,6 +8,7 @@
  */
 import { executeSingleReadTool } from './read-single-tool.mjs';
 import { readPathStringGuardError } from './read-open.mjs';
+import { resolveReadTails } from './read-args.mjs';
 import { coerceReadFamilyPathArg, urlAsPathMessage } from './path-utils.mjs';
 import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
@@ -143,6 +144,7 @@ async function executeReadToolBody(args, workDir, readStateScope, executeChildBu
       executeReadTool(surveyArgs, workDir, readStateScope, executeChildBuiltinTool, surveyOptions, helpers)
   );
   if (survey !== null) return survey;
+  await resolveReadTails(args, workDir, helpers);
   const batch = normalizeObjectBatchArgs(args, workDir, helpers);
   if (batch.error) return batch.error;
   args = batch.args;

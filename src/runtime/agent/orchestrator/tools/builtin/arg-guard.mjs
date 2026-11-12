@@ -644,9 +644,19 @@ function normalizePublicReadTargets(a) {
       typeof record !== 'object' ||
       Array.isArray(record) ||
       !isNonEmptyString(record.file_path) ||
-      Object.keys(record).some((key) => !['file_path', 'offset', 'limit'].includes(key))
+      Object.keys(record).some((key) => !['file_path', 'offset', 'limit', 'tail'].includes(key))
     ) {
-      return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?}`;
+      return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?, tail?}`;
+    }
+    // tail names the whole window (the last N lines), so a limit has nothing left to say.
+    const tail = windowValue(record.tail, a.tail);
+    if (tail !== undefined) {
+      if (windowValue(record.offset, a.offset) !== undefined) {
+        return `Error: read target ${index + 1} tail cannot be combined with offset (tail is counted from the end of the file)`;
+      }
+      if (!validLimit(tail)) return `Error: read target ${index + 1} tail must be an integer from 1 to ${MAX_INT}`;
+      entries.push({ path: record.file_path, offset: 0, limit: tail, tail });
+      continue;
     }
     const offset = windowValue(record.offset, defaultOffset);
     const limit = limitValue(record.limit, defaultLimit);
@@ -670,6 +680,7 @@ function normalizePublicReadTargets(a) {
   }
   // Canonical public windows are one-based. Legacy executor windows are
   // zero-based; convert once here before any legacy shape handling.
+  delete a.tail;
   if (batch) {
     a.path = entries;
     delete a.offset;
@@ -678,6 +689,7 @@ function normalizePublicReadTargets(a) {
     a.path = entries[0].path;
     a.offset = entries[0].offset;
     a.limit = entries[0].limit;
+    if (entries[0].tail !== undefined) a.tail = entries[0].tail;
   }
   delete a.file_path;
   return null;

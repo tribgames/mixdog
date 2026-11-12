@@ -1,5 +1,45 @@
 import { existsSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { normalizeInputPath, resolveAgainstCwd } from './path-utils.mjs';
+
+// The from-the-end reader of a file past the in-memory cap serves at most this many lines.
+const TAIL_MODE_LINES_MAX = 2000;
+
+// Turn one `tail: N` record into the window it names. Up to the in-memory cap
+// the line count is cheap and the record becomes an ordinary offset/limit
+// window (same header, footer and caps). Past it the record becomes a
+// from-the-end read, which never reads the middle of the file.
+async function resolveTailRecord(record, workDir, { resolveAgainstCwd: resolve, READ_MAX_SIZE_BYTES, countLogicalLinesBytesSync }) {
+  const tail = Math.trunc(Number(record.tail));
+  delete record.tail;
+  const fullPath = resolve(normalizeInputPath(record.path), workDir);
+  const st = await stat(fullPath).catch(() => null);
+  if (!st?.isFile()) {
+    // Missing or not a file: the ordinary window reports it.
+    record.offset = 0;
+    record.limit = tail;
+    return;
+  }
+  if (st.size > READ_MAX_SIZE_BYTES) {
+    record.mode = 'tail';
+    record.n = Math.min(tail, TAIL_MODE_LINES_MAX);
+    delete record.offset;
+    delete record.limit;
+    return;
+  }
+  const total = await countLogicalLinesBytesSync(fullPath, st.size, st);
+  record.offset = Math.max(0, total - tail);
+  record.limit = tail;
+}
+
+/** Resolve every `tail` of a read call (the call itself or its batch entries) in place. */
+export async function resolveReadTails(args, workDir, helpers) {
+  if (args.tail != null && typeof args.path === 'string') await resolveTailRecord(args, workDir, helpers);
+  if (!Array.isArray(args.path)) return;
+  for (const entry of args.path) {
+    if (entry && typeof entry === 'object' && entry.tail != null) await resolveTailRecord(entry, workDir, helpers);
+  }
+}
 
 function parseReadLineNumberArg(value) {
   const n = Number(value);
