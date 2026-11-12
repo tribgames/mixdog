@@ -1,0 +1,193 @@
+{
+  "note": "Node's machine tool on the patched tree: arguments as handed to executeBuiltinTool('machine', args, cwd) and the normalised text it returned (see the manifest's exclusions).",
+  "platform": "win32",
+  "normalisation": {
+    "cpu": "`cpu: N% busy of M cores (250 ms sample)` → `cpu: <n>% busy of <n> cores (250 ms sample)`",
+    "memory": "`memory: A GB available of T GB (P% used)` → `memory: <gb> GB available of <gb> GB (<n>% used)`",
+    "processRow": "`  NAME (pid P)  cpu C%  mem M MB` → `  <process> (pid <n>)  cpu <n>%  mem <n> MB`",
+    "driveRows": "`  ROOT  F GB of T GB` rows (any number) → one `  <drive> <gb> GB of <gb> GB`",
+    "matchRows": "the process rows under `processes matching \"X\" (N):` (any number up to 25, then `  … K more`) → one `  <process rows>`; N → `<n>` unless 0",
+    "unavailable": "a section Node reports as `unavailable (no answer within the deadline)` is a failed sample, not a shape: the recorder refuses to record one"
+  },
+  "cases": [
+    {
+      "name": "default",
+      "input": {},
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 3",
+      "input": {
+        "top": 3
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 1",
+      "input": {
+        "top": 1
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 20",
+      "input": {
+        "top": 20
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 21 is clamped",
+      "input": {
+        "top": 21
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 0 is the default",
+      "input": {
+        "top": 0
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top -3 is clamped",
+      "input": {
+        "top": -3
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top as text is the default",
+      "input": {
+        "top": "x"
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "top 2.7 is cut",
+      "input": {
+        "top": 2.7
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "a name no process has",
+      "input": {
+        "process": "no-such-process-name-zzz"
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB\nprocesses matching \"no-such-process-name-zzz\" (0):\n  none",
+        "isError": false
+      }
+    },
+    {
+      "name": "a name many processes have",
+      "input": {
+        "process": "e",
+        "top": 2
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB\nprocesses matching \"e\" (<n>):\n  <process rows>",
+        "isError": false
+      }
+    },
+    {
+      "name": "a blank name asks for no match list",
+      "input": {
+        "process": "   "
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "an empty name asks for no match list",
+      "input": {
+        "process": ""
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "a name of 128 characters",
+      "input": {
+        "process": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB\nprocesses matching \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" (0):\n  none",
+        "isError": false
+      }
+    },
+    {
+      "name": "a name of 129 characters is refused",
+      "input": {
+        "process": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "result": {
+        "text": "Error: machine process must be at most 128 characters (got 129)",
+        "isError": true
+      }
+    },
+    {
+      "name": "a name with control characters is shown on one line",
+      "input": {
+        "process": "no\nsuch\u001b[31m-name"
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB\nprocesses matching \"no such [31m-name\" (0):\n  none",
+        "isError": false
+      }
+    },
+    {
+      "name": "a name that is not text is ignored",
+      "input": {
+        "process": 42
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    },
+    {
+      "name": "an unknown argument is ignored",
+      "input": {
+        "unknown": 1
+      },
+      "result": {
+        "text": "cpu: <n>% busy of <n> cores (250 ms sample)\nmemory: <gb> GB available of <gb> GB (<n>% used)\ntop by cpu:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ntop by memory:\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\n  <process> (pid <n>)  cpu <n>%  mem <n> MB\ndrives (free of total):\n  <drive> <gb> GB of <gb> GB",
+        "isError": false
+      }
+    }
+  ]
+}
