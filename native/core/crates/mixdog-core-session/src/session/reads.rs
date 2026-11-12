@@ -48,7 +48,12 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
 
+use std::sync::Arc;
+
 use super::SessionDeps;
+use super::SessionLanes;
+use super::ThreadStore;
+use super::Transcript;
 use super::directory::DirInner;
 use super::transcript::position_of_id;
 use super::view::meta;
@@ -108,6 +113,24 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
     Ok(History { rev, rows: rows.await.map_err(|_| dropped())? })
 }
 
+/// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
+pub(super) async fn history_tail(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    rows: usize,
+) -> Result<(History, bool), CoreError> {
+    let token = CancellationToken::new();
+    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+    store.unheld().await;
+    let (store, thread) = (store.clone(), id.clone());
+    let (rev, records, complete) = lanes.io.submit(&token, move |lane| store.history_tail(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let transcript = transcript.clone();
+    let rows = lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
+}
+
 impl DirInner {
     /// Answers one of the reads for the thread its params name, loaded or not.
     pub(super) async fn serve_read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -117,10 +140,19 @@ impl DirInner {
             .and_then(Value::as_str)
             .map(ThreadId::from)
             .ok_or_else(|| invalid("threadId", "a thread id"))?;
+        if req.method.as_str() == "thread/items/list" {
+            let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
+            let deps = &self.deps;
+            let thread = &id;
+            return list_from_tail(&id, &p, |rows| async move {
+                let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
+                Ok((rev, rows, complete))
+            })
+            .await;
+        }
         let History { rev, rows } = history(&self.deps, &id).await?;
         let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         match req.method.as_str() {
-            "thread/items/list" => items_list(&id, rev, &rows, params(req, "ThreadItemsListParams")?),
             "thread/items/read" => items_read(&id, &items, params(req, "ThreadItemsReadParams")?),
             "thread/turns/list" => turns_list(&items, params(req, "ThreadTurnsListParams")?, self.active_turn(&id)),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
@@ -167,7 +199,10 @@ impl DirInner {
 /// row a rewind or a clear removed answers `cursorInvalidated` (protocol §5.5, retracting
 /// D-reads-1's `itemNotFound`): the client restarts from its snapshot. The page's byte budget
 /// counts `rows`' display-row lengths, as Node's `budgetedEdge` counts the transcript rows.
-fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadItemsListParams) -> Result<Reply, CoreError> {
+///
+/// `rows` are the newest rows of the history, or all of it when `complete`. The page is one only the newest rows can decide
+/// (no cursor, and an older page that ends before the rows run out), or `None`: more rows are needed.
+pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -190,14 +225,25 @@ fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadIt
         .collect();
     let at = match anchor {
         None => None,
-        Some(item) => Some(
-            position_of_id(turn.iter().map(|(row, _)| row), item)
-                .ok_or_else(|| CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev })?,
-        ),
+        // A cursor names the first row that displays it, else the first of that item id (`position_of_id`), and a user
+        // row displays its client's own submission id: an older row may display the same id, so only the whole history
+        // proves which row a cursor names.
+        Some(_) if !complete => return Ok(None),
+        Some(item) => match position_of_id(turn.iter().map(|(row, _)| row), item) {
+            Some(at) => Some(at),
+            None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
+        },
     };
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
+    // The oldest page is the one thing the newest rows cannot give.
+    if !complete && anchor.is_none() && !older {
+        return Ok(None);
+    }
     let sizes: Vec<usize> = turn.iter().map(|(_, bytes)| *bytes).collect();
     let page = page_of(&sizes, at, older, limit, budget).expect("the anchor is a position of the rows");
+    if !complete && older && page.start == 0 {
+        return Ok(None);
+    }
     let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
     let edge = |row: Option<&ThreadItem>, wanted: bool| row.filter(|_| wanted).map(|item| item.id().as_str().to_owned());
     // The cursor onward in the page's own direction, and the one back.
@@ -207,7 +253,29 @@ fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadIt
         (edge(data.last(), page.has_newer), edge(data.first(), page.has_older))
     };
     let response = ThreadItemsListResponse { data, has_older: page.has_older, has_newer: page.has_newer, next_cursor: next, backwards_cursor: back };
-    Ok(Reply::Value(serde_json::to_value(response).expect("protocol types serialize")))
+    Ok(Some(Reply::Value(serde_json::to_value(response).expect("protocol types serialize"))))
+}
+
+/// Rows read at first for a page; each short read asks for twice as many, so a page deep in the history costs
+/// at most twice the rows before it and a page at the end only these.
+const FIRST_TAIL_ROWS: usize = 128;
+
+/// `thread/items/list` from the newest rows of the history only: `fetch(n)` answers the newest `n` stored rows
+/// (their items, with the history revision, and whether that is all of the history).
+pub(super) async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
+where
+    F: FnMut(usize) -> Fut,
+    Fut: std::future::Future<Output = Result<(u64, Vec<(ThreadItem, usize)>, bool), CoreError>>,
+{
+    // A cursor's row is only known from the whole history; the page of the newest rows reads as few as it needs.
+    let mut want = if p.cursor.is_some() { usize::MAX } else { FIRST_TAIL_ROWS };
+    loop {
+        let (rev, rows, complete) = fetch(want).await?;
+        if let Some(reply) = items_window(id, rev, &rows, complete, p)? {
+            return Ok(reply);
+        }
+        want = want.saturating_mul(2);
+    }
 }
 
 fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
@@ -726,7 +794,7 @@ mod tests {
     }
 
     fn page(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], params: Value) -> Result<Value, CoreError> {
-        match items_list(id, rev, rows, serde_json::from_value(params).expect("params"))? {
+        match items_window(id, rev, rows, true, &serde_json::from_value(params).expect("params"))?.expect("a whole history decides every page") {
             Reply::Value(v) => Ok(v),
             _ => panic!("a value"),
         }

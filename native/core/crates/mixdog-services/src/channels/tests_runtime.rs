@@ -838,7 +838,7 @@ async fn a_channel_call_naming_an_mcp_tool_reaches_no_server() {
 /// composition wires (`compose_flip.rs`: `observe_binding` -> `publish_remote_session`), once when observed and at each
 /// binding change. Node's frames are `{enabled, sessionId, cwd, daemonPid, updatedAt}`; the value a client applies of one is
 /// `applyRemoteSessionState` (`apps/desktop/src/main/session-host-publication.ts:290`: the id of an enabled state, else
-/// none), so each Node frame gives `{"sessionId": that}`. Node's second frame is the client registration adding its cwd
+/// none), so each Node frame gives `{enabled, sessionId: that, cwd: none}` (the core has no client cwd). Node's second frame is the client registration adding its cwd
 /// (`POST /client/register`), which the core has no counterpart of (no channel transport client registers), as the manifest
 /// declares; every other frame is compared in order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -873,7 +873,7 @@ async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
     let applied = |state: &Value| -> Value {
         let id = state["sessionId"].as_str().unwrap_or_default();
         let valid = state["enabled"] == true && !id.is_empty() && id.len() <= 256 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-        json!({ "section": "hostState", "key": "remoteSession", "value": { "sessionId": if valid { json!(id) } else { Value::Null } } })
+        json!({ "section": "hostState", "key": "remoteSession", "value": { "enabled": valid, "sessionId": if valid { json!(id) } else { Value::Null }, "cwd": Value::Null } })
     };
     let registration_frame = 1;
     let node = |states: &Value| -> Vec<Value> {

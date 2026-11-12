@@ -5,7 +5,11 @@
     "notRun": "the Node TUI is not rendered: the /btw panel cases record its pure scroll and row functions (overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows) as a client observes them",
     "runs": "src/tui/app/slash-commands.mjs normalizeSlashCommandName and slashArgumentHint over the real command registry"
   },
-  "exclusions": {},
+  "exclusions": {
+    "aliasNormalising": "normalizeSlashCommandName: no Rust replay; the TUI resolves a typed name before it submits, the core never receives an alias. Owner that keeps it: src/tui/app/slash-commands.mjs",
+    "argumentHint": "slashArgumentHint: the prompt line draws it while the user types (use-prompt-draft-flow/draft-change.mjs); no request carries it. Owner that keeps it: src/tui/app/slash-commands.mjs",
+    "btwScroll": "overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows: key handling and row counts of the TUI panel (use-global-key-input.mjs). Owner that keeps it: src/tui/app/btw-controller.mjs"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -21,7 +25,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -41,7 +45,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,10 +71,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-slash-commands-cases.mjs",
-  "recorderSha256": "db64f8b60f9a3ebf64142891b6a6cdfa158a09e19e29cd0b05dbfdfa52160d94",
+  "recorderSha256": "ed014690907c5d9d869bf93d2c6d35643676a4cde78e63669030b752488b5e89",
   "replay": {
-    "compare": "mixdog-core-session session/pending.rs (slash tokens): resolve each recorded name and compare; compare the argument hint of each recorded input",
-    "entry": "NO RUST ENTRY ON o1: slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart; the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI.",
+    "entry": "NO RUST ENTRY ON o1: these behaviours stay in the client (the Node TUI, src/tui/app); the core serves only recognised_slash_token (pending.rs), read from its own registry",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart",
@@ -78,9 +81,9 @@
     ],
     "normalised": {},
     "protocolMethods": [],
+    "replayedBy": "src/tui/app/slash-commands-replay.test.mjs: every case through the K1 TUI (src/tui/app/slash-commands.mjs normalizeSlashCommandName, slashArgumentHint, overlayBlocksGlobalTranscriptScroll; src/tui/app/btw-controller.mjs btwScrollMax/Offset, btwContentRows/PanelRows), the whole observed value exact-encoded.",
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
-    "replayedBy": "src/tui/app/slash-commands-replay.test.mjs: every case through the K1 TUI (src/tui/app/slash-commands.mjs normalizeSlashCommandName, slashArgumentHint, overlayBlocksGlobalTranscriptScroll; src/tui/app/btw-controller.mjs btwScrollMax/Offset, btwContentRows/PanelRows), the whole observed value exact-encoded. The TUI owns these; the core recognises slash tokens only (pending.rs recognised_slash_token)."
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "slash-commands-cases",
   "totalBytes": 4063,

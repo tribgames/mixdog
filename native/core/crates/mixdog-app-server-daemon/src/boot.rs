@@ -172,6 +172,7 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
         return Err(ServeError::StoppedDuringStartup(signal.name()));
     }
     let started = started?;
+    crate::stale_temps::sweep_summary_temps_of_start(tokens, data_dir).await;
     let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take().expect("startup ran init before it returned");
     Ok(Begun { started, booting, watch })
 }

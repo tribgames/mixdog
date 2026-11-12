@@ -33,3 +33,5 @@ pub mod worker;
 
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod summary_replay_tests;

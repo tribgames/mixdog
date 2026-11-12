@@ -281,3 +281,42 @@ async fn a_cold_claude_oauth_listing_asks_and_answers_as_nodes() {
         assert_eq!(Value::Array(rows), scenario["rows"], "{name}: rows");
     }
 }
+
+const CURSOR_CASES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/cursor-client-version-cases/golden.json");
+
+/// `providers/cursor-client-version.test.mjs` recorded from the reference tree (`cursor-client-version-cases`): the installer
+/// answer, the environment and the warms of each case are the recorded ones; the version presented, the floor and the URLs
+/// fetched are compared with Node's.
+#[tokio::test]
+async fn the_cursor_version_follows_the_recorded_node_cases() {
+    let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str(&CURSOR_CASES).unwrap()).unwrap();
+    assert_eq!(recorded.get("cases").as_array().len(), 7);
+    for case in recorded.get("cases").as_array() {
+        let name = case.get("case").as_str();
+        let input = case.get("input").to_plain().unwrap();
+        let env: HashMap<String, String> = input["env"]
+            .as_object()
+            .map(|env| env.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect())
+            .unwrap_or_default();
+        let answer = &input["answer"];
+        // Node's scripted `fetch` answers every call alike; a throw is a connection that never opens
+        let entry = match answer["throws"].is_string() {
+            true => serde_json::json!({"fail": true}),
+            false => serde_json::json!({"status": answer["status"].as_u64().unwrap_or(200), "body": answer["body"]}),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let net = Arc::new(Net::default());
+        *net.queue.lock().unwrap() = std::iter::repeat_n(entry, 8).collect();
+        let clock = Arc::new(AtomicU64::new(1_800_000_000_000));
+        let versions = versions_in(dir.path(), &net, env, &clock);
+        for concurrent in input["warms"].as_array().unwrap() {
+            futures::future::join_all((0..concurrent.as_u64().unwrap()).map(|_| versions.warm(Dialect::Cursor))).await;
+        }
+        let observed = case.get("observed");
+        assert_eq!(versions.cursor(), observed.get("version").as_str(), "{name}: version");
+        assert_eq!(CURSOR_CLIENT_VERSION_FLOOR, observed.get("floor").as_str(), "{name}: floor");
+        let fetched: Vec<String> = net.log.lock().unwrap().iter().map(|(url, _)| url.clone()).collect();
+        let expected: Vec<&str> = observed.get("calls").as_array().iter().map(|c| c.as_str()).collect();
+        assert_eq!(fetched, expected, "{name}: fetched");
+    }
+}

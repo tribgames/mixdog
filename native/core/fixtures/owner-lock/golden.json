@@ -1,0 +1,52 @@
+{
+  "platform": "win32",
+  "refuseAndKill": {
+    "holder": {
+      "held": true
+    },
+    "thisProcess": {
+      "held": false
+    },
+    "secondContender": {
+      "held": false
+    },
+    "afterKill": {
+      "held": true
+    }
+  },
+  "holderReads": {
+    "holder": {
+      "held": true
+    },
+    "contender": {
+      "held": false
+    },
+    "intact": true
+  },
+  "simultaneous": {
+    "racers": 4,
+    "held": 1
+  },
+  "equalBytes": {
+    "empty": {
+      "holder": {
+        "held": true
+      },
+      "otherDir": {
+        "held": true
+      }
+    },
+    "copied": {
+      "holder": {
+        "held": true
+      },
+      "otherDir": {
+        "held": true
+      }
+    }
+  },
+  "racingExisting": {
+    "racers": 4,
+    "held": 1
+  }
+}

@@ -28,6 +28,8 @@ pub use record::build_row;
 pub use record::compact_meta_record;
 pub use record::truthy;
 pub use record::usage_record;
+#[cfg(feature = "flush-probe")]
+pub use spool::flush_probe;
 pub use spool::Warning;
 pub use tool::*;
 pub use watchdog::*;

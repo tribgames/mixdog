@@ -25,7 +25,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
-      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+      "sha256": "19b5e18bfa90ac12f591a14212b13f8662f3fcdba0329a06efed26937f93d6ea"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "83ff51bd8496685e4c98cd8503c88261c17c2ac49e4a622da0d6c5d72ec2afbd"
+      "sha256": "231b314b88fb145338cbbadabf5daf30c3bd5f6ad48059a04e2273a3eb9e0a33"
     }
   ],
   "nodeVersion": "v22.20.0",
