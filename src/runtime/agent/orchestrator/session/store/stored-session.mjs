@@ -1,9 +1,8 @@
 /**
  * A whole stored session by id, through the session record seam
- * (session-record.mjs), with `_storedSessionFromFile`'s answers: the session,
- * null for no record or one that is not this session's (corrupt, foreign,
- * an invalid log), or STORED_SESSION_UNREADABLE for a record that is there
- * and could not be read.
+ * (session-record.mjs): the session, null for no record or one that is not
+ * this session's (corrupt, foreign, an invalid log), or
+ * STORED_SESSION_UNREADABLE for a record that is there and could not be read.
  */
 import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields, _storedSessionFromText } from './serialize.mjs';
 import {

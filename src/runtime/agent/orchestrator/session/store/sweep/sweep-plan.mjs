@@ -3,6 +3,7 @@
 // candidate rows it visits, and the tally it fills in.
 import { readdirSync } from 'node:fs';
 import { listStoredSessionSummaries } from '../listing.mjs';
+import { sessionIdsOfNames } from '../session-record.mjs';
 import { DEFAULT_SESSION_TTL_MS, RESUMABLE_OPEN_MAX_AGE_MS, RESUMABLE_OPEN_MAX_COUNT } from './sweep-record.mjs';
 
 export function resolveSweepPlan(ttlMs, options = {}) {
@@ -34,9 +35,10 @@ export function resolveSweepPlan(ttlMs, options = {}) {
 
 /** The rows one sweep visits: the summary index reconciled with a direct
  *  directory scan. The index is a best-effort sidecar that can lag far behind
- *  disk (thousands of on-disk .json files may be absent from a smaller
- *  index); any such orphan closed+mature tombstone would otherwise be
- *  unreachable and accumulate forever. Synthetic { id } rows are sufficient
+ *  disk (thousands of on-disk sessions may be absent from a smaller index);
+ *  any such orphan closed+mature tombstone would otherwise be unreachable and
+ *  accumulate forever. A store dir names a session by its log or its legacy
+ *  json (sessionIdsOfNames). Synthetic { id } rows are sufficient
  *  because the sweep re-reads all lifecycle truth from disk. Sweep-local:
  *  listStoredSessionSummaries is unchanged for other callers. */
 export function collectSweepRows(dir) {
@@ -46,11 +48,8 @@ export function collectSweepRows(dir) {
     for (const row of summaries) {
       if (row?.id) seen.add(row.id);
     }
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.json')) continue;
-      const id = f.slice(0, -5);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
+    for (const id of sessionIdsOfNames(readdirSync(dir))) {
+      if (seen.has(id)) continue;
       summaries.push({ id });
     }
   } catch {

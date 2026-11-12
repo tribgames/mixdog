@@ -14,7 +14,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { compactionArchivePath } from '../compaction-archive.mjs';
 import { settleSessionSummaryIndex } from './listing.mjs';
+import { schedulePendingWrite, takePendingWrite } from './pending-writes.mjs';
+import { encodeCompacted, encodeSessionRecord, messageJson } from './session-log-format.mjs';
+import { reapOrphanSidecars } from './sweep/sweep-finish.mjs';
 import { sweepStaleSessions, sweepStaleSessionsCooperative } from './sweep/stale-sweep.mjs';
 
 // The stale-session sweep against a real temp store: which records it closes,
@@ -53,6 +57,23 @@ async function withStore(t, run) {
     utimesSync(path, at / 1000, at / 1000);
     return path;
   };
+  // A session born in the log format: `<id>.log.jsonl` and no json.
+  const writeLog = (doc, at = doc.updatedAt) => {
+    const path = join(dir, `${doc.id}.log.jsonl`);
+    const header = { createdAt: at, updatedAt: at, ...doc };
+    writeFileSync(
+      path,
+      encodeSessionRecord({ logId: `L-${doc.id}`, id: doc.id, header }) + encodeCompacted(1, CONVERSATION.map(messageJson))
+    );
+    utimesSync(path, at / 1000, at / 1000);
+    return path;
+  };
+  const archive = (id, at) => {
+    const path = compactionArchivePath(dir, id);
+    writeFileSync(path, '{}\n');
+    utimesSync(path, at / 1000, at / 1000);
+    return path;
+  };
   const sidecar = (name, at, pid) => {
     const path = join(dir, name);
     writeFileSync(path, pid ? `${at}\n${pid}\n` : String(at));
@@ -61,7 +82,7 @@ async function withStore(t, run) {
   };
   const read = (id) => JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf-8'));
   const exists = (id) => existsSync(join(dir, `${id}.json`));
-  await run({ dir, now, write, sidecar, read, exists });
+  await run({ dir, now, write, writeLog, archive, sidecar, read, exists });
 }
 
 test('tombstone pass: mature closed sessions are deleted, young ones kept, open ones untouched', async (t) => {
@@ -361,6 +382,65 @@ test('a NUL verdict is re-checked under the delete lock: a record repaired in be
       readdirSync(dir).some((name) => name.includes('.corrupt-')),
       false
     );
+  });
+});
+
+test('a log-born session is swept like a json-backed one', async (t) => {
+  await withStore(t, async ({ now, write, writeLog }) => {
+    const oldTomb = writeLog({ id: 'log-old-tomb', owner: 'agent', closed: true, status: 'closed', updatedAt: now - 3 * HOUR });
+    const youngTomb = writeLog({
+      id: 'log-young-tomb',
+      owner: 'agent',
+      closed: true,
+      status: 'closed',
+      updatedAt: now - 10 * MINUTE,
+    });
+    const open = writeLog({ id: 'log-open', owner: 'agent', status: 'idle', updatedAt: now - 3 * HOUR });
+    const jsonTomb = write({ id: 'json-old-tomb', owner: 'agent', closed: true, status: 'closed', updatedAt: now - 3 * HOUR });
+    const result = await sweepStaleSessions({ sweepIdle: false, tombstoneMaxAgeMs: HOUR, isSessionLive: () => false });
+    assert.deepEqual(result.tombstoneDetails.map((d) => d.id).sort(), ['json-old-tomb', 'log-old-tomb']);
+    assert.equal(existsSync(oldTomb), false);
+    assert.equal(existsSync(jsonTomb), false);
+    assert.equal(existsSync(youngTomb), true);
+    assert.equal(existsSync(open), true);
+  });
+});
+
+test('a compaction archive stays with its session, whichever file holds the record', async (t) => {
+  await withStore(t, async ({ now, write, writeLog, archive }) => {
+    writeLog({ id: 'log-born', owner: 'agent', status: 'idle', updatedAt: now });
+    write({ id: 'json-born', owner: 'agent', status: 'idle', updatedAt: now });
+    const kept = [archive('log-born', now - 30 * DAY), archive('json-born', now - 30 * DAY)];
+    const result = await sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false });
+    assert.equal(result.cleaned, 0);
+    for (const file of kept) assert.equal(existsSync(file), true, file);
+  });
+});
+
+test('a compaction archive whose session record is gone is reaped at once, however young', async (t) => {
+  await withStore(t, async ({ now, archive }) => {
+    const orphan = archive('no-record', now);
+    const result = await sweepStaleSessions(30 * DAY, { isSessionLive: () => false });
+    assert.equal(result.cleaned, 1);
+    assert.equal(existsSync(orphan), false);
+  });
+});
+
+test('an archive whose session has a save still pending is kept: that save creates the record', async (t) => {
+  await withStore(t, async ({ dir, now, archive }) => {
+    const path = archive('saving', now - 30 * DAY);
+    const tally = { cleaned: 0 };
+    const reap = () => {
+      for (const _ of reapOrphanSidecars({ dir, now, tally }));
+    };
+    schedulePendingWrite('saving', { id: 'saving' }, {}, 1, () => undefined);
+    t.after(() => takePendingWrite('saving'));
+    reap();
+    assert.equal(existsSync(path), true);
+    takePendingWrite('saving');
+    reap();
+    assert.equal(existsSync(path), false);
+    assert.equal(tally.cleaned, 1);
   });
 });
 

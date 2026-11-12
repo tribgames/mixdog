@@ -3,7 +3,8 @@
 // cap, the legacy/orphan sidecar reap, and the one batched summary-index prune.
 import { readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from '../fs-probe.mjs';
+import { hasPendingSessionWrite } from '../pending-writes.mjs';
+import { ABSENT_RECORD_STAMP, sessionRecordStampOfSync } from '../session-record.mjs';
 import { _queueSummaryIndexPrune } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
 import { COMPACTION_ARCHIVE_SUFFIX } from '../../compaction-archive.mjs';
@@ -50,17 +51,27 @@ export async function pruneOpenCandidates({ plan, now, tally }) {
   }
 }
 
+// Only a record whose stat is PROVEN absent (neither file) is gone: an
+// EACCES/EIO stat means it is very likely still there.
+function sessionRecordProvenAbsent(dir, id) {
+  try {
+    return sessionRecordStampOfSync(dir, id) === ABSENT_RECORD_STAMP;
+  } catch {
+    return false;
+  }
+}
+
 /** Legacy `.hb` heartbeat and `.own` presence sidecars are written by no
  *  current build, but an older Mixdog process still running mid-upgrade keeps
  *  publishing them. One is reaped only once it holds nothing: its recorded
  *  owner pid is dead or it went stale; a fresh marker of a live (or
- *  unrecorded) owner is kept. Orphan compaction-archive reap: an archive whose .json no longer
- *  exists is dead weight once it is also stale (older than maxAge) — the
- *  session JSON was swept/closed but the archive lingered. The staleness gate
- *  avoids nuking the archive of a session mid-create whose .json write has not
- *  landed yet. Yields between sidecars like the row loop. */
-export function* reapOrphanSidecars({ plan, dir, now, tally }) {
-  const recordOf = (sidecar) => `${sidecar.slice(0, -COMPACTION_ARCHIVE_SUFFIX.length)}.json`;
+ *  unrecorded) owner is kept. Orphan compaction-archive reap: an archive goes
+ *  with its session, so one whose session record (log or legacy json, by the
+ *  record seam) is proven absent is dead weight — the session was swept or
+ *  closed but the archive lingered. A session whose save is still pending has
+ *  no record yet but is not gone (that save creates it), so it keeps its
+ *  archive. Yields between sidecars like the row loop. */
+export function* reapOrphanSidecars({ dir, now, tally }) {
   const unlinkSidecar = (h) => {
     try {
       unlinkSync(join(dir, h));
@@ -79,11 +90,8 @@ export function* reapOrphanSidecars({ plan, dir, now, tally }) {
         if (marker && (marker.ownerDead || !marker.fresh)) unlinkSidecar(h);
         continue;
       }
-      // Only a PROVEN-absent session file makes its archive an orphan.
-      if (probePath(join(dir, recordOf(h))).state !== PROBE_ABSENT) continue;
-      const sidecarProbe = probePath(join(dir, h));
-      if (sidecarProbe.state !== PROBE_PRESENT) continue;
-      if (now - sidecarProbe.mtimeMs > plan.maxAge) unlinkSidecar(h);
+      const id = h.slice(0, -COMPACTION_ARCHIVE_SUFFIX.length);
+      if (sessionRecordProvenAbsent(dir, id) && !hasPendingSessionWrite(id)) unlinkSidecar(h);
     }
   } catch {
     /* dir scan failure — non-fatal */
