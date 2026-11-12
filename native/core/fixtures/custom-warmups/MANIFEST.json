@@ -1,0 +1,141 @@
+{
+  "clock": "the process clock is fixed (mock.timers Date) and moved past the warm-up window between the two sends",
+  "command": "node benchmarks/rust-core/recorders/record-custom-warmups.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch",
+  "exclusions": [
+    "the scripted refusal each send ends in is not recorded: the warm-ups and the paths the sends reached are compared; a warm-up arrives on a connection of its own, so its position among the sends is not recorded either, only how many had arrived when each step ended"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1252,
+      "path": "golden.json",
+      "sha256": "bffd027071966515b5a6149ab617feadd4f5d0e2584c4ada6985e1639131ccfd"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9145,
+    "patches": [
+      {
+        "file": "node-fix-scrub-carried-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs"
+        ],
+        "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
+      },
+      {
+        "file": "node-fix-scrub-echoed-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs"
+        ],
+        "sha256": "932615ff535e360cf1ec4567f79ea278c42e780308576cd82d276b30ca7138e2"
+      },
+      {
+        "file": "node-fix-cursor-end-frame-error.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
+        ],
+        "sha256": "40ed377b904db9019af7cb040c9c5a3a0d5858a90d683f30ae5424b75df7b825"
+      },
+      {
+        "file": "node-fix-scrub-canonical-credential.patch",
+        "paths": [
+          "src/cli.mjs",
+          "src/runtime/agent/orchestrator/config-providers-merge.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/command-code-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/custom-provider.mjs",
+          "src/runtime/agent/orchestrator/providers/devin-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-isolated.test.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
+          "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/muse-code-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-oauth-tokens.mjs",
+          "src/runtime/shared/custom-provider-keys.mjs",
+          "src/runtime/shared/provider-api-key.mjs",
+          "src/session-runtime/services/provider-admin.mjs",
+          "src/standalone/daemon.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs",
+          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-models.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini-credential-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-catalog.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-dispatch.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/registry.mjs"
+        ],
+        "sha256": "6feb432a8b4b370d5eb599d187b9a88fc8678e3c0a17819477f7d6b296a33070"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 53
+    },
+    "srcSha256": "2c2bb004daa3ac842cf37105f148e69ad6b3009e83b38bc72607cde75c6838ed",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-custom-warmups.mjs",
+  "recorderSha256": "602eb7271264dc3afc4235f2d939a9159a6097f4174b45dd9d3a70a94cf35347",
+  "set": "custom-warmups",
+  "totalBytes": 1252
+}

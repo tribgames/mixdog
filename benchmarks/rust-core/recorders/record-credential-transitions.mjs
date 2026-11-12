@@ -70,7 +70,7 @@ mock.module(href('src/runtime/shared/config.mjs'), {
 });
 const admin = await import(href('src/session-runtime/services/provider-admin.mjs'));
 const { exchangeDevinCode } = await import(href('src/runtime/agent/orchestrator/providers/devin-auth.mjs'));
-const { recycleLlmDispatcher } = await import(href('src/runtime/shared/llm/http-agent.mjs'));
+const { getLlmDispatcher, recycleLlmDispatcher } = await import(href('src/runtime/shared/llm/http-agent.mjs'));
 const { RETIRED_CAP, CARRIED_CAP, resetRegistry } = await import(href('src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs'));
 
 // ---- the scripted endpoint ----------------------------------------------------------------------------------------------
@@ -88,6 +88,23 @@ const OK_STREAM = chunk({ role: 'assistant', content: 'OK' }, null) + chunk({}, 
 const MODELS = JSON.stringify({ data: [{ id: 'm-a' }] });
 let exchanges = [];
 let warmups = [];
+// The warm-up is fire-and-forget: the product starts a `HEAD` inside a send and never awaits it. The global dispatcher it sends on
+// counts each one as it starts (`watchHeads`), so a scenario ends only once every one has arrived at the endpoint
+// (`headsSettled`): none is lost, none is counted in the scenario after.
+let headsStarted = 0;
+const headWaiters = [];
+const watched = new WeakSet();
+const watchHeads = () => {
+  getLlmDispatcher();
+  const router = createRequire(join(tree, 'package.json'))('undici').getGlobalDispatcher();
+  if (watched.has(router)) return;
+  watched.add(router);
+  const dispatch = router.dispatch.bind(router);
+  router.dispatch = (options, handler) => {
+    if (options.method === 'HEAD') headsStarted++;
+    return dispatch(options, handler);
+  };
+};
 const answers = new Map();
 const ended = new Map();
 const finished = new Set();
@@ -102,7 +119,9 @@ const server = createServer((req, res) => {
     // recorded in the order the warm-ups arrive.
     if (req.method === 'HEAD') {
       warmups.push([origin, req.method, path, authorization]);
-      return res.end();
+      res.end();
+      if (warmups.length >= headsStarted) for (const arrived of headWaiters.splice(0)) arrived();
+      return;
     }
     const exchange = [origin, req.method, path, authorization, null];
     const at = exchanges.push(exchange) - 1;
@@ -143,6 +162,11 @@ const within = (what, wait) => {
   });
   return Promise.race([wait, expired]).finally(() => clearTimeout(timer));
 };
+/** Resolves once every `HEAD` the product started has arrived. */
+const headsSettled = () =>
+  warmups.length >= headsStarted
+    ? Promise.resolve()
+    : within(`the ${headsStarted} warm-ups the product started to arrive (${warmups.length} did)`, new Promise((resolve) => headWaiters.push(resolve)));
 await within('the endpoint to listen', new Promise((resolve, reject) => {
   server.once('error', reject);
   server.listen(0, '127.0.0.1', resolve);
@@ -278,6 +302,8 @@ for (const [name, run] of Object.entries(SCENARIOS)) {
   // A scenario starts as a new process: no origin has been warmed (its first request to the endpoint is preceded by the
   // `HEAD` warm-up, as the replay's process is).
   recycleLlmDispatcher();
+  headsStarted = 0;
+  watchHeads();
   config = { providers: {}, modelSettings: {} };
   exchanges = [];
   warmups = [];
@@ -287,6 +313,7 @@ for (const [name, run] of Object.entries(SCENARIOS)) {
   // Each step: [who, the key it read (a variable's value, a typed key) or the sign-in's code, the answer, the thrown text].
   const steps = [];
   await run(steps);
+  await headsSettled();
   recorded[name] = { steps, exchanges, warmups };
   console.log(`${name}: ${steps.length} steps, ${exchanges.length} exchanges, ${warmups.length} warm-ups`);
 }
