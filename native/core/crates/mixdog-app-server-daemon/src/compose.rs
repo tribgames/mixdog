@@ -299,7 +299,7 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
         ModelConfig::in_data_dir(data_dir, ort_library),
         mixdog_services::effort_judge::JudgeLanes::of(tokens),
         // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
-        JudgeOptions { tick: tick.clone(), manifest: None, progress: None, timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()) },
+        JudgeOptions { tick: tick.clone(), timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()), ..JudgeOptions::default() },
     )
     .map_err(ComposeError::EffortJudge)?;
     Ok(Models { tick, embeddings, effort_judge })
