@@ -4,7 +4,8 @@
 // and replaces the daemon when its main thread stays frozen past the freeze
 // limit, and takes the daemon down with it however it ends. The supervisor
 // reports "spawned <pid>" and "ready" on its stdout, and exits with the
-// daemon's status when the daemon ends on its own.
+// daemon's status when the daemon ends on its own. A launch with no supervisor
+// installed does not wait for its download: see forkDaemonCandidate.
 // fd 2 is a crash-capture FILE, not a pipe: a V8 fatal abort (heap OOM) is
 // written by the runtime below every JS hook, and a pipe dies with its
 // launcher; supervisor and daemons share it. The exit listener outlives the
@@ -13,7 +14,7 @@
 // failed to spawn, or the timeout elapsed; the caller then re-reads discovery
 // and attaches to whoever won. The resolved `summary()` describes this boot as
 // observed when called, for a caller that has to give up.
-import { spawn } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,23 +53,27 @@ export function daemonFreezeLimitMs(env = process.env) {
     : DAEMON_FREEZE_LIMIT_MS;
 }
 
-export async function forkDaemonCandidate(options) {
+/** Never waits on the network. Without an installed supervisor the daemon is
+ *  forked directly (it keeps its IPC ready handshake for that start, see
+ *  standalone/daemon-supervisor-link.mjs) — no freeze recovery for that one
+ *  daemon — while the supervisor downloads in the background for the next
+ *  launch. `deps` are test seams. */
+export function forkDaemonCandidate(
+  options,
+  { installed = installedSupervisorBinary, ensure = ensureSupervisorBinary } = {}
+) {
   const dataDir = options.dataDir || daemonDataDir();
-  let supervisor = installedSupervisorBinary(dataDir);
-  let unavailable = null;
+  const supervisor = installed(dataDir);
   if (!supervisor) {
-    try {
-      supervisor = await ensureSupervisorBinary(dataDir);
-    } catch (error) {
-      unavailable = error;
-    }
+    Promise.resolve()
+      .then(() => ensure(dataDir))
+      .catch((error) => options.log(`supervisor download failed: ${error?.message || error}`));
   }
-  return launchCandidate({ ...options, supervisor, unavailable });
+  return launchCandidate({ ...options, supervisor });
 }
 
 function launchCandidate({
   supervisor,
-  unavailable,
   launcher,
   entry,
   cwd,
@@ -98,28 +103,31 @@ function launchCandidate({
     };
     let child;
     try {
-      if (unavailable) throw unavailable;
-      child = spawn(
-        supervisor,
-        [
-          '--freeze-limit-ms',
-          String(daemonFreezeLimitMs(env)),
-          '--log',
-          join(dataDir || daemonDataDir(), 'daemon.log'),
-          '--',
-          process.execPath,
-          ...execArgv,
-          entry,
-        ],
-        {
-          cwd,
-          stdio: ['ignore', 'pipe', capture.stderrStdio],
-          // Proxy variables (the user's or the desktop's system proxy) need
-          // NODE_USE_ENV_PROXY to reach the daemon's fetch.
-          env: withEnvProxy(env),
-          ...spawnOptions,
-        }
-      );
+      // Proxy variables (the user's or the desktop's system proxy) need
+      // NODE_USE_ENV_PROXY to reach the daemon's fetch.
+      const childEnv = withEnvProxy(env);
+      child = supervisor
+        ? spawn(
+            supervisor,
+            [
+              '--freeze-limit-ms',
+              String(daemonFreezeLimitMs(env)),
+              '--log',
+              join(dataDir || daemonDataDir(), 'daemon.log'),
+              '--',
+              process.execPath,
+              ...execArgv,
+              entry,
+            ],
+            { cwd, stdio: ['ignore', 'pipe', capture.stderrStdio], env: childEnv, ...spawnOptions }
+          )
+        : fork(entry, [], {
+            cwd,
+            execArgv,
+            stdio: ['ignore', 'ignore', capture.stderrStdio, 'ipc'],
+            env: childEnv,
+            ...spawnOptions,
+          });
     } catch (error) {
       capture.noteSpawnError(error);
       log(`daemon spawn failed: ${error?.message || error}`);
@@ -127,6 +135,35 @@ function launchCandidate({
       return;
     }
     onForked?.(child);
+    if (!supervisor) {
+      // Direct fork: the child is the daemon and reports ready over IPC.
+      if (child.pid) onSpawned?.(child.pid);
+      capture.track(child, { detached, execArgv });
+      child.once('message', (message) => {
+        if (message?.type !== 'ready') return;
+        capture.noteReady();
+        onReady?.();
+        try {
+          child.disconnect?.();
+        } catch {}
+        try {
+          child.unref?.();
+        } catch {}
+        try {
+          child.stderr?.unref?.();
+        } catch {}
+        done();
+      });
+      child.once('exit', done);
+      child.once('error', (error) => {
+        capture.noteSpawnError(error);
+        log(`daemon spawn error: ${error?.message || error}`);
+        done();
+      });
+      timer = setTimeout(done, Math.max(1, timeoutMs));
+      timer.unref?.();
+      return;
+    }
     // The capture follows the daemon the supervisor runs now: its first pid,
     // then each replacement's (noteReplaced). The supervisor's exit is that
     // daemon's (same code, same signal).

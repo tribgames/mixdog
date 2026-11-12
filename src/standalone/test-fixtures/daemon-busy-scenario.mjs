@@ -597,6 +597,33 @@ async function measureBusy({ daemon, treeRoot, seeded, repoDir, config, summariz
       })
     );
   }
+  // The caller's own workload inside the window (the stress probe's resume
+  // burst and state-file lock holders); it gets the window's helpers.
+  if (config.extra) {
+    loops.push(
+      ...(await config.extra({
+        daemon,
+        busyRows,
+        loop,
+        running,
+        timed,
+        patient,
+        buckets,
+        deadline,
+        signal,
+        holdLock: (lockPath, holdMs, everyMs, firstDelayMs) =>
+          holdSummaryLock({
+            lockPath,
+            holdMs,
+            everyMs,
+            firstDelayMs,
+            until: running,
+            remainingMs: () => deadline - performance.now(),
+            signal,
+          }),
+      }))
+    );
+  }
   const lockLoop = holdSummaryLock({
     lockPath: join(daemon.dataDir, 'session-summaries.json.lock'),
     holdMs: config.lockHoldMs,
