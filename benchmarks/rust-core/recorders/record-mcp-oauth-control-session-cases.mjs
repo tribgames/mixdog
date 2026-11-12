@@ -18,7 +18,9 @@ const { SessionHostTransport } = await set.load('apps/desktop/src/main/session-h
 
 const AUTH_URL = 'http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256';
 const CALLBACK = 'http://127.0.0.1:9/oauth/callback?code=c&state=s';
-const INVALID_PASTE = 'The pasted sign-in URL is invalid.';
+const REDIRECT_URL = 'http://127.0.0.1:9/oauth/callback';
+const STATE = 's';
+const { MCP_OAUTH_CALLBACK_NOT_PENDING, parsePastedMcpOAuthCallback } = await set.load('src/runtime/agent/orchestrator/mcp/oauth-callback.mjs');
 
 function sessionRuntime(world) {
   let state = { sessionId: '', items: [], queued: [], busy: false };
@@ -36,7 +38,12 @@ function sessionRuntime(world) {
       return { servers: [{ name: options.only, connected, error: null }] };
     },
     cancelMcpLogin: () => answer?.(false),
-    completeMcpLogin: (_name, callbackUrl) => { if (!answer || callbackUrl !== CALLBACK) throw new Error(INVALID_PASTE); answer(true); },
+    // The pasted URL is judged by the product's own parser (the fake client has only the network to fake): the refusal sentence is Node's.
+    completeMcpLogin: (_name, callbackUrl) => {
+      if (!answer) throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+      const pasted = parsePastedMcpOAuthCallback(callbackUrl, { redirectUrl: REDIRECT_URL, state: STATE });
+      answer(!pasted.denied);
+    },
     clearMcpServerOAuth: async () => {}, getMcpServerOAuthState: () => ({ signedIn: false }), probeMcpServerAuth: async () => ({ auth: 'oauth' }),
     resolveMcpCatalog: () => ({ servers, adoption: null, plugins: {}, entries: {} }), invalidatePreSessionToolSurface: () => {},
     normalizeMcpServerInput: () => { throw new Error('not used'); },

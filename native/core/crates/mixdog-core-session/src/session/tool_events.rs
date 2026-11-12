@@ -38,7 +38,7 @@ struct Queue {
     drains: u64,
     running: bool,
     /// Woken when a drain ends with nothing left to write.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     drained: Arc<tokio::sync::Notify>,
 }
 
@@ -129,7 +129,7 @@ impl ToolEventsLog {
     }
 
     /// Resolves once everything queued so far has been written (or dropped).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn flush(&self) {
         let drained = lock(&self.queue).drained.clone();
         super::testing::awaiting(|| "the tool-events queue to drain".to_owned(), async {
@@ -158,7 +158,7 @@ async fn drain(path: PathBuf, io: MaintenanceIo, queue: Arc<Mutex<Queue>>) {
             let mut state = lock(&queue);
             if state.lines.is_empty() {
                 state.running = false;
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 state.drained.notify_waiters();
                 return;
             }

@@ -1,0 +1,290 @@
+{
+  "name": "list-depth",
+  "files": {
+    "README.md": "# readme\n",
+    "Zed.txt": "z\n",
+    "a.txt": "a\n",
+    "B_1.txt": "b1\n",
+    "b-2.txt": "b2\n",
+    "10.txt": "ten\n",
+    "2.txt": "two\n",
+    ".env": "SECRET=1\n",
+    "src/a.ts": "export const a = 1;\nexport const b = 2;\n",
+    "src/lib.ts": "lib\n",
+    "src/lib/b.ts": "b\n",
+    "src/lib-x/y.ts": "y\n",
+    "src/lib/deep/c.ts": "c\n",
+    "src/lib/deep/deeper/d.ts": "d\n",
+    "src/.hidden/h.txt": "h\n",
+    "src/.dot.ts": "dot\n",
+    "docs/guide.md": "guide\n",
+    "docs/img/logo.txt": "logo\n",
+    "node_modules/pkg/index.js": "x\n"
+  },
+  "mtimes": {
+    "src": "2026-01-02T03:04:05Z",
+    "src/lib": "2026-01-02T03:04:05Z",
+    "src/lib/deep": "2026-01-02T03:04:05Z",
+    "src/lib/deep/deeper": "2026-01-02T03:04:05Z",
+    "src/.hidden": "2026-01-02T03:04:05Z",
+    "src/lib-x": "2026-01-02T03:04:05Z",
+    "docs": "2026-01-02T03:04:05Z",
+    "docs/img": "2026-01-02T03:04:05Z",
+    "node_modules": "2026-01-02T03:04:05Z",
+    "node_modules/pkg": "2026-01-02T03:04:05Z"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 1
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\nREADME.md\tfile\nsrc\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 2
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib-x/y.ts\tfile\nsrc/lib.ts\tfile\nsrc/lib/b.ts\tfile\nsrc/lib/deep\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 10
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib-x/y.ts\tfile\nsrc/lib.ts\tfile\nsrc/lib/b.ts\tfile\nsrc/lib/deep\tdir\nsrc/lib/deep/c.ts\tfile\nsrc/lib/deep/deeper\tdir\nsrc/lib/deep/deeper/d.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 2,
+        "hidden": true
+      },
+      "text": ".env\tfile\n10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/.dot.ts\tfile\nsrc/.hidden\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3,
+        "hidden": true
+      },
+      "text": ".env\tfile\n10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/.dot.ts\tfile\nsrc/.hidden\tdir\nsrc/.hidden/h.txt\tfile\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib-x/y.ts\tfile\nsrc/lib.ts\tfile\nsrc/lib/b.ts\tfile\nsrc/lib/deep\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 2,
+        "meta": true
+      },
+      "text": "10.txt\tfile\t4\t2026-01-02T03:04:05Z\t666\t1\n2.txt\tfile\t4\t2026-01-02T03:04:05Z\t666\t1\na.txt\tfile\t2\t2026-01-02T03:04:05Z\t666\t1\nB_1.txt\tfile\t3\t2026-01-02T03:04:05Z\t666\t1\nb-2.txt\tfile\t3\t2026-01-02T03:04:05Z\t666\t1\ndocs\tdir\t0\t2026-01-02T03:04:05Z\t777\ndocs/guide.md\tfile\t6\t2026-01-02T03:04:05Z\t666\t1\ndocs/img\tdir\t0\t2026-01-02T03:04:05Z\t777\nnode_modules\tdir\t0\t2026-01-02T03:04:05Z\t777\nREADME.md\tfile\t9\t2026-01-02T03:04:05Z\t666\t1\nsrc\tdir\t4096\t2026-01-02T03:04:05Z\t777\nsrc/a.ts\tfile\t40\t2026-01-02T03:04:05Z\t666\t2\nsrc/lib\tdir\t0\t2026-01-02T03:04:05Z\t777\nsrc/lib-x\tdir\t0\t2026-01-02T03:04:05Z\t777\nsrc/lib.ts\tfile\t4\t2026-01-02T03:04:05Z\t666\t1\nZed.txt\tfile\t2\t2026-01-02T03:04:05Z\t666\t1",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src",
+        "depth": 2
+      },
+      "text": "a.ts\tfile\nlib\tdir\nlib-x\tdir\nlib-x/y.ts\tfile\nlib.ts\tfile\nlib/b.ts\tfile\nlib/deep\tdir",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src",
+        "depth": 3
+      },
+      "text": "a.ts\tfile\nlib\tdir\nlib-x\tdir\nlib-x/y.ts\tfile\nlib.ts\tfile\nlib/b.ts\tfile\nlib/deep\tdir\nlib/deep/c.ts\tfile\nlib/deep/deeper\tdir",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src",
+        "depth": 3,
+        "meta": true,
+        "hidden": true
+      },
+      "text": ".dot.ts\tfile\t4\t2026-01-02T03:04:05Z\t666\t1\n.hidden\tdir\t0\t2026-01-02T03:04:05Z\t777\n.hidden/h.txt\tfile\t2\t2026-01-02T03:04:05Z\t666\t1\na.ts\tfile\t40\t2026-01-02T03:04:05Z\t666\t2\nlib\tdir\t0\t2026-01-02T03:04:05Z\t777\nlib-x\tdir\t0\t2026-01-02T03:04:05Z\t777\nlib-x/y.ts\tfile\t2\t2026-01-02T03:04:05Z\t666\t1\nlib.ts\tfile\t4\t2026-01-02T03:04:05Z\t666\t1\nlib/b.ts\tfile\t2\t2026-01-02T03:04:05Z\t666\t1\nlib/deep\tdir\t0\t2026-01-02T03:04:05Z\t777\nlib/deep/c.ts\tfile\t2\t2026-01-02T03:04:05Z\t666\t1\nlib/deep/deeper\tdir\t0\t2026-01-02T03:04:05Z\t777",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "depth": 2
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3,
+        "limit": 5
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\n[entries 1-5 of 20; offset:5 for more]",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3,
+        "limit": 5,
+        "offset": 5
+      },
+      "text": "docs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\n[entries 6-10 of 20; offset:10 for more]",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3,
+        "limit": 5,
+        "offset": 100
+      },
+      "text": "(no entries after offset=100; total=20) path=.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 3,
+        "limit": 0
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib-x/y.ts\tfile\nsrc/lib.ts\tfile\nsrc/lib/b.ts\tfile\nsrc/lib/deep\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "docs/img",
+        "depth": 2
+      },
+      "text": "logo.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "docs/guide.md",
+        "depth": 2
+      },
+      "text": "<ROOT>/docs/guide.md\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "nope",
+        "depth": 2
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/nope' Not found; under \".\" try: \"10.txt\", \"2.txt\", \"a.txt\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "node_modules",
+        "depth": 3
+      },
+      "text": "pkg\tdir\npkg/index.js\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 0
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\nREADME.md\tfile\nsrc\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": -3
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\nREADME.md\tfile\nsrc\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 11
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\ndocs/img/logo.txt\tfile\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib-x/y.ts\tfile\nsrc/lib.ts\tfile\nsrc/lib/b.ts\tfile\nsrc/lib/deep\tdir\nsrc/lib/deep/c.ts\tfile\nsrc/lib/deep/deeper\tdir\nsrc/lib/deep/deeper/d.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": "2"
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": 2.7
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\ndocs/guide.md\tfile\ndocs/img\tdir\nnode_modules\tdir\nREADME.md\tfile\nsrc\tdir\nsrc/a.ts\tfile\nsrc/lib\tdir\nsrc/lib-x\tdir\nsrc/lib.ts\tfile\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": "x"
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\nREADME.md\tfile\nsrc\tdir\nZed.txt\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ".",
+        "depth": null
+      },
+      "text": "10.txt\tfile\n2.txt\tfile\na.txt\tfile\nB_1.txt\tfile\nb-2.txt\tfile\ndocs\tdir\nREADME.md\tfile\nsrc\tdir\nZed.txt\tfile",
+      "isError": false
+    }
+  ]
+}

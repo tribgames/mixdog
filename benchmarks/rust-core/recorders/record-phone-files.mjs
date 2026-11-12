@@ -11,7 +11,7 @@
 //        --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch [--only main|relay]
 // `--patch <file>`: the tree is the export of b6f10295a with that fix of a Node bug applied (the recording is made with
 // node-fix-relay-optional-args.patch: the relay's methods take an optional argument the page left out as omitted).
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { commitStage, importFrom, nodeTreeIdentity, parseArgs, recordingProvenance, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
@@ -19,7 +19,7 @@ import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-phone-files.mjs';
 // Every module of this repository the recorder loads (its replay too), each by sha256 in the manifest.
-const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
+const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs', 'lib/core-stop.mjs', 'lib/process-job.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-files');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -87,6 +87,7 @@ async function record(make) {
   let tables = tablesOf();
   let windowUp = false;
   let frameId = 0;
+  let writes = 0;
   const driver = {
     async call(name, params) {
       hostLog.length = 0;
@@ -98,6 +99,15 @@ async function record(make) {
         Date.now = real;
       });
       const { id: _id, ...answer } = clone(frame);
+      if (name === 'writeProjectFile' && answer.ok) {
+        // The OS stamps a write with the real clock, which no injection reaches (project-files.ts:407, :601), so the file is set to a fixed instant
+        // right after the call and the answer carries it, as the next stat of the file would: the n-th successful write of a scenario is
+        // FIXED_NOW_MS + n minutes. play still proves the answer equals the file's mtime on disk.
+        writes += 1;
+        const at = FIXED_NOW_MS + writes * 60_000;
+        utimesSync(join(params[0], params[1]), at / 1000, at / 1000);
+        answer.value.mtimeMs = statSync(join(params[0], params[1])).mtimeMs;
+      }
       if (process.env.FILES_DEBUG) console.log(name, JSON.stringify(params).slice(0, 120), '=>', JSON.stringify(answer).slice(0, 300));
       return { frame: answer, hostCalls: hostLog.splice(0) };
     },
@@ -165,7 +175,7 @@ writeSetManifest(out, {
     steps: scenarios.main.steps.length + scenarios.relay.steps.length,
     notes: {
       fileMtimeMs:
-        'A comparison rule, applied to both sides: a step\'s `fileMtimeMs` (only on a writeProjectFile that succeeded) is not compared; the replay removes it from Node\'s step and from the core\'s before comparing (benchmarks/rust-core/recorders/lib/phone-files-replay.mjs:221-222). It is the mtime the answer carried, which the operating system stamps at the write (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write), so it differs between any two runs, of Node as of the core. It is checked independently on each side instead: `play` (benchmarks/rust-core/recorders/lib/phone-files-script.mjs:426-427) fails the run unless the answer\'s mtimeMs equals the written file\'s mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place, which is compared; every other field of the step is compared as recorded.',
+        'A step\'s `fileMtimeMs` (only on a writeProjectFile that succeeded) is a fixed input of the script, not the OS stamp: the recorder\'s driver sets the written file\'s modification time right after the call to FIXED_NOW_MS + n minutes (FIXED_NOW_MS = the virtual clock of phone-files-script.mjs, 2026-06-07T08:09:10Z; n = 1, 2, ... counts the successful writes of a scenario) and the answer\'s mtimeMs is that instant, because the OS stamps a write with the real clock and nothing injects it (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write). `play` still fails the run unless the answer\'s mtimeMs equals the file\'s mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place. phone-files-replay.mjs (the step comparison, `const { fileMtimeMs: _node, ...nodeStep } = node`) still drops `fileMtimeMs` before comparing (the core\'s driver does not pin), so the replay does not compare it.',
     },
     ...recordingProvenance(RECORDER, RECORDER_MODULES),
   },

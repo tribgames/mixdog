@@ -94,7 +94,7 @@ fn failure(action: &str, error: &secret_service::Error) -> SecretError {
 /// `op` bounded by the keychain timeout, which a locked keyring waiting on its unlock prompt hits.
 async fn bounded<T>(action: &str, op: impl Future<Output = Result<T, SecretError>>) -> Result<T, SecretError> {
     let limit = keychain_timeout();
-    tokio::time::timeout(limit, op).await.unwrap_or_else(|_| {
+    mixdog_rt::time::timeout(limit, op).await.unwrap_or_else(|_| {
         Err(SecretError::new(format!(
             "[keychain] secret service {action} timed out after {}ms — the keyring is locked or its unlock prompt was not answered. Unlock your keyring (e.g. log in again or open Passwords and Keys) and retry.",
             limit.as_millis()

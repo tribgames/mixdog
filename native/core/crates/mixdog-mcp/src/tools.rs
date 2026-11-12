@@ -42,7 +42,7 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
         ),
         CallError::UnknownTool { tool, .. } => ToolError::new(ToolErrorCode::NotFound { target: tool }, message),
         CallError::Admission(AdmissionError::Cancelled) => ToolError::new(ToolErrorCode::Cancelled, "cancelled"),
-        CallError::Admission(_) => ToolError::new(
+        CallError::Admission(_) | CallError::Overloaded(_) => ToolError::new(
             ToolErrorCode::Unavailable { capability, reason: message.clone() },
             message,
         ),
@@ -302,7 +302,7 @@ mod tests {
         let node = golden["results"][scenario]["toolMessages"][0][boom].as_str().unwrap();
         let io = || {
             let tokens = mixdog_rt::testing::tokens();
-            McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }
+            McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
         };
         let config = McpServerConfig::from_entry("fx", &json!({ "command": "node" }), &Default::default()).unwrap();
         let server = McpServer::new(config, io(), Spiller::new(std::env::temp_dir(), io().durability), OutputPolicy::default(), None);

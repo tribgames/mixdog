@@ -335,7 +335,7 @@ mod tests {
         // an Anthropic turn whose call leaked as stored on its assistant message, and the content the compatible
         // Responses collector returns when the guard hid all of the text.
         let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
         let scenario = |route: &str, name: &str| {
             golden["scenarios"].as_array().unwrap().iter().find(|s| s["route"] == route && s["name"] == name).unwrap().clone()
         };

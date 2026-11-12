@@ -541,8 +541,58 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     // Node answers an ensure with the id it was given (phone-terminal golden.json, `termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
     assert_eq!(ensured["id"], json!(tab));
     let ids: Vec<String> = made.ids().iter().map(ToString::to_string).collect();
-    // The raw feed (the window) and the relay feed (a phone: Node's relay-lane framing).
-    assert_eq!(ids, vec![format!("process:relay:{tab}"), format!("process:{tab}")], "the ids, in the mock's sorted order");
+    // The terminal lane (every phone reading it: Node's relay-lane framing) and the tab's raw feed (the window).
+    assert_eq!(ids, vec!["process:relay".to_owned(), format!("process:{tab}")], "the ids, in the mock's sorted order");
+    service.tabs().dispose_all();
+}
+
+/// The text of the output frames a tap has seen, in order.
+fn output_text(frames: &[Value]) -> String {
+    use base64::Engine;
+    frames
+        .iter()
+        .filter(|frame| frame["method"] == "process/outputDelta")
+        .map(|frame| {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(frame["params"]["bytesB64"].as_str().expect("output carries bytes")).unwrap();
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+        .collect()
+}
+
+/// A phone reading the terminal lane gets the first output of a tab another connection opens (Node's relay lane pushed every tab's output
+/// to every phone reading the lane: remote-relay-push-lanes.ts:85-100, apps/mobile/fixtures/terminal-lane-reach). The phone subscribed
+/// before the tab existed and does nothing about the tab; the desktop (connection 1) opens it and types into it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_reading_the_lane_gets_the_first_output_of_a_tab_another_connection_opens() {
+    use mixdog_core_api::feed::ScopedFeeds;
+    use mixdog_core_api::ids::FeedId;
+    use mixdog_core_api::mock::FeedTap;
+
+    let manager = manager();
+    let made = scoped();
+    let feeds = ProcessFeeds::new(manager.clone(), made.clone());
+    let service = TerminalService::new(manager, feeds, Arc::new(SectionLog::default()), TerminalServiceConfig::default());
+    let phone = FeedTap::attach_as(&made.find(&FeedId::from("process:relay")).expect("the terminal lane exists"), 2);
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let tab = "term_first";
+    let ensure = request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd } }), 1);
+    let after = ensure.ctx.after_answer.clone();
+    service.call(ensure).await.unwrap();
+    let raw = FeedTap::attach(&made.find(&FeedId::from(format!("process:{tab}"))).expect("the raw feed exists"));
+    after.release();
+    let taken = tokio::time::timeout(EVENT_DEADLINE, raw.notifications_until(|frames| !output_text(frames).is_empty()))
+        .await
+        .expect("the shell wrote no output");
+    let first = output_text(&taken);
+    let mark = "mixdog_first_output_mark";
+    let _ = service.notify(Method("terminal/input"), json!({ "tabId": tab, "data": format!("echo {mark}\r") }), ConnectionId(1));
+    let got = tokio::time::timeout(EVENT_DEADLINE, phone.notifications_until(|frames| output_text(frames).contains(mark)))
+        .await
+        .expect("the phone never got the echoed mark");
+    let named = got.iter().filter(|frame| frame["method"] == "process/outputDelta").all(|frame| frame["params"]["processHandle"] == json!(tab));
+    assert!(named, "every output frame names its tab: {got:?}");
+    let text = output_text(&got);
+    assert!(text.starts_with(&first), "the phone's output does not start with the shell's first output {first:?}: {text:?}");
     service.tabs().dispose_all();
 }
 

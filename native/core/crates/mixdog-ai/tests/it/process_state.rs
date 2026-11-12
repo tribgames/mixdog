@@ -65,6 +65,17 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ),
     ("accounts/binding.rs", "BINDINGS", Survives("the host's account bindings; `replace_provider_auth_bindings` hands its caller the restore step")),
     (
+        "registry/keys.rs",
+        "KEY_BINDINGS",
+        Survives("the API keys a headless exec binds in memory for its run; `replace_provider_api_key_bindings` hands its caller the restore step"),
+    ),
+    (
+        "providers/anthropic/prefix_trace.rs",
+        "BY_SESSION",
+        Survives("the last request prefix of each session by session id (Node's module `bySession` Map); a replay's sessions are its own"),
+    ),
+    ("transport/node_http.rs", "PIN", NotState("a test-support switch a spawned binary reads from its environment once")),
+    (
         "netproxy/tunnel.rs",
         "CONFIG",
         Survives("the product TLS configuration and its session cache; a replay connects through its own server's configuration (`Pinned::tls`)"),

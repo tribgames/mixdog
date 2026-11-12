@@ -55,6 +55,7 @@ use mixdog_agent::env::RunEvent;
 use mixdog_agent::env::RunObserver;
 use mixdog_agent::env::Stage;
 use mixdog_agent::env::ToolBatch;
+use mixdog_agent::env::ToolPhase;
 use mixdog_agent::message::Source;
 use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::SteerSource;
@@ -132,7 +133,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/call-tool/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/call-tool/golden.json");
 
 /// Everything observable, in the order it happened (the recording's `timeline`).
 #[derive(Clone, Default)]
@@ -1148,7 +1149,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
                 "droppedIncompleteInput": recovery.dropped_incomplete_input,
                 "partialContentLen": recovery.partial_content_len,
             })),
-            RunEvent::Usage { .. } => {}
+            // Compared as `callbacks` (`callback_of`).
+            RunEvent::Usage { .. } | RunEvent::ProviderSendStarted | RunEvent::ToolPhase(_) => {}
             other if uncompared(other) => {}
             other => panic!("{}: the loop raised an event the recording has no counterpart of: {other:?}", scenario["name"]),
         }
@@ -1301,6 +1303,11 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
             "deltaCacheWrite": usage.cache_write_tokens,
             "sendTools": delta.send_tools.iter().map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema })).collect::<Vec<_>>(),
         }] })),
+        RunEvent::ProviderSendStarted => Some(json!({ "ev": "onProviderSendStarted", "args": [] })),
+        RunEvent::ToolPhase(ToolPhase::Started) => Some(json!({ "ev": "onToolPhaseStarted", "args": [] })),
+        RunEvent::ToolPhase(ToolPhase::Completed { iteration, calls, elapsed_ms }) => {
+            Some(json!({ "ev": "onToolPhaseCompleted", "args": [{ "iteration": iteration, "calls": calls, "elapsedMs": elapsed_ms }] }))
+        }
         _ => None,
     }
 }
@@ -1311,10 +1318,16 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
 ///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
 ///   themselves). The text itself is compared as the answer and the stored transcript.
 /// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
+/// - `Stage(Requesting)`: Node's admission scheduler and provider adapter raise it, and the recording's scripted `send` is neither.
+/// - `ToolCallObserved`: see `callbacks[ev=onAssistantToolCallObserved]` in [`NOT_COMPARED`].
 /// - `TurnEffort(None)`: the turn's effort the run publishes when it starts; Node's `runtime.turnEffort` is a getter a client reads,
 ///   not a callback, and these routes carry no effort snapshot (any other value fails the replay).
+/// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
 fn uncompared(event: &RunEvent) -> bool {
-    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_) | RunEvent::TurnEffort(None))
+    matches!(
+        event,
+        RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. } | Stage::Requesting) | RunEvent::TextDelta(_) | RunEvent::ToolCallObserved(_) | RunEvent::ExecutionCalls(_) | RunEvent::TurnEffort(None)
+    )
 }
 
 /// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
@@ -1389,7 +1402,6 @@ const HOST_ROW: &str = "the host's record of a stored row (`run_host/factory.rs`
 const NOT_YET: &str = "nothing yet";
 const HOST_TRACE: &str = "written by the host's agent-trace writer from the loop's reports; the core writes no agent trace (`mixdog_trace::AgentTrace` is built by no product code; owner: the run host's trace wiring)";
 const HOST_USAGE: &str = "the host's usage report (`UsageReport::from_event` in the run host), derived from the loop's `Usage` event, which carries the request's own figures";
-const NO_LOOP_EVENT: &str = "the core's loop raises no such event: the host derives its phase from `ToolCalls` and its sends from `Usage`";
 
 /// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the
 /// recorded value less these paths.
@@ -1414,10 +1426,11 @@ const NOT_COMPARED: &[Uncompared] = &[
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onProviderSendStarted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onToolPhaseStarted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onToolPhaseCompleted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantToolCallObserved]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
+    Uncompared {
+        path: "callbacks[ev=onAssistantToolCallObserved]",
+        why: "the loop's `ToolCallObserved` carries the call, not Node's second argument `{ eagerStarted }`",
+        compared_in: "the call itself: `requests` and `events` (the same call, committed)",
+    },
     Uncompared {
         path: "callbacks[ev=onContextPressure]",
         why: "the pre-send compaction check runs through the compactor the host provides (`RunEnv.compactor`); this replay runs the loop without one, so the core raises no `ContextPressure`",
@@ -1563,7 +1576,7 @@ const MANIFEST: &str = include_str!("../../../../fixtures/call-tool/MANIFEST.jso
 /// Replays the recorded scenarios and returns the differences from Node's recording, and how much each [`NOT_COMPARED`] entry removed
 /// from the recording.
 async fn differences() -> (usize, Vec<String>, Vec<usize>) {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let manifest: Value = serde_json::from_str(MANIFEST).expect("manifest parses");
     let clock_keys = strings(&manifest["normalisations"]["clockKeys"]);
     assert!(!clock_keys.is_empty(), "the manifest declares its clock keys");
@@ -1608,7 +1621,7 @@ async fn differences() -> (usize, Vec<String>, Vec<usize>) {
 /// Node's recording and the core's replay of every scenario: each output whole, less the paths `NOT_COMPARED` lists.
 #[tokio::test]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let recorded_count = golden["scenarios"].as_array().expect("scenarios").len();
     let (compared, failures, removed) = awaiting_for(Duration::from_secs(300), || "the whole replay".to_owned(), differences()).await;
     assert_eq!(compared, recorded_count, "every recorded scenario is replayed");

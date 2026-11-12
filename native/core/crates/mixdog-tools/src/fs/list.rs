@@ -1,10 +1,11 @@
-//! `list`: one directory level, paged, optional metadata columns (T §3.2).
+//! `list`: a directory's entries (one level, or `depth` levels), paged, optional metadata columns (T §3.2).
 
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FileStat;
@@ -18,8 +19,9 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::not_found::list_absent;
+use super::not_found::missing_code;
 use crate::orch::util::spec_from_def;
-use super::read::ReadTool;
 
 const LIST_SPEC: &str = include_str!("specs/list.json");
 const DEFAULT_PAGE: u64 = 100;
@@ -57,6 +59,142 @@ fn type_name(kind: EntryKind) -> &'static str {
         EntryKind::Symlink => "symlink",
         EntryKind::Special => "other",
     }
+}
+
+/// `LIST_WALK_TIMEOUT_MS`: how long a walk of the folder may run before the listing is cut and says so.
+const WALK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(20_000);
+
+/// A listing's rows (named by their path under the listed folder), whether a cap cut it (`truncatedByCap`) and the
+/// `[warning]` lines of the folders that could not be read.
+struct Rows {
+    rows: Vec<Row>,
+    truncated: bool,
+    warnings: Vec<String>,
+}
+
+/// `Math.min(Math.max(parseInt(args.depth ?? 1, 10) || 1, 1), 10)`: `parseInt` reads the text of whatever it is given (a
+/// number's, an array's elements joined) up to its first character that is no digit; no digits, or 0, is 1.
+fn list_depth(args: &JsonValue) -> usize {
+    fn parsed(value: &JsonValue) -> Option<i64> {
+        match value {
+            // A number's text is in exponent form past 21 digits and below 1e-6, where its first digit stands alone.
+            JsonValue::Number(n) => n.as_f64().filter(|f| *f == 0.0 || (1e-6..1e21).contains(&f.abs())).map(|f| f.trunc() as i64),
+            JsonValue::String(s) => {
+                let text = s.trim_start();
+                let (sign, digits) = match text.strip_prefix('-') {
+                    Some(rest) => (-1, rest),
+                    None => (1, text.strip_prefix('+').unwrap_or(text)),
+                };
+                let end = digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len());
+                (end > 0).then(|| sign * digits[..end].parse::<i64>().unwrap_or(i64::MAX))
+            }
+            JsonValue::Array(items) => items.first().and_then(parsed),
+            _ => None,
+        }
+    }
+    args.get("depth").and_then(parsed).filter(|n| *n != 0).unwrap_or(1).clamp(1, 10) as usize
+}
+
+/// `NOISE_DIR_NAMES` as `walkDir` excludes them: a Windows name matches in any case.
+fn is_noise(name: &str) -> bool {
+    if cfg!(windows) {
+        NOISE_DIRS.iter().any(|noise| noise.eq_ignore_ascii_case(name))
+    } else {
+        NOISE_DIRS.contains(&name)
+    }
+}
+
+/// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory.
+fn visible(entries: Vec<DirEntry>, hidden: bool) -> Vec<DirEntry> {
+    entries
+        .into_iter()
+        .filter(|e| {
+            let Some(name) = e.path.as_path().file_name().map(|n| n.to_string_lossy()) else { return false };
+            (hidden || !name.starts_with('.')) && !(e.kind == EntryKind::Dir && is_noise(&name))
+        })
+        .collect()
+}
+
+/// `displayRelPath`: the entry's path under the listed folder, with forward slashes.
+fn row_under(root: &std::path::Path, entry: DirEntry) -> Row {
+    let name = fwd(entry.path.as_path().strip_prefix(root).unwrap_or(entry.path.as_path()));
+    Row { name, kind: entry.kind, path: entry.path }
+}
+
+/// `tryNativeDeepListRows`: a list below the first level asks the search server for every file and directory to `depth`
+/// (`rg --files --directories --max-depth`, no ignore file honoured, a dotted name only with `hidden`, nothing inside a
+/// noise directory, the directory itself listed), as a broad search: it takes its turn on the broad-search gate. `None`
+/// when the request was refused or ran past its budget, or the inventory was cut at the row cap: Node's own walk then
+/// answers.
+async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: bool) -> Result<Option<Vec<Row>>, ToolError> {
+    let root = abs.as_path().to_path_buf();
+    let keep = |entry: &DirEntry| {
+        let Ok(rel) = entry.path.as_path().strip_prefix(&root) else { return false };
+        let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        !parts.is_empty()
+            && parts.len() <= depth
+            && (hidden || parts.iter().all(|p| !p.starts_with('.')))
+            && !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p))
+    };
+    let descent = Descent { max_depth: Some(depth), bare: NOISE_DIRS.iter().map(|n| (*n).to_owned()).collect(), bare_dotted: !hidden };
+    match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
+        Ok(walked) if walked.complete && !walked.capped => {
+            Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))
+        }
+        Err(e) if matches!(e.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled) => Err(e),
+        _ => Ok(None),
+    }
+}
+
+/// `walkDir`'s code for a folder it could not read, as `directoryReadFailureLine` words it.
+fn readdir_code(kind: &FsErrorKind) -> &'static str {
+    match kind {
+        FsErrorKind::NotFound => "ENOENT",
+        FsErrorKind::NotADirectory => "ENOTDIR",
+        FsErrorKind::PermissionDenied => "EACCES",
+        _ => "UNKNOWN",
+    }
+}
+
+/// `collectListRows`: the native inventory when it can serve a deep list, else a depth-first walk of the folder, cut at
+/// 50,000 rows or 20 s.
+async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, raw: &str, depth: usize, hidden: bool) -> Result<Rows, ToolError> {
+    if depth > 1 {
+        if let Some(rows) = native_rows(ctx, abs, depth, hidden).await? {
+            return Ok(Rows { rows, truncated: false, warnings: Vec::new() });
+        }
+    }
+    let started = mixdog_rt::time::Instant::now();
+    let mut out = Rows { rows: Vec::new(), truncated: false, warnings: Vec::new() };
+    let root = match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
+        Ok(entries) => entries,
+        Err(e) => return Err(fs_failure(&e, raw)),
+    };
+    // One level of the walk per stack entry: its entries still to visit, each followed by what lies below it.
+    let mut stack = vec![visible(root, hidden).into_iter()];
+    while let Some(level) = stack.last_mut() {
+        let Some(entry) = level.next() else {
+            stack.pop();
+            continue;
+        };
+        if started.elapsed() > WALK_TIMEOUT {
+            out.truncated = true;
+            break;
+        }
+        let below = (entry.kind == EntryKind::Dir && stack.len() < depth).then(|| entry.path.clone());
+        out.rows.push(row_under(abs.as_path(), entry));
+        if out.rows.len() >= ABSOLUTE_CAP {
+            out.truncated = true;
+            break;
+        }
+        if let Some(dir) = below {
+            match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, dir.clone())).await? {
+                Ok(children) => stack.push(visible(children, hidden).into_iter()),
+                Err(e) => out.warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(dir.as_path()))),
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// `YYYY-MM-DDTHH:MM:SSZ` of a system time (UTC, second precision).
@@ -133,7 +271,9 @@ impl Tool for ListTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let raw = arg_str(&args, "path").unwrap_or(".");
+        // arg-guard.mjs (list): a `path` that is not a string is refused; a null or blank one is the cwd.
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
+            .unwrap_or(".");
         let hidden = arg_bool(&args, "hidden");
         let meta = arg_bool(&args, "meta");
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
@@ -142,11 +282,15 @@ impl Tool for ListTool {
             Some(n) => n.min(DEFAULT_PAGE) as usize,
             None => DEFAULT_PAGE as usize,
         };
+        if has_glob_magic(raw) {
+            return glob_path_list(ctx, raw, hidden, offset, limit).await;
+        }
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
-            Err(e) if e.kind == FsErrorKind::NotFound || e.kind == FsErrorKind::NotADirectory => {
-                return Ok(text_output(ReadTool::not_found(ctx, raw, &abs).await));
+            Err(e) if missing_code(&e.kind).is_some() => {
+                let code = missing_code(&e.kind).unwrap_or("ENOENT");
+                return Ok(text_output(list_absent(ctx, &abs, raw, code).await));
             }
             Err(e) => return Err(fs_failure(&e, raw)),
         };
@@ -160,29 +304,17 @@ impl Tool for ListTool {
             let suffix = if meta { meta_suffix(ctx, &abs, Some(stat)).await } else { String::new() };
             return Ok(text_output(format!("{}\tfile{suffix}", fwd(abs.as_path()))));
         }
-        let entries: Vec<DirEntry> =
-            match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
-                Ok(e) => e,
-                Err(e) => return Err(fs_failure(&e, raw)),
-            };
-        let mut rows: Vec<Row> = entries
-            .into_iter()
-            .filter_map(|e| {
-                let name = e.path.as_path().file_name()?.to_string_lossy().into_owned();
-                Some(Row { name, kind: e.kind, path: e.path })
-            })
-            .filter(|r| hidden || !r.name.starts_with('.'))
-            .filter(|r| !(r.kind == EntryKind::Dir && NOISE_DIRS.contains(&r.name.as_str())))
-            .collect();
-        rows.sort_by(|a, b| compare_names(&a.name, &b.name));
-        rows.truncate(ABSOLUTE_CAP);
+        let depth = list_depth(&args);
+        let Rows { mut rows, truncated, warnings } = collect_rows(ctx, &abs, raw, depth, hidden).await?;
+        // `sortListRows`: by path in the locale's order, ties by code units.
+        rows.sort_by(|a, b| mixdog_js::locale_compare(&a.name, &b.name).then_with(|| a.name.cmp(&b.name)));
         // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
         // filters, up to the cap; the trace row's `payload.integrity`.
         let integrity = serde_json::json!({
             "kind": "directory-walk",
-            "status": if rows.is_empty() { "empty" } else { "complete" },
+            "status": if !warnings.is_empty() { "partial" } else if rows.is_empty() { "empty" } else { "complete" },
             "entriesVisited": rows.len(),
-            "warnings": 0,
+            "warnings": warnings.len(),
         });
         let text_output = |text: String| {
             let mut output = text_output(text);
@@ -210,6 +342,15 @@ impl Tool for ListTool {
                 None,
             ));
         }
+        if truncated {
+            lines.push(cap_marker(
+                &format!("{ABSOLUTE_CAP} rows or {}ms", WALK_TIMEOUT.as_millis()),
+                "listing incomplete",
+                None,
+                "narrow the path or lower depth",
+            ));
+        }
+        lines.extend(warnings);
         if lines.is_empty() {
             return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden).await));
         }
@@ -263,3 +404,254 @@ async fn empty_message(
 
 #[allow(dead_code)]
 fn _assert_err(_: ToolError) {}
+
+// ---- a glob-shaped path: Node's `list` answers it with its name search (`executeFindFilesTool`) ----
+
+const FIND_ABSOLUTE_CAP: usize = 50_000;
+const MAX_BRACE_VARIANTS: usize = 256;
+const MAX_PATTERN_LENGTH: usize = 1024;
+const MAX_REGEX_BODY_LENGTH: usize = 16_384;
+
+/// Node `expandBraces`: the first innermost `{a,b}` expanded, recursively.
+fn expand_braces(pattern: &str, out: &mut Vec<String>, prefix: &str) -> Result<(), String> {
+    let open = pattern.char_indices().find(|&(i, c)| {
+        c == '{' && pattern[i + 1..].find(['{', '}']).is_some_and(|j| pattern.as_bytes()[i + 1 + j] == b'}')
+    });
+    let Some((start, _)) = open else {
+        if out.len() >= MAX_BRACE_VARIANTS {
+            return Err(format!("glob brace expansion exceeds {MAX_BRACE_VARIANTS} variants"));
+        }
+        out.push(format!("{prefix}{pattern}"));
+        return Ok(());
+    };
+    let end = start + 1 + pattern[start + 1..].find('}').unwrap_or(0);
+    let (before, after) = (&pattern[..start], &pattern[end + 1..]);
+    for part in pattern[start + 1..end].split(',') {
+        expand_braces(after, out, &format!("{prefix}{before}{part}"))?;
+    }
+    Ok(())
+}
+
+/// Node `compileVariant`: `**/` any directories, `**` anything, `*` and `?` within a segment, `[...]` a class.
+fn compile_variant(variant: &str) -> String {
+    let chars: Vec<char> = variant.chars().collect();
+    let mut body = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        match ch {
+            '*' if chars.get(i + 1) == Some(&'*') && chars.get(i + 2) == Some(&'/') => {
+                body.push_str("(?:.*/)?");
+                i += 2;
+            }
+            '*' if chars.get(i + 1) == Some(&'*') => {
+                body.push_str(".*");
+                i += 1;
+            }
+            '*' => body.push_str("[^/]*"),
+            '?' => body.push_str("[^/]"),
+            '[' => {
+                let mut j = i + 1;
+                let negate = matches!(chars.get(j), Some('!' | '^'));
+                if negate {
+                    j += 1;
+                }
+                let inner_start = j;
+                if chars.get(j) == Some(&']') {
+                    j += 1;
+                }
+                while j < chars.len() && chars[j] != ']' {
+                    j += 1;
+                }
+                if j < chars.len() && j > inner_start {
+                    let inner: String = chars[inner_start..j]
+                        .iter()
+                        .map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() })
+                        .collect();
+                    body.push_str(&format!("[{}{inner}]", if negate { "^" } else { "" }));
+                    i = j;
+                } else {
+                    body.push_str("\\[");
+                }
+            }
+            '.' | '+' | '^' | '$' | '{' | '}' | '(' | ')' | '|' | ']' | '\\' => {
+                body.push('\\');
+                body.push(ch);
+            }
+            _ => body.push(ch),
+        }
+        i += 1;
+    }
+    body
+}
+
+/// Node `compileSimpleGlob`: a case-insensitive whole-subject regex, with its DoS caps.
+fn compile_simple_glob(pattern: &str) -> Result<regex::Regex, String> {
+    let pattern = if cfg!(windows) { pattern.replace('\\', "/") } else { pattern.to_owned() };
+    let length = pattern.encode_utf16().count();
+    if length > MAX_PATTERN_LENGTH {
+        return Err(format!("glob pattern length {length} exceeds limit {MAX_PATTERN_LENGTH}"));
+    }
+    let mut variants = Vec::new();
+    expand_braces(&pattern, &mut variants, "")?;
+    let compiled: Vec<String> = variants.iter().map(|v| compile_variant(v)).collect();
+    let body = if compiled.len() == 1 { compiled[0].clone() } else { format!("(?:{})", compiled.join("|")) };
+    if body.len() > MAX_REGEX_BODY_LENGTH {
+        return Err(format!("glob regex body length {} exceeds limit {MAX_REGEX_BODY_LENGTH}", body.len()));
+    }
+    regex::Regex::new(&format!("(?i)^{body}$")).map_err(|e| e.to_string())
+}
+
+/// Node `formatListSize`: `-` for a directory, else KB (at least 1) or MB.
+fn format_list_size(kind: EntryKind, bytes: u64) -> String {
+    if kind == EntryKind::Dir {
+        return "-".to_owned();
+    }
+    if bytes >= 1024 * 1024 {
+        return format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0));
+    }
+    format!("{}KB", ((bytes as f64 / 1024.0).round() as u64).max(1))
+}
+
+struct GlobRow {
+    path: AbsPath,
+    kind: EntryKind,
+    size: u64,
+    /// Nanoseconds since the epoch; 0 when unknown.
+    mtime: u128,
+    known: bool,
+}
+
+/// Node `FIND_STAT_DEADLINE_MS`: how long one candidate's metadata is awaited.
+const FIND_STAT_DEADLINE: std::time::Duration = std::time::Duration::from_millis(1_000);
+
+/// The name search Node runs for a glob-shaped `list` path: an rg inventory under the static base
+/// (`--files --directories --no-ignore`, the noise-tree excludes, `--iglob` of the rest), filtered by
+/// the compiled glob, newest first.
+async fn glob_path_list(ctx: &ToolContext, raw: &str, hidden: bool, offset: usize, limit: usize) -> ToolOutcome {
+    let (base, name_pattern) = extract_glob_base_directory(raw);
+    let input = base.unwrap_or_else(|| ".".to_owned());
+    let has_path = name_pattern.contains(['/', '\\']);
+    let compiled = compile_simple_glob(&name_pattern).and_then(|whole| {
+        let rest = name_pattern.strip_prefix("**/").map(compile_simple_glob).transpose()?;
+        Ok((whole, rest))
+    });
+    let (whole, root_optional) = match compiled {
+        Ok(pair) => pair,
+        Err(message) => return Err(invalid("path", "glob", format!("Error: {message}"))),
+    };
+    let root = resolve_path(&ctx.cwd, &input)?;
+    let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, root.clone())).await? {
+        Ok(s) => s,
+        Err(e) if missing_code(&e.kind).is_some() => {
+            let code = missing_code(&e.kind).unwrap_or("ENOENT");
+            return Ok(text_output(list_absent(ctx, &root, &input, code).await));
+        }
+        Err(e) => return Err(fs_failure(&e, &input)),
+    };
+    if stat.kind != EntryKind::Dir {
+        return Err(fail(
+            mixdog_core_api::domain::tool::ToolErrorCode::Io { os_code: None },
+            format!("Error: not a directory — {}", fwd(root.as_path())),
+        ));
+    }
+    let root_path = root.as_path().to_path_buf();
+    // `rel` holds the path's components under the root; the glob sees the last one, or the whole
+    // relative path when the pattern names directories.
+    let matches = |parts: &[String]| {
+        let subject = if has_path { parts.join("/") } else { parts.last().cloned().unwrap_or_default() };
+        whole.is_match(&subject) || root_optional.as_ref().is_some_and(|r| r.is_match(&subject))
+    };
+    let walked = super::search::walk_inventory(ctx, &root, |entry| {
+        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
+        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        if parts.is_empty() || !matches(&parts) {
+            return false;
+        }
+        // rg descends a directory its `--iglob` matches; one it does not match is skipped under a
+        // noise directory (`!**/<noise>/**`) and, without `hidden`, when it is a dotted name.
+        (1..parts.len()).all(|depth| {
+            let ancestor = &parts[..depth];
+            matches(ancestor)
+                || !(parts[..depth - 1].iter().any(|p| NOISE_DIRS.contains(&p.as_str()))
+                    || (!hidden && ancestor[depth - 1].starts_with('.')))
+        })
+    }, FIND_ABSOLUTE_CAP)
+    .await?;
+    // Node `statPathsForMtime(candidates, …, 64, { deadlineMs: FIND_STAT_DEADLINE_MS })`: 64 stats at a time,
+    // each bounded by the metadata deadline; one that fails or does not answer in time is listed with `-`.
+    use futures::StreamExt as _;
+    let stats: Vec<_> = guarded(
+        ctx,
+        "list",
+        futures::stream::iter(walked.entries.into_iter().map(|entry| async move {
+            let stat = mixdog_rt::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat(ctx.io.interactive, entry.path.clone())).await;
+            (entry, stat.ok().and_then(Result::ok))
+        }))
+        .buffered(64)
+        .collect(),
+    )
+    .await?;
+    let mut rows = Vec::with_capacity(stats.len());
+    let mut unstatted = 0usize;
+    for (entry, stat) in stats {
+        match stat {
+            Some(s) => rows.push(GlobRow {
+                path: entry.path,
+                kind: if s.kind == EntryKind::Dir { EntryKind::Dir } else { EntryKind::File },
+                size: s.len,
+                mtime: s.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos()),
+                known: true,
+            }),
+            None => {
+                unstatted += 1;
+                rows.push(GlobRow { path: entry.path, kind: EntryKind::File, size: 0, mtime: 0, known: false });
+            }
+        }
+    }
+    rows.sort_by(|a, b| b.mtime.cmp(&a.mtime).then_with(|| fwd(a.path.as_path()).cmp(&fwd(b.path.as_path()))));
+    let total = rows.len();
+    let windowed = rows.get(offset..).unwrap_or(&[]);
+    let page = if limit == 0 { windowed } else { &windowed[..windowed.len().min(limit)] };
+    let mut lines: Vec<String> = page
+        .iter()
+        .map(|row| {
+            let shown = display_under(row.path.as_path(), &root_path);
+            if !row.known {
+                return format!("{shown}\t-\t-");
+            }
+            let mtime = if row.mtime == 0 {
+                "-".to_owned()
+            } else {
+                let at = UNIX_EPOCH + std::time::Duration::from_nanos(row.mtime as u64);
+                iso_utc(at).trim_end_matches('Z').replacen('T', " ", 1)
+            };
+            format!("{shown}\t{}\t{mtime}", format_list_size(row.kind, row.size))
+        })
+        .collect();
+    if windowed.len() > page.len() {
+        let next = (offset + page.len()) as u64;
+        lines.push(window_marker("entries", offset as u64 + 1, next, Some(total as u64), Some(next), None));
+    }
+    if walked.capped {
+        lines.push(cap_marker(
+            &format!("{FIND_ABSOLUTE_CAP} matches"),
+            "walk cut, global sort inexact",
+            None,
+            "narrow the scope (path/name/modified_after)",
+        ));
+    }
+    if !walked.complete {
+        lines.push(
+            "... walk INCOMPLETE (file enumeration timed out); matches are missing — narrow the scope (path/name/depth) and re-run"
+                .to_owned(),
+        );
+    }
+    if unstatted > 0 {
+        lines.push(format!("... {unstatted} path(s) had no metadata within 1000ms; listed with \"-\" for size/date"));
+    }
+    if lines.is_empty() {
+        return Ok(text_output("(no matches)"));
+    }
+    Ok(text_output(lines.join("\n")))
+}

@@ -189,6 +189,10 @@ pub struct Message {
     /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
     /// names it. An account pool passes this message's replay state to that account alone.
     pub account_routing: Option<AccountRouting>,
+    /// User and tool only (Node `meta.sentRequestTail`): the message a provider request ended with when a restart
+    /// or cancel cut it. An Anthropic wire keeps later user text beside it as sibling blocks instead of folding it
+    /// in, so the cached prefix that request wrote is sent unchanged.
+    pub sent_request_tail: bool,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -208,6 +212,7 @@ impl Message {
             source: None,
             turn_reminder: None,
             account_routing: None,
+            sent_request_tail: false,
             provider_replay: Vec::new(),
         }
     }

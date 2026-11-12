@@ -43,11 +43,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
-// Read at run time: an `include_str!` put the 3 MB recording into every test build of the crate.
-#[allow(clippy::disallowed_methods)] // test fixture loading
-static WIRE_ANTHROPIC: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/wire-anthropic-gemini/anthropic.json")).unwrap()
-});
+const WIRE_ANTHROPIC: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/wire-anthropic-gemini/anthropic.json");
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
@@ -367,6 +363,31 @@ async fn every_builder_input_comes_from_the_process_services() {
     let builder = DefaultProviderBuilder::new(env);
     for name in ["anthropic", "openai", "gemini", "xai"] {
         let adapter = builder.build(name, &json!({"enabled": true, "apiKey": "k"})).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(adapter.id().to_string(), name);
+    }
+}
+
+/// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
+/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
+/// registry) — for every kind of provider the agent config can name, not only a custom one.
+#[tokio::test]
+async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
+    let key = json!({"enabled": true, "apiKey": "k"});
+    let mut providers = Map::new();
+    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter"] {
+        providers.insert(name.into(), key.clone());
+    }
+    providers.insert(
+        "custom-abc".into(),
+        json!({"enabled": true, "type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+    );
+    let names: Vec<String> = providers.keys().cloned().collect();
+    let w = world(&[], Value::Object(providers), Vec::new()).await;
+    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services), Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))));
+    for name in names {
+        let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
+        registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        let adapter = registry.try_get(&name).await.unwrap().unwrap_or_else(|| panic!("{name}: not readied"));
         assert_eq!(adapter.id().to_string(), name);
     }
 }

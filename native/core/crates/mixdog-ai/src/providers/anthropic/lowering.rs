@@ -481,7 +481,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
                     result.push(WireMessage::new("user", WireContent::Blocks(blocks)));
                 }
             }
-            if message.source == Some(MessageSource::StreamCutRecovery) {
+            if message.source == Some(MessageSource::StreamCutRecovery) || message.sent_request_tail {
                 sent.insert(result.len() - 1);
             }
             continue;
@@ -506,7 +506,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
         if is_user && !steering && !turn_boundary {
             let content = normalize_content(&message.content);
             if fold_user_text_into_tool_result_tail(&mut result, &content) {
-                if message.source == Some(MessageSource::StreamCutRecovery) {
+                if message.source == Some(MessageSource::StreamCutRecovery) || message.sent_request_tail {
                     sent.insert(result.len() - 1);
                 }
                 continue;

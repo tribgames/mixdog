@@ -253,6 +253,29 @@ pub(crate) fn upgrade_v1(path: &Path) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Test support: every table of the SQLite file at `path` (`sqlite_*` internals aside), by name, with every row's columns as
+/// text in storage order; read on a connection of its own, so the file's writer may stay open.
+#[cfg(any(test, feature = "test-support"))]
+pub fn dump_tables(path: &Path) -> Vec<(String, Vec<Vec<String>>)> {
+    let conn = Connection::open(path).expect("the database opens");
+    let names: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .and_then(|mut stmt| stmt.query_map([], |r| r.get(0))?.collect())
+        .expect("the table names");
+    names
+        .into_iter()
+        .map(|name| {
+            let mut stmt = conn.prepare(&format!("SELECT * FROM \"{name}\"")).expect("the table reads");
+            let width = stmt.column_count();
+            let rows = stmt
+                .query_map([], |r| (0..width).map(|i| Ok(format!("{:?}", r.get_ref(i)?))).collect::<rusqlite::Result<Vec<String>>>())
+                .and_then(|rows| rows.collect())
+                .expect("the rows read");
+            (name, rows)
+        })
+        .collect()
+}
+
 const PROJECT_SELECT: &str = "SELECT path, alias, hidden, hidden_rank, last_used_at, name FROM projects";
 
 fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
@@ -307,10 +330,9 @@ impl CoreState {
         Ok((state, recovered))
     }
 
-    /// Test teardown: the writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails
-    /// against an empty database) and the read pool's idle connections close, so the files can be removed while other handles
-    /// still exist. Returns once the writer has done it.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails against an
+    /// empty database) and the read pool's idle connections close, so the files can be removed while other handles still exist
+    /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer has done it.
     pub fn close(&self) {
         let (done, closed) = mpsc::channel::<()>();
         let job: Job = Box::new(move |conn| {

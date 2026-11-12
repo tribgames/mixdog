@@ -1,0 +1,51 @@
+{
+  "cases": 2,
+  "command": "node benchmarks/rust-core/recorders/record-tools-fs-glob-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "search-glob-tool.mjs _createGlobMtimeTopK and search-builders.mjs rootScanIgnoreGlobs, the helpers the glob tool orders and prunes with; nothing else runs. These are not public-tool recordings: no stat can be made to fail on the recording machine (a denied read of attributes, a name with a trailing dot and a dangling link all stat or cannot be made), and Node's tool passes process.platform to the prune helper itself, with a drive path as its root on Windows, so no argument reaches its Linux answer. The public tools' side of both rows is tools-fs-search/glob-mtime-page and tools-fs-search/glob-fs-root.",
+  "exclusions": {
+    "emptyRoot": "the recorded roots are posix paths: the replay puts them under the host filesystem root; the empty root is a call with no path, which the core resolves to the cwd before any scan, so it is not replayed",
+    "sixthEntry": "the bounded recording holds the page and one lookahead entry (Node's window); the tool shows only the page, so the lookahead is not in an answer and is not compared"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2217,
+      "path": "golden.json",
+      "sha256": "c53d88b6ee6ec7f096096e8245bfb5fbe8a9cb5d6adb41f46a85c38c7b845959"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": "none",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tools-fs-glob-order.mjs",
+  "recorderSha256": "ef82e482c3080502083723d2aaec3702149eaee51ffd8add04b6185178777f8a",
+  "replay": "row 47: the core GlobTool over a workspace of the recorded entries with a stat failed for each failed one: the whole answer, unbounded (the recorded order, every name) and as a page (the recorded order's first names, then the continuation line of Node's public glob page in tools-fs-search/glob-mtime-page), compared whole; row 46: root_scan_prunes of each recorded root and platform against the recorded globs (the Linux half: the helper only)",
+  "set": "tools-fs-glob-order",
+  "totalBytes": 2217
+}

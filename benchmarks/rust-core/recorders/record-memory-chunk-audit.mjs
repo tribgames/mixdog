@@ -35,6 +35,8 @@ async function session(label, makeRoot, options) {
           const selected = sql.includes('AND is_root = 0') ? source.slice(1, 2) : source.slice(0, 2);
           return { rows: structuredClone(selected) };
         }
+        // The session page that skips rows already shown (`id <> ALL($2)`) does not return them, as a database does not.
+        if (sql.includes('id <> ALL')) return { rows: params[1].includes(root.id) ? [] : [structuredClone(root)] };
         return { rows: [structuredClone(root)] };
       },
     }),

@@ -182,6 +182,11 @@ pub trait SideQuestions: Send + Sync {
     async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, cancel: &CancellationToken) -> Result<SideReply, SideFailure>;
 }
 
+/// The stored transcripts of the copies of a session's conversation in other sessions (`offloadCopies`), serialized
+/// as `JSON.stringify` writes them: awaited by a prune only once an old sidecar the session itself does not keep
+/// remains. `None` (one cannot be read) deletes nothing.
+pub type OffloadCopies = futures::future::BoxFuture<'static, Option<String>>;
+
 /// The manual compaction of a session, as `session-ops.mjs` `compact` drives it: the host owns
 /// the compaction engine (`compactSessionMessages`) and the session's hooks, the session's actor
 /// owns the turn guard and the Goal reminder the compaction re-marks.
@@ -199,6 +204,13 @@ pub trait ManualCompaction: Send + Sync {
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
+    /// `pruneOffloadSession`'s listing, after a committed compaction: the session's tool-result sidecars old
+    /// enough to be pruned; none when there are none.
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf>;
+    /// The rest of `pruneOffloadSession`, run on the idle session's actor: of `candidates`, the sidecars that
+    /// `transcripts` (what the session holds, as `JSON.stringify` writes it) and `copies` no longer reach are deleted,
+    /// best-effort.
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies);
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the
     /// model was told, so the session tells it again.
     async fn rearm(&self, thread: &ThreadId);
@@ -224,7 +236,20 @@ pub trait ManualCompaction: Send + Sync {
     fn route_config(&self, header: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute;
     /// The saved configuration's change counter (`announceSettingsChange`, providers.mjs): it moves when a settings change is applied, and
     /// a thread then announces `setupChanged`. `None`: no configuration.
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>>;
+    fn settings_changes(&self, thread: &ThreadId) -> Option<SettingsFeed>;
+}
+
+/// A thread's feed of the settings change counter, and where it reports the count it has shown (published in its state).
+pub struct SettingsFeed {
+    pub changes: tokio::sync::watch::Receiver<u64>,
+    pub shown: tokio::sync::watch::Sender<u64>,
+}
+
+impl SettingsFeed {
+    /// A feed nobody waits on.
+    pub fn unwatched(changes: tokio::sync::watch::Receiver<u64>) -> Self {
+        Self { changes, shown: tokio::sync::watch::channel(0).0 }
+    }
 }
 
 /// What a thread's transcript is priced and signed with on its provider (the compaction's own

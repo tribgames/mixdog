@@ -18,6 +18,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_store::fsio;
 use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::frame::ScanEnd;
 use mixdog_store::schema::migration::ItemState;
@@ -113,7 +114,7 @@ impl Journal {
                     .map_err(|e| Blocked::io("open", path, e))?;
                 file.set_len(offset)
                     .map_err(|e| Blocked::io("truncate", path, e))?;
-                file.sync_all().map_err(|e| Blocked::io("sync", path, e))?;
+                fsio::flush(&file).map_err(|e| Blocked::io("sync", path, e))?;
             }
             ScanEnd::Corrupt { offset, cause, .. } => {
                 return Err(Blocked::journal(format!(
@@ -238,9 +239,7 @@ impl Journal {
         self.file
             .write_all(second)
             .map_err(|e| Blocked::io("append", &self.path, e))?;
-        self.file
-            .sync_data()
-            .map_err(|e| Blocked::io("sync", &self.path, e))?;
+        fsio::flush_data(&self.file).map_err(|e| Blocked::io("sync", &self.path, e))?;
         self.next_ordinal += 1;
         self.apply(&record)
     }

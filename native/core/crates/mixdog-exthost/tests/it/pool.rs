@@ -93,7 +93,7 @@ async fn run(pool: &ExtHostPool, call: ExtCall) -> Value {
 async fn until(pool: &ExtHostPool, what: &str, ready: impl Fn(&[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> bool) {
     within(async {
         while !ready(&pool.status()) {
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
         }
     })
     .await;
@@ -156,7 +156,7 @@ async fn one_thread_cannot_take_more_than_its_share_and_cancel_releases_the_work
     // Thread b is served meanwhile.
     assert_eq!(run(&pool, call("b", "echo", json!("b"))).await, json!("b"));
     assert!(
-        tokio::time::timeout(Duration::from_millis(200), second.next()).await.is_err(),
+        mixdog_rt::time::timeout(Duration::from_millis(200), second.next()).await.is_err(),
         "a's second call waits behind its first"
     );
     drop(first); // cancel: the worker answers, its slot frees
@@ -173,7 +173,7 @@ async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
     drop(spinning); // the caller walks away; cancel is sent but the worker cannot see it
     let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
     assert!(
-        tokio::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
+        mixdog_rt::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
         "the slot is held until the cancel's grace has passed (a_parser_that_ignores_the_cancel_is_ended_after_the_grace)"
     );
     assert_eq!(busy(&pool.status()), 1);
@@ -262,7 +262,7 @@ async fn helper_is_gone(pid_file: &Path) {
     let _ = std::fs::remove_file(pid_file);
     within(async {
         while alive(helper).await {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await;
@@ -371,7 +371,7 @@ async fn helper_pid(pid_file: &Path) -> u32 {
             {
                 return pid;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await

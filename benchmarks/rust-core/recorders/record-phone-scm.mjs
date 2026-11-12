@@ -265,7 +265,7 @@ if (ONLY === null) {
         requestText:
           'A case with `paramsText` was given to Node as those bytes (`{"id":1,"method":<call>,"params":<paramsText>}`). Its `request` is the core request the phone\'s route (shared/scm-operation-route.ts) makes of the same argument texts, each argument kept as spelled (`text`), with the op id the replay gives it; the replay sends those bytes and compares, byte for byte, the params of the frame its socket writer was given.',
         loneSurrogate:
-          'An open difference, not parity. A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.',
+          'A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core\'s frame decoder (mixdog-app-protocol rpc.rs decode_inbound_text) reads the escape as U+FFFD and reports where it replaced one, so the call acts on what git got from Node (decisions.md "frame-lone-surrogate"); no connection is closed. The case is not replayed over the relay: mixdog-scm input_tests.rs a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it decodes its recorded paramsText with the core\'s decoder and compares.',
         posixCwd:
           'The directory rule is the platform\'s path.isAbsolute (git-contract.mjs:3), and so is the core\'s (mixdog-scm input.rs is_absolute): on POSIX only a leading "/" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript\'s on both platforms.',
         reviewWithoutFiles:
@@ -1789,8 +1789,8 @@ async function recordInputChecks() {
     ['githubRequest-big-integer', 'githubRequest', `[${cwdText},{"action":"pr.view","repo":"octo/demo","number":9007199254740993}]`],
   ];
   for (const [label, call, text] of spelled) await rec(`input-spelled-${label}`, call, JSON.parse(text), undefined, undefined, text);
-  // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
-  if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.');
+  // ── a lone surrogate in a string: Node's string checks take it; the core's decoder reads it as U+FFFD, what git got ──
+  if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core\'s frame decoder reads it as U+FFFD (what Node\'s spawn gave git) and the call acts on it (mixdog-scm input_tests.rs a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it).');
   // ── the rest of the optional arguments remote-shim-api.ts passes as the app gave them: left out, they reach the PC as null. Last in
   //    the group, as the amend and the stash change the repository ──
   await rec('input-null-gitStatus-options', 'gitStatus', [I, null]);

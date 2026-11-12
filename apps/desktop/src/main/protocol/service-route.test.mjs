@@ -132,6 +132,22 @@ const CASES = [
   ['setSessionArchived', ['t1', true], [['thread/archive', { threadId: 't1' }]]],
   ['setSessionArchived', ['t1', false], [['thread/unarchive', { threadId: 't1' }]]],
   ['deleteSession', ['t1'], [['thread/delete', { threadId: 't1' }]]],
+  [
+    'submitToSession',
+    ['sess_room_abc123', 'hi', { id: 'sub-1', pastedTexts: { 1: { id: 1, text: 'x' } } }],
+    [
+      [
+        'room/send',
+        {
+          input: {
+            threadId: 'sess_room_abc123',
+            prompt: 'hi',
+            options: { pastedTexts: { 1: { id: 1, text: 'x' } }, clientSubmissionId: 'sub-1' },
+          },
+        },
+      ],
+    ],
+  ],
   ['openAgentHome', ['a1'], [['agent/home/open', { agentId: 'a1' }]]],
   ['resetAgentHome', ['a1'], [['agent/home/reset', { agentId: 'a1' }]]],
   ['listAgentMemory', ['a1'], [['agent/memory/list', { agentId: 'a1' }]]],
@@ -219,6 +235,17 @@ test('setVisibleSessions resumes the new visible threads and unsubscribes the on
     { method: 'thread/unsubscribe', params: { threadId: 'a' } },
     { method: 'thread/resume', params: { threadId: 'c', window: { lastItems: 32 } } },
   ]);
+});
+
+test('a visible set older than or equal to the newest one sent changes nothing; an unversioned one applies', async () => {
+  const { calls, service } = lane();
+  await service.call('setVisibleSessions', [['a'], 2]);
+  assert.equal(await service.call('setVisibleSessions', [['b'], 1]), true);
+  assert.equal(await service.call('setVisibleSessions', [['b'], 2]), true);
+  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a']]);
+  await service.call('setVisibleSessions', [['c']]);
+  await assert.rejects(service.call('setVisibleSessions', [['d'], 0]), /visible session version/);
+  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a'], ['thread/unsubscribe', 'a'], ['thread/resume', 'c']]);
 });
 
 test('a replaced core client gets the visible threads resumed again; one it refuses is dropped and resumed by the next visible set', async () => {

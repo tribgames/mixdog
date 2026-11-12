@@ -108,7 +108,22 @@ static INVOKE_NAME: LazyLock<Regex> = LazyLock::new(|| {
 
 const OPENERS: [&str; 3] = ["<function_calls", "<invoke", "<function"];
 const HARMONY_OPENERS: [&str; 2] = ["<|channel|>", "<|start|>"];
-const LONGEST_OPENER: usize = 15;
+/// The longest opener, in UTF-16 units (the openers are ASCII, so bytes), as Node derives it
+/// (`Math.max(...OPENERS.map((o) => o.length), ...HARMONY_OPENERS.map((o) => o.length))`): an opener added to either list
+/// is covered by `partial_tail` without touching this.
+const LONGEST_OPENER: usize = {
+    let (mut longest, mut i) = (0, 0);
+    while i < OPENERS.len() {
+        longest = if OPENERS[i].len() > longest { OPENERS[i].len() } else { longest };
+        i += 1;
+    }
+    i = 0;
+    while i < HARMONY_OPENERS.len() {
+        longest = if HARMONY_OPENERS[i].len() > longest { HARMONY_OPENERS[i].len() } else { longest };
+        i += 1;
+    }
+    longest
+};
 
 /// A call recovered from text, before an id is minted.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -185,10 +200,6 @@ impl Fence {
     }
 }
 
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
-}
-
 fn first_sentinel(s: &str, harmony: bool) -> Option<usize> {
     let mut at = SENTINEL.find(s).map(|m| m.start());
     let harmonic = if harmony { HARMONY_SENTINEL.find(s).map(|m| m.start()) } else { None };
@@ -210,12 +221,18 @@ fn is_opener_prefix(tail: &str, harmony: bool) -> bool {
 
 /// `partialTailIndex`: where the tail of `s` could be the start of a sentinel still arriving.
 fn partial_tail(s: &str, harmony: bool) -> usize {
-    for (i, _) in s.char_indices() {
-        if utf16_len(&s[i..]) <= LONGEST_OPENER && is_opener_prefix(&s[i..], harmony) {
-            return i;
+    // Only suffixes of at most LONGEST_OPENER UTF-16 units can match; measuring every suffix of
+    // the buffer made one long delta quadratic (300 000 characters took 86 s).
+    let mut start = s.len();
+    let mut units = 0;
+    for (i, c) in s.char_indices().rev() {
+        units += c.len_utf16();
+        if units > LONGEST_OPENER {
+            break;
         }
+        start = i;
     }
-    s.len()
+    s[start..].char_indices().map(|(i, _)| start + i).find(|&i| is_opener_prefix(&s[i..], harmony)).unwrap_or(s.len())
 }
 
 /// `coerceValue`: JSON-looking scalars and objects parse; anything else is the raw string.
@@ -554,4 +571,83 @@ pub fn body_tool_names(codec: &dyn WireCodec, request: &ModelRequest, shape: Too
 /// The names of the tools a Gemini-shaped request offers (`tools?.map(t => t.name).filter(Boolean)`).
 pub fn request_tool_names(request: &ModelRequest) -> HashSet<String> {
     request.tools.iter().filter(|t| !t.name.is_empty()).map(|t| t.name.clone()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `partialTailIndex` before it was limited to the last `LONGEST_OPENER` units: the first suffix of the whole buffer that could
+    /// start an opener. The windowed `partial_tail` must give the same index for every buffer (no opener is longer than the window).
+    fn every_suffix(s: &str, harmony: bool) -> usize {
+        s.char_indices().map(|(i, _)| i).find(|&i| is_opener_prefix(&s[i..], harmony)).unwrap_or(s.len())
+    }
+
+    fn openers() -> impl Iterator<Item = &'static str> {
+        OPENERS.iter().chain(HARMONY_OPENERS.iter()).copied()
+    }
+
+    #[test]
+    fn the_window_is_the_longest_listed_opener() {
+        assert_eq!(openers().map(str::len).max(), Some(LONGEST_OPENER));
+        assert!(openers().all(|opener| opener.is_ascii()), "the window counts bytes as UTF-16 units only while the openers are ASCII");
+    }
+
+    /// Every opener, cut at every length, after text of every width around the window (a multi-byte character, an astral one, a `<`
+    /// that opens nothing): the held tail is the one a search of every suffix finds, an opener of the full window length ending
+    /// at the end of the buffer included.
+    #[test]
+    fn the_windowed_tail_is_the_one_every_suffix_finds() {
+        let mut leads: Vec<String> = ["", "x", "é", "日本", "😀", "😀😀", "<", "<<", "a<fun", "é<invoke>é"].map(str::to_owned).into();
+        leads.extend([LONGEST_OPENER - 1, LONGEST_OPENER, LONGEST_OPENER + 1].map(|width| "y".repeat(width)));
+        for harmony in [false, true] {
+            for opener in openers() {
+                for cut in 1..=opener.len() {
+                    for lead in &leads {
+                        for tail in [&opener[..cut], &opener[..cut].to_ascii_uppercase()] {
+                            let s = format!("{lead}{tail}");
+                            assert_eq!(partial_tail(&s, harmony), every_suffix(&s, harmony), "harmony {harmony}, buffer {s:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A text pushed in three deltas split at every pair of character boundaries (an opener split over three deltas included, with a
+    /// multi-byte and an astral character before it) gives, once flushed, the same visible text and the same calls as the text pushed
+    /// whole.
+    #[test]
+    fn an_opener_split_over_three_deltas_is_held_until_it_completes() {
+        let call = r#"<function_calls><invoke name="read"><parameter name="path">a.txt</parameter></invoke></function_calls>"#;
+        let known = || ["read".to_owned()].into_iter().collect::<HashSet<_>>();
+        // (A bare `<function ` is held only as far as `<function`: once a delta ends after the space, Node's `partialTailIndex`
+        // lets it go as text before `name=` arrives, so a text with a Gemma-style block is not split-invariant in Node either.)
+        for text in [format!("é{call}"), format!("😀 {call} ok"), format!("ab <invoke name=\"read\"></invoke> {call}")] {
+            let whole = {
+                let mut guard = LeakGuard::new(known(), false);
+                let (mut emit, mut calls) = guard.push(&text, false);
+                let (rest, more) = guard.flush();
+                emit.push_str(&rest);
+                calls.extend(more);
+                (emit, calls)
+            };
+            let bounds: Vec<usize> = text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+            for (a, &i) in bounds.iter().enumerate() {
+                for &j in &bounds[a..] {
+                    let mut guard = LeakGuard::new(known(), false);
+                    let (mut emit, mut calls) = (String::new(), Vec::new());
+                    for part in [&text[..i], &text[i..j], &text[j..]] {
+                        let (shown, recovered) = guard.push(part, false);
+                        emit.push_str(&shown);
+                        calls.extend(recovered);
+                    }
+                    let (rest, more) = guard.flush();
+                    emit.push_str(&rest);
+                    calls.extend(more);
+                    assert_eq!((&emit, &calls), (&whole.0, &whole.1), "split at {i} and {j} of {text:?}");
+                }
+            }
+        }
+    }
 }

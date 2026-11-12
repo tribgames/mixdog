@@ -17,7 +17,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_agent::compact::blob_reads::{BlobReads, StoreUnavailable, StoreWork};
 use mixdog_core_api::domain::ext::{DocumentText, PdfCounts, PdfIntake};
-use mixdog_core_base::support::on_lane;
+// The waiting form: these reads and writes carry a user's or an agent's message; a full lane is waited out, never
+// answered as a store that is unavailable.
+use mixdog_core_base::support::on_lane_wait as on_lane;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
 use mixdog_rt::{DurabilityIo, InLane, InteractiveIo, LaneTokens};
@@ -584,5 +586,20 @@ mod tests {
         let ascii = golden["blobs"][0]["ref"].as_str().unwrap();
         let _refuse = mixdog_rt::testing::refuse_jobs_on_this_thread();
         assert!(matches!(text_within(&blobs, ascii, 1 << 20).await, Err(StoreUnavailable)));
+    }
+
+    /// A user row's commit classifies it through this read: a full interactive lane is waited out, not answered with
+    /// "the attachment store is unavailable" (which failed a spawned worker's first turn under load).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_read_on_a_full_lane_waits_for_room_and_then_answers() {
+        let (_dir, store, tokens, golden) = world();
+        let blobs = StoreBlobs::new(store, &tokens);
+        let ascii = golden["blobs"][0]["ref"].as_str().unwrap();
+        let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+        let read = text_within(&blobs, ascii, 1 << 20);
+        tokio::pin!(read);
+        assert!(futures::poll!(&mut read).is_pending(), "the read waits while the lane is full");
+        drop(full);
+        assert!(read.await.is_ok(), "the read runs once the lane has room");
     }
 }

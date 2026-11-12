@@ -9,8 +9,8 @@ workspace = true
 
 [features]
 # The crash hook of fsio::publish_file_with: for the dev-dependencies of crates whose tests kill a publication, never a
-# production build.
-crash-hook = []
+# production build. With it comes the switch that skips physical flushes (mixdog-fsio/src/elide.rs).
+crash-hook = ["mixdog-fsio/elide-syncs"]
 # `SqliteStore::close` / `CoreState::close`, the test teardown that closes the database files before a test's folder is removed:
 # for the dev-dependencies of crates whose tests open a store, never a production build.
 test-support = []
@@ -38,15 +38,19 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-store = { path = ".", features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

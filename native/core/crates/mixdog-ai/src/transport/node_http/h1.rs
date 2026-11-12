@@ -7,9 +7,16 @@
 //! hyper's own rule. The two meet in [`ReadOnly`]: hyper believes it sent the request and reads the response from the
 //! socket, while the bytes it "writes" are dropped.
 
+use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
+use std::sync::Weak;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
@@ -29,9 +36,11 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::ReadBuf;
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
+use tokio::sync::Notify;
 
 use super::Stream;
 use super::decode::Decoder;
+use super::pool::Flight;
 use super::pool::Pool;
 use crate::transport::fault::fault_from_chain;
 use crate::transport::fault::fault_from_io;
@@ -44,17 +53,39 @@ const MAX_HEADERS: usize = 128;
 /// `bodyTimeout` of the agent (`http-agent.mjs` `llmAgentOptions`): the longest a body may be silent.
 pub const BODY_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Whether hyper's last read of the socket found nothing: it reads only once it has decoded all it holds, so then the
+/// message can go on only with bytes still to come from the network.
+#[derive(Default)]
+struct Starved {
+    waiting: AtomicBool,
+    /// A read found nothing.
+    notify: Notify,
+    /// How many times hyper has written: it writes a request's head once it has taken the request, so a count that
+    /// grows is hyper holding the request ([`Conn::exchange`]).
+    writes: AtomicU64,
+    /// `writes` grew.
+    wrote: Notify,
+}
+
 /// The read half of the connection, handed to hyper in place of the whole: what hyper writes goes nowhere.
-struct ReadOnly(ReadHalf<Stream>);
+struct ReadOnly(ReadHalf<Stream>, Arc<Starved>);
 
 impl AsyncRead for ReadOnly {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_read(cx, buf)
+        let read = Pin::new(&mut self.0).poll_read(cx, buf);
+        let waiting = read.is_pending();
+        self.1.waiting.store(waiting, Ordering::SeqCst);
+        if waiting {
+            self.1.notify.notify_waiters();
+        }
+        read
     }
 }
 
 impl AsyncWrite for ReadOnly {
     fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.1.writes.fetch_add(1, Ordering::SeqCst);
+        self.1.wrote.notify_waiters();
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -71,18 +102,58 @@ impl AsyncWrite for ReadOnly {
 pub struct Conn {
     send: http1::SendRequest<Empty<Bytes>>,
     write: WriteHalf<Stream>,
+    /// The number of the undici client this connection is the socket of: the order of the pool's list.
     pub born: u64,
     /// The pool's route generation when the connection opened ([super::pool::Pool::generation]).
     pub generation: u64,
+    /// The pool and key whose client stays in the pool, socketless, when this connection ends ([`Conn::track`]).
+    slot: Option<(Weak<Pool>, String)>,
+    /// The exchange on this connection, settled with what comes of the connection.
+    pub flight: Option<Flight>,
+    starved: Arc<Starved>,
+}
+
+/// An ended connection leaves its client in the pool: undici's pool keeps a client whose socket closed and connects it
+/// again for the next request it is given (`pool.js` `kGetDispatcher` takes the first client not waiting for `drain`), so
+/// that request dials in the old client's place in the pool's order rather than taking a newer idle socket. The client
+/// is free once the socket's close has been handled, after the check phase of the turn it ended in.
+impl Drop for Conn {
+    fn drop(&mut self) {
+        let Some((pool, key)) = self.slot.take() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let (born, generation, flight) = (self.born, self.generation, self.flight.take());
+        let check = mixdog_rt::time::immediate();
+        tokio::spawn(async move {
+            check.await;
+            if let Some(pool) = pool.upgrade() {
+                pool.vacate(key, born, generation);
+            }
+            drop(flight);
+        });
+    }
 }
 
 impl Conn {
+    /// From now on the end of this connection leaves its client in `pool` under `key` ([`Pool::vacate`]).
+    pub fn track(&mut self, pool: &Arc<Pool>, key: &str) {
+        self.slot = Some((Arc::downgrade(pool), key.to_owned()));
+    }
+
+    /// The connection ends with its client taken for another socket: the client's number.
+    pub fn into_slot(mut self) -> u64 {
+        self.slot = None;
+        self.born
+    }
+
     pub async fn open(io: Stream, born: u64, generation: u64) -> Result<Self, hyper::Error> {
         let (read, write) = tokio::io::split(io);
+        let starved = Arc::new(Starved::default());
         let (send, connection) = http1::Builder::new()
             .max_buf_size(MAX_HEAD)
             .max_headers(MAX_HEADERS)
-            .handshake::<_, Empty<Bytes>>(TokioIo::new(ReadOnly(read)))
+            .handshake::<_, Empty<Bytes>>(TokioIo::new(ReadOnly(read, starved.clone())))
             .await?;
         tokio::spawn(async move {
             // An error here reaches the request in flight through hyper (its send_request future fails with it);
@@ -91,7 +162,7 @@ impl Conn {
                 tracing::debug!(%error, "http/1.1 connection ended with an error");
             }
         });
-        Ok(Self { send, write, born, generation })
+        Ok(Self { send, write, born, generation, slot: None, flight: None, starved })
     }
 
     /// The connection has ended (the peer closed it, or hyper found it unusable).
@@ -111,15 +182,29 @@ impl Conn {
     /// body) and `connection: close`. It is never told `Expect` (refused before the socket, `check_headers`) or a
     /// `CONNECT` (refused in `NodeClient::send`), the two requests whose answers hyper frames differently.
     pub async fn exchange(&mut self, head: &[u8], body: &[u8], method: &str, close: bool) -> Exchange {
-        let Self { send, write, .. } = self;
+        let Self { send, write, starved, .. } = self;
         let mut request = hyper::Request::builder().method(method).uri("/");
         if close {
             request = request.header("connection", "close");
         }
         let request = request.body(Empty::<Bytes>::new()).expect("a request hyper reads no more of than its method");
+        let before = starved.writes.load(Ordering::SeqCst);
         let response = send.send_request(request);
         tokio::pin!(response);
         let written = async {
+            // Bytes that reach hyper's read side before it has taken the request are an answer to nothing: it closes the
+            // connection as unexpected, and the request fails though the server answered. hyper takes the request on its
+            // own task, which a busy machine runs after a loopback server's whole round trip, so the socket is written
+            // only once hyper has written (discarded) the request's head.
+            loop {
+                let taken = starved.wrote.notified();
+                tokio::pin!(taken);
+                taken.as_mut().enable();
+                if starved.writes.load(Ordering::SeqCst) > before {
+                    break;
+                }
+                taken.await;
+            }
             write.write_all(head).await?;
             write.write_all(body).await?;
             write.flush().await
@@ -135,7 +220,7 @@ impl Conn {
                 Ok(()) => answer((&mut response).await, true),
                 // An answer already in hand outranks the failed write: undici has parsed what arrived before the
                 // socket's error is seen. A read error beside it does not: the write's is the request's error.
-                Err(error) => match tokio::time::timeout(Duration::ZERO, &mut response).await {
+                Err(error) => match mixdog_rt::time::timeout(Duration::ZERO, &mut response).await {
                     Ok(result @ Ok(_)) => answer(result, false),
                     _ => Exchange::NotWritten(error),
                 },
@@ -161,112 +246,313 @@ pub struct Reuse {
     pub ttl: Duration,
 }
 
+/// The most of a body read off the socket and not yet taken by the caller: Node's bundled fetch pushes the body into a
+/// Readable whose `push` returns false once it holds the stream's high-water mark (64 KiB on Node 22), and undici then
+/// pauses its parser (`client-h1.js` `onBody` -> `ERROR.PAUSED`), so the socket is not read until the caller takes some.
+const BODY_BUFFER: usize = 64 * 1024;
+
+/// The most read off the socket into memory while undici's parser is paused: a Node socket keeps reading until its
+/// readable buffer holds its high-water mark (`net.Socket` `readableHighWaterMark`, 16 KiB on Node v22.20.0).
+const SOCKET_BUFFER: usize = 16 * 1024;
+
+/// What the socket gave and the caller has not taken yet.
+#[derive(Default)]
+struct Received {
+    chunks: VecDeque<Bytes>,
+    buffered: usize,
+    /// How the message ended: `Ok` parsed to its end, `Err` the fault that ended it.
+    end: Option<Result<(), TransportFault>>,
+    /// The caller let the body go.
+    dropped: bool,
+    /// The connection stays out of the pool until the body is dropped ([`BodyStream::hold_connection`]).
+    held: bool,
+}
+
+struct Shared {
+    received: Mutex<Received>,
+    /// A chunk or the end has arrived.
+    arrived: Notify,
+    /// The caller took a chunk.
+    room: Notify,
+    /// The caller let the body go.
+    gone: Notify,
+}
+
+impl Shared {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Received> {
+        self.received.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A response body read off its socket as it arrives, as undici reads it: the connection's life follows the network's
+/// end of the message, not the caller's reading. The task that reads it ([`read_message`]) gives the connection back to
+/// the pool once the message has been read to its end (undici `onMessageComplete`, `client-h1.js:785`), whether or not
+/// the caller has taken the body; it pauses while [`BODY_BUFFER`] is held untaken; and a body dropped before its end
+/// ends the connection with it (fetch's `cancel`: `onAborted` -> `connection.destroy()`) unless the end is already in
+/// what the socket has read ([`ends_without_the_network`]).
 pub struct H1Body {
-    pub incoming: Option<Incoming>,
-    pub conn: Option<Conn>,
-    pub decoder: Option<Decoder>,
-    /// Where the connection goes back to once the body is whole; `None` when the exchange ends it.
-    pub reuse: Option<Reuse>,
-    /// Set by [`BodyStream::hold_connection`]: the whole body's connection is held ([`Pool::hold_h1`]).
-    pub hold: bool,
-    /// The hold of the connection, ended when this body is dropped if no request has freed it first.
-    parked: Option<(Arc<Pool>, String, u64)>,
+    shared: Arc<Shared>,
+    decoder: Option<Decoder>,
+    /// The caller has had the end (or the fault) of the message.
+    done: bool,
 }
 
 impl H1Body {
+    /// Starts reading the message; `reuse` is where its connection goes once the message is whole (`None`: the exchange
+    /// ends the connection, undici's `!shouldKeepAlive`).
     pub fn new(incoming: Incoming, conn: Conn, decoder: Option<Decoder>, reuse: Option<Reuse>) -> Self {
-        let mut body = Self { incoming: Some(incoming), conn: Some(conn), decoder, reuse, hold: false, parked: None };
-        if body.incoming.as_ref().is_some_and(Body::is_end_stream) {
-            body.release();
-        }
-        body
+        // A message without a body (a `HEAD`, a 204, `Content-Length: 0`) ended with its head: dropping the body at once
+        // leaves the connection to the reader.
+        let received = Received { end: incoming.is_end_stream().then_some(Ok(())), ..Received::default() };
+        let shared = Arc::new(Shared {
+            received: Mutex::new(received),
+            arrived: Notify::new(),
+            room: Notify::new(),
+            gone: Notify::new(),
+        });
+        tokio::spawn(read_message(incoming, conn, reuse, shared.clone()));
+        Self { shared, decoder, done: false }
     }
 
-    /// The exchange is whole: the connection goes back to the pool (held for the next request, if this body is held).
-    fn release(&mut self) {
-        if let (Some(conn), Some(reuse)) = (self.conn.take(), self.reuse.take()) {
-            if self.hold {
-                let hold = reuse.pool.hold_h1(reuse.key.clone(), conn, reuse.ttl);
-                self.parked = Some((reuse.pool, reuse.key, hold));
-            } else {
-                reuse.pool.put_h1(reuse.key, conn, reuse.ttl);
-            }
-        }
-    }
-
-    /// The failure ends the connection.
+    /// The failure ends the body.
     fn fail(&mut self, fault: TransportFault) -> Option<Result<Bytes, TransportFault>> {
-        self.incoming = None;
-        self.conn = None;
-        self.reuse = None;
+        self.done = true;
         self.decoder = None;
         Some(Err(fault))
+    }
+
+    /// The next raw chunk; `None` at the message's end, or the fault that ended it.
+    async fn take(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        loop {
+            let arrived = self.shared.arrived.notified();
+            tokio::pin!(arrived);
+            arrived.as_mut().enable();
+            {
+                let mut received = self.shared.lock();
+                if let Some(chunk) = received.chunks.pop_front() {
+                    received.buffered -= chunk.len();
+                    drop(received);
+                    self.shared.room.notify_one();
+                    return Some(Ok(chunk));
+                }
+                match &received.end {
+                    Some(Ok(())) => return None,
+                    Some(Err(fault)) => return Some(Err(fault.clone())),
+                    None => {}
+                }
+            }
+            arrived.await;
+        }
+    }
+}
+
+/// Reads the message off the socket into `shared` and, at its end, lets the connection go: back to the pool one check
+/// phase later when `reuse` says it serves another request (`client-h1.js:846` `setImmediate(client[kResume])`: until
+/// then the client has not emitted `drain` and the pool passes it over), closed otherwise.
+async fn read_message(mut incoming: Incoming, conn: Conn, reuse: Option<Reuse>, shared: Arc<Shared>) {
+    // What the socket has read that the paused parser has not handed to the body yet, and the end it read: Node's socket
+    // keeps reading into its own buffer while undici's parser is paused, and the parser reaches the message's end only
+    // once it resumes and has handed on everything before it.
+    let mut socket: VecDeque<Bytes> = VecDeque::new();
+    let mut socket_bytes = 0;
+    let mut socket_end = false;
+    let starved = conn.starved.clone();
+    let end = loop {
+        let room = shared.room.notified();
+        tokio::pin!(room);
+        room.as_mut().enable();
+        let gone = shared.gone.notified();
+        tokio::pin!(gone);
+        gone.as_mut().enable();
+        let (dropped, paused) = {
+            let received = shared.lock();
+            (received.dropped, received.buffered >= BODY_BUFFER)
+        };
+        if dropped {
+            // A paused parser parses nothing more (`client-h1.js` `pause`), so a cancel then finds the message
+            // unfinished whatever the socket holds.
+            let parsed = !paused && socket.is_empty();
+            if parsed && (socket_end || ends_without_the_network(&mut incoming, &starved).await) {
+                break Ok(());
+            }
+            break Err(TransportFault::Io { os_code: None });
+        }
+        let (paused, moved, ended) = {
+            let mut received = shared.lock();
+            let mut moved = false;
+            while received.buffered < BODY_BUFFER {
+                let Some(chunk) = socket.pop_front() else { break };
+                socket_bytes -= chunk.len();
+                received.buffered += chunk.len();
+                received.chunks.push_back(chunk);
+                moved = true;
+            }
+            let paused = received.buffered >= BODY_BUFFER;
+            // The end is known with the last chunk, under the same lock: a caller that takes that chunk and lets the
+            // body go finds the message ended (undici completes the message in the same `execute` that pushed it).
+            let ended = !paused && socket_end && socket.is_empty();
+            if ended {
+                received.end = Some(Ok(()));
+            }
+            (paused, moved, ended)
+        };
+        if moved || ended {
+            shared.arrived.notify_one();
+        }
+        if ended {
+            break Ok(());
+        }
+        if socket_end || socket_bytes >= SOCKET_BUFFER {
+            tokio::select! {
+                () = &mut room => {}
+                () = &mut gone => {}
+            }
+            continue;
+        }
+        let frame = if paused {
+            tokio::select! {
+                () = &mut room => continue,
+                () = &mut gone => continue,
+                frame = incoming.frame() => Ok(frame),
+            }
+        } else {
+            // undici's `bodyTimeout` runs while its parser is not paused (`onParserTimeout`).
+            tokio::select! {
+                () = &mut gone => continue,
+                frame = mixdog_rt::time::timeout(BODY_TIMEOUT, incoming.frame()) => frame,
+            }
+        };
+        match frame {
+            Err(_) => break network_end(Err(TransportFault::Io { os_code: None })),
+            Ok(None) => socket_end = network_end(true),
+            // A socket error destroys the request at once, whatever the parser holds (`client-h1.js` `onHttpSocketError`).
+            Ok(Some(Err(e))) => break network_end(Err(fault_from_chain(&e, false))),
+            Ok(Some(Ok(frame))) => {
+                let Ok(raw) = frame.into_data() else { continue };
+                if raw.is_empty() {
+                    continue;
+                }
+                socket_bytes += raw.len();
+                socket.push_back(raw);
+                // The frame that ends the message is parsed with its last bytes (hyper's chunked or length decoder).
+                if incoming.is_end_stream() {
+                    socket_end = network_end(true);
+                }
+            }
+        }
+    };
+    let whole = end.is_ok();
+    if !whole {
+        shared.lock().end = Some(end);
+        shared.arrived.notify_one();
+    }
+    match reuse {
+        Some(Reuse { pool, key, ttl }) if whole => {
+            loop {
+                let gone = shared.gone.notified();
+                tokio::pin!(gone);
+                gone.as_mut().enable();
+                let waiting = {
+                    let received = shared.lock();
+                    received.held && !received.dropped
+                };
+                if !waiting {
+                    break;
+                }
+                gone.await;
+            }
+            mixdog_rt::time::immediate().await;
+            pool.put_h1(key, conn, ttl);
+        }
+        _ => drop(conn),
+    }
+}
+
+/// The network's end of a message (its last byte read off the socket, or the fault that ended it), whether or not the
+/// caller has read it: real I/O a replay's clock does not wait for, so a replay waits for this line before advancing past
+/// it. Nothing without `mixdog-rt`'s `virtual-clock` feature.
+fn network_end<T>(end: T) -> T {
+    mixdog_rt::replay_event("h1 message read off the socket");
+    end
+}
+
+/// After the caller let the body go: whether the message ends from what the socket has already read. undici parses
+/// each socket read whole (`client-h1.js` `execute`), so a caller that cancels on a chunk finds the message complete if
+/// its end came in the same read, and destroys the socket otherwise (`onAborted`). hyper decodes the bytes it holds only
+/// as the body is taken, so they are taken here until the message ends, or hyper has to read the socket again and finds
+/// nothing there ([`Starved`]): the end would need the network.
+async fn ends_without_the_network(incoming: &mut Incoming, starved: &Starved) -> bool {
+    loop {
+        if incoming.is_end_stream() {
+            return true;
+        }
+        let hungry = starved.notify.notified();
+        tokio::pin!(hungry);
+        hungry.as_mut().enable();
+        let starving = async {
+            if !starved.waiting.load(Ordering::SeqCst) {
+                hungry.await;
+            }
+        };
+        tokio::select! {
+            biased;
+            frame = incoming.frame() => match frame {
+                None => return true,
+                Some(Err(_)) => return false,
+                Some(Ok(_)) => {}
+            },
+            () = starving => return false,
+        }
     }
 }
 
 impl Drop for H1Body {
+    /// A body let go before its message ended leaves the reader to finish what the socket already holds; one whose
+    /// message has ended leaves the reader to give the connection back.
     fn drop(&mut self) {
-        if let Some((pool, key, hold)) = self.parked.take() {
-            pool.end_hold(&key, hold);
-        }
+        self.shared.lock().dropped = true;
+        self.shared.gone.notify_one();
     }
 }
 
 #[async_trait]
 impl BodyStream for H1Body {
     fn hold_connection(&mut self) {
-        self.hold = true;
+        self.shared.lock().held = true;
     }
 
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
-            // What the decoder can hand on from what it holds comes first, one step at a time; the socket is read
-            // again only when it has nothing left.
+            // What the decoder can hand on from what it holds comes first, one step at a time; the next raw chunk is
+            // taken only when it has nothing left.
             if let Some(decoder) = self.decoder.as_mut() {
                 match decoder.step() {
                     Err(e) => return self.fail(fault_from_io(&e, false)),
                     Ok(Some(step)) => return Some(Ok(Bytes::from(step))),
-                    Ok(None) if self.incoming.is_none() => {
+                    Ok(None) if self.done => {
                         self.decoder = None;
-                        self.release();
                         return None;
                     }
                     Ok(None) => {}
                 }
             }
-            let incoming = self.incoming.as_mut()?;
-            let frame = match tokio::time::timeout(BODY_TIMEOUT, incoming.frame()).await {
-                Err(_) => return self.fail(TransportFault::Io { os_code: None }),
-                Ok(frame) => frame,
-            };
-            match frame {
+            if self.done {
+                return None;
+            }
+            match self.take().await {
                 None => {
-                    self.incoming = None;
+                    self.done = true;
                     match self.decoder.as_mut() {
                         // The body is over: the steps left, and how the stream finishes, are taken at the top of the loop.
                         Some(decoder) => decoder.end(),
-                        None => {
-                            self.release();
-                            return None;
-                        }
+                        None => return None,
                     }
                 }
-                Some(Err(e)) => return self.fail(fault_from_chain(&e, false)),
-                Some(Ok(frame)) => {
-                    let Ok(raw) = frame.into_data() else { continue };
-                    match self.decoder.as_mut() {
-                        Some(decoder) => decoder.feed(&raw),
-                        None => {
-                            if self.incoming.as_ref().is_some_and(Body::is_end_stream) {
-                                self.incoming = None;
-                                self.release();
-                            }
-                            if !raw.is_empty() {
-                                return Some(Ok(raw));
-                            }
-                        }
-                    }
-                }
+                Some(Err(fault)) => return self.fail(fault),
+                Some(Ok(raw)) => match self.decoder.as_mut() {
+                    Some(decoder) => decoder.feed(&raw),
+                    None => return Some(Ok(raw)),
+                },
             }
         }
     }
@@ -296,7 +582,7 @@ mod tests {
             far // kept open, unread
         });
         let body = vec![b'x'; 1 << 20];
-        let outcome = tokio::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
             .await
             .expect("the answer arrives while the write is pending");
         match outcome {
@@ -307,6 +593,40 @@ mod tests {
             _ => panic!("the answer is the outcome"),
         }
         drop(server);
+    }
+
+    // An answer that reaches hyper before it has taken the request closes the connection as an unexpected message, and the
+    // request fails though the server answered (a loopback server's round trip is shorter than a busy machine's wait for
+    // hyper's task). So nothing reaches the socket until hyper has taken the request: after one poll of the exchange, on
+    // the one thread hyper's task shares with it, the far end has received nothing; once hyper runs, the request goes out
+    // and its answer is heard.
+    #[tokio::test]
+    async fn nothing_is_written_to_the_socket_before_hyper_has_taken_the_request() {
+        let (near, mut far) = tokio::io::duplex(1 << 16);
+        let mut conn = Conn::open(Box::new(near), 0, 0).await.unwrap();
+        let exchange = conn.exchange(b"GET / HTTP/1.1\r\n\r\n", b"", "GET", false);
+        tokio::pin!(exchange);
+        assert!(futures::poll!(exchange.as_mut()).is_pending(), "the answer cannot be in yet");
+        let mut byte = [0u8; 1];
+        assert!(futures::poll!(Box::pin(far.read(&mut byte))).is_pending(), "a byte reached the socket before hyper took the request");
+        let server = async {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                far.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            far.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await.unwrap();
+            head
+        };
+        // Without the handoff the exchange waits for hyper and the server for the request: neither ends.
+        let (outcome, head) = mixdog_rt::time::timeout(Duration::from_secs(20), async { tokio::join!(exchange, server) })
+            .await
+            .expect("hyper took the request, it went out and its answer came back within 20 s");
+        assert_eq!(head, b"GET / HTTP/1.1\r\n\r\n");
+        match outcome {
+            Exchange::Answered { response, written } => assert_eq!((response.status().as_u16(), written), (200, true)),
+            _ => panic!("the answer is the outcome"),
+        }
     }
 
     // H4: hyper cannot write the head Node writes: it lowercases every header name (the provider's `OpenAI-Beta`,
@@ -327,7 +647,7 @@ mod tests {
             .unwrap();
         tokio::spawn(send.send_request(request));
         let mut written = vec![0u8; 512];
-        let n = tokio::time::timeout(Duration::from_secs(20), far.read(&mut written)).await.expect("hyper's request within 20 s").unwrap();
+        let n = mixdog_rt::time::timeout(Duration::from_secs(20), far.read(&mut written)).await.expect("hyper's request within 20 s").unwrap();
         let hyper_head = String::from_utf8(written[..n].to_vec()).unwrap();
         let wire = mixdog_core_api::domain::provider::WireRequest {
             transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,

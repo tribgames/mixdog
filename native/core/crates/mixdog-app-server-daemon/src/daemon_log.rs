@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
@@ -126,7 +125,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn system_now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 /// `boundedText`: more than 16 384 UTF-16 units keeps the first 16 384 (a cut surrogate pair
@@ -401,7 +400,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../fixtures/daemon-log/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/daemon-log/golden.json");
 
     fn tokens() -> mixdog_rt::LaneTokens {
         mixdog_rt::testing::tokens()
@@ -488,7 +487,7 @@ mod tests {
     /// same lines reach stderr.
     #[tokio::test]
     async fn every_node_scenario_writes_the_same_file() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let limits = &golden["limits"];
         assert_eq!(limits["maxBytes"], LOG_MAX_BYTES);
         assert_eq!(limits["keepBytes"], LOG_KEEP_BYTES);
@@ -760,6 +759,6 @@ mod tests {
         let log = DaemonLog::new(dir.path().join("daemon.log"), tokens().maintenance_io, cancel);
         log.enable_file_logging();
         log.log("never written");
-        tokio::time::timeout(Duration::from_secs(10), log.flush()).await.expect("flush must not hang");
+        mixdog_rt::time::timeout(Duration::from_secs(10), log.flush()).await.expect("flush must not hang");
     }
 }

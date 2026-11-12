@@ -91,12 +91,19 @@ const toB64 = (b: Uint8Array): string => {
 export class ClientFailure extends Error implements ClientError {
   readonly detail: ClientErrorDetail;
   constructor(detail: ClientErrorDetail) {
-    super(detail.kind === 'rpc' ? `${detail.code} ${detail.reason ?? ''} ${detail.message}` : detail.kind);
+    super(detail.kind === 'rpc' ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}` : detail.kind);
     this.name = 'ClientError';
     this.detail = detail;
   }
 }
 const fail = (detail: ClientErrorDetail): ClientFailure => new ClientFailure(detail);
+
+/** A refused argument's sentence, for the message a person sees: the core's `expected` names what the field had to hold (for a
+ *  lone surrogate, the field itself). */
+function refusedArgument(data: ErrorData | undefined): string {
+  const fields = data as { reason?: unknown; expected?: unknown } | undefined;
+  return fields?.reason === 'invalidParams' && typeof fields.expected === 'string' && fields.expected ? `: ${fields.expected}` : '';
+}
 const rpcFailure = (e: JsonRpcErrorBody): ClientFailure => {
   const data = e.data as ErrorData | undefined;
   return fail({ kind: 'rpc', code: e.code, reason: data?.reason, message: e.message, data });
@@ -765,6 +772,10 @@ class Engine implements ProtocolClient<Json> {
   }
   private attached(feedId: string, r: Json): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
+    // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
+    // events already folded stay in order and no gap is seen (the transcript is the feed's, not the reply's).
+    const ahead = this.recv.get(feedId);
+    if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) return;
     this.recv.set(feedId, { epoch: s.epoch, seq: s.startSeq - 1 });
     if (feedId === WIRE.appFeedId) this.store.liveSeq = s.liveSeq ?? s.startSeq;
     this.subToken.set(feedId, ++this.tokenSeq);

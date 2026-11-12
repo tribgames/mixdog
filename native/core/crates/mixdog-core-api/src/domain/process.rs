@@ -193,6 +193,18 @@ pub trait ProcessManager: Send + Sync {
     /// `limits.maxProcesses` live processes: `LimitReached`), then creates the process on
     /// io-spawn; dropping the future abandons the wait. There is no per-session spawn limit.
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError>;
+    /// [`spawn`](Self::spawn) and a subscription from the process's first event, made in one
+    /// step: the subscription exists before the child can write a byte, so however late the
+    /// caller is scheduled none of the output is lost (a subscriber holds the replay ring's
+    /// reader back instead). The default subscribes after the spawn, for managers without a ring.
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        let handle = request.handle.clone();
+        let spawned = self.spawn(request).await?;
+        Ok((spawned, self.subscribe(&handle, Some(0))?))
+    }
     /// Events from `from_seq` (replayed from the ring) or from the next one.
     fn subscribe(
         &self,
@@ -202,6 +214,13 @@ pub trait ProcessManager: Send + Sync {
     /// Non-blocking write; also serves `process/input` notifications.
     async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>)
     -> Result<(), ProcessError>;
+    /// Writes the whole of `bytes`, of any size, waiting for room as the process reads (Node's `stdinWrite`, which hands
+    /// the helper the whole string): never a part of it. Resolves once every byte is in the process's input; an error
+    /// when that could not happen (a failed write, a process gone first), after which the caller must not close the input
+    /// as if the whole had arrived. A manager without a bounded input queue writes as [`write_stdin`](Self::write_stdin).
+    async fn write_stdin_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.write_stdin(handle, bytes).await
+    }
     fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError>;
     fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError>;
     /// Tree kill; returns once the kill is issued, the exit follows as an event.
@@ -214,4 +233,10 @@ pub trait ProcessManager: Send + Sync {
         self.kill(handle)
     }
     fn list(&self) -> Vec<ProcessInfo>;
+    /// Hands a live process spawned ahead of its use (a parked shell standby, owned `Internal`) to `owner`, its run limit
+    /// counted from now. A manager that cannot hand processes over refuses with `UnknownHandle`, and the caller spawns.
+    fn claim(&self, handle: &ProcessHandle, owner: ProcessOwner, time_limit: Option<Duration>) -> Result<(), ProcessError> {
+        let _ = (handle, owner, time_limit);
+        Err(ProcessError::UnknownHandle)
+    }
 }

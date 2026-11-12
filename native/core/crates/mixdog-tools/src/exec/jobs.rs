@@ -1,6 +1,6 @@
 //! The shell jobs of one runtime: one job per spawned process, filled by a collector running on
-//! an `mixdog-rt` lane from the process's event stream, spilled to log files through lane jobs,
-//! and registered in WP-PROC's `TaskRegistry` (`native/mixdog-spawn/src/tasks.rs`), which owns
+//! an `mixdog-rt` lane from the process's event stream, written to its log files by a per-job
+//! writer (`spill::LogWriter`), and registered in WP-PROC's `TaskRegistry` (`native/mixdog-spawn/src/tasks.rs`), which owns
 //! the task rows and the shell-job strips. The jobs add what that registry does not hold: the
 //! captured output with its read cursors and the model-facing text.
 
@@ -33,6 +33,8 @@ use mixdog_protocol::ThreadId;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::MaintenanceIo;
+use mixdog_rt::PtyIo;
+use mixdog_rt::SpawnIo;
 use mixdog_rt::TaskClass;
 use mixdog_spawn::tasks::TaskOutcome;
 use mixdog_spawn::tasks::TaskRegistry as SpawnTasks;
@@ -143,12 +145,17 @@ impl SurvivorWatch for mixdog_spawn::survivors::ProcessSurvivors {
     }
 }
 
-/// The lane tokens the shell and task tools run their file work on.
+/// The lane tokens the shell and task tools run their file work on. A call's start (program
+/// lookup, scratch and launcher directories, log files) is on `spawn`, beside the process
+/// creation it prepares; a job's log appends drain on its own `pty` thread; a result's reads are
+/// on `interactive` and its writes on `durability`. `maintenance` is left to background work.
 #[derive(Clone, Copy)]
 pub struct IoLanes {
     pub interactive: InteractiveIo,
     pub durability: DurabilityIo,
     pub maintenance: MaintenanceIo,
+    pub spawn: SpawnIo,
+    pub pty: PtyIo,
 }
 
 /// `shell-runtime.mjs`' `_configuredShell` and `_resolvedShell`. The default program is resolved
@@ -213,6 +220,9 @@ pub struct ExecConfig {
     pub windows: bool,
     /// The default shell is PowerShell (the wmic rewrite applies).
     pub powershell: bool,
+    /// PowerShell commands run in a warm standby when one is parked ([`super::standby`]); the process manager must hand
+    /// processes over (`ProcessManager::claim`).
+    pub warm_standby: bool,
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
@@ -433,6 +443,8 @@ pub struct Job {
     pub review: Option<Arc<dyn TurnReviewApi>>,
     pub stdout_log: PathBuf,
     pub stderr_log: PathBuf,
+    /// The writer of the two logs (none for a survivors task), read for what they lack.
+    logs: Option<spill::LogWriter>,
     /// Waits that ran to their ceiling, so a repeated one can suggest a different move.
     pub wait_hits: AtomicU32,
     /// A task tracking the survivors of a finished command: it has no process of its own, no
@@ -688,6 +700,19 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
 }
 
 impl Job {
+    /// What the logs lack: a log whose write failed or stalled holds the output only up to the
+    /// byte named, though the result points at it for the rest. `None` while both are whole.
+    pub fn log_note(&self) -> Option<String> {
+        let gaps = self.logs.as_ref()?.gaps();
+        let lines: Vec<String> = [("stdout", gaps[0]), ("stderr", gaps[1])]
+            .into_iter()
+            .filter_map(|(name, gap)| {
+                gap.map(|at| format!("[log incomplete] the {name} log lacks this command's output from byte {at} on: a write to it failed or stalled"))
+            })
+            .collect();
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
     fn state(&self) -> MutexGuard<'_, JobState> {
         lock(&self.state)
     }
@@ -918,6 +943,7 @@ impl Job {
         }
         if !self.survivors {
             lines.push(self.logs_line());
+            lines.extend(self.log_note());
         }
         if let Some(body) = body {
             if !body.is_empty() {
@@ -1045,6 +1071,9 @@ impl Job {
         }
         out.push(format!("<summary>{}</summary>", escape_field(&summary)));
         out.push(format!("<output-file>{}</output-file>", escape_field(&shown_path(&self.stdout_log))));
+        if let Some(note) = self.log_note() {
+            out.push(escape_field(&note));
+        }
         if !result.is_empty() {
             out.push(format!("<result>\n{result}\n</result>"));
         }
@@ -1063,11 +1092,21 @@ const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
 pub struct ExecRuntime {
     pub(crate) config: ExecConfig,
     pub(crate) snapshots: super::snapshot::Snapshots,
+    /// The skill launchers' directory and contents, made once.
+    pub(crate) launchers: spill::KeptLaunchers,
     jobs: Mutex<HashMap<String, Arc<Job>>>,
     cycles: OnceLock<Arc<dyn OwnerCycles>>,
     /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
     /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
     reaped: Mutex<HashMap<String, Vec<String>>>,
+    /// Whether the expired logs of the spill directory were swept.
+    swept: std::sync::atomic::AtomicBool,
+    /// That sweep while it runs, awaited at shutdown.
+    sweep: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
+    /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
+    artifacts: Mutex<Vec<PathBuf>>,
+    pub(crate) standby: Arc<super::standby::Standby>,
 }
 
 /// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
@@ -1089,14 +1128,52 @@ impl ExecRuntime {
             config,
             jobs: Mutex::new(HashMap::new()),
             snapshots: super::snapshot::Snapshots::default(),
+            launchers: spill::KeptLaunchers::default(),
             cycles: OnceLock::new(),
             reaped: Mutex::new(HashMap::new()),
+            swept: std::sync::atomic::AtomicBool::new(false),
+            sweep: Mutex::new(None),
+            artifacts: Mutex::new(Vec::new()),
+            standby: Arc::default(),
         })
     }
 
-    /// Shutdown: removes the shell snapshots this runtime made.
+    /// The parked PowerShell standby's handle, for tests.
+    pub fn parked_standby(&self) -> Option<ProcessHandle> {
+        self.standby.parked()
+    }
+
+    /// The parked PowerShell standby's handle once one is parked, for tests; the caller bounds the wait.
+    pub async fn wait_parked_standby(&self) -> ProcessHandle {
+        self.standby.wait_parked().await
+    }
+
+    /// Shutdown: ends the parked PowerShell standby, removes the shell snapshots this runtime made, and the hoisted
+    /// scripts and tee captures of commands that never settled (Node's exit hooks), once the log sweep has ended.
     pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
+        self.standby.end();
+        let sweep = lock(&self.sweep).take();
+        if let Some(sweep) = sweep {
+            let _ = sweep.await;
+        }
         self.snapshots.drain(self.config.lanes.maintenance, cancel).await;
+        let pending = std::mem::take(&mut *lock(&self.artifacts));
+        for path in pending {
+            spill::remove_file(self.config.lanes.durability, cancel, &path).await;
+        }
+    }
+
+    /// `path` stays in use until `job` settles; then it is removed (`cleanupArtifactAfter`). One
+    /// that cannot be removed then is removed at shutdown.
+    pub(crate) fn remove_when_settled(self: &Arc<Self>, job: &Arc<Job>, path: PathBuf, cancel: CancellationToken) {
+        lock(&self.artifacts).push(path.clone());
+        let (runtime, settled) = (self.clone(), job.clone());
+        mixdog_rt::spawn("shell-artifact-cleanup", TaskClass::Work, async move {
+            settled.settled().await;
+            if spill::remove_file(runtime.config.lanes.durability, &cancel, &path).await {
+                lock(&runtime.artifacts).retain(|pending| pending != &path);
+            }
+        });
     }
 
     /// Remembers the shells a timeout reap of `owner` stopped.
@@ -1148,27 +1225,58 @@ impl ExecRuntime {
         (self.config.now_ms)()
     }
 
-    /// Spawns the process, registers the task and starts the collector on a lane.
+    /// Spawns the process, or claims the parked `standby` taken for it, registers the task and starts the collector on a
+    /// lane. A standby that cannot be claimed is ended, unfed, and the process spawned.
     pub async fn start(
         self: &Arc<Self>,
         processes: &Arc<dyn ProcessManager>,
         request: SpawnRequest,
+        standby: Option<ProcessHandle>,
         task_id: String,
         command: String,
         owner: ThreadId,
         time_limit_ms: u64,
         review: Option<Arc<dyn TurnReviewApi>>,
         notify: Option<ToolNotify>,
-        cancel: &CancellationToken,
     ) -> Result<Arc<Job>, ProcessError> {
         let handle = request.handle.clone();
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let stdout_log = self.config.spill_dir.join(format!("{task_id}.stdout.log"));
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
-        // A log that cannot be created is simply not offered to the model.
-        spill::create_logs(self.config.lanes.maintenance, cancel, &stdout_log, &stderr_log).await;
-        processes.spawn(request).await?;
-        let source = processes.subscribe(&handle, Some(0))?;
+        let logs = spill::LogWriter::new(self.config.lanes.pty, &stdout_log, &stderr_log);
+        // The expired logs of ended jobs go once per runtime, started with the first job (Node starts it as the first
+        // command spills), beside the command and never on its path (`sweepExpiredShellOutput`, started unawaited);
+        // shutdown waits for it. It cannot take a log being written: it goes by the ownership record, which the
+        // job's writer creates as running before its logs.
+        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            let (lane, dir) = (self.config.lanes.maintenance, self.config.spill_dir.clone());
+            let sweep = mixdog_rt::spawn("shell-log-sweep", TaskClass::Work, async move {
+                spill::sweep_expired(lane, &CancellationToken::new(), &dir).await;
+            });
+            *lock(&self.sweep) = Some(sweep);
+        }
+        let claimed = standby.filter(|parked| {
+            let claimed = processes.claim(parked, request.owner.clone(), request.time_limit).is_ok();
+            if !claimed {
+                let _ = processes.kill(parked);
+            }
+            claimed
+        });
+        // Subscribed as part of the spawn, before the child can write, so its output is taken from
+        // the first byte however late this task runs (the subscriber holds the replay ring's
+        // reader back). The job's writer creates the logs on its own io-pty thread (`collect`
+        // opens it); output that comes first waits in the writer's queue. The call's only
+        // io-spawn job is the spawn.
+        let (handle, source) = match claimed {
+            Some(parked) => {
+                let source = processes.subscribe(&parked, Some(0))?;
+                (parked, source)
+            }
+            None => {
+                let (_, source) = processes.spawn_subscribed(request).await?;
+                (handle, source)
+            }
+        };
         let (settled, _) = watch::channel(false);
         let started_ms = self.now_ms();
         let oem = self.config.oem;
@@ -1183,6 +1291,7 @@ impl ExecRuntime {
             review,
             stdout_log,
             stderr_log,
+            logs: Some(logs.clone()),
             wait_hits: AtomicU32::new(0),
             survivors: false,
             notify,
@@ -1205,7 +1314,7 @@ impl ExecRuntime {
         mixdog_rt::spawn(
             "shell-collect",
             TaskClass::Work,
-            collect(job.clone(), source, self.clone(), cancel.clone()),
+            collect(job.clone(), source, self.clone(), logs),
         );
         Ok(job)
     }
@@ -1248,6 +1357,7 @@ impl ExecRuntime {
             review: job.review.clone(),
             stdout_log: job.stdout_log.clone(),
             stderr_log: job.stderr_log.clone(),
+            logs: None,
             wait_hits: AtomicU32::new(0),
             survivors: true,
             notify: job.notify.clone(),
@@ -1276,7 +1386,7 @@ impl ExecRuntime {
             // `false` only for an abort: this watch raises none, so whichever way the wait ends, the task ends.
             let never = CancellationToken::new();
             loop {
-                match tokio::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
+                match mixdog_rt::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
                     Ok(_) => break,
                     Err(_) if watched.termination_pending() && watch.kill(&watched.handle).await => break,
                     Err(_) => {}
@@ -1363,34 +1473,41 @@ impl ExecRuntime {
     }
 }
 
+/// Fills the job from the process's events and hands each chunk to the job's log writer; the job
+/// ends (its logs complete) once the writer has written everything it was given.
 async fn collect(
     job: Arc<Job>,
     mut source: Box<dyn EventSource<ProcessEvent>>,
     runtime: Arc<ExecRuntime>,
-    cancel: CancellationToken,
+    logs: spill::LogWriter,
 ) {
-    let lanes = runtime.config.lanes;
-    let mut spilling = [true, true];
+    let mut exit = None;
+    logs.open().await;
     while let Some(event) = source.next().await {
         match event {
             ProcessEvent::Output { stream, bytes, .. } => {
-                let (index, log) = if stream == OutputStream::Stderr { (1, &job.stderr_log) } else { (0, &job.stdout_log) };
+                let index = usize::from(stream == OutputStream::Stderr);
                 {
                     let mut state = job.state();
                     let target = if index == 1 { &mut state.stderr } else { &mut state.stdout };
                     target.push(&bytes);
                     state.last_output_ms = Some(runtime.now_ms());
                 }
-                if spilling[index] {
-                    spilling[index] = spill::append(lanes.maintenance, &cancel, log, bytes).await;
-                }
+                logs.push(index, bytes).await;
             }
-            ProcessEvent::Exited { exit, .. } => {
-                job.state().exit = Some(exit);
+            ProcessEvent::Exited { exit: exited, .. } => {
+                exit = Some(exited);
                 break;
             }
         }
     }
+    // Bounded: a log whose writes stall past it is given up, and the job's results say from
+    // which byte it lacks output (`Job::log_note`).
+    let _closed = logs.close(spill::LOG_STALL).await;
+    // Nothing writes the logs after this: their ownership record lets a sweep take them once they have aged. Bounded
+    // like the close: the job's end does not wait on a record write that stalls.
+    logs.mark_finished(spill::LOG_STALL).await;
+    job.state().exit = exit;
     let now = runtime.now_ms();
     let detached = {
         let mut state = job.state();

@@ -1,0 +1,698 @@
+{
+  "set": "provider-anthropic-replay-blocks",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "empty-text-dropped",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:14",
+      "input": [
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "text",
+          "text": "answer"
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_1",
+          "name": "read",
+          "input": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "text",
+            "text": "answer"
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "drops": [
+          "empty_text"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "separator-keeps-runs-apart",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:19",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        },
+        {
+          "type": "text",
+          "text": "answer"
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_1",
+          "name": "read",
+          "input": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "drops": [
+          "empty_text",
+          "merged_thinking"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "back-to-back-thinking-kept",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:30",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        },
+        {
+          "type": "text",
+          "text": "answer"
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          },
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-b"
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "drops": []
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real-text-keeps-both-runs",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:35",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": "mid"
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        },
+        {
+          "type": "text",
+          "text": "answer"
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          },
+          {
+            "type": "text",
+            "text": "mid"
+          },
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-b"
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "drops": []
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": "mid"
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "redacted-thinking-run-rule",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:40",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "redacted_thinking",
+          "data": "opaque"
+        },
+        {
+          "type": "text",
+          "text": "answer"
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "drops": [
+          "empty_text",
+          "merged_thinking"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "redacted_thinking",
+                "data": "opaque"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "removals-reported",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:48",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          }
+        ],
+        "drops": [
+          "empty_text",
+          "merged_thinking"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "entries-in-block-order",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:54",
+      "input": [
+        [
+          4,
+          {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        [
+          0,
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          }
+        ],
+        [
+          3,
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        [
+          1,
+          {
+            "type": "text",
+            "text": ""
+          }
+        ],
+        [
+          2,
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-b"
+          }
+        ]
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayEntries",
+          "args": [
+            [
+              [
+                4,
+                {
+                  "type": "tool_use",
+                  "id": "toolu_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a.txt"
+                  }
+                }
+              ],
+              [
+                0,
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "sig-a"
+                }
+              ],
+              [
+                3,
+                {
+                  "type": "text",
+                  "text": "answer"
+                }
+              ],
+              [
+                1,
+                {
+                  "type": "text",
+                  "text": ""
+                }
+              ],
+              [
+                2,
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "sig-b"
+                }
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flattened-thinking-projection",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:65",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_1",
+          "name": "read",
+          "input": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "result": {
+        "blocks": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicThinkingRun",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "idempotent",
+      "source": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs:71",
+      "input": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-a"
+        },
+        {
+          "type": "text",
+          "text": ""
+        },
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "sig-b"
+        }
+      ],
+      "result": {
+        "once": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          }
+        ],
+        "twice": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "sig-a"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              }
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

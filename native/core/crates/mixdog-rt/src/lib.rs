@@ -26,17 +26,35 @@ pub mod gate;
 pub mod lanes;
 pub mod liveness;
 pub mod node_log;
+pub mod owner_gate;
 pub mod scoped;
 pub mod serial;
 pub mod ticker;
+pub mod time;
 pub mod tokens;
+#[cfg(feature = "virtual-clock")]
+pub mod virtual_clock;
+pub mod write_marks;
+
+/// A named core event a replay `wait`s for before it advances past real I/O (the replay clock's log; nothing on stderr).
+/// Nothing without the `virtual-clock` feature.
+#[inline]
+pub fn replay_event(name: &str) {
+    #[cfg(feature = "virtual-clock")]
+    virtual_clock::logged(name);
+    #[cfg(not(feature = "virtual-clock"))]
+    let _ = name;
+}
 
 pub use cancel::CancelSource;
+pub use write_marks::WriteMarks;
 pub use cancel::CancelView;
 pub use gate::Gate;
 pub use gate::GateCancelled;
 pub use gate::GateGuard;
 pub use gate::KeyedGate;
+pub use owner_gate::OwnerGate;
+pub use owner_gate::OwnerGuard;
 pub use scoped::Scope;
 pub use scoped::Scoped;
 pub use serial::ChainGuard;
@@ -47,6 +65,8 @@ pub use ticker::TimerHandle;
 pub use ticker::ticker;
 
 pub use exec::job_progress;
+pub use lanes::in_tool_call;
+pub use lanes::tool_label;
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
 pub use lanes::JobRun;
@@ -54,7 +74,9 @@ pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
+pub use lanes::Entered;
 pub use lanes::SubmitWaitError;
+pub use lanes::Ticket;
 pub use lanes::ThreadKind;
 pub use liveness::Expired;
 pub use liveness::Liveness;
@@ -65,6 +87,7 @@ pub use tokens::CpuInteractive;
 pub use tokens::DurabilityIo;
 pub use tokens::InLane;
 pub use tokens::InteractiveIo;
+pub use tokens::JudgeThread;
 pub use tokens::LaneToken;
 pub use tokens::LaneTokens;
 pub use tokens::MaintenanceIo;
@@ -104,10 +127,28 @@ pub trait Backend: Send + Sync + 'static {
     fn handle(&self, class: TaskClass) -> tokio::runtime::Handle;
     /// One poll of an instrumented task finished after `elapsed`.
     fn record_poll(&self, task: &'static str, class: TaskClass, elapsed: Duration);
-    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: a full queue answers
-    /// [`LaneFull`]. The lane thread calls [`QueuedJob::run`], which drops a cancelled job at
-    /// dequeue (RL §7.1).
+    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: the job waits in the lane's FIFO
+    /// queue for a thread, and only a queue at its far bound (or a lane with no healthy worker)
+    /// answers [`LaneFull`] (overloaded). The lane thread calls [`QueuedJob::run`], which drops a
+    /// cancelled job at dequeue (RL §7.1).
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull>;
+    /// [`Self::submit`] only when a thread takes the job at once; [`LaneFull`] when it would
+    /// have to wait. Default: [`Self::submit`].
+    fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        self.submit(job)
+    }
+    /// Enqueues a [`LaneToken::submit_wait`] job in arrival order: it is admitted at once, or
+    /// waits on its [`lanes::Ticket`] with its place in the queue kept, or is refused at the far
+    /// bound. `Err(job)` (the default): the backend has no ordered queue, and `submit_wait` retries
+    /// [`Backend::submit`] on [`Backend::capacity_notify`].
+    fn enter(&self, job: QueuedJob) -> Result<lanes::Entered, QueuedJob> {
+        Err(job)
+    }
+    /// Takes the job of a waiting `ticket` out of `lane`'s queue unrun; `false` when the ticket no
+    /// longer waits (it was admitted or answered first).
+    fn withdraw(&self, _lane: LaneKind, _ticket: &lanes::Ticket) -> bool {
+        false
+    }
     /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
     /// of `kind` and registers the thread with the instrumentation.
     fn enter_thread(&self, kind: ThreadKind);
@@ -168,11 +209,15 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    backend().handle(class).spawn(Instrumented {
+    let spawned = backend().handle(class).spawn(Instrumented {
         name,
         class,
         inner: Box::pin(fut),
-    })
+    });
+    // Row 14 of the replay's clock: the task is queued while its spawner still counts.
+    #[cfg(feature = "virtual-clock")]
+    virtual_clock::pause::point(|| format!("spawned {name}"));
+    spawned
 }
 
 struct Instrumented<F> {
@@ -188,6 +233,9 @@ impl<F: Future> Future for Instrumented<F> {
         let this = self.get_mut();
         let started = Instant::now();
         let out = this.inner.as_mut().poll(cx);
+        // Rows 2 and 3 of the replay's clock: what the poll woke is queued while its runtime is busy.
+        #[cfg(feature = "virtual-clock")]
+        virtual_clock::pause::point(|| format!("polled {}", this.name));
         backend().record_poll(this.name, this.class, started.elapsed());
         out
     }
@@ -200,6 +248,27 @@ pub mod testing {
 
     thread_local! {
         static REFUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// [`refuse_nth_job_on_this_thread`]: the attempt to refuse, and the attempts made so far.
+        static REFUSE_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+        static ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// While alive, only the `n`th (0-based) job submit attempt from THIS thread is refused, as a lane that cannot run it
+    /// (no room and no way to signal any): a fault put on one lane job at a time, the others run.
+    pub fn refuse_nth_job_on_this_thread(n: usize) -> RefuseJobs {
+        REFUSE_AT.set(Some(n));
+        ATTEMPTS.set(0);
+        RefuseJobs(())
+    }
+
+    /// The submit attempts made from this thread since [`refuse_nth_job_on_this_thread`].
+    pub fn attempts_on_this_thread() -> usize {
+        ATTEMPTS.get()
+    }
+
+    /// Whether the next submit attempt from this thread is the one to refuse.
+    fn refusing_next() -> bool {
+        REFUSE.get() || REFUSE_AT.get() == Some(ATTEMPTS.get())
     }
 
     /// While alive, every job submitted from THIS thread to [`InlineBackend`] is refused
@@ -218,6 +287,76 @@ pub mod testing {
     impl Drop for RefuseJobs {
         fn drop(&mut self) {
             REFUSE.set(false);
+            REFUSE_AT.set(None);
+        }
+    }
+
+    thread_local! {
+        /// The lanes held full ([`hold_full`]) for this thread, once per guard: a test holding a lane does not refuse
+        /// the jobs of tests running beside it.
+        static FULL: std::cell::RefCell<Vec<LaneKind>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Notified whenever a held lane is freed. Every lane signals room through it, held or not, as the production lanes
+    /// do: a waiting submit that meets a lane another test just filled waits, it is never refused.
+    fn freed() -> Arc<tokio::sync::Notify> {
+        static FREED: OnceLock<Arc<tokio::sync::Notify>> = OnceLock::new();
+        FREED.get_or_init(Arc::default).clone()
+    }
+
+    fn full(lane: LaneKind) -> bool {
+        FULL.with_borrow(|held| held.contains(&lane))
+    }
+
+    thread_local! {
+        /// The submits from this thread a held lane refused since the last [`hold_full`].
+        static MET_FULL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Notified whenever a held lane refuses a submit.
+    fn met_full() -> Arc<tokio::sync::Notify> {
+        static MET: OnceLock<Arc<tokio::sync::Notify>> = OnceLock::new();
+        MET.get_or_init(Arc::default).clone()
+    }
+
+    /// While alive, `lane` is full for jobs submitted from this thread (a current-thread test runtime), as a lane whose threads and queue gated jobs fill: a plain submit is
+    /// refused (`LaneFull`) and [`crate::tokens::LaneToken::submit_wait`] waits; dropping the guard frees the lane and wakes
+    /// the waiters, as a gate that lets its jobs end does.
+    #[must_use]
+    pub struct HeldFull(LaneKind);
+
+    /// Holds `lane` full until the guard is dropped.
+    pub fn hold_full(lane: LaneKind) -> HeldFull {
+        FULL.with_borrow_mut(|held| held.push(lane));
+        MET_FULL.set(0);
+        HeldFull(lane)
+    }
+
+    impl HeldFull {
+        /// Resolves once a submit from this thread has met a held lane (was refused for lack of room) since the hold began:
+        /// the work that submitted it is at the full lane.
+        pub async fn met_by_a_submit(&self) {
+            let met = met_full();
+            loop {
+                let notified = met.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if MET_FULL.get() > 0 {
+                    return;
+                }
+                notified.await;
+            }
+        }
+    }
+
+    impl Drop for HeldFull {
+        fn drop(&mut self) {
+            FULL.with_borrow_mut(|held| {
+                if let Some(at) = held.iter().position(|kind| *kind == self.0) {
+                    held.remove(at);
+                }
+            });
+            freed().notify_waiters();
         }
     }
 
@@ -246,11 +385,23 @@ pub mod testing {
         fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}
 
         fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
-            if REFUSE.get() {
+            let refused = refusing_next();
+            ATTEMPTS.set(ATTEMPTS.get() + 1);
+            let held = full(job.lane());
+            if held {
+                MET_FULL.set(MET_FULL.get() + 1);
+                met_full().notify_waiters();
+            }
+            if refused || held {
                 return Err(LaneFull { lane: job.lane() });
             }
             job.run();
             Ok(())
+        }
+
+        // A refused attempt has no room to wait for: `submit_wait` answers it at once, as a lane that cannot run it.
+        fn capacity_notify(&self, _lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
+            (!refusing_next()).then(freed)
         }
 
         fn enter_thread(&self, _kind: ThreadKind) {}

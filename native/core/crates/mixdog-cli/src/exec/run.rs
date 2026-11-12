@@ -266,11 +266,14 @@ async fn execute(
         .and_then(Value::as_str)
         .ok_or("thread/start answered without a thread id")?
         .to_owned();
-    state.session_id = thread_id.clone();
+    // A JSON run's session carries the id its stream reserved (`reserveSessionId`), the usage document's included.
+    state.session_id = state.lifecycle.as_ref().map_or_else(|| thread_id.clone(), |lifecycle| lifecycle.thread_id().to_owned());
     state.session_model = route.model.clone();
     if let Some(lifecycle) = &mut state.lifecycle {
         lifecycle.start(&ThreadInfo {
-            id: thread_id.clone(),
+            // Node reserves the lifecycle's own id for the session it starts (`headless-exec.mjs` `reserveSessionId`),
+            // so the stream keeps that id; the core's session lives in the run's pristine root, removed at exit.
+            id: String::new(),
             provider: route.provider.clone(),
             model: route.model.clone(),
             effort: route.effort.clone(),
@@ -365,17 +368,30 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
     let finished = {
         let running = execute(&mut state, &host, &handles, &opts, &prompt, &route);
         tokio::select! {
-            result = running => Some(result),
-            code = signal => {
-                if let Ok(Err(error)) = tokio::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
-                    sink.err(&format!("[mixdog-exec] cleanup failed: {error}\n"));
-                }
-                return code;
+            result = running => Ok(result),
+            code = signal => Err(code),
+        }
+    };
+    let (finished, interrupted) = match finished {
+        Ok(result) => (result, None),
+        Err(signal_code) => {
+            // `installProcessSignalCleanup`: the cleanup closes the runtime first; the turn it aborts fails with the
+            // session-closed error (`teardown.mjs`), reported as any failure, and the process exits with the
+            // signal's code.
+            if let Ok(Err(error)) = mixdog_rt::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
+                sink.err(&format!("[mixdog-exec] cleanup failed: {error}\n"));
             }
+            // `getSession()?.id || getReservedSessionId() || 'pending'`.
+            let session = Some(state.session_id.clone())
+                .filter(|id| !id.is_empty())
+                .or_else(|| state.lifecycle.as_ref().map(|lifecycle| lifecycle.thread_id().to_owned()))
+                .unwrap_or_else(|| "pending".to_owned());
+            let reason = signal_name(signal_code);
+            (Err(format!("Session \"{session}\" closed: runtime close (reason={reason})")), Some(signal_code))
         }
     };
     let (mut code, mut text, mut result, mut error) = (1, String::new(), ResultInfo::default(), None);
-    match finished.expect("the signal branch returned") {
+    match finished {
         Ok((answer, info)) => {
             if !opts.json && !answer.is_empty() {
                 sink.out(&if answer.ends_with('\n') { answer.clone() } else { format!("{answer}\n") });
@@ -390,7 +406,10 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
     if let Err(failure) = state.write_usage() {
         sink.err(&format!("mixdog: usage log write failed: {failure}\n"));
     }
-    if let Err(failure) = shutdown(&handles, sink.as_ref()).await {
+    // An interrupted run's shutdown already ran, under the signal's budget.
+    if interrupted.is_none()
+        && let Err(failure) = shutdown(&handles, sink.as_ref()).await
+    {
         sink.err(&format!("mixdog: shutdown failed: {failure}\n"));
         error.get_or_insert(failure);
         code = 1;
@@ -402,5 +421,14 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
             lifecycle.fail(&state.stats, error.as_deref().unwrap_or("execution failed"));
         }
     }
-    code
+    interrupted.unwrap_or(code)
+}
+
+/// The signal behind an exit code of [`Signal`] (`SIGNAL_EXIT_CODES` in `process-shutdown.mjs`).
+fn signal_name(code: i32) -> &'static str {
+    match code {
+        129 => "SIGHUP",
+        143 => "SIGTERM",
+        _ => "SIGINT",
+    }
 }

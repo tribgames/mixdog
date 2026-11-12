@@ -78,6 +78,8 @@ impl SessionDirectory {
             hop: (hop > 0).then_some(hop),
             bot_chain: Vec::new(),
             room_row: None,
+            sender: None,
+            from_agent: None,
             skill_selection: None,
             on_start: Box::new(|| {}),
             done,
@@ -111,6 +113,18 @@ impl SessionDirectory {
     /// (`transcriptMeta: { sender: 'lead', hop, botChain }`, `daemon-session-control.mjs:186-195`):
     /// the turn it starts, or the steering it joins, is in that chain (`bot-hops.mjs:52,70`).
     pub async fn submit_chained_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], room_row: &str) -> bool {
+        self.submit_message(thread, content, id, hop, bot_chain, room_row, None).await
+    }
+
+    /// A `session` tool's send (`sendToSession`, `daemon-session-control.mjs`): `content` submitted under `id` with
+    /// `transcriptMeta: { sender: 'lead', fromAgent?, hop?, botChain? }` (`from_agent`: the bot writing into another's chat).
+    /// It runs at once on an idle thread, else rides the queue; false when the thread did not accept it.
+    pub async fn submit_session_message(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> bool {
+        self.submit_message(thread, content, id, hop, bot_chain, "", Some(from_agent)).await
+    }
+
+    /// `sender`: `Some(from_agent)` stamps `sender: 'lead'` (and `fromAgent`); `None` stamps neither.
+    async fn submit_message(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], room_row: &str, sender: Option<Option<&str>>) -> bool {
         let ctx = CallContext::internal("room-turn");
         let Ok(handle) = self.open_handle(thread, &ctx).await else { return false };
         let (done, outcome) = oneshot::channel();
@@ -120,6 +134,8 @@ impl SessionDirectory {
             hop: (hop > 0).then_some(hop),
             bot_chain: bot_chain.to_vec(),
             room_row: Some(room_row.to_owned()).filter(|row| !row.is_empty()),
+            sender: sender.map(|_| "lead"),
+            from_agent: sender.flatten().map(str::to_owned),
             skill_selection: None,
             on_start: Box::new(|| {}),
             done,
@@ -162,6 +178,8 @@ impl SessionDirectory {
             hop: None,
             bot_chain: Vec::new(),
             room_row: None,
+            sender: None,
+            from_agent: None,
             skill_selection: Some(turn.skill_selection.clone()),
             on_start,
             done,
@@ -301,6 +319,36 @@ mod tests {
         assert_eq!(body["meta"]["transcript"]["hop"], json!(2));
         assert!(body["meta"]["transcript"].get("routineTrigger").is_none());
         assert!(directory.wake_turn(&ThreadId::from("sess_none"), "x", "wake_2", 0).await.is_none());
+    }
+
+    /// The `session` tool's send: the message is the input row, stamped as the tool's send is (`sender: 'lead'`, the bot that
+    /// wrote into another bot's chat as `fromAgent`, its hop and chain); a thread there is none of does not take it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_tool_send_is_stamped_with_its_sender_and_chain() {
+        let rig = Rig::new();
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let record = seen.clone();
+        rig.set_script(Arc::new(move |run| {
+            let record = record.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                record.lock().unwrap().push(run.input_body.clone());
+                crate::session::RunOutcome::Completed(Box::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        let chain = ["bob".to_owned(), "ann".to_owned()];
+        assert!(directory.submit_session_message(&handle.id, &json!("From a bot"), "atask_1", 2, &chain, Some("ann")).await);
+        eventually_on!(&[&handle.cell.stepped], || (seen.lock().unwrap().len() == 1).then_some(())).await;
+        let body = seen.lock().unwrap()[0].clone();
+        assert_eq!(body["content"], json!("From a bot"));
+        assert_eq!(body["meta"]["transcript"]["submissionIds"], json!(["atask_1"]));
+        assert_eq!(
+            (&body["meta"]["transcript"]["sender"], &body["meta"]["transcript"]["fromAgent"], &body["meta"]["transcript"]["hop"], &body["meta"]["transcript"]["botChain"]),
+            (&json!("lead"), &json!("ann"), &json!(2), &json!(["bob", "ann"]))
+        );
+        assert!(!directory.submit_session_message(&ThreadId::from("sess_none"), &json!("x"), "send_2", 0, &[], None).await);
     }
 
     /// A fire behind a running turn waits in the queue (never steered into it); cancelled there it

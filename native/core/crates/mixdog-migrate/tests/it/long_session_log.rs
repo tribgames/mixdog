@@ -201,6 +201,12 @@ fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
         let session = &sessions[id];
         let mut read = serde_json::to_value(&session.header).expect("header");
         read["messages"] = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+        // The sidecar reference set the migration stamps on every header (`offload_sources::stamp`) is the core's own: 1.4.5's
+        // document has none.
+        if let Some(header) = read.as_object_mut() {
+            header.remove("offloadSources");
+            header.remove("offloadSourcesRules");
+        }
         // Through the same number form as the recording (every JS number an f64): `2` and `2.0` are one value.
         let read = mixdog_testkit::exact::Exact::plain(&read).to_plain().expect("plain");
         assert_eq!(read, document, "{name}: the document 1.4.5 read");

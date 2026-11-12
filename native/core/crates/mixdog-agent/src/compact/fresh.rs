@@ -2,8 +2,12 @@
 //! previous one), a stable acknowledgement and the volatile tail, within the
 //! compact budget. Rule-only when no handoff text is given.
 
+use std::sync::LazyLock;
+
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::ContentPart;
+use mixdog_js::JsRegex;
 use mixdog_core_api::domain::provider::Role;
 use serde_json::Value as JsonValue;
 use sha2::Digest;
@@ -91,6 +95,9 @@ pub struct FreshOptions {
     pub force: bool,
     pub preview: bool,
     pub preview_summary: bool,
+    /// Node `latestUserPrefix`: the current Goal snapshot the kept latest request carries ahead of
+    /// its text, or the standalone context row when no real request is left.
+    pub latest_user_prefix: String,
 }
 
 #[derive(Debug)]
@@ -355,8 +362,116 @@ async fn fresh_tail(
     let turn_input = latest_user.is_some() || !pending_task_notification_indexes(&source.live).is_empty();
     let continuation = if turn_input && opts.active_turn { active_turn_continuation(&source.live) } else { None };
     let mut volatile = execution.messages;
+    if let Some(latest) = &latest_user
+        && let Some(index) =
+            volatile.iter().rposition(|m| m.role() == Role::User && m.message.content == latest.message.content)
+    {
+        volatile[index] = prepend_latest_user_context(&volatile[index], &opts.latest_user_prefix);
+    }
     volatile.extend(continuation);
+    // Older compacted sessions may have only synthetic Goal turns left: the current snapshot is kept
+    // without inventing a human instruction to attach it to.
+    let prefix = mixdog_js::js_trim(&opts.latest_user_prefix);
+    if latest_user.is_none() && !prefix.is_empty() {
+        volatile.push(AgentMessage::sourced(Source::CompactContext, prefix));
+    }
     Ok(Tail { latest_user, turn_input, volatile })
+}
+
+static GOAL_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
+    JsRegex::new_static(r"<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*", "gi")
+});
+static TODO_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
+    JsRegex::new_static(r"<system-reminder>\s*<todo_state>[\s\S]*?<\/todo_state>\s*<\/system-reminder>\s*", "gi")
+});
+
+/// `stripRuntimeUserContext`'s content: `content` without the producer's `prefix` and `suffix`;
+/// `None` when the provenance is stale (the boundaries are not where it says).
+fn stripped_content(content: &Content, prefix: &str, suffix: &str) -> Option<Content> {
+    match content {
+        Content::Text(text) => {
+            let inner = text.strip_prefix(prefix)?;
+            (text.len() >= prefix.len() + suffix.len()).then_some(())?;
+            Some(Content::Text(inner.strip_suffix(suffix)?.to_owned()))
+        }
+        Content::Parts(parts) => {
+            let is_text = |part: Option<&ContentPart>, want: &str| matches!(part, Some(ContentPart::Text(text, _)) if text == want);
+            if (!prefix.is_empty() && !is_text(parts.first(), prefix)) || (!suffix.is_empty() && !is_text(parts.last(), suffix)) {
+                return None;
+            }
+            let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
+            (parts.len() >= head + tail).then(|| Content::Parts(parts[head..parts.len() - tail].to_vec()))
+        }
+    }
+}
+
+/// `withRuntimeUserContext`'s content: text gains `prefix` and `suffix`, parts gain them as text blocks.
+fn with_prefix(content: &Content, prefix: &str, suffix: &str) -> Content {
+    match content {
+        Content::Text(body) => Content::Text(format!("{prefix}{body}{suffix}")),
+        Content::Parts(parts) => {
+            let block = |text: &str| (!text.is_empty()).then(|| ContentPart::Text(text.to_owned(), None));
+            Content::Parts(block(prefix).into_iter().chain(parts.iter().cloned()).chain(block(suffix)).collect())
+        }
+    }
+}
+
+/// `prependLatestUserContext`: the latest request with `prefix` (trimmed) ahead of its own text
+/// as producer-owned runtime context. Its own context comes off first; a Goal or todo snapshot
+/// its suffix carried is replaced by the one the prefix brings.
+fn prepend_latest_user_context(message: &AgentMessage, prefix: &str) -> AgentMessage {
+    let text = mixdog_js::js_trim(prefix);
+    if text.is_empty() {
+        return message.clone();
+    }
+    // A message the run built has no stored row yet: its text one is the base the meta rides on.
+    let mut row = match (&message.stored, &message.message.content) {
+        (Some(stored), _) => (**stored).clone(),
+        (None, Content::Text(_)) => serde_json::Map::new(),
+        (None, Content::Parts(_)) => {
+            let mut out = message.clone();
+            out.message.content = with_prefix(&message.message.content, &format!("{text}\n\n"), "");
+            return out;
+        }
+    };
+    let mut meta = row.get("meta").and_then(JsonValue::as_object).cloned().unwrap_or_default();
+    let context = meta
+        .get("runtimeUserContext")
+        .filter(|_| message.role() == Role::User)
+        .and_then(|c| Some((c.get("prefix")?.as_str()?.to_owned(), c.get("suffix")?.as_str()?.to_owned())));
+    let stripped = context.and_then(|(p, s)| stripped_content(&message.message.content, &p, &s).map(|content| (content, s)));
+    let (content, mut suffix) = match stripped {
+        Some((content, suffix)) => {
+            // The kept suffix still carries the turn's agent list reminder: it stays told.
+            meta.shift_remove("runtimeUserContext");
+            if let Some(told) = meta.shift_remove("agentListing") {
+                meta.insert("agentListing".to_owned(), told);
+            }
+            (content, suffix)
+        }
+        None => (message.message.content.clone(), String::new()),
+    };
+    if text.contains("<goal_state>") {
+        suffix = GOAL_STATE_REMINDER.replace_all_with(&suffix, |_| String::new());
+    }
+    if text.contains("<todo_state>") {
+        suffix = TODO_STATE_REMINDER.replace_all_with(&suffix, |_| String::new());
+    }
+    let prefix = format!("{text}\n\n");
+    let content = with_prefix(&content, &prefix, &suffix);
+    if message.stored.is_none()
+        && let Content::Text(body) = &content
+    {
+        row.insert("role".to_owned(), JsonValue::String("user".to_owned()));
+        row.insert("content".to_owned(), JsonValue::String(body.clone()));
+    }
+    meta.insert("runtimeUserContext".to_owned(), serde_json::json!({ "prefix": prefix, "suffix": suffix }));
+    row.insert("meta".to_owned(), JsonValue::Object(meta));
+    let mut out = message.clone();
+    out.message.content = content;
+    // The meta rides the stored row the host writes the message back over.
+    out.stored = Some(std::sync::Arc::new(row));
+    out
 }
 
 async fn fresh_layout(

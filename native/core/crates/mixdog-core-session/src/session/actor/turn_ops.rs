@@ -100,7 +100,7 @@ impl SessionActor {
     /// (PreCompact behind its savings gate), a skipped result is the answer as it is, and any
     /// other runs PostCompact, re-marks the Goal reminder (`compaction`: the compaction dropped
     /// the Goal's tool results), re-arms the late tool announcements and answers the result.
-    fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
+    pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
         if self.ui_busy() {
             return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
         }
@@ -133,7 +133,7 @@ impl SessionActor {
     /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
     /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
     /// queue (`decisions.md`, "turn/retryFailed").
-    fn retry_blocked(&self) -> bool {
+    pub(super) fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
@@ -483,6 +483,7 @@ impl SessionActor {
         }
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -495,7 +496,7 @@ impl SessionActor {
     }
 
     /// `isSessionCompactionBlocked`: a turn's provider or tool work runs now, or the thread is going.
-    fn compaction_blocked(&self) -> bool {
+    pub(super) fn compaction_blocked(&self) -> bool {
         self.deleting || self.cell.closed.load(SeqCst) || self.ui_busy()
     }
 
@@ -523,12 +524,20 @@ impl SessionActor {
             Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
         });
         compaction.replacement.extend(appended);
+        let jobs = self.jobs_tx.clone();
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
         tokio::spawn(async move {
             let answer = match durable.await {
-                Ok(Ok(())) => Ok(CompactionCommit::Applied),
+                Ok(Ok(())) => {
+                    // `pruneCompactedOffloads(session)` on the actor (`prune_offloads`); the commit answers after it.
+                    let (told, pruned) = oneshot::channel();
+                    if jobs.send(JobDone::PruneOffloads(told)).is_ok() {
+                        let _ = pruned.await;
+                    }
+                    Ok(CompactionCommit::Applied)
+                }
                 _ => Err(CoreError::Internal { incident_id: "compaction-commit".into() }),
             };
             let _ = tx.send(answer);

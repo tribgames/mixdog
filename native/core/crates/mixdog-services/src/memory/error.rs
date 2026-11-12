@@ -23,6 +23,10 @@ pub enum MemoryError {
     Json(#[from] serde_json::Error),
     #[error("cancelled")]
     Cancelled,
+    /// More than one step of a stop failed (Node's `AggregateError(failures, 'memory service shutdown failed')`,
+    /// `memory-service-lifecycle.mjs:96`): every failure, in the order the steps ran.
+    #[error("memory service shutdown failed")]
+    Shutdown(Vec<MemoryError>),
 }
 
 impl MemoryError {
@@ -33,7 +37,7 @@ impl MemoryError {
     /// The sentence a tool call reports for this failure.
     pub fn message(&self) -> String {
         match self {
-            Self::Rejected(text) => text.clone(),
+            Self::Rejected(text) | Self::Embedding(text) => text.clone(),
             other => other.to_string(),
         }
     }

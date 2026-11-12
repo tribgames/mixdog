@@ -5,7 +5,7 @@ use super::*;
 use serde_json::json;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/ai-admin/route-admin-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-admin-twin.json")).unwrap()
 }
 
 fn obj(v: &Value) -> Obj {
@@ -167,7 +167,7 @@ fn refresh_route_effort_matches_node() {
         let meta = (!case["meta"].is_null()).then(|| &case["meta"]);
         let live = route.get("provider").and_then(Value::as_str).unwrap_or("");
         let fast = |_: &str, _: &Value, _: Option<&str>, _: &Value| case["ladder"]["fast"].as_bool().unwrap();
-        let got = refresh_route_fields(&obj(&case["config"]), &route, meta, live, &fast);
+        let got = refresh_route_fields(&obj(&case["config"]), &route, meta, live, &fast, &|_, _| None);
         assert_eq!(json!(got), case["after"], "refresh case {i}");
     }
 }

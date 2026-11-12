@@ -1,0 +1,32 @@
+diff --git a/src/runtime/memory/lib/embedding-cache-retention.mjs b/src/runtime/memory/lib/embedding-cache-retention.mjs
+index c8315926c..9d08bf9f3 100644
+--- a/src/runtime/memory/lib/embedding-cache-retention.mjs
++++ b/src/runtime/memory/lib/embedding-cache-retention.mjs
+@@ -1,8 +1,9 @@
+ export const DEFAULT_EMBED_CACHE_MAX_ROWS = 10_000;
+ 
+ export function resolveEmbeddingCacheMaxRows(value = process.env.MIXDOG_EMBED_CACHE_MAX_ROWS) {
+-  const parsed = Number(value);
+-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_EMBED_CACHE_MAX_ROWS;
++  const rows = Math.floor(Number(value));
++  // A fraction below one rounds to zero rows, which would wipe the cache: it is as invalid as 0.
++  return Number.isFinite(rows) && rows > 0 ? rows : DEFAULT_EMBED_CACHE_MAX_ROWS;
+ }
+ 
+ export async function pruneEmbeddingCache(db, { maxRows = resolveEmbeddingCacheMaxRows(), batchSize = 5000 } = {}) {
+diff --git a/src/runtime/memory/lib/embedding-cache-retention.test.mjs b/src/runtime/memory/lib/embedding-cache-retention.test.mjs
+index c24652ecb..14bff3ecd 100644
+--- a/src/runtime/memory/lib/embedding-cache-retention.test.mjs
++++ b/src/runtime/memory/lib/embedding-cache-retention.test.mjs
+@@ -10,6 +10,11 @@ test('embedding cache defaults to ten thousand rows with a positive override', (
+   assert.equal(resolveEmbeddingCacheMaxRows('invalid'), 10_000);
+ });
+ 
++test('a positive fraction below one is invalid, not a zero-row cache', () => {
++  assert.equal(resolveEmbeddingCacheMaxRows('0.5'), 10_000);
++  assert.equal(resolveEmbeddingCacheMaxRows('12.9'), 12);
++});
++
+ test('a legacy oversized embedding cache is truncated to reclaim disk pages', async () => {
+   const calls = [];
+   const db = {

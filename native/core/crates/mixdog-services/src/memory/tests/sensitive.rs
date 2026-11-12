@@ -192,3 +192,52 @@ fn only_sensitive_browser_fills_are_remembered_and_listeners_hear_each_new_value
         drop(subscription);
     }
 }
+
+/// A carry makes a session's values, those it holds and those it gains later, its target's, and on along the target's
+/// own carries; the target's listeners hear it, the carried listener is told each session that gained one, and a cycle
+/// of carries ends.
+#[test]
+fn a_carried_session_takes_the_values_its_source_holds_and_gains_up_the_chain() {
+    let fill = |text: &str| serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": text } } });
+    let store = Arc::new(SensitiveStore::default());
+    let told: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let sink = told.clone();
+    assert!(store.on_carried(move |session| sink.lock().unwrap().push(session.to_owned())));
+    assert!(!store.on_carried(|_| {}), "one carried listener");
+    let heard = Arc::new(AtomicU64::new(0));
+    let _parent = {
+        let heard = heard.clone();
+        store.on_marked("parent", move |version| heard.store(version, Ordering::SeqCst))
+    };
+    assert!(store.remember("child", &[fill("before")]));
+    store.carry("child", "parent");
+    assert_eq!(store.redact_text("parent", "before"), "[redacted]", "what the source held is carried");
+    store.carry("grandchild", "child");
+    store.carry("parent", "child");
+    assert!(store.remember("grandchild", &[fill("after")]));
+    for session in ["grandchild", "child", "parent"] {
+        assert_eq!(store.redact_text(session, "before after"), if session == "grandchild" { "before [redacted]" } else { "[redacted] [redacted]" }, "{session}");
+    }
+    assert_eq!(heard.load(Ordering::SeqCst), store.version("parent"));
+    // A marking session with no listener of its own (no turn to rewrite its log) is told too.
+    assert_eq!(*told.lock().unwrap(), ["child", "parent", "grandchild", "child", "parent"]);
+    assert_eq!(store.redact_text("unrelated", "after"), "after");
+}
+
+/// A completion's message keeps its card (`meta.taskCard`, a core-only field: the report as the card shows it and the raw
+/// notification); stored after a mark, the card holds the marker like the content does.
+#[test]
+fn a_completion_card_on_a_stored_message_takes_the_marker() {
+    let fill = serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "730215" } } });
+    let store = SensitiveStore::default();
+    store.remember("owner", &[fill]);
+    let message = serde_json::json!({
+        "role": "user",
+        "content": "<result>\nThe code is 730215.\n</result>",
+        "meta": { "source": "task-notification", "taskCard": { "name": "agent", "args": { "tag": "s2h" }, "result": "The code is 730215.", "rawResult": "<result>\nThe code is 730215.\n</result>" } },
+    });
+    let stored = store.redact_message("owner", &message);
+    assert!(!stored.to_string().contains("730215"), "{stored}");
+    assert_eq!(stored["meta"]["taskCard"]["result"], "The code is [redacted].");
+    assert_eq!(stored["meta"]["source"], "task-notification");
+}

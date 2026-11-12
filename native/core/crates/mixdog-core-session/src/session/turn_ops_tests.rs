@@ -306,6 +306,37 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     assert_eq!(call(&handle, "thread/compact/start", json!({}), "k-4").await.expect("answered"), Value::Null);
 }
 
+/// `takePendingCompact` of the turn settle (`fixtures/session-compact-cases`, recorded by
+/// `record-session-compact-cases.mjs`): a compaction the `session` tool scheduled runs when the thread's running turn
+/// settles, once however often it was scheduled, through the same compaction the manual one runs; a thread that is not
+/// loaded has no turn to wait for.
+#[tokio::test(start_paused = true)]
+async fn a_scheduled_compaction_runs_once_when_the_threads_turn_settles() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-compact-cases/golden.json")).expect("golden");
+    let recorded = golden["cases"].as_array().expect("cases").iter().find(|c| c["case"] == "the settle of the scheduled session runs the compaction once").expect("case")["observed"].clone();
+    assert_eq!((recorded["ran"].clone(), recorded["pending"].clone()), (json!(["A"]), json!([])));
+
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert!(directory.schedule_compact_after_turn(&mixdog_core_api::ids::ThreadId::from("sess_gone")).is_err());
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    directory.schedule_compact_after_turn(&handle.id).expect("scheduled");
+    directory.schedule_compact_after_turn(&handle.id).expect("scheduled again");
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
+
+    gate.notify_one();
+    let calls = eventually_on!(&[&handle.cell.stepped], || {
+        let calls = super::testing::lock(&rig.compaction.calls).clone();
+        (calls.len() >= 4).then_some(calls)
+    })
+    .await;
+    assert_eq!(calls, ["compact manual false", "post manual", "rearm", "invalidate"], "one compaction, as the manual one runs");
+    assert!(!handle.cell.pending_compact.load(std::sync::atomic::Ordering::SeqCst), "the schedule is one-shot");
+}
+
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the

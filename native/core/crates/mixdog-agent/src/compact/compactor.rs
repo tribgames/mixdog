@@ -33,6 +33,8 @@ use super::summary_run::SummarizeContext;
 use super::summary_run::elapsed_ms;
 use super::summary_run::SummaryMode;
 use super::summary_run::plan_steps;
+use super::summary_run::Generated;
+use super::summary_run::RouteStep;
 use super::summary_run::summarize_on_plan;
 use crate::boundary::CompactPolicy;
 use crate::boundary::CompactSettings;
@@ -103,7 +105,7 @@ impl FreshParts {
 
     fn context<'a>(&'a self, meter: &'a MessageMeter<'a>, preview: bool) -> FreshContext<'a> {
         FreshContext {
-            tail: TailContext { meter, rows: &*self.rows, archive: &*self.archive, preview },
+            tail: TailContext { meter, rows: &*self.rows, archive: &*self.archive, redactor: &*self.redactor, preview },
             attachments: &*self.attachments,
         }
     }
@@ -153,27 +155,8 @@ impl FreshCompactor {
     /// `None` when the session knows no boundary: Node has no policy then, and a forced
     /// compaction fails with "no context window is available".
     pub fn for_session(session: SessionCompactor) -> Option<Arc<Self>> {
-        let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..session.settings })?;
-        let context_window = policy.context_window.unwrap_or(policy.boundary_tokens);
-        let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
-        let summary = PlannedHandoff {
-            parts: session.parts.clone(),
-            fork: session.fork,
-            resolver: session.resolver,
-            config: SummaryConfig {
-                mode: session.summary_mode,
-                reserve_tokens: policy.reserve_tokens,
-                context_window,
-                token_calibration: policy.token_calibration,
-                conversation_threshold_tokens: session.conversation_threshold_tokens,
-            },
-        };
-        Some(Arc::new(Self {
-            parts: session.parts,
-            triggers: Some(session.triggers),
-            summary: Some(Arc::new(summary)),
-            config: CompactorConfig { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None },
-        }))
+        let (summary, config) = PlannedHandoff::for_session(&session)?;
+        Some(Arc::new(Self { parts: session.parts, triggers: Some(session.triggers), summary: Some(Arc::new(summary)), config }))
     }
 
     fn options(&self, request: &CompactRequest<'_>, handoff_text: String, preview: bool, preview_summary: bool) -> FreshOptions {
@@ -188,6 +171,7 @@ impl FreshCompactor {
             force: true,
             preview,
             preview_summary,
+            latest_user_prefix: request.latest_user_prefix.to_owned(),
         }
     }
 }
@@ -310,6 +294,26 @@ pub struct PlannedHandoff {
 }
 
 impl PlannedHandoff {
+    /// The session's summary and the compactor's sizing, as [`FreshCompactor::for_session`] wires them.
+    pub fn for_session(session: &SessionCompactor) -> Option<(Self, CompactorConfig)> {
+        let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..session.settings.clone() })?;
+        let context_window = policy.context_window.unwrap_or(policy.boundary_tokens);
+        let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
+        let summary = PlannedHandoff {
+            parts: session.parts.clone(),
+            fork: session.fork.clone(),
+            resolver: session.resolver.clone(),
+            config: SummaryConfig {
+                mode: session.summary_mode,
+                reserve_tokens: policy.reserve_tokens,
+                context_window,
+                token_calibration: policy.token_calibration,
+                conversation_threshold_tokens: session.conversation_threshold_tokens,
+            },
+        };
+        Some((summary, CompactorConfig { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None }))
+    }
+
     fn calibration(&self) -> f64 {
         if self.config.token_calibration > 0.0 { self.config.token_calibration } else { 1.0 }
     }
@@ -336,6 +340,15 @@ impl HandoffSource for PlannedHandoff {
     }
 
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
+        let (_, generated) = self.summarize(messages, budget_tokens).await?;
+        Ok(Handoff { text: generated.summary, usage: generated.usage, summary_ms: generated.duration_ms })
+    }
+}
+
+impl PlannedHandoff {
+    /// The summary on the route plan of the session's mode and cache warmth: the step whose route
+    /// wrote it, and the run (fork or isolated request, and why a fork fell back).
+    pub async fn summarize(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<(RouteStep, Generated), CompactError> {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
         let input = conversation_compaction_input(&ctx, messages, true).await?;
@@ -352,7 +365,6 @@ impl HandoffSource for PlannedHandoff {
             context_window: self.config.context_window,
             conversation_input: &input,
         };
-        let (_, generated) = summarize_on_plan(&cx, &plan_steps(mode, warm)).await?;
-        Ok(Handoff { text: generated.summary, usage: generated.usage, summary_ms: generated.duration_ms })
+        summarize_on_plan(&cx, &plan_steps(mode, warm)).await
     }
 }

@@ -209,7 +209,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn absolute_local_path_answers_each_recorded_input_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
         let drive: String = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
         let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}: record it on a host with that drive (benchmarks/rust-core/recorders/record-absolute-local-path.mjs)"));
         let mut replayed = 0;
@@ -230,7 +230,7 @@ mod tests {
     /// made by loading local-files.ts with that path module): the criterion holds on both kinds of host.
     #[test]
     fn absolute_local_path_answers_each_recorded_posix_input_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
         let posix = &golden["posix"];
         let mut replayed = 0;
         for (input, answer) in posix["inputs"].as_array().unwrap().iter().zip(posix["answers"].as_array().unwrap()) {

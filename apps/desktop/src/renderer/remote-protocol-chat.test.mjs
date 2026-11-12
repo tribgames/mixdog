@@ -10,7 +10,7 @@ import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { normalizedProviderModels } from '../main/desktop-support.ts';
-import { remoteToolOutput } from '../main/remote-transcript.ts';
+import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
 const S = 'sess_a';
@@ -193,7 +193,7 @@ function adapterFor(script) {
       coreErrorForWindow,
       normalizedProviderModels,
       sessionStateOf: () => script.state,
-      remoteToolOutput,
+      transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
     },
     { approvalNotifications: script.notifications }
   );

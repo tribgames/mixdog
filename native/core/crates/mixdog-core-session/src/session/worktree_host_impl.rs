@@ -186,6 +186,12 @@ impl WorkspaceHost for SessionWorkspaceHost {
         self.lock().insert(session_id.to_owned(), workspace);
     }
 
+    async fn publish_workspace(&self, session_id: &str, workspace: Option<Value>) {
+        if let Err(error) = self.threads.publish(&ThreadId::from(session_id), mixdog_core_ports::ports::threads::Section::Workspace(workspace)).await {
+            tracing::warn!("the live workspace of {session_id} not published: {error:?}");
+        }
+    }
+
     async fn activity(&self, session_id: &str) -> LeadActivity {
         self.runtime.activity(session_id).await
     }

@@ -70,7 +70,7 @@ impl mixdog_services::memory::service::MemoryModule for Memory {
         lock(&self.0).push(args);
         String::new()
     }
-    async fn recall(&self, _: Value) -> String {
+    async fn recall(&self, _: Value, _: &tokio_util::sync::CancellationToken) -> String {
         String::new()
     }
 }
