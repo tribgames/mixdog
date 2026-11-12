@@ -665,10 +665,14 @@ export function openSessionLog({ logPath, expect = null, messages = null, projec
       fd = null;
       log = repairDamagedLog(logPath, log, options.claim);
       fd = openSync(logPath, 'r+');
+      // The new base was written and proven here: the file it left is known.
+      known = fstatSync(fd, { bigint: true });
     } else if (log.tornTail) {
       cutTornTail(fd, logPath, log.tornTail);
       log.size = log.tornTail.offset;
       log.tornTail = null;
+      // The replay read the file and the cut is this recorder's own.
+      known = fstatSync(fd, { bigint: true });
     } else {
       const read = fstatSync(fd, { bigint: true });
       if (recordStampPart(read) === recordStampPart(opened)) known = read;
@@ -1516,7 +1520,11 @@ export class SessionLogRecorder {
           return;
         }
         const landsOn = this._openStat();
-        const onKnown = landsOn !== null && recordStampPart(landsOn) === this._knownLast;
+        // A batch written again lands on the state its failed write began on,
+        // with that write's own bytes after it (_atLogEnd above proved them
+        // this batch's): what was known then is known under them.
+        const onKnown = failed?.onKnown === true || (landsOn !== null && recordStampPart(landsOn) === this._knownLast);
+        this._unacked.onKnown = onKnown;
         let written = null;
         try {
           // Written on the thread (into the page cache), fsynced off it: a
@@ -1535,7 +1543,8 @@ export class SessionLogRecorder {
           else this._forgetKnown();
           await syncFd(this._fd);
         } catch (err) {
-          // Whether the batch's bytes reached the file is not known.
+          // Whether the batch's bytes reached the file is not known until it
+          // is written again (`onKnown` above).
           this._forgetKnown();
           if (this._closedHard) return;
           // Kept for the next batch, at the same offset; every waiting caller
