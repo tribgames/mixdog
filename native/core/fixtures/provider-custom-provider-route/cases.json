@@ -23,7 +23,8 @@
             }
           }
         },
-        "request": {"model": "m2"
+        "request": {
+          "model": "m2"
         }
       },
       "result": {
