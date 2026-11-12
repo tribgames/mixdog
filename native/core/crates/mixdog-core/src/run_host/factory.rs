@@ -1643,6 +1643,33 @@ mod tests {
         assert_eq!(kept, ["in", "partial", "restart"]);
     }
 
+    /// A run that died with nothing drafted (only its draft's opening body) is finalized from its rows alone, as Node's reconnect
+    /// recovery finalizes it (`recover_after_restart`, which the session crate's scripted runs answer a crash with): the same
+    /// rows are added, in the same order.
+    #[test]
+    fn a_draftless_crash_is_finalized_as_the_reconnect_recovery_finalizes_it() {
+        let context = vec![
+            (ItemId::from("in"), json!({ "role": "user", "content": "read a" })),
+            (ItemId::from("call"), json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] })),
+        ];
+        let bodies: Vec<Value> = context.iter().map(|(_, body)| body.clone()).collect();
+        let reconnect: Vec<(String, Value)> = mixdog_agent::interrupt::recover_after_restart(&bodies)
+            .expect("recovered")
+            .into_iter()
+            .filter_map(|row| match row {
+                mixdog_agent::interrupt::RecoveredRow::New { role, body } => Some((role.to_owned(), body)),
+                mixdog_agent::interrupt::RecoveredRow::Kept { .. } => None,
+            })
+            .collect();
+        assert!(!reconnect.is_empty());
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        let added: Vec<(String, Value)> = left.rows.into_iter().map(|row| (row.role.unwrap_or_default(), row.body)).collect();
+        let shape = |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
+        assert_eq!(shape(&added), shape(&reconnect));
+    }
+
     /// A throttled draft takes the streamed text while the message's row commits on another thread: the draft is queued
     /// before the row (a draft after it would recover the message a second time). The row's commit runs at the first moment
     /// it can: at once if nothing holds the draft between taking and queuing it, else once the draft lets go.
