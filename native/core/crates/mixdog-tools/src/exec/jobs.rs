@@ -1504,8 +1504,9 @@ async fn collect(
     // Bounded: a log whose writes stall past it is given up, and the job's results say from
     // which byte it lacks output (`Job::log_note`).
     let _closed = logs.close(spill::LOG_STALL).await;
-    // Nothing writes the logs after this: their ownership record lets a sweep take them once they have aged.
-    spill::mark_finished(runtime.config.lanes.durability, &CancellationToken::new(), &job.stdout_log).await;
+    // Nothing writes the logs after this: their ownership record lets a sweep take them once they have aged. Bounded
+    // like the close: the job's end does not wait on a record write that stalls.
+    logs.mark_finished(spill::LOG_STALL).await;
     job.state().exit = exit;
     let now = runtime.now_ms();
     let detached = {

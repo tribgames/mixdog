@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
@@ -37,21 +39,6 @@ fn owner_path(out: &Path) -> Option<PathBuf> {
 
 fn owner_record(state: &str) -> Vec<u8> {
     serde_json::json!({"pid": std::process::id(), "state": state}).to_string().into_bytes()
-}
-
-/// Records that the job whose stdout log is `out` has ended: nothing writes its logs any more, so the sweep may take
-/// them once they have aged. A job whose logs were never created has no record and gets none.
-pub async fn mark_finished(lane: impl LaneToken, cancel: &CancellationToken, out: &Path) {
-    let Some(owner) = owner_path(out) else { return };
-    let Ok(handle) = lane.submit(cancel, move |_| {
-        if std::fs::exists(&owner)? {
-            std::fs::write(&owner, owner_record("finished"))?;
-        }
-        Ok::<(), std::io::Error>(())
-    }) else {
-        return;
-    };
-    let _ = handle.await;
 }
 
 /// How long a job's logs are kept (`SHELL_OUTPUT_RETENTION_MS`): transcripts keep naming them, so
@@ -169,15 +156,19 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// Creates (truncating) both logs of a job and their directory, after their ownership record. Best effort: a log that cannot be
 /// created fails its first append, which stops it.
-fn create_logs(logs: &[PathBuf; 2]) {
+fn create_logs(shared: &Shared) {
+    let logs = &shared.logs;
     #[cfg(test)]
     write_gate::pass(&logs[0]);
     if let Some(dir) = logs[0].parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    // The ownership record (the job is running) comes before its logs, so no sweep finds a log without it.
+    // The ownership record comes before its logs, so no sweep finds a log without it. A creation held up past the
+    // job's end records the job as ended: nothing would mark a record written as running after the end's mark.
     if let Some(owner) = owner_path(&logs[0]) {
-        let _ = std::fs::write(owner, owner_record("running"));
+        let _record = lock(&shared.record);
+        let state = if shared.ended.load(Ordering::Acquire) { "finished" } else { "running" };
+        let _ = std::fs::write(owner, owner_record(state));
     }
     for log in logs {
         let _ = std::fs::File::create(log);
@@ -231,6 +222,11 @@ struct Shared {
     progress: Notify,
     /// The job's log token: cancelled when the writer is given up.
     stop: CancellationToken,
+    /// The job has ended ([`LogWriter::mark_finished`]).
+    ended: AtomicBool,
+    /// Held across each write of the ownership record, so its two writers (the first drain's creation and the end's
+    /// mark) never interleave.
+    record: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -300,6 +296,8 @@ impl LogWriter {
             state: Mutex::new(WriterState::default()),
             progress: Notify::new(),
             stop: CancellationToken::new(),
+            ended: AtomicBool::new(false),
+            record: Mutex::new(()),
         };
         Self { lane, shared: Arc::new(shared) }
     }
@@ -407,10 +405,45 @@ impl LogWriter {
         if lock(&self.shared.state).gaps.iter().any(Option::is_some) { LogsClosed::Incomplete } else { LogsClosed::Complete }
     }
 
+    /// Records in the logs' ownership record that the job has ended: nothing writes its logs any more, so the sweep
+    /// may take them once they have aged. A job whose logs were never created has no record and gets none. The
+    /// record is written on the logs' own lane (a stalled disk under the logs holds no lane a session's save waits
+    /// on) and waited for at most `deadline`: a mark still queued or writing then is finished by its lane thread, and
+    /// the job's end does not wait for it.
+    pub async fn mark_finished(&self, deadline: std::time::Duration) {
+        let Some(owner) = owner_path(&self.shared.logs[0]) else { return };
+        self.shared.ended.store(true, Ordering::Release);
+        let shared = self.shared.clone();
+        let Ok(marked) = self.lane.submit(&CancellationToken::new(), move |_| {
+            let _record = lock(&shared.record);
+            if std::fs::exists(&owner)? {
+                std::fs::write(&owner, owner_record("finished"))?;
+            }
+            Ok::<(), std::io::Error>(())
+        }) else {
+            return;
+        };
+        let _ = mixdog_rt::time::timeout(deadline, marked).await;
+    }
+
     /// Bytes queued or being written.
     #[cfg(test)]
     pub(crate) fn unwritten(&self) -> usize {
         lock(&self.shared.state).bytes
+    }
+
+    /// Waits until no drain is running or waiting to run.
+    #[cfg(test)]
+    pub(crate) async fn idle(&self) {
+        loop {
+            let ended = self.shared.progress.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            if !lock(&self.shared.state).draining {
+                return;
+            }
+            ended.await;
+        }
     }
 }
 
@@ -418,7 +451,7 @@ impl LogWriter {
 /// queued.
 fn drain(shared: &Shared, exit: DrainExit) {
     if !lock(&shared.state).created {
-        create_logs(&shared.logs);
+        create_logs(shared);
         lock(&shared.state).created = true;
     }
     loop {
