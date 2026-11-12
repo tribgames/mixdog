@@ -44,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "2a301221d21cde7656afe68d5f81631decb62824fc81ddf85aa814a8d2201598"
+      "sha256": "465aad6ae970141223f867a86eb2ae8915c03ee20873b8105c228d1890008520"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -73,7 +73,7 @@
   "recorderSha256": "3f12bc6af8099795818b5191a8e0226ab01058d93b7eab1e9fe4db560e7c6a22",
   "replay": {
     "compare": "mixdog-ai providers::first_byte::FirstByteSettings::from_env over the recorded env of each case, then the real adapters' first_response_budget: GoogleAdapter (Vertex AI with modelParameters {serviceTier}, Antigravity per model, policy::antigravity_with for the ladder) and CompatAdapter (mimo-oauth and the profiles without a window of their own); compare every budget whole",
-    "entry": "Drive these public items on o1: mixdog-ai/src/providers/first_byte.rs:76 FirstByteSettings::from_env; mixdog-ai/src/providers/first_byte.rs:128 FirstByteSettings::antigravity_budget.",
+    "entry": "Drive these public items on o1: mixdog-ai/src/providers/first_byte.rs:58 FirstByteSettings::from_env; mixdog-ai/src/providers/first_byte.rs:109 FirstByteSettings::antigravity_budget.",
     "existsButNotPublicOnO1": [],
     "inputs": {
       "environment": "each case lists the variables it sets (cases[].observed.env); no other variable is set. The replay hands them to FirstByteSettings::from_env as a lookup, not through the process environment",
@@ -83,12 +83,12 @@
     "protocolMethods": [],
     "rustTargets": [
       {
-        "line": 76,
+        "line": 58,
         "name": "FirstByteSettings::from_env",
         "path": "native/core/crates/mixdog-ai/src/providers/first_byte.rs"
       },
       {
-        "line": 128,
+        "line": 109,
         "name": "FirstByteSettings::antigravity_budget",
         "path": "native/core/crates/mixdog-ai/src/providers/first_byte.rs"
       }

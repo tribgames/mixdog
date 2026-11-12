@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "2a301221d21cde7656afe68d5f81631decb62824fc81ddf85aa814a8d2201598"
+      "sha256": "465aad6ae970141223f867a86eb2ae8915c03ee20873b8105c228d1890008520"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
@@ -97,7 +97,7 @@
         "reason": "Node measures with performance.now, which its virtual timers do not move; Rust has one clock, so the second send's wait also holds the retry delay (retryDelayMs), which the replay adds to the recorded wait"
       }
     ],
-    "entry": "Drive these public items on o1: mixdog-ai/src/providers/local/mod.rs:166 RegisteredAdapter::new; mixdog-services/src/local_provider/installed_models.rs:38 ManagedRuntime.",
+    "entry": "Drive these public items on o1: mixdog-ai/src/providers/local/mod.rs:150 RegisteredAdapter::new; mixdog-services/src/local_provider/installed_models.rs:40 ManagedRuntime.",
     "existsButNotPublicOnO1": [],
     "inputs": {
       "clock": "performance.now is virtual (advance steps only); the Rust replay runs on a paused tokio clock and advances it by the same amounts",
@@ -107,12 +107,12 @@
     "protocolMethods": [],
     "rustTargets": [
       {
-        "line": 166,
+        "line": 150,
         "name": "RegisteredAdapter::new",
         "path": "native/core/crates/mixdog-ai/src/providers/local/mod.rs"
       },
       {
-        "line": 38,
+        "line": 40,
         "name": "ManagedRuntime",
         "path": "native/core/crates/mixdog-services/src/local_provider/installed_models.rs"
       }
