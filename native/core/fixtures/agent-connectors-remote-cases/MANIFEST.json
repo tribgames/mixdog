@@ -10,15 +10,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8909,
+      "bytes": 9991,
       "path": "golden.json",
-      "sha256": "3db5ac3313df1ca913fa8ffeb46f0fd40dd1107e7d016b4b7873d221eeae40a6"
+      "sha256": "052e23233bc94a5eb20d81b0e928b28254846791056fe1bc7fbab0f8da231a63"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/agent-connectors-scenarios.mjs",
-      "sha256": "9c82b6833de41c7e7cc108bc4820707e05688261eed4bf69241d9dcc92da6cfa"
+      "sha256": "068fc990d98c4097db0ad0e50eb1cb2f97b922a2cb99de91cebe761fe5e0d2d0"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
@@ -95,6 +95,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "agent-connectors-remote-cases",
-  "totalBytes": 8909,
+  "totalBytes": 9991,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
