@@ -51,7 +51,7 @@ async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContex
     context_seeded(root, files, seeds).await
 }
 
-async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
+pub(super) async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     for (rel, bytes) in seeds {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
@@ -88,7 +88,7 @@ async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<
 }
 
 /// The recorder's legacy argument names, mapped to the published schemas.
-fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
+pub(super) fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     let obj = input.as_object_mut().unwrap();
     if matches!(tool, "read" | "edit") {
         if let Some(p) = obj.shift_remove("path") {
@@ -105,7 +105,7 @@ fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     input
 }
 
-fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
+pub(super) fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
     match outcome {
         Ok(out) => match &out.parts[0] {
             ToolPart::Text(t) => (false, t.clone()),
