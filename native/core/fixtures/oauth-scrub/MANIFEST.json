@@ -25,7 +25,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9144,
+    "files": 9145,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -97,18 +97,35 @@
           "src/runtime/agent/orchestrator/providers/openai-compat-chat-send-redaction.test.mjs",
           "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs",
           "src/runtime/agent/orchestrator/providers/openai-compat-models.mjs",
-          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs"
+          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini-credential-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-catalog.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-dispatch.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/registry.mjs"
         ],
-        "sha256": "9de2b88f2284e2b72ca13737391b3d1885ac766bfde67be1c49ad2f22ba4aa1a"
+        "sha256": "6feb432a8b4b370d5eb599d187b9a88fc8678e3c0a17819477f7d6b296a33070"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 43
+      "filesDifferingFromCommit": 53
     },
-    "srcSha256": "c64dfd4d8b45b12532894489ad48a4d5cb822763cb1a90f5a9a0798e3bf063f6",
+    "srcSha256": "2c2bb004daa3ac842cf37105f148e69ad6b3009e83b38bc72607cde75c6838ed",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
