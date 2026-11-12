@@ -42,6 +42,10 @@ const QUEUE_WAIT_MS = 1000;
 // A worker that has not answered for this long is stuck; it is replaced so
 // the queue does not stay blocked behind it.
 const STUCK_MS = 10_000;
+// A host that is not ready this long after it started is hung in its load (STUCK_MS
+// covers judgments only, and nothing else ends a host that never answers): it is
+// ended, and the next judgment starts a new one instead of waiting on it for ever.
+const START_LIMIT_MS = 60_000;
 let queueTail = Promise.resolve();
 // A turn that arrives while the judge is still loading (its first use, or the
 // first turn after a model update) waits at most this long; loading takes about 2 s on a desktop CPU.
@@ -225,6 +229,11 @@ function ensureWorker(dir) {
     lastLoadErrorAt = Date.now();
     retire();
   });
+  const startLimit = setTimeout(() => {
+    if (worker === created && !ready) void created.terminate().catch(() => {});
+  }, START_LIMIT_MS);
+  startLimit.unref();
+  created.on('exit', () => clearTimeout(startLimit));
   created.on('exit', retire);
   return created;
 }
