@@ -1,6 +1,6 @@
 {
   "cases": 7,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "command": "node --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-env.mjs --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "Same hop as model-proxy-host-cases (the session connection, JSON over HTTP): every crossing message is recorded as its text under each case's `wire`.",
     "notRun": "no real provider (scripted send functions)",
@@ -14,9 +14,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 567531,
+      "bytes": 571533,
       "path": "golden.json",
-      "sha256": "f656909c6ef4a4956491d6473624ce9f1264293449d6f951a71fc686885f8770"
+      "sha256": "ccc54dd939c8ab40ad7d941def59b229861c675f461d818a7b2e90f61f2b9565"
     }
   ],
   "inputs": [
@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "465aad6ae970141223f867a86eb2ae8915c03ee20873b8105c228d1890008520"
+      "sha256": "2a301221d21cde7656afe68d5f81631decb62824fc81ddf85aa814a8d2201598"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -80,7 +80,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "cb1048ff5361d8d92524777034fbf8c010e177ceb7327d119e3c3357ed26933e",
+  "recorderSha256": "4d55e7f8a49babd4495d4cab7550feb27d04912624f0fdf76d9f043fd7381c9e",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
     "declaredExclusions": [
@@ -113,11 +113,12 @@
         "allowlistedCallbacks": "the CALLBACKS table of the replay test: each Node callback and the ProxyEvent variants that carry it, keys compared in order",
         "deltas (onStreamDelta of a 200-char string)": "unrepresentable: onStreamDelta's kind is the ProxyProgress enum (v2/model_proxy.rs:596), never free text",
         "excluded[] {name, index, pointer, reason, message}": "ProxyEvent::ToolExcluded (v2/model_proxy.rs:653), each string redacted",
+        "providerName / accounts / tools / networkAttempts": "the recorder's inputs: the provider and its two accounts, the two tools it was sent (the first has an invalid schema, its name carries the credential-shaped text) and, per network attempt, whether the server's secret hook was known; the replay reads the tools and the second account's id from them",
         "result.content": "the textDelta events of the run, folded; the provider is scripted with the recorder's own 'ok', and the run's whole ordered event list is compared in the order Node's wire recorded the callbacks, which is the order a real send raises them (see the recorder's comment: the request body's tool report at each account attempt, the switch between attempts, the committed change last): tool excluded, account switching, tool excluded, account changed (onStreamDelta has no typed event); the text and the scripted stream's completed event close the list",
+        "result.providerMetadata": "not carried: the typed completion has no provider metadata. Node's real pool stamps `accountRouting` (provider, the serving account's id) on the answer it resolves to the server, which the scripted provider of earlier recordings never showed; the typed wire's events never carry an account id, which the replay asserts",
         "result.secretHookKnown / secretHookCalled": "unrepresentable: a typed request (ProxyOptions, v2/model_proxy.rs:194) carries no callback, so a provider cannot learn of one",
         "secretShapedInput": "a note of the recorder",
         "stages[account-changed] {provider, at}": "ProxyEvent::AccountChanged { provider, at } (v2/model_proxy.rs:646): the account id is not a field of the event",
-        "stages[reconnecting].attempt / max": "unrepresentable: the core's account pool states a message only (AccountStage::Switching, mixdog-core-api/src/domain/provider.rs:135; key_pool.rs:287); Node's real pool states none either (account-pool.mjs reconnecting: { message }), the counters are the recorder's scripted provider",
         "stages[reconnecting].message": "ProxyEvent::AccountSwitching { message }, redacted (redacted_text, 2,000)"
       },
       "payloads past the aggregate in-flight limit are refused, and so are oversized event replies": {
@@ -156,6 +157,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-trust-cases",
-  "totalBytes": 567531,
+  "totalBytes": 571533,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

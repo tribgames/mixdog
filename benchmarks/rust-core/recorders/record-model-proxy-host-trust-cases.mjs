@@ -23,6 +23,9 @@ const { createModelProxyHost, MODEL_PROXY_CALLBACKS, withoutAttachmentReferences
 const { MODEL_PROXY_REQUEST_EVENT, ModelProxyChannel, encodeModelProxyWire } = await set.load(`${R}agent/orchestrator/providers/model-proxy-channel.mjs`);
 const { ModelProxyProvider } = await set.load(`${R}agent/orchestrator/providers/model-proxy-provider.mjs`);
 const { readAttachmentBase64, storeInlineImagePart } = await set.load(`${R}attachments/store.mjs`);
+const { registerProviderAccount, changeProviderAccounts, readProviderAccountPool, removeProviderAccount } = await set.load(`${R}shared/provider-accounts.mjs`);
+const { createAccountPoolProvider } = await set.load(`${R}agent/orchestrator/providers/account-pool.mjs`);
+const { buildAntigravityRequest } = await set.load(`${R}agent/orchestrator/providers/antigravity-request.mjs`);
 
 const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
 const disposers = [];
@@ -159,32 +162,39 @@ await run('a burst of sends all run, with no rate or concurrency refusal', async
   return { sends: 30, results, hostRunningAfter: host.running };
 });
 await run('callbacks reach the server only allowlisted and projected; account ids stay on this PC', async () => {
-  const provider = {
-    async send(_m, _model, _t, options) {
+  // The order is Node's own: the real account pool (account-pool.mjs createAccountPoolProvider, over the real account store) walks two
+  // accounts of `antigravity-oauth`, and each account's send builds its request with the real Antigravity request builder
+  // (antigravity-request.mjs buildAntigravityRequest, which reports the tools it leaves out through `onToolExcluded`). Only the
+  // network end is replaced: the first account's request is refused with the quota error the gateway answers (429
+  // usage_limit_reached), the second's streams its answer. The pool then raises `reconnecting` (account-pool.mjs:625) between the
+  // attempts and `account-changed` (account-pool.mjs:586) once the answer is in; the recorder scripts none of the callbacks.
+  const providerName = 'antigravity-oauth';
+  const accounts = ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2'];
+  for (const row of readProviderAccountPool(providerName).accounts) await removeProviderAccount(providerName, row.id);
+  for (const id of accounts) await registerProviderAccount(providerName, id, { label: id });
+  await changeProviderAccounts(providerName, { selectedId: accounts[0], auto: true, useCredits: false });
+  const bogus = { name: 'mcp__x__key-sk-DUMMY-abcdefghijklmnopqrstuv', description: 'a tool.', inputSchema: { type: 'object', properties: { a: { type: 'bogus-type' } } } };
+  const read = { name: 'read', description: 'read tool.', inputSchema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } };
+  const networkAttempts = [];
+  const provider = createAccountPoolProvider(providerName, () => ({
+    async send(messages, model, tools, options) {
       const secretHookKnown = options.onSecretHook !== undefined;
-      // The order a real send raises these in (b6f10295a): the adapter builds its request body, and so reports the tools it
-      // leaves out, at the start of every account attempt (gemini-request-body.mjs:66 `toGeminiRequestTools`, antigravity-request.mjs:260);
-      // the account pool announces the switch to the next account after a refused attempt (account-pool.mjs:625, `reconnecting`),
-      // the next attempt builds its request again (the same report), and the committed account change comes last, after the answer
-      // (account-pool.mjs:586, `account-changed`).
-      const excluded = { name: 'bad_tool', index: 3, pointer: '/properties/x/type', reason: 'invalid type', message: 'gemini tool "bad_tool" excluded; key sk-DUMMY-abcdefghijklmnopqrstuv', accountId: 'pc-acct-42', schema: { type: 'bogus' } };
-      await options.onToolExcluded(excluded);
-      await options.onStageChange('reconnecting', { attempt: 2, max: 3, message: 'retry with key sk-DUMMY-abcdefghijklmnopqrstuv', nested: { accountEmail: 'me@pc' }, userEmail: 'me@pc' });
-      await options.onToolExcluded(excluded);
+      buildAntigravityRequest(messages, model, tools, { onToolExcluded: options.onToolExcluded }, 'proj');
+      networkAttempts.push(secretHookKnown);
+      if (networkAttempts.length === 1) throw Object.assign(new Error('Quota exhausted'), { code: 'usage_limit_reached', status: 429 });
       options.onStreamDelta('x'.repeat(200));
-      await options.onStageChange('account-changed', { provider: 'openai', accountId: 'pc-acct-42', at: 7 });
       return { content: 'ok', secretHookKnown };
     },
-  };
-  const { channel } = connect(fakeRuntime({ openai: provider }));
+  }));
+  const { channel } = connect(fakeRuntime({ [providerName]: provider }));
   const stages = []; const deltas = []; const excluded = []; let secretHookCalled = false;
-  const result = await within('the send', new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {
+  const result = await within('the send', new ModelProxyProvider(providerName, {}, channel).send([{ role: 'user', content: 'hi' }], 'gemini-3.8-flash', [bogus, read], {
     onStageChange: (stage, detail) => { stages.push([stage, detail]); },
     onStreamDelta: (kind) => { deltas.push(kind); },
     onToolExcluded: (info) => { excluded.push(info); },
     onSecretHook: () => { secretHookCalled = true; },
   }));
-  return { result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()], secretShapedInput: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
+  return { providerName, accounts, tools: [bogus, read], networkAttempts, result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()], secretShapedInput: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
 });
 
 await set.finish({
@@ -224,9 +234,10 @@ await set.finish({
         hostRunningAfter: 'ModelProxyService::close returns at once: no run left',
       },
       'callbacks reach the server only allowlisted and projected; account ids stay on this PC': {
+        'result.providerMetadata': "not carried: the typed completion has no provider metadata. Node's real pool stamps `accountRouting` (provider, the serving account's id) on the answer it resolves to the server, which the scripted provider of earlier recordings never showed; the typed wire's events never carry an account id, which the replay asserts",
         'stages[account-changed] {provider, at}': 'ProxyEvent::AccountChanged { provider, at } (v2/model_proxy.rs:646): the account id is not a field of the event',
         'stages[reconnecting].message': 'ProxyEvent::AccountSwitching { message }, redacted (redacted_text, 2,000)',
-        'stages[reconnecting].attempt / max': "unrepresentable: the core's account pool states a message only (AccountStage::Switching, mixdog-core-api/src/domain/provider.rs:135; key_pool.rs:287); Node's real pool states none either (account-pool.mjs reconnecting: { message }), the counters are the recorder's scripted provider",
+        'providerName / accounts / tools / networkAttempts': "the recorder's inputs: the provider and its two accounts, the two tools it was sent (the first has an invalid schema, its name carries the credential-shaped text) and, per network attempt, whether the server's secret hook was known; the replay reads the tools and the second account's id from them",
         'excluded[] {name, index, pointer, reason, message}': 'ProxyEvent::ToolExcluded (v2/model_proxy.rs:653), each string redacted',
         'deltas (onStreamDelta of a 200-char string)': "unrepresentable: onStreamDelta's kind is the ProxyProgress enum (v2/model_proxy.rs:596), never free text",
         'result.content': "the textDelta events of the run, folded; the provider is scripted with the recorder's own 'ok', and the run's whole ordered event list is compared in the order Node's wire recorded the callbacks, which is the order a real send raises them (see the recorder's comment: the request body's tool report at each account attempt, the switch between attempts, the committed change last): tool excluded, account switching, tool excluded, account changed (onStreamDelta has no typed event); the text and the scripted stream's completed event close the list",

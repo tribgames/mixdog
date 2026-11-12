@@ -426,17 +426,24 @@ async fn a_burst_of_runs_all_answer() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reports_reach_the_server_projected_and_the_account_id_stays_on_this_pc() {
     let node = observed("callbacks reach the server only allowlisted and projected; account ids stay on this PC");
-    let secret = "retry with key sk-DUMMY-abcdefghijklmnopqrstuv";
+    // What the provider reports is what Node's real account pool and request builder reported (the recording's `stages` and
+    // `excluded`, which the PC host had redacted before they crossed): the tool name carries the credential-shaped text of the
+    // recorded input tool, so the report the provider makes is the recorded one with that text back.
+    let raw_name = node["tools"][0]["name"].as_str().unwrap();
+    let recorded = &node["excluded"][0];
+    let redacted_name = recorded["name"].as_str().unwrap();
     let excluded = p::ToolExclusionReport {
-        name: "bad_tool".into(),
-        index: 3,
-        pointer: "/properties/x/type".into(),
-        reason: "invalid type".into(),
-        message: "gemini tool \"bad_tool\" excluded; key sk-DUMMY-abcdefghijklmnopqrstuv".into(),
+        name: raw_name.into(),
+        index: recorded["index"].as_u64().unwrap() as usize,
+        pointer: recorded["pointer"].as_str().unwrap().into(),
+        reason: recorded["reason"].as_str().unwrap().into(),
+        message: recorded["message"].as_str().unwrap().replace(redacted_name, raw_name),
     };
+    let [switching, changed] = [&node["stages"][0][1], &node["stages"][1][1]];
+    let account_id = node["accounts"][1].as_str().unwrap();
     let mut events = vec![
-        p::StreamEvent::AccountStage(p::AccountStage::Switching { message: secret.into() }),
-        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "openai".into(), account_id: "pc-acct-42".into(), at: 7 }),
+        p::StreamEvent::AccountStage(p::AccountStage::Switching { message: switching["message"].as_str().unwrap().into() }),
+        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: changed["provider"].as_str().unwrap().into(), account_id: account_id.into(), at: changed["at"].as_i64().unwrap() }),
     ];
     // The recorder's scripted `send` returns `{ content: 'ok' }`: the provider is scripted from that, never from the
     // recorded result, whose content the core's own events must fold to.
@@ -457,7 +464,7 @@ async fn reports_reach_the_server_projected_and_the_account_id_stays_on_this_pc(
     want.push(w::ProxyEvent::Completed { stop: Some(w::ProxyStop::EndTurn), pricing_model: None, request_ms: None });
     assert_eq!(got, want);
     let wire = serde_json::to_string(&got).unwrap();
-    assert!(!wire.contains("pc-acct-42") && !wire.contains("sk-DUMMY-"), "{wire}");
+    assert!(!wire.contains(account_id) && !wire.contains("sk-DUMMY-"), "{wire}");
     // Node's server callbacks and the typed events that carry each (`replay.fieldMap.callbacks`).
     let carried: Vec<&str> = CALLBACKS.iter().map(|(name, _)| *name).collect();
     assert_eq!(node["allowlistedCallbacks"], json!(carried));
