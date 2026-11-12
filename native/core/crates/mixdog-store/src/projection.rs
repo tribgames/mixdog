@@ -55,6 +55,8 @@ pub enum FrameKind {
         dropped: Option<CompactedDropped>,
         /// No divider is listed for it (the record's `silent`).
         silent: bool,
+        /// The record's `lost`: no divider, and what it took out is not shown.
+        lost: bool,
     },
     Run { rid: String, phase: RunPhase },
     Approval { aid: String, rid: String, phase: ApprovalPhase },
@@ -175,6 +177,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
                 mode: DropMode::of(r.dropped_count, r.dropped.is_some()),
                 dropped: r.dropped.clone(),
                 silent: r.silent == Some(true),
+                lost: r.lost == Some(true),
             },
             op(&r.op),
         ),

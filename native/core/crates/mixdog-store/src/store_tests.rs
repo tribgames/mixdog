@@ -1924,6 +1924,40 @@ async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
     assert!(page(&env).await.iter().all(|r| !r.archived));
 }
 
+/// A compaction whose archive was lost (`lost`) lists no divider and hides the rows it took out from a restored window, which
+/// keeps them in the log (`archived` still says they left the context); a rewind before it makes them live again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compaction_whose_archive_was_lost_hides_what_it_took_out_and_lists_no_divider() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    // `itm1` is a row the core wrote: its own id is the row's, the compaction names it by its message id.
+    let core_written = message("itm1", json!({"role":"user","content":"five","meta":{"transcript":{"messageId":"msg_1"}}}));
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two"), user("c", "three"), core_written]).await;
+    let compacted = rec(json!({"k":"compacted","cid":"k1","at":1792567960000_i64,"lost":true,
+        "dropped":{"messageIds":["a","b","msg_1"],"callIds":[]},
+        "replacement":{"inline":[{"iid":"sum","body":{"role":"user","content":"summary"}},{"iid":"c","body":{"role":"user","content":"three"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted, user("d", "four")]).await;
+    let page = |env: &Env| {
+        let store = env.store.clone();
+        async move { store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap().0 }
+    };
+    let rows = page(&env).await;
+    let marks: Vec<(String, bool, bool)> = rows.iter().map(|r| (r.iid.clone(), r.archived, r.hidden)).collect();
+    assert_eq!(
+        marks,
+        [
+            ("d".into(), false, false),
+            ("itm1".into(), true, true),
+            ("c".into(), false, false),
+            ("b".into(), true, true),
+            ("a".into(), true, true)
+        ]
+    );
+    assert!(env.store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap().is_empty());
+    let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":5,"reason":"edit"}))]).await;
+    assert!(page(&env).await.iter().all(|r| !r.hidden));
+}
+
 fn message(iid: &str, body: serde_json::Value) -> Encoded {
     rec(json!({"k":"item","iid":iid,"form":"message","model":true,"visible":true,"refs":[],
         "body":{"inline":body}}))
