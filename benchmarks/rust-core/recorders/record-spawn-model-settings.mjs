@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // What a spawn that pins a model resolves to, as Node has it after node-patches/node-fix-spawn-model-settings.patch (a clear
-// Node bug fixed on both sides: the pinned model ran without the fast flag, the effort or the agent's fallbacks of a spawn on the
-// agent's own route). Recorded from b6f10295a with that patch applied, through the agent tool's own entry (`createAgentExecute`
+// Node bug fixed on both sides: the pinned model ran without the fast flag or the effort of a spawn on the agent's own route,
+// and another model could answer a spawn that named one; now the named model is strict: no fallback chain, `fast: true` on a model
+// without fast is refused, and no stored effort the model does not offer reaches the request). Recorded from b6f10295a with that patch applied, through the agent tool's own entry (`createAgentExecute`
 // of agent-tool/execute.mjs: the request's model is resolved against the catalog, then the real spawn preparer resolves the
 // route and builds the session spec). Per scenario: the request, the agent routes of the config, the catalog rows (as the
 // model picker hydrates them) or none, the tool's answer, and the agent, preset name and preset of the spec the preparer
@@ -60,6 +61,9 @@ const CONFIG = {
       ],
     },
     plain: { provider: 'openai', model: 'gpt-fast', effort: 'medium' },
+    // Agents whose stored effort their own model does not offer: a spawn naming that model must not restore it.
+    stale: { provider: 'openai', model: 'gpt-fast', effort: 'xhigh', fallbacks: [{ provider: 'gemini', model: 'pro' }] },
+    staleless: { provider: 'xai', model: 'grok-plain', effort: 'high' },
   },
 };
 
@@ -72,7 +76,13 @@ const SCENARIOS = [
   { name: 'a_model_with_effort', args: spawn({ model: 'gpt-fast', effort: 'high' }) },
   { name: 'a_model_with_fast', args: spawn({ model: 'gpt-fast', fast: true }) },
   { name: 'a_model_with_effort_and_fast_off', args: spawn({ model: 'gpt-saved-fast', effort: 'LOW', fast: false }) },
-  { name: 'a_model_that_does_not_support_fast_or_the_effort', args: spawn({ model: 'grok-plain', effort: 'high', fast: true }) },
+  { name: 'a_model_that_does_not_offer_the_effort', args: spawn({ model: 'grok-plain', effort: 'high' }) },
+  { name: 'fast_on_a_model_without_fast_is_refused', args: spawn({ model: 'grok-plain', fast: true }) },
+  { name: 'fast_off_on_a_model_without_fast', args: spawn({ model: 'grok-plain', fast: false }) },
+  { name: 'the_agents_own_model_with_a_stored_effort_it_does_not_offer', args: spawn({ model: 'gpt-fast' }, 'stale') },
+  { name: 'the_agents_own_model_with_a_stored_effort_and_an_effort_it_does_not_offer', args: spawn({ model: 'gpt-fast', effort: 'nonsense' }, 'stale') },
+  { name: 'the_agents_own_model_without_effort_options', args: spawn({ model: 'grok-plain' }, 'staleless') },
+  { name: 'the_agents_own_model_with_an_effort_it_offers', args: spawn({ model: 'gpt-fast', effort: 'high' }, 'stale') },
   { name: 'an_effort_the_model_does_not_offer_is_snapped', args: spawn({ model: 'gpt-fast', effort: 'xhigh' }) },
   { name: 'the_agents_own_model_keeps_its_settings', args: spawn({ model: 'opus' }) },
   { name: 'the_agents_own_model_with_effort_and_fast', args: spawn({ model: 'opus', effort: 'low', fast: false }) },
@@ -191,7 +201,7 @@ writeSetManifest(out, {
     ...recorderProvenance(import.meta.url),
     scenarios: cases.map((entry) => ({ name: entry.name, answer: entry.result.answer.slice(0, 80), created: entry.result.created.length })),
     exclusions: [
-      'the answer of a spawn that started: it names the job of the recorder\'s stand-in task (`job-1`), which is the Rust board\'s own id; the answer of a request that failed is compared whole',
+      'the job id in the answer of a spawn that started: the recorder\'s stand-in task is `job-1`, the Rust board generates its own id, so the replay reads the board\'s id as `job-1` (the rest of every answer is compared whole)',
       'of the session spec the real spawn preparer hands to session creation only the agent, the preset name and the preset are compared: the rest (directory, runtime spec, owner ids, prompt) is the spawn flow\'s own recording (fixtures/agent/flows)',
       'the session itself, the tag binding and the model catalog behind the listing are stand-ins on both sides (the catalog rows are the recorded input, as the model picker hydrates them)',
     ],
