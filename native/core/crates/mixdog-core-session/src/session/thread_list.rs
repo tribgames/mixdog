@@ -1253,6 +1253,9 @@ mod tests {
             let (inner, ordinal) = self.inner.create_log(lane, id, session)?;
             Ok((Box::new(GatedLog { inner, split: self.split.clone() }), ordinal))
         }
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &crate::session::turn_draft::DraftWrite) -> Result<(), CoreError> {
+            self.inner.draft_write(lane, id, write)
+        }
     }
 
     /// A room post's rows and the `updatedAt` it stamps (`thread/roomRows/commit`) change the room's row in one step, as Node's
