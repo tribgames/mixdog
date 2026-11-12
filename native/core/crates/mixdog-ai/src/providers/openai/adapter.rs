@@ -555,8 +555,7 @@ impl OpenAiAdapter {
                 return Err(error);
             }
         }
-        let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
-        let framed = delta::compute(&chain, &body);
+        let framed = delta::compute(self.mode.delta(), &checkout.chain, &body);
         // `_withCodexWsClientMetadata`: the frame activates its turn under the session's pool key, with this socket as
         // the turn state's owner.
         let scope_turn = request_scope(request).zip(self.codec.ws_turn(request));
@@ -744,6 +743,16 @@ enum Wire {
 }
 
 /// A failed attempt; `handshake` when the WebSocket upgrade itself was refused.
+/// `refusal` with the credential its request carried redacted from its body.
+fn scrub_refusal(mut refusal: ErrorResponse, credential: &Credential) -> ErrorResponse {
+    let text = String::from_utf8_lossy(&refusal.body);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&credential.bearer]);
+    if clean != text {
+        refusal.body = clean.into_bytes();
+    }
+    refusal
+}
+
 struct Failed {
     error: ProviderError,
     handshake: bool,
@@ -756,6 +765,19 @@ impl From<ProviderError> for Failed {
 }
 
 impl OpenAiAdapter {
+    /// A resend over HTTP is a request of its own, which Node builds anew with a fresh `x-client-request-id`
+    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`); the WebSocket's resend keeps its headers.
+    fn renew_request_id(&self, wire_kind: Wire, wire: &mut WireRequest) {
+        if wire_kind == Wire::Ws {
+            return;
+        }
+        for (name, value) in &mut wire.headers {
+            if name.eq_ignore_ascii_case("x-client-request-id") {
+                *value = self.context.request_id();
+            }
+        }
+    }
+
     /// The exchange on one wire with the credential repeats of an attempt.
     async fn run(&self, wire_kind: Wire, request: &Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, Failed> {
         let codec = match wire_kind {
@@ -763,10 +785,29 @@ impl OpenAiAdapter {
             Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
         };
         let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
+        let identity = &request.options.send_identity;
         let mut credential = self.credentials.current().await?;
         let mut refreshed = false;
         let mut stripped = false;
         loop {
+            // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
+            // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`). A resend below (the reloaded
+            // credential, `openai-oauth.mjs:293` / `openai-oauth-dispatch.mjs:209`; the effort update removed, the whole send
+            // again, `effort-configuration.mjs:112`) is a request of its own: it raises the stage again, and over HTTP its
+            // attempts count from the first.
+            match wire_kind {
+                Wire::Ws => identity.raise_stage("requesting"),
+                Wire::Http => {
+                    if refreshed || stripped {
+                        identity.restart_attempts();
+                    }
+                    let attempt = identity.next_attempt();
+                    identity.raise_stage_with(
+                        "requesting",
+                        serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
+                    );
+                }
+            }
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
                 // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
@@ -785,34 +826,46 @@ impl OpenAiAdapter {
                 },
                 Opened::Rejected(rejected) => rejected,
             };
+            // The credential this request carried is redacted from whatever the refusal echoes of it (the message, the
+            // body's error text), the upgrade rejection included.
+            let rejected = scrub_refusal(rejected, &credential);
             if rejected.status == Some(401) && !refreshed {
                 refreshed = true;
-                // Node reissues the request once after a 401 whether or not the reload found a new credential
-                // (`reloadApiKey` / `ensureAuth({ forceRefresh })`): a transient 401 recovers on the same key.
+                // `openai-oauth-dispatch.mjs:205` (HTTP/SSE) and `openai-oauth.mjs:285` (WebSocket).
+                if self.codec.route() == Route::Codex {
+                    match wire_kind {
+                        Wire::Http => mixdog_rt::node_stderr!("[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE"),
+                        Wire::Ws => mixdog_rt::node_stderr!("[openai-oauth-ws] 401 — forcing refresh and retrying once over WS"),
+                    }
+                }
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
                 }
+                self.renew_request_id(wire_kind, &mut wire);
                 continue;
             }
             if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
                 stripped = true;
                 wire = next;
+                self.renew_request_id(wire_kind, &mut wire);
                 continue;
             }
             let mut err = codec.classify(&rejected);
+            // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
+            let label = match (wire_kind, self.codec.route()) {
+                (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
+                (Wire::Ws, _) => "OpenAI WS handshake",
+                (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
+                (Wire::Http, _) => "OpenAI HTTP fallback",
+            };
+            if refused {
+                err.message = super::error::http_response_message(label, &rejected, &err, self.context.now_unix_ms());
+            }
             if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
                 err.reauth_required = true;
             }
             if wire_kind == Wire::Ws {
                 err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
-            }
-            if refused {
-                // `httpResponseError({ label, status, text })`: the message leads with what refused and how, the
-                // diagnostic cut at 200 units. The label is `${errLabel} handshake` on a socket, `httpLabel` on HTTP.
-                let label = if handshake { format!("{} handshake", codec.ws_label()) } else { codec.http_label().to_owned() };
-                let status = rejected.status.unwrap_or(0);
-                let diagnostic = mixdog_js::slice_utf16(&err.message, 200);
-                err.message = if diagnostic.is_empty() { format!("{label} {status}") } else { format!("{label} {status}: {diagnostic}") };
             }
             return Err(Failed { error: err, handshake });
         }

@@ -111,8 +111,10 @@ pub(crate) struct SessionState {
     pub header: Header,
     pub history_rev: u64,
     pub lineage_start: u64,
-    /// Runs started without a terminal phase.
-    pub runs: BTreeMap<String, ()>,
+    /// Runs started without a terminal phase, with their drafts (`draft` records).
+    pub runs: BTreeMap<String, super::turn_draft::RunDraft>,
+    /// The input row of the run whose `run{started}` is next: `(rid, iid)`.
+    pub next_input: Option<(String, String)>,
     pub approvals: BTreeMap<String, PendingApprovalRow>,
     pub queue: Vec<Queued>,
     pub window: VecDeque<WindowItem>,
@@ -253,6 +255,15 @@ impl SessionState {
                 }
             }
             Record::Item(item) => {
+                if let Some(turn) = item.turn.as_ref() {
+                    match (item.role.as_ref().map(|role| role.as_str()), self.runs.get_mut(turn.as_str())) {
+                        (Some("assistant"), Some(draft)) => draft.message_committed(),
+                        (Some("user"), Some(draft)) if draft.input.is_none() => draft.input = Some(item.iid.as_str().to_owned()),
+                        // A run's input row precedes its `run{started}`.
+                        (Some("user"), None) => self.next_input = Some((turn.as_str().to_owned(), item.iid.as_str().to_owned())),
+                        _ => {}
+                    }
+                }
                 if let Some(prompt) = item.prompt_text() {
                     prompt_history::push_session(&mut self.prompt_session, prompt);
                     self.remerge_prompts();
@@ -323,13 +334,15 @@ impl SessionState {
             }
             Record::Run(run) => match run.phase {
                 RunPhase::Started => {
-                    self.runs.insert(run.rid.as_str().to_owned(), ());
+                    let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
+                    self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
                     // `turn.mjs` `runTurn`: the turn begins busy, its spinner requesting (the session's toasts, running tools and
-                    // `setupChanged` stay the session's own).
+                    // `setupChanged` stay the session's own); the run's end clears the section below.
+                    let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                    runtime.busy = true;
                     if let Some(at) = run.at {
                         let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
                         let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
-                        runtime.busy = true;
                         runtime.spinner = Some(super::spinner::started(turns, at));
                     }
                 }
@@ -432,6 +445,11 @@ impl SessionState {
                     self.has_older = true;
                 }
             }
+            Record::Draft(draft) => {
+                if let (Some(run), Slot::Inline(body)) = (self.runs.get_mut(draft.rid.as_str()), &draft.body) {
+                    run.apply(body);
+                }
+            }
             Record::Op(_) | Record::Checkpoint(_) => {}
         }
     }
@@ -470,6 +488,7 @@ impl SessionState {
                 }
             }
             Section::Route(value) => s.route = Some(merge_route(s.route.take().unwrap_or_default(), value)),
+            Section::TurnEffort(effort) => s.route.get_or_insert_with(ThreadRoute::default).turn_effort = effort,
             Section::Context(value) => s.context = Some(merge_context(s.context.take().unwrap_or_default(), value)),
             Section::Todo(value) => s.todo = value,
             Section::Goal(value) => s.goal = value,
@@ -795,5 +814,18 @@ mod tests {
         state.apply(&Change::Section(Section::SetupChanged(change.clone())), None);
         state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
         assert_eq!(state.sections.runtime.unwrap().setup_changed, Some(change));
+    }
+
+    /// `runtime.turnEffort` (`currentTurnEffort`): the run's value replaces the held one, a turn
+    /// without one clears it, and a producer's whole route section leaves it.
+    #[test]
+    fn the_turn_effort_is_the_runs_and_a_route_section_leaves_it() {
+        let mut state = SessionState::new(10);
+        assert_eq!(state.route().turn_effort, None);
+        state.apply(&Change::Section(Section::TurnEffort(Some("medium".into()))), None);
+        state.apply(&Change::Section(Section::Route(ThreadRoute { effort: Some("high".into()), ..ThreadRoute::default() })), None);
+        assert_eq!((state.route().turn_effort.as_deref(), state.route().effort.as_deref()), (Some("medium"), Some("high")));
+        state.apply(&Change::Section(Section::TurnEffort(None)), None);
+        assert_eq!(state.route().turn_effort, None);
     }
 }

@@ -1,0 +1,91 @@
+{
+  "note": "Node's resolveAgentSpawnPreset at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-spawn-preset-cases.mjs",
+  "test": "src/session-runtime/services/agent-tool/spawn-preset.test.mjs",
+  "cases": [
+    {
+      "case": "agent route preset carries modelParameters and contextPercent",
+      "config": {
+        "agents": {
+          "reviewer": {
+            "provider": "anthropic-oauth",
+            "model": "claude-sonnet-5-5",
+            "effort": "low",
+            "modelParameters": {
+              "context": "1m"
+            },
+            "contextPercent": 40
+          }
+        }
+      },
+      "args": {
+        "agent": "reviewer"
+      },
+      "candidates": [
+        {
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-5-5",
+          "effort": "low",
+          "modelParameters": {
+            "context": "1m"
+          },
+          "contextPercent": 40
+        }
+      ],
+      "recorded": {
+        "presetName": "AGENT REVIEWER",
+        "preset": {
+          "id": "agent-reviewer",
+          "name": "AGENT REVIEWER",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-5-5",
+          "fallbackSource": {
+            "agent": "reviewer"
+          },
+          "effort": "low",
+          "fast": false,
+          "modelParameters": {
+            "context": "1m"
+          },
+          "contextPercent": 40,
+          "tools": "full"
+        }
+      }
+    },
+    {
+      "case": "agent route preset omits unset modelParameters and contextPercent",
+      "config": {
+        "agents": {
+          "reviewer": {
+            "provider": "p",
+            "model": "m"
+          }
+        }
+      },
+      "args": {
+        "agent": "reviewer"
+      },
+      "candidates": [
+        {
+          "provider": "p",
+          "model": "m"
+        }
+      ],
+      "recorded": {
+        "presetName": "AGENT REVIEWER",
+        "preset": {
+          "id": "agent-reviewer",
+          "name": "AGENT REVIEWER",
+          "type": "agent",
+          "provider": "p",
+          "model": "m",
+          "fallbackSource": {
+            "agent": "reviewer"
+          },
+          "fast": false,
+          "tools": "full"
+        }
+      }
+    }
+  ]
+}

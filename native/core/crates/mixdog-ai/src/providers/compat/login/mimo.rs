@@ -106,6 +106,7 @@ async fn settle(http: &Http, file: &CredentialFile, mut credentials: MimoCredent
     if credentials.api_key.starts_with(TOKEN_PLAN_KEY_PREFIX) && unrouted {
         credentials.base_url = probe_token_plan(http, &credentials.api_key).await?.to_owned();
     }
+    file.keep(&[&credentials.api_key]);
     file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
     Ok(Some(credentials.uid).filter(|u| !u.is_empty()))
 }

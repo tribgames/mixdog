@@ -12,11 +12,25 @@
 // metadata dates, the inputs are generated from constants, and keys are written sorted. The recorder
 // builds every input twice and refuses to write if the two builds differ.
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { createRequire, registerHooks } from 'node:module';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, refreshSetManifest, resolveTree, writeJson } from './lib/common.mjs';
+import { readFileSync } from 'node:fs';
+import { FIXTURES_ROOT, importFrom, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
-const tree = resolveTree(parseArgs());
+// Node's two extraction functions are module-private in the exact tree (`officeTextForFile`, `extractPdfText`); the
+// extension host's worker calls them through exports. The load hook appends those exports to the module's source in
+// memory, so the tree on disk is the exact recording tree and no line of the functions changes.
+registerHooks({
+  load(url, context, next) {
+    const loaded = next(url, context);
+    if (!url.endsWith('/providers/media-normalization.mjs')) return loaded;
+    return { ...loaded, source: `${loaded.source}\nexport { officeTextForFile, extractPdfText };\n` };
+  },
+});
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const args = parseArgs();
+const tree = resolveTree(args);
 const need = createRequire(join(tree, 'package.json'));
 const JSZip = need('jszip');
 const { PDFDocument, StandardFonts } = need('pdf-lib');
@@ -139,10 +153,26 @@ async function officeInputs() {
 }
 
 async function pdfInputs() {
+  // 100 pages of 3000 characters on a line, on pages wide enough to hold the line (text off the page is not read).
+  const wide = async () => {
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let i = 1; i <= 100; i += 1) {
+      doc.addPage([10000, 200]).drawText(`p${i} ${'x'.repeat(2994)}`, { x: 20, y: 100, size: 4, font });
+    }
+    return Buffer.from(await doc.save());
+  };
   return {
-    'two-pages': await pdfBytes(['Hello media text', 'Second page']),
-    'not-a-pdf': Buffer.from('this is not a pdf'),
-    'truncated-pdf': (await pdfBytes(['Cut short'])).subarray(0, 120),
+    'two-pages': { bytes: await pdfBytes(['Hello media text', 'Second page']) },
+    'not-a-pdf': { bytes: Buffer.from('this is not a pdf') },
+    'truncated-pdf': { bytes: (await pdfBytes(['Cut short'])).subarray(0, 120) },
+    // The page limit: a PDF of 105 pages is read for its first 100 (a longer one is not refused).
+    'pages-over-the-100-page-limit': {
+      bytes: await pdfBytes(Array.from({ length: 105 }, (_, i) => `Body of page ${i + 1}`)),
+    },
+    // The output cap: 100 pages of 3000 characters are 300 KB of text, cut at 256 KiB and marked. The text
+    // is too large to keep; its size, hash and end are.
+    'output-over-256kib-is-cut-and-marked': { bytes: await wide(), digest: true },
   };
 }
 
@@ -162,9 +192,21 @@ async function build() {
     };
   });
   const pdf = [];
-  for (const [name, bytes] of Object.entries(await pdfInputs())) {
+  for (const [name, { bytes, digest }] of Object.entries(await pdfInputs())) {
     const dataBase64 = bytes.toString('base64');
-    pdf.push({ name, dataBase64, text: await extractPdfText(dataBase64) });
+    const text = await extractPdfText(dataBase64);
+    if (!digest) {
+      pdf.push({ name, dataBase64, text });
+      continue;
+    }
+    const utf8 = Buffer.from(text, 'utf8');
+    pdf.push({
+      name,
+      dataBase64,
+      textBytes: utf8.length,
+      textSha256: createHash('sha256').update(utf8).digest('hex'),
+      textTail: text.slice(-80),
+    });
   }
   // The intake's text-layer counts, as `preparePromptSubmissionForProvider` takes them; bytes the
   // parser rejects record the message Node's intake throws (`rejected`).
@@ -228,8 +270,36 @@ if (office.find((c) => c.name === 'container-over-the-inflated-cap').text !== nu
   throw new Error('the container cap did not apply');
 }
 
+const pdfCapped = pdf.find((c) => c.name === 'output-over-256kib-is-cut-and-marked');
+if (!pdfCapped.textTail.endsWith('[PDF text truncated to the prompt input budget]')) throw new Error('the PDF output cap did not apply');
+const pdfPaged = pdf.find((c) => c.name === 'pages-over-the-100-page-limit').text;
+if (!pdfPaged.includes('Body of page 100') || pdfPaged.includes('page 101')) throw new Error('the PDF page limit did not apply');
+
 writeJson(join(outDir, 'office.json'), office);
 writeJson(join(outDir, 'pdf.json'), pdf);
 writeJson(join(outDir, 'pdf-counts.json'), counts);
-refreshSetManifest(join(FIXTURES_ROOT, 'tools'), tree);
+// The tools set's manifest is shared with the other tools recorders: its command and extra stay, its files and identity
+// are this run's (the tree is the exact b6f10295a export; the hook above changes no byte on disk). The set is recorded by
+// the three recorders of its command, so the manifest lists each of them with its sha256 (`recorders`) and the modules
+// any of them loads (`inputs`), all from `recorderProvenance`.
+const toolsDir = join(FIXTURES_ROOT, 'tools');
+const { set, command, recorder: _recorder, recorderSha256: _sha, inputs: _inputs, recorders: _recorders, nodeVersion: _node, product: _product, fileCount: _count, totalBytes: _total, files: _files, ...extra } = JSON.parse(
+  readFileSync(join(toolsDir, 'MANIFEST.json'), 'utf8')
+);
+const TOOLS_RECORDERS = ['record-tools.mjs', 'record-tools-extra.mjs', 'record-media-text.mjs'];
+const provenance = TOOLS_RECORDERS.map((file) => recorderProvenance(new URL(file, import.meta.url).href));
+const recorderPaths = new Set(provenance.map((p) => p.recorder));
+const recorderInputs = new Map(provenance.flatMap((p) => p.inputs.filter((input) => !recorderPaths.has(input.path))).map((input) => [input.path, input]));
+writeSetManifest(toolsDir, {
+  set,
+  recorder: provenance.map((p) => p.recorder).join(' + '),
+  command,
+  extra: {
+    ...extra,
+    recorders: provenance.map(({ recorder, recorderSha256 }) => ({ recorder, recorderSha256 })),
+    nodeVersion: process.version,
+    inputs: [...recorderInputs.values()].sort((a, b) => a.path.localeCompare(b.path)),
+  },
+  identity: nodeTreeIdentity(args, tree, NODE_COMMIT),
+});
 console.log(`recorded ${office.length} office, ${pdf.length} pdf and ${counts.length} pdf-count cases`);

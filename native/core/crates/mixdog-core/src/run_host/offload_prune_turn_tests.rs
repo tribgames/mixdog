@@ -78,7 +78,7 @@ async fn real_turn(name: &str, cancelled: bool) {
         requested: requested.clone(),
         release: release.clone(),
     });
-    let parts = Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None });
+    let parts = Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None });
     let deps = move |rig: &Rig| {
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), parts.clone()));

@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "incomplete_stream",
-    "connectCode": null,
-    "cursorCode": "incomplete_stream",
-    "liveTextEmitted": null,
-    "message": "Cursor stream ended with a truncated frame",
     "name": "Error",
-    "providerRecoveryExhausted": true,
-    "reauthRequired": null,
-    "retryAfterMs": null,
-    "retryable": null,
+    "message": "Cursor stream ended with a truncated frame",
     "status": null,
+    "code": "incomplete_stream",
+    "cursorCode": "incomplete_stream",
+    "connectCode": null,
+    "retryable": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": true
+  },
+  "dispatchedToolCalls": []
 }

@@ -3,7 +3,6 @@
 //! and the service over a session directory and a workspace rig.
 
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -11,22 +10,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
-use mixdog_core_api::FeedSource;
 use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ThreadHandle;
-use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockConnection;
-use mixdog_core_api::mock::MockFeed;
-use mixdog_core_api::mock::MockLimits;
 use mixdog_core_base::support::testing::request;
-use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
 use mixdog_core_base::support::testing::with_op;
-use mixdog_scm::error::ScmFailure;
-use mixdog_scm::worktree::maintenance::SessionActivity;
-use mixdog_scm::worktree::maintenance::SessionSource;
-use mixdog_scm::worktree::maintenance::ShellJob;
 use mixdog_store::schema::record::Header;
 use serde_json::Map;
 use serde_json::Value;
@@ -110,96 +100,9 @@ fn tool_modes_conversations_projects_and_descendants_follow_node() {
 
 // ---- the service --------------------------------------------------------------------------------
 
-/// The registered Projects; what a move asked of them.
-struct Projects {
-    registered: Vec<String>,
-    task: String,
-    touched: Mutex<Vec<String>>,
-}
-
-#[async_trait]
-impl ProjectFolders for Projects {
-    async fn projects(&self) -> Result<Vec<String>, String> {
-        Ok(self.registered.clone())
-    }
-    async fn registered(&self, path: &str) -> Result<String, String> {
-        let key = project_identity(Some(path));
-        self.registered.iter().find(|p| project_identity(Some(p)) == key).cloned().ok_or_else(|| "Project is not available.".to_owned())
-    }
-    async fn canonical_directory(&self, path: &str) -> Result<String, String> {
-        Ok(path.to_owned())
-    }
-    async fn task_workspace(&self) -> Result<String, String> {
-        Ok(self.task.clone())
-    }
-    async fn touch_selected(&self, cwd: &str) -> Result<(), String> {
-        lock(&self.touched).push(cwd.to_owned());
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct Notes(Mutex<Vec<(String, bool)>>);
-
-#[async_trait]
-impl ArchiveRetention for Notes {
-    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
-        lock(&self.0).push((session_id.to_owned(), archived));
-        Ok(())
-    }
-    async fn forget(&self, _session_id: &str) -> Result<(), String> {
-        unreachable!("the thread settings never forget a record: a delete does")
-    }
-}
-
-#[derive(Default)]
-struct Effort(Mutex<Vec<(String, String, bool)>>);
-
-#[async_trait]
-impl EffortTuning for Effort {
-    async fn set_effort(&self, thread: &ThreadId, value: &str, session_only: bool) -> Result<Value, String> {
-        if value == "huge" {
-            return Err("effort must be one of auto, none, minimal, low, medium, high, xhigh, max, ultra".into());
-        }
-        lock(&self.0).push((thread.as_str().to_owned(), value.to_owned(), session_only));
-        Ok(json!({ "provider": "anthropic", "model": "opus", "effort": value, "autoEffort": false }))
-    }
-    fn route(&self, _: &ThreadId) -> Value {
-        json!({})
-    }
-}
-
-/// The stored agent-only sessions, set by the test.
-#[derive(Default)]
-struct AgentOnly(Mutex<Vec<String>>);
-
-#[async_trait]
-impl AgentOnlyIndex for AgentOnly {
-    async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
-        Ok(lock(&self.0).clone())
-    }
-}
-
-struct NoSessions;
-
-#[async_trait]
-impl SessionSource for NoSessions {
-    async fn stored_session_ids(&self) -> Result<HashSet<String>, ScmFailure> {
-        Ok(HashSet::new())
-    }
-    async fn favorites(&self) -> Option<HashSet<String>> {
-        None
-    }
-    async fn archived(&self) -> Option<HashSet<String>> {
-        None
-    }
-    async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
-        HashMap::new()
-    }
-    async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
-        Ok(Vec::new())
-    }
-}
+use crate::session::thread_settings_rig::Built;
+use crate::session::thread_settings_rig::Notes;
+use crate::session::thread_settings_rig::Projects;
 
 /// The app feed's row publication: counts the waits, and holds the next one where a test arms a gate.
 #[derive(Default)]
@@ -229,8 +132,8 @@ struct World {
     settings: ThreadSettings,
     projects: Arc<Projects>,
     notes: Arc<Notes>,
-    effort: Arc<Effort>,
-    agent_only: Arc<AgentOnly>,
+    effort: Arc<crate::session::thread_settings_rig::Effort>,
+    agent_only: Arc<crate::session::thread_settings_rig::AgentOnly>,
     app: MockConnection,
     surface: mixdog_core_base::surface::SurfaceGeneration,
     /// The core's one archive stamp counter, which the settings and the retention cycle share.
@@ -247,38 +150,19 @@ async fn world_with(worktrees: Option<Arc<dyn ArchivedWorktrees>>) -> World {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     let workspace = worktree_tests::rig();
-    let projects = Arc::new(Projects {
-        registered: vec![workspace.repo.to_string_lossy().into_owned()],
-        task: workspace.data.join("unclassified").to_string_lossy().into_owned(),
-        touched: Mutex::default(),
-    });
-    let (notes, effort, agent_only) = (Arc::new(Notes::default()), Arc::new(Effort::default()), Arc::new(AgentOnly::default()));
-    let live: crate::session::worktree::LiveSessions = Arc::new(HashSet::new);
-    let worktrees_of_rig = WorktreeMaintenance::new(workspace.worktrees.clone(), Arc::new(NoSessions), live, Arc::new(|_: Option<&str>| {}));
-    let limits = MockLimits::default();
-    let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
-    let app = MockConnection::new(ConnectionId(1), limits);
-    let source: Arc<dyn FeedSource> = feed.clone();
-    let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
-    mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
-    let ops = tempfile::tempdir().unwrap();
-    let surface = mixdog_core_base::surface::SurfaceGeneration::default();
+    let registered = vec![workspace.repo.to_string_lossy().into_owned()];
+    let task = workspace.data.join("unclassified").to_string_lossy().into_owned();
     let rows = Arc::new(Rows::default());
-    let stamps: Arc<ArchiveStamps> = Arc::default();
-    let settings = ThreadSettings::new(ThreadSettingsParts {
-        directory: directory.clone(),
-        workspaces: workspace.ws.clone(),
-        effort: effort.clone(),
-        projects: projects.clone(),
-        agent_only: agent_only.clone(),
-        worktrees: worktrees.unwrap_or_else(|| Arc::new(worktrees_of_rig)),
-        retention: notes.clone(),
-        app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
-        ops: scopes(ops.path(), "thread").await,
-        surface: surface.clone(),
-        archive_stamps: stamps.clone(),
-        rows: rows.clone(),
-    });
+    let Built { settings, projects, notes, effort, agent_only, app, surface, stamps, ops } = crate::session::thread_settings_rig::build_with(
+        directory.clone(),
+        workspace.ws.clone(),
+        workspace.worktrees.clone(),
+        worktrees,
+        rows.clone(),
+        registered,
+        task,
+    )
+    .await;
     World { rig, rows, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, stamps, _ops: ops }
 }
 

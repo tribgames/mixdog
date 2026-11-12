@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "internal",
-    "connectCode": null,
-    "cursorCode": "internal",
-    "liveTextEmitted": null,
-    "message": "Cursor request failed (500)",
     "name": "Error",
-    "providerRecoveryExhausted": true,
-    "reauthRequired": null,
-    "retryAfterMs": null,
-    "retryable": null,
+    "message": "Cursor request failed (500)",
     "status": 500,
+    "code": "internal",
+    "cursorCode": "internal",
+    "connectCode": null,
+    "retryable": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": true
+  },
+  "dispatchedToolCalls": []
 }

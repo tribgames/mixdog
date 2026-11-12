@@ -71,6 +71,8 @@ pub const UNARCHIVE: &str = "thread/unarchive";
 pub const SET_CWD: &str = "thread/setCwd";
 pub const SET_EFFORT: &str = "thread/setEffort";
 pub const SET_TOOL_MODE: &str = "thread/setToolMode";
+/// The methods the service answers.
+pub const METHODS: &[&str] = &[READ_STATE_UPDATE, METADATA_UPDATE, ARCHIVE, UNARCHIVE, SET_CWD, SET_EFFORT, SET_TOOL_MODE];
 
 const DOMAIN: &str = "thread";
 /// `Number.MAX_SAFE_INTEGER`.
@@ -737,6 +739,18 @@ impl ThreadSettings {
     /// the desktop classification by membership; a Project selected becomes the most recent.
     /// The session's folder afterwards.
     async fn set_cwd(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken) -> Result<Value, CoreError> {
+        self.move_to(thread, path, cancel, false).await
+    }
+
+    /// The Lead's own `session set-project` call (`setCallerCwd`: `switchProject(cwd, { ownTurn: true })`): the calling turn
+    /// is tolerated, the folder keeps any classification it was picked with (no membership test), and no Project becomes the
+    /// most recent (that is the client's `setCwd` action, `session-action.mjs`). The session's folder afterwards.
+    pub async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError> {
+        let cwd = self.move_to(thread, path, &CancellationToken::new(), true).await?;
+        Ok(cwd.as_str().map(str::to_owned).unwrap_or_default())
+    }
+
+    async fn move_to(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken, own_turn: bool) -> Result<Value, CoreError> {
         let handle = self.open(thread).await?;
         let header = handle.cell.header.load_full();
         let raw = mixdog_js::js_trim(path);
@@ -761,8 +775,10 @@ impl ThreadSettings {
         // a session is a task again. A session without a desktop record keeps having none.
         let desktop = match header.get("desktopSession") {
             Some(Value::Object(_)) => {
-                let projects = self.parts.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
-                let member = projects.iter().any(|project| is_within(project, &resolved));
+                let member = own_turn || {
+                    let projects = self.parts.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
+                    projects.iter().any(|project| is_within(project, &resolved))
+                };
                 Some(if member {
                     json!({ "classification": "project", "projectPath": resolved })
                 } else {
@@ -771,12 +787,12 @@ impl ThreadSettings {
             }
             _ => None,
         };
-        let switched = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, cancel).await;
+        let switched = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, own_turn, cancel).await;
         // `transition-steps.mjs:229`: the switch ends in `invalidateCaches()` (the context cache and the pre-session
         // tool surface), whether the folder changed or the transition was undone.
         self.parts.surface.bump();
         let cwd = switched.map_err(scm_error)?;
-        if let Err(error) = self.parts.projects.touch_selected(&cwd).await {
+        if !own_turn && let Err(error) = self.parts.projects.touch_selected(&cwd).await {
             tracing::warn!("project recency update failed (non-fatal): {error}");
         }
         Ok(Value::String(cwd))
@@ -830,7 +846,7 @@ impl ThreadSettings {
 #[async_trait]
 impl DomainService for ThreadSettings {
     fn methods(&self) -> &'static [&'static str] {
-        &[READ_STATE_UPDATE, METADATA_UPDATE, ARCHIVE, UNARCHIVE, SET_CWD, SET_EFFORT, SET_TOOL_MODE]
+        METHODS
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {

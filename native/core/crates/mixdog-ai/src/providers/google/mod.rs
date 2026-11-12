@@ -28,6 +28,8 @@ pub mod schema;
 pub mod serving;
 pub mod tool_accept;
 pub mod traits;
+mod watchdog;
+pub use watchdog::StreamWatch;
 
 #[cfg(test)]
 mod claude_replay_wire_tests;
@@ -157,6 +159,7 @@ pub async fn antigravity(
     client_version: crate::client_versions::Live,
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
+    env: Arc<dyn crate::registry::keys::Environment>,
     now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
     function_calling_mode: Option<&str>,
 ) -> Result<GoogleAdapter, ProviderError> {
@@ -169,6 +172,7 @@ pub async fn antigravity(
             client_version,
             traits,
         )
+        .with_env(env)
         .with_function_calling_mode(function_calling_mode),
         policy::antigravity(),
         http,

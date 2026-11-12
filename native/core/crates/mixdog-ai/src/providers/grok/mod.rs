@@ -121,7 +121,7 @@ pub(crate) fn sdk_headers() -> Vec<(String, String)> {
     };
     sdk_headers_for(platform, arch, SDK_RUNTIME_VERSION)
 }
-/// `randomUUID()` of `proxyHeaders`: a new id per request.
+/// `randomUUID()` of `proxyHeaders`: minted once per send (its `SendIdentity`), every attempt carries it.
 fn request_id() -> String {
     #[cfg(any(test, feature = "test-support"))]
     if let Some(drawn) = NUMBERED_REQUEST_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
@@ -176,7 +176,7 @@ impl Rewriter for GrokRewriter {
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             add("x-grok-session-id", session.to_owned());
         }
-        add("x-grok-req-id", request_id());
+        add("x-grok-req-id", opts.send_identity.get_or_mint(request_id));
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
@@ -248,7 +248,14 @@ pub fn adapter(
         Arc::new(SeedEffortRule),
         lookup,
     );
-    let adapter = HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy).with_listing(Arc::new(listing));
+    // Grok runs the xAI Responses send, whose ladder writes `[xai:responses]` (openai-compat-xai-send.mjs:154).
+    let line = mixdog_core_api::domain::provider::RetryLine {
+        tag: "[xai:responses]".into(),
+        delay: true,
+        style: mixdog_core_api::domain::provider::RetryLineStyle::Attempt,
+    };
+    let adapter =
+        HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy).with_listing(Arc::new(listing)).with_retry_line(line);
     match versions {
         Some(versions) => adapter.with_resend(version_gate(versions)),
         None => adapter,

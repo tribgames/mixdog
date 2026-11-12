@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 14: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 15: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 14;
+PRAGMA user_version = 15;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -389,6 +389,16 @@ CREATE TABLE blob_refs (
     PRIMARY KEY (digest, session, ordinal)
 ) WITHOUT ROWID;
 CREATE INDEX blob_refs_session ON blob_refs(session, ordinal);
+
+-- The reaped agent children whose archived result a session's header carries
+-- (`archivedAgentResults`, archived_agent.rs): one row per (parent `session`, `child`), so a
+-- child's parents are one index range and its read never scans other sessions.
+CREATE TABLE archived_agents (
+    session TEXT NOT NULL,
+    child TEXT NOT NULL,
+    PRIMARY KEY (session, child)
+) WITHOUT ROWID;
+CREATE INDEX archived_agents_child ON archived_agents(child);
 
 -- Fork lineage: a base with children keeps its files.
 CREATE TABLE fork_edges (

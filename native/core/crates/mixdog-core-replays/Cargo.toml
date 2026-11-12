@@ -34,7 +34,7 @@ path = "tests/dispatch/main.rs"
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
-mixdog-exthost = { workspace = true }
+mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-statefile = { workspace = true }
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 rand = { workspace = true }

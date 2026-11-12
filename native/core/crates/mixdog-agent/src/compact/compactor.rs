@@ -183,7 +183,9 @@ impl Compactor for FreshCompactor {
     }
 
     async fn prepare(&self, messages: &[AgentMessage]) {
-        self.parts.media.prepare(messages).await;
+        // A read that fails for now leaves the part unpriced here; the pass reads the blob again for its summary and
+        // fails there (`referencedText` rethrows it).
+        let _ = self.parts.media.prepare(messages).await;
     }
 
     /// Compares like-for-like local estimates using the actual rules; no
@@ -217,6 +219,12 @@ impl Compactor for FreshCompactor {
                 warm: &*t.cache,
             })
         })
+    }
+
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<crate::compact::fresh::Preflight> {
+        self.prepare(messages).await;
+        let native_pdf = self.triggers.as_ref().is_none_or(|t| t.native_pdf);
+        self.parts.attachments.preflight(messages, self.config.context_window, native_pdf).await
     }
 
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
@@ -325,7 +333,8 @@ impl HandoffSource for PlannedHandoff {
     async fn triggered(&self, messages: &[AgentMessage]) -> bool {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, true);
-        let input = conversation_compaction_input(&ctx, messages, false).await;
+        // A store that cannot be read now leaves the summary to decide: its own read fails the pass.
+        let Ok(input) = conversation_compaction_input(&ctx, messages, false).await else { return true };
         let tokens = (meter.messages(&input) as f64 * self.calibration()).ceil() as u64;
         tokens >= self.threshold()
     }
@@ -342,7 +351,7 @@ impl PlannedHandoff {
     pub async fn summarize(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<(RouteStep, Generated), CompactError> {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
-        let input = conversation_compaction_input(&ctx, messages, true).await;
+        let input = conversation_compaction_input(&ctx, messages, true).await?;
         let hard = 1.max((self.config.context_window as f64 / self.calibration()).floor() as u64);
         let mode = self.config.mode;
         let warm = self.fork.warm();

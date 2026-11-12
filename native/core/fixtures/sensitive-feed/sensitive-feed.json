@@ -1,0 +1,258 @@
+{
+  "scenario": "sensitive-feed",
+  "session": "sess_sensitive_feed",
+  "calls": [
+    {
+      "id": "fill",
+      "name": "browser",
+      "arguments": {
+        "action": "fill",
+        "input": {
+          "sensitive": true,
+          "text": "hunter2"
+        }
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "log me in",
+      "ts": 1772000000000
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "ts": 1772000000100,
+      "toolCalls": [
+        {
+          "id": "fill",
+          "name": "browser",
+          "arguments": {
+            "action": "fill",
+            "input": {
+              "sensitive": true,
+              "text": "hunter2"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "fill",
+      "content": "filled hunter2 into the password field",
+      "ts": 1772000000200
+    },
+    {
+      "role": "user",
+      "ts": 1772000000300,
+      "content": [
+        {
+          "type": "text",
+          "text": "here is the file"
+        },
+        {
+          "type": "attachment",
+          "attachmentRef": "att_1",
+          "name": "hunter2-notes.pdf",
+          "mimeType": "application/pdf"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "read it"
+        }
+      ],
+      "ts": 1772000000400,
+      "toolCalls": [
+        {
+          "id": "read",
+          "name": "read",
+          "arguments": {
+            "path": "hunter2-notes.pdf"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "read",
+      "content": [
+        {
+          "type": "text",
+          "text": "notes: the code is hunter2"
+        }
+      ],
+      "ts": 1772000000500
+    },
+    {
+      "role": "user",
+      "content": "Conversation summary: the user logged in with hunter2.",
+      "meta": {
+        "source": "compact-summary"
+      },
+      "ts": 1772000000600
+    },
+    {
+      "role": "assistant",
+      "content": "done",
+      "ts": 1772000000700
+    }
+  ],
+  "stored": [
+    {
+      "role": "user",
+      "content": "log me in",
+      "ts": 1772000000000
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "ts": 1772000000100,
+      "toolCalls": [
+        {
+          "id": "fill",
+          "name": "browser",
+          "arguments": {
+            "action": "fill",
+            "input": {
+              "sensitive": true,
+              "text": "[redacted]"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "fill",
+      "content": "filled [redacted] into the password field",
+      "ts": 1772000000200
+    },
+    {
+      "role": "user",
+      "ts": 1772000000300,
+      "content": [
+        {
+          "type": "text",
+          "text": "here is the file"
+        },
+        {
+          "type": "attachment",
+          "attachmentRef": "att_1",
+          "name": "hunter2-notes.pdf",
+          "mimeType": "application/pdf"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "read it"
+        }
+      ],
+      "ts": 1772000000400,
+      "toolCalls": [
+        {
+          "id": "read",
+          "name": "read",
+          "arguments": {
+            "path": "[redacted]-notes.pdf"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "read",
+      "content": [
+        {
+          "type": "text",
+          "text": "notes: the code is [redacted]"
+        }
+      ],
+      "ts": 1772000000500
+    },
+    {
+      "role": "user",
+      "content": "Conversation summary: the user logged in with [redacted].",
+      "meta": {
+        "source": "compact-summary"
+      },
+      "ts": 1772000000600
+    },
+    {
+      "role": "assistant",
+      "content": "done",
+      "ts": 1772000000700
+    }
+  ],
+  "ingest": [
+    {
+      "role": "user",
+      "content": "log me in",
+      "ts": 1772000000000
+    },
+    {
+      "role": "user",
+      "content": "here is the file",
+      "ts": 1772000000300
+    },
+    {
+      "role": "assistant",
+      "content": "read it",
+      "ts": 1772000000400,
+      "toolCalls": [
+        {
+          "id": "read"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "done",
+      "ts": 1772000000700
+    }
+  ],
+  "search": [
+    {
+      "sourceRef": "session:sess_sensitive_feed:dc0bafe3a11feb1aba45d776",
+      "sessionId": "sess_sensitive_feed",
+      "ordinal": 0,
+      "role": "user",
+      "ts": 1772000000000,
+      "content": "log me in"
+    },
+    {
+      "sourceRef": "session:sess_sensitive_feed:525946b9797918184cb02f5c",
+      "sessionId": "sess_sensitive_feed",
+      "ordinal": 3,
+      "role": "user",
+      "ts": 1772000000300,
+      "content": "here is the file"
+    },
+    {
+      "sourceRef": "session:sess_sensitive_feed:82304a08d58f7980b97a2f24",
+      "sessionId": "sess_sensitive_feed",
+      "ordinal": 4,
+      "role": "assistant",
+      "ts": 1772000000400,
+      "content": "read it"
+    },
+    {
+      "sourceRef": "session:sess_sensitive_feed:633d35b54202e1352313536a",
+      "sessionId": "sess_sensitive_feed",
+      "ordinal": 7,
+      "role": "assistant",
+      "ts": 1772000000700,
+      "content": "done"
+    }
+  ]
+}

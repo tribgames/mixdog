@@ -7,6 +7,7 @@
 
 mod chain;
 pub mod exact;
+pub mod provider_fields;
 mod fixture;
 pub mod mcp_server;
 mod fs;

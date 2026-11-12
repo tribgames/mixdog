@@ -898,11 +898,6 @@ pub struct LiveReuses {
 }
 
 impl LiveReuses {
-    #[cfg(test)]
-    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Inner>> {
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
     /// Ties the caches to the read state: a session it releases (closed) or forgets (deleted) loses its caches
     /// (`registerSessionPurgeHook` and `releaseSessionReadCaches`), and a compaction resets its snapshots with them.
     pub fn bind(self: &Arc<Self>, read_state: &Arc<ReadState>) {
@@ -1086,10 +1081,10 @@ mod tests {
         let live = LiveReuses::default();
         let old = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
         live.clear_session("sess_1");
-        assert!(live.lock().is_empty(), "a clear leaves no entry for the id");
+        assert!(live.sessions.lock().unwrap().is_empty(), "a clear leaves no entry for the id");
         let read = call("read", json!({"path": "a.txt"}));
         assert!(old.lookup(&read, true).await.is_none(), "a lookup does not make the id's cache");
-        assert!(live.lock().is_empty());
+        assert!(live.sessions.lock().unwrap().is_empty());
         old.store_with_roots(&read, "one", "t1", None).await;
         let reopened = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
         assert_eq!(reopened.lookup(&read, true).await.unwrap().content, "one", "the reopened session sees the fill of the run still going");

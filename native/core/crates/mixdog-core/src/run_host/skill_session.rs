@@ -15,7 +15,6 @@
 //! returns it as an [`ArmNotice`] and the Skill tool appends it to its result. A header or
 //! transcript that cannot be read or written is the port's error, not an empty answer.
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -41,24 +40,16 @@ use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Map;
 use serde_json::Value;
-use serde_json::json;
 
-use super::route_schema::Verdict;
-use super::route_schema::freeform;
-use super::route_schema::schema_verdict;
-use super::session_catalog::deferred_available;
+use super::deferred_select::insert;
+use super::deferred_select::names_value;
+use super::deferred_select::select;
+use super::deferred_select::tool_search_native_payload;
 use super::session_catalog::server_of;
-use super::session_catalog::strings;
 use super::tool_exposure::is_tool_bridge_enabled;
 use super::tool_surface::SurfaceHost;
 use super::tool_surface::ToolSurface;
 use super::tool_surface::clean;
-use super::tool_surface::filter_disallowed_tools;
-use super::tool_surface::parse_tool_selection;
-use super::tool_surface::permitted_by_session_policy;
-use super::tool_surface::readonly_selectable;
-use super::tool_surface::sorted_names_by_measured_usage;
-use super::tool_surface::tool_name;
 use super::tool_surface::truthy;
 
 /// The header keys a skill load can change: `selectDeferredTools` (`session.tools`,
@@ -149,89 +140,6 @@ impl Parts {
         named
     }
 
-    /// `resolvableCatalog(session)`: the deferred catalog union, or the session's own tools when
-    /// nothing is deferred, within what the session's policy lets it run.
-    fn resolvable(&self, session: &Value) -> Vec<Value> {
-        let mut tools = self.surface().catalog_union(session);
-        if tools.is_empty() {
-            tools = session.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
-        }
-        filter_disallowed_tools(&tools, &strings(session, "disallowedTools")).into_iter().filter(|tool| permitted_by_session_policy(session, &tool_name(tool))).collect()
-    }
-
-    /// `selectDeferredTools(session, names, mode, { exact: true })`, `readonly` being
-    /// `mode === 'readonly'`.
-    fn select(&self, session: &mut Value, header: &Header, route_excluded: &[(String, String)], names: &[String], readonly: bool) -> Selection {
-        let catalog = self.resolvable(session);
-        let mut active: Vec<String> = Vec::new();
-        let eager = session.get("tools").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-        for name in eager.iter().map(tool_name).filter(|name| !name.is_empty()).chain(parse_tool_selection(session.get("deferredCallableTools"))) {
-            insert(&mut active, name);
-        }
-        let native = session.get("deferredProviderMode").and_then(Value::as_str) == Some("native") || session.get("deferredNativeTools") == Some(&Value::Bool(true));
-        let mut discovered: Vec<String> = Vec::new();
-        for name in session.get("deferredDiscoveredTools").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-            insert(&mut discovered, name.to_owned());
-        }
-        // Bridge sessions keep a fixed surface: deferred tools are described and run through the
-        // bridge, never appended to `session.tools`.
-        let bridge = is_tool_bridge_enabled(session);
-        let mut by_name: HashMap<String, usize> = HashMap::new();
-        for (index, tool) in catalog.iter().enumerate() {
-            let name = tool_name(tool);
-            if !name.is_empty() {
-                by_name.insert(name.clone(), index);
-                by_name.insert(name.to_lowercase(), index);
-            }
-        }
-        let (mut added, mut already) = (Vec::new(), Vec::new());
-        let (mut blocked, mut missing): (Vec<(String, String)>, Vec<String>) = (Vec::new(), Vec::new());
-        for raw in names {
-            let requested = mixdog_js::js_trim(raw);
-            let found = by_name.get(requested).or_else(|| by_name.get(&requested.to_lowercase())).map(|&index| &catalog[index]);
-            let Some(tool) = found.filter(|tool| deferred_available(session, &tool_name(tool))) else {
-                missing.push(requested.to_owned());
-                continue;
-            };
-            let name = tool_name(tool);
-            // A tool this route never sends is not loaded.
-            if !bridge && let Some(reason) = route_exclusion(header, route_excluded, tool) {
-                blocked.push((name, reason));
-                continue;
-            }
-            if readonly && !readonly_selectable(tool) {
-                blocked.push((name, "readonly mode".to_owned()));
-                continue;
-            }
-            if bridge || active.contains(&name) || (native && discovered.contains(&name)) {
-                already.push(name);
-                continue;
-            }
-            if native {
-                insert(&mut discovered, name.clone());
-            } else {
-                if let Some(Value::Array(tools)) = session.get_mut("tools") {
-                    tools.push(tool.clone());
-                }
-                discovered.retain(|known| *known != name);
-            }
-            insert(&mut active, name.clone());
-            added.push(name);
-        }
-        if !bridge && let Some(map) = session.as_object_mut() {
-            let selected = names_value(&sorted_names_by_measured_usage(active));
-            if native {
-                map.insert("deferredCallableTools".to_owned(), selected.clone());
-                map.insert("deferredDiscoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(discovered)));
-            } else {
-                map.insert("deferredDiscoveredTools".to_owned(), selected.clone());
-            }
-            map.insert("deferredSelectedTools".to_owned(), selected);
-        }
-        added.extend(already);
-        Selection { loaded: added, blocked, missing, native }
-    }
-
     /// `loadSkillToolDependencies(envelope, session)`: the session of `header` after the load, and
     /// what the model is told of it; pure over `header` and `lookups`. `Err(name)`: `name` was not
     /// looked up (the catalog gained it after the lookups were made).
@@ -263,8 +171,8 @@ impl Parts {
             }
         }
         let readonly = readonly_selection(&session);
-        let selection = (!allowed.is_empty()).then(|| self.select(&mut session, header, &surface.route_excluded, &allowed, readonly));
-        let loaded: Vec<String> = selection.as_ref().map_or_else(Vec::new, |selection| selection.loaded.clone());
+        let selection = (!allowed.is_empty()).then(|| select(&self.surface(), &mut session, &surface.route_excluded, &allowed, readonly, true));
+        let loaded: Vec<String> = selection.as_ref().map_or_else(Vec::new, |selection| selection.added.iter().chain(&selection.already).cloned().collect());
         for (name, reason) in selection.iter().flat_map(|selection| &selection.blocked) {
             unavailable.push(format!("{name} ({reason})"));
         }
@@ -284,15 +192,6 @@ impl Parts {
         let notice = notice_of(&session, &catalog, &loaded, &unavailable, native);
         Ok((session, notice))
     }
-}
-
-/// What `select` did: the names it loaded (`added`, then `already`), the tools it refused with
-/// why, and the names the session does not have.
-struct Selection {
-    loaded: Vec<String>,
-    blocked: Vec<(String, String)>,
-    missing: Vec<String>,
-    native: bool,
 }
 
 /// The text `loadSkillToolDependencies` appends to the Skill result, and the native tool-search
@@ -323,58 +222,14 @@ fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], un
     }
     let provider = clean(session.get("provider"));
     let promoted: Vec<String> = loaded.iter().filter(|name| !eager.contains(name.as_str())).cloned().collect();
-    ArmNotice { lines, native: if native { native_payload(catalog, &promoted, &provider) } else { None } }
-}
-
-/// `toolSearchNativePayload(catalog, names, provider)` without its summary (the result's own
-/// stands in): the deferred tools by the catalog's order, as the provider's tool search takes them.
-fn native_payload(catalog: &[(String, Value)], names: &[String], provider: &str) -> Option<Value> {
-    let selected: Vec<&str> = names.iter().map(|name| mixdog_js::js_trim(name)).filter(|name| !name.is_empty()).collect();
-    if selected.is_empty() {
-        return None;
-    }
-    let provider = provider.to_lowercase();
-    let custom_tools = matches!(provider.as_str(), "" | "openai" | "openai-oauth");
-    let (mut references, mut tools) = (Vec::new(), Vec::new());
-    for (_, tool) in catalog {
-        let name = tool_name(tool);
-        if name.is_empty() || !selected.contains(&name.as_str()) {
-            continue;
+    // `toolSearchNativePayload` without its summary: the result's own stands in.
+    let payload = native.then(|| tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)).flatten().map(|mut payload| {
+        if let Some(map) = payload.as_object_mut() {
+            map.shift_remove("summary");
         }
-        tools.push(loadable_spec(tool, &name, custom_tools));
-        references.push(Value::String(name));
-    }
-    (!references.is_empty()).then(|| json!({ "provider": provider, "toolReferences": references, "openaiTools": tools }))
-}
-
-/// `openAILoadableToolSpec(tool, provider)`: a free-form tool as the Responses API's custom tool
-/// where the provider has them, else a deferred function with its input schema.
-fn loadable_spec(tool: &Value, name: &str, custom_tools: bool) -> Value {
-    if custom_tools && freeform(tool) {
-        let mut spec = Map::new();
-        spec.insert("type".to_owned(), json!("custom"));
-        spec.insert("name".to_owned(), tool.get("name").cloned().unwrap_or(Value::Null));
-        // `tool.freeformDescription || tool.description`; an absent description is left out.
-        let description = tool.get("freeformDescription").filter(|text| truthy(Some(*text))).or_else(|| tool.get("description"));
-        if let Some(description) = description {
-            spec.insert("description".to_owned(), description.clone());
-        }
-        spec.insert("format".to_owned(), tool.get("freeform").cloned().unwrap_or(Value::Null));
-        return Value::Object(spec);
-    }
-    let parameters = tool.get("inputSchema").filter(|schema| schema.is_object() || schema.is_array()).cloned().unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
-    json!({ "type": "function", "name": name, "description": clean(tool.get("description")), "defer_loading": true, "parameters": parameters })
-}
-
-/// An ordered set: `name` joins unless it is in already.
-fn insert(set: &mut Vec<String>, name: String) {
-    if !set.contains(&name) {
-        set.push(name);
-    }
-}
-
-fn names_value(names: &[String]) -> Value {
-    Value::Array(names.iter().cloned().map(Value::String).collect())
+        payload
+    });
+    ArmNotice { lines, native: payload }
 }
 
 /// The names the dependencies ask for, once each, in order: a `tool` by its value, an `mcp` by the
@@ -399,19 +254,6 @@ fn wanted_names(catalog: &[(String, Value)], dependencies: &[Value], unavailable
         }
     }
     names
-}
-
-/// `routeToolExclusionReason(session, tool)`: why the route leaves the tool out of every request,
-/// when it does: the provider dropped it, or the wire's schema rule refuses it.
-fn route_exclusion(header: &Header, excluded: &[(String, String)], tool: &Value) -> Option<String> {
-    let raw = tool.get("name").and_then(Value::as_str).unwrap_or_default();
-    if let Some((_, reason)) = excluded.iter().find(|(name, _)| name == raw) {
-        return Some(reason.clone());
-    }
-    match schema_verdict(header, tool) {
-        Verdict::Excluded(reason) => Some(reason),
-        Verdict::Sent => None,
-    }
 }
 
 /// The `selectedMode === 'readonly'` of `loadSkillToolDependencies` for a Skill tool call (no mode

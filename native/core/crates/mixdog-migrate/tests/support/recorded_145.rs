@@ -84,6 +84,23 @@ pub fn copy_at(root: &Path) -> MigrationRoots {
     roots_at(root)
 }
 
+/// The 1.4.5 data directory of `fixtures/archived-agent` (`record-archived-agent.mjs`: the files Node b6f10295a
+/// read the reaped children's results from) written under `root`.
+pub fn archived_agent_at(root: &Path) -> MigrationRoots {
+    let roots = roots_at(root);
+    for (rel, text) in archived_agent()["files"].as_object().expect("files") {
+        let target = roots.data.join(rel);
+        std::fs::create_dir_all(target.parent().expect("a file has a parent")).expect("dir");
+        std::fs::write(&target, text.as_str().expect("text")).expect("write");
+    }
+    roots
+}
+
+pub fn archived_agent() -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/archived-agent/archived-agent.json");
+    serde_json::from_slice(&durable::read(&path).expect("the recording")).expect("json")
+}
+
 pub fn copy() -> Copy {
     let dir = tempfile::tempdir().expect("scratch dir");
     copy_at(dir.path());

@@ -57,7 +57,18 @@ impl StoredCredentials {
 }
 
 /// A fixed credential (an environment-provided token, tests).
-pub struct StaticSessionToken(pub StoredCredentials);
+pub struct StaticSessionToken {
+    credentials: StoredCredentials,
+    /// The provider instance the token is configured under: a token with no identity is told apart from another
+    /// instance's by this.
+    instance: String,
+}
+
+impl StaticSessionToken {
+    pub fn new(credentials: StoredCredentials, instance: &str) -> Self {
+        Self { credentials, instance: instance.to_owned() }
+    }
+}
 
 #[async_trait]
 impl SessionToken for StaticSessionToken {
@@ -65,7 +76,16 @@ impl SessionToken for StaticSessionToken {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        self.0.usable_token(now).map(str::to_owned)
+        self.credentials.usable_token(now).map(str::to_owned)
+    }
+
+    /// The identity the sign-in returned; a token that came with none is the one this provider instance holds.
+    fn account(&self) -> String {
+        match &self.credentials.identity {
+            Some(Identity { id: Some(id), .. }) => format!("id {id}"),
+            Some(Identity { email: Some(email), .. }) => format!("email {email}"),
+            _ => format!("static session token of instance {}", self.instance),
+        }
     }
 }
 
@@ -78,6 +98,7 @@ impl SessionToken for FileSessionToken {
     async fn session_token(&self) -> Result<String, ProviderError> {
         match self.0.load::<StoredCredentials>().await {
             Probe::Present(credentials) => {
+                self.0.keep(&[&credentials.access_token, credentials.refresh_token.as_deref().unwrap_or_default()]);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);
@@ -90,6 +111,10 @@ impl SessionToken for FileSessionToken {
                 Err(error)
             }
         }
+    }
+
+    fn account(&self) -> String {
+        format!("file {}", self.0.path().display())
     }
 }
 

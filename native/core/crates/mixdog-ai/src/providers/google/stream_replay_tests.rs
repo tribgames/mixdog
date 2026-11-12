@@ -58,7 +58,7 @@ fn decode(chunks: &[Value], leak_guard: Option<&Value>) -> (GeminiDecoder, Vec<S
         owner: ProviderId::from("gemini"),
         envelope: false,
         usage: UsageStyle::Inclusive,
-        errors: ErrorDialect { capacity_by_status: false },
+        errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
     });
     if let Some(guard) = leak_guard {
         let tools = guard["knownToolNames"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_owned()).collect::<HashSet<_>>();
@@ -88,7 +88,9 @@ fn every_recorded_gemini_body_is_decoded_as_node_consumes_it() {
     let mut replayed = 0;
     for case in set["cases"].as_array().unwrap() {
         let id = case["id"].as_str().unwrap();
-        if id == WINDOW_CASE {
+        // The stream windows (first chunk, idle) run on the virtual clock: replayed whole through `GoogleStream` by
+        // `tests/it/replay_gemini_stream.rs`, not by the decoder alone.
+        if id == WINDOW_CASE || case["result"]["error"]["name"] == "GeminiTimeoutError" {
             continue;
         }
         replayed += 1;
@@ -146,5 +148,5 @@ fn every_recorded_gemini_body_is_decoded_as_node_consumes_it() {
             _ => panic!("{id}: a recorded case with neither a response nor an error"),
         }
     }
-    assert_eq!(replayed, 17, "every recorded case but the timer one");
+    assert_eq!(replayed, 17, "every recorded case but the timer ones");
 }

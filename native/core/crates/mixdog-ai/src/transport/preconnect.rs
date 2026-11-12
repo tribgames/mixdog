@@ -16,7 +16,7 @@ use super::HttpSend;
 use super::deadlines::PRECONNECT;
 
 /// `_preconnectedAt`: when each origin was last warmed, for the whole process.
-static PRECONNECTED_AT: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
+static PRECONNECTED_AT: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
 /// No origin warmed yet, as in a new process.
 #[cfg(any(test, feature = "test-support"))]
@@ -42,13 +42,22 @@ impl Preconnect {
     }
 
     /// Warms `origin` unless it was warmed within the gate.
-    pub fn warm(&self, origin: &'static str) {
+    pub fn warm(&self, origin: &str) {
         preconnect(&self.http, origin, (self.now)(), (self.var)("MIXDOG_LLM_KEEPALIVE_MS"));
+    }
+
+    /// Warms the origin of an endpoint's base URL (`preconnect(this.baseURL)`: an `http` or `https` URL only, its origin
+    /// the gate's key).
+    pub fn warm_base(&self, base_url: &str) {
+        let Ok(url) = url::Url::parse(base_url) else { return };
+        if matches!(url.scheme(), "http" | "https") {
+            self.warm(&url.origin().ascii_serialization());
+        }
     }
 }
 
 /// [`Preconnect::warm`] with the clock reading and the keep-alive setting given.
-pub fn preconnect(http: &Arc<dyn HttpSend>, origin: &'static str, now: u64, keepalive: Option<String>) {
+pub fn preconnect(http: &Arc<dyn HttpSend>, origin: &str, now: u64, keepalive: Option<String>) {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
     let keepalive = keepalive.and_then(|raw| raw.trim().parse::<u64>().ok()).unwrap_or(60_000);
     let ttl = keepalive.saturating_sub(10_000).max(5_000);
@@ -58,9 +67,10 @@ pub fn preconnect(http: &Arc<dyn HttpSend>, origin: &'static str, now: u64, keep
         if stamps.get(origin).is_some_and(|last| now.saturating_sub(*last) < ttl) {
             return;
         }
-        stamps.insert(origin, now);
+        stamps.insert(origin.to_owned(), now);
     }
     let http = http.clone();
+    let origin = origin.to_owned();
     let _entered = runtime.enter();
     let mut warm = Box::pin(async move {
         let head = WireRequest { transport: TransportKind::Http1, method: "HEAD".into(), url: format!("{origin}/"), headers: Vec::new(), body: Vec::new() };
@@ -71,7 +81,7 @@ pub fn preconnect(http: &Arc<dyn HttpSend>, origin: &'static str, now: u64, keep
         if !warmed
             && let Some(stamps) = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
         {
-            stamps.remove(origin);
+            stamps.remove(&origin);
         }
     });
     // Node's `undici.request` starts its connection inside the call, before the caller's next line; polling the
