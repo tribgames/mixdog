@@ -15788,24 +15788,67 @@
     {
       "case": "callbacks reach the server only allowlisted and projected; account ids stay on this PC",
       "observed": {
+        "providerName": "antigravity-oauth",
+        "accounts": [
+          "00000000-0000-4000-8000-0000000000a1",
+          "00000000-0000-4000-8000-0000000000a2"
+        ],
+        "tools": [
+          {
+            "name": "mcp__x__key-sk-DUMMY-abcdefghijklmnopqrstuv",
+            "description": "a tool.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "bogus-type"
+                }
+              }
+            }
+          },
+          {
+            "name": "read",
+            "description": "read tool.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "file_path"
+              ]
+            }
+          }
+        ],
+        "networkAttempts": [
+          false,
+          false
+        ],
         "result": {
           "content": "ok",
-          "secretHookKnown": false
+          "secretHookKnown": false,
+          "providerMetadata": {
+            "accountRouting": {
+              "provider": "antigravity-oauth",
+              "accountId": "00000000-0000-4000-8000-0000000000a2",
+              "sessionAccountId": "00000000-0000-4000-8000-0000000000a2"
+            }
+          }
         },
         "stages": [
           [
             "reconnecting",
             {
-              "attempt": 2,
-              "max": 3,
-              "message": "retry with key [redacted]"
+              "message": "Quota exhausted — switching to the next account"
             }
           ],
           [
             "account-changed",
             {
-              "provider": "openai",
-              "at": 7
+              "provider": "antigravity-oauth",
+              "at": 1800000000000
             }
           ]
         ],
@@ -15814,18 +15857,18 @@
         ],
         "excluded": [
           {
-            "name": "bad_tool",
-            "index": 3,
-            "pointer": "/properties/x/type",
-            "reason": "invalid type",
-            "message": "gemini tool \"bad_tool\" excluded; key [redacted]"
+            "name": "mcp__x__key-[redacted]",
+            "index": 0,
+            "pointer": "/properties/a/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"mcp__x__key-[redacted]\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
           },
           {
-            "name": "bad_tool",
-            "index": 3,
-            "pointer": "/properties/x/type",
-            "reason": "invalid type",
-            "message": "gemini tool \"bad_tool\" excluded; key [redacted]"
+            "name": "mcp__x__key-[redacted]",
+            "index": 0,
+            "pointer": "/properties/a/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"mcp__x__key-[redacted]\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
           }
         ],
         "secretHookCalled": false,
@@ -15844,7 +15887,7 @@
           {
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
-            "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000034\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+            "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000034\",\"provider\":\"antigravity-oauth\",\"method\":\"send\",\"model\":\"gemini-3.8-flash\"}],\"cancelled\":[]}"
           },
           {
             "direction": "pc->daemon",
@@ -15863,12 +15906,26 @@
           {
             "direction": "daemon->pc",
             "operation": "modelProxyClaim",
-            "text": "{\"payload\":\"{\\\"provider\\\":\\\"openai\\\",\\\"method\\\":\\\"send\\\",\\\"model\\\":\\\"gpt\\\",\\\"messages\\\":[],\\\"tools\\\":null,\\\"toolsFinalized\\\":false,\\\"nativePrefixCount\\\":0,\\\"options\\\":{},\\\"callbacks\\\":[\\\"onStageChange\\\",\\\"onStreamDelta\\\",\\\"onToolExcluded\\\",\\\"onSecretHook\\\"]}\"}"
+            "text": "{\"payload\":\"{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"method\\\":\\\"send\\\",\\\"model\\\":\\\"gemini-3.8-flash\\\",\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hi\\\"}],\\\"tools\\\":[{\\\"name\\\":\\\"mcp__x__key-sk-DUMMY-abcdefghijklmnopqrstuv\\\",\\\"description\\\":\\\"a tool.\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"a\\\":{\\\"type\\\":\\\"bogus-type\\\"}}}},{\\\"name\\\":\\\"read\\\",\\\"description\\\":\\\"read tool.\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"file_path\\\":{\\\"type\\\":\\\"string\\\"}},\\\"required\\\":[\\\"file_path\\\"]}}],\\\"toolsFinalized\\\":false,\\\"nativePrefixCount\\\":0,\\\"options\\\":{},\\\"callbacks\\\":[\\\"onStageChange\\\",\\\"onStreamDelta\\\",\\\"onToolExcluded\\\",\\\"onSecretHook\\\"]}\"}"
           },
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"bad_tool\\\",\\\"index\\\":3,\\\"pointer\\\":\\\"/properties/x/type\\\",\\\"reason\\\":\\\"invalid type\\\",\\\"message\\\":\\\"gemini tool \\\\\\\"bad_tool\\\\\\\" excluded; key [redacted]\\\"}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"mcp__x__key-[redacted]\\\",\\\"index\\\":0,\\\"pointer\\\":\\\"/properties/a/type\\\",\\\"reason\\\":\\\"not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\",\\\"message\\\":\\\"[gemini] tool \\\\\\\"mcp__x__key-[redacted]\\\\\\\" (tools[0]) excluded: invalid input schema at \\\\\\\"/properties/a/type\\\\\\\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\"}]}]\"]"
+          },
+          {
+            "direction": "daemon->pc",
+            "operation": "modelProxyEvent",
+            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "pc->daemon",
+            "operation": "modelProxyEvent",
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"reconnecting\\\",{\\\"message\\\":\\\"Quota exhausted — switching to the next account\\\"}]}]\"]"
           },
           {
             "direction": "daemon->pc",
@@ -15878,37 +15935,17 @@
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"reconnecting\\\",{\\\"attempt\\\":2,\\\"max\\\":3,\\\"message\\\":\\\"retry with key [redacted]\\\"}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"mcp__x__key-[redacted]\\\",\\\"index\\\":0,\\\"pointer\\\":\\\"/properties/a/type\\\",\\\"reason\\\":\\\"not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\",\\\"message\\\":\\\"[gemini] tool \\\\\\\"mcp__x__key-[redacted]\\\\\\\" (tools[0]) excluded: invalid input schema at \\\\\\\"/properties/a/type\\\\\\\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\"}]},{\\\"name\\\":\\\"onStreamDelta\\\",\\\"args\\\":[\\\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"]}]\"]"
           },
           {
             "direction": "daemon->pc",
             "operation": "modelProxyEvent",
-            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
+            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null},{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
           },
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"bad_tool\\\",\\\"index\\\":3,\\\"pointer\\\":\\\"/properties/x/type\\\",\\\"reason\\\":\\\"invalid type\\\",\\\"message\\\":\\\"gemini tool \\\\\\\"bad_tool\\\\\\\" excluded; key [redacted]\\\"}]}]\"]"
-          },
-          {
-            "direction": "daemon->pc",
-            "operation": "modelProxyEvent",
-            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
-          },
-          {
-            "direction": "pc->daemon",
-            "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStreamDelta\\\",\\\"args\\\":[\\\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"]}]\"]"
-          },
-          {
-            "direction": "daemon->pc",
-            "operation": "modelProxyEvent",
-            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
-          },
-          {
-            "direction": "pc->daemon",
-            "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"account-changed\\\",{\\\"provider\\\":\\\"openai\\\",\\\"at\\\":7}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"account-changed\\\",{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"at\\\":1800000000000}]}]\"]"
           },
           {
             "direction": "daemon->pc",
@@ -15918,20 +15955,56 @@
           {
             "direction": "pc->daemon",
             "operation": "modelProxyResolve",
-            "text": "[\"mp_00000000000040008000000000000034\",true,\"{\\\"content\\\":\\\"ok\\\",\\\"secretHookKnown\\\":false}\",null]"
+            "text": "[\"mp_00000000000040008000000000000034\",true,\"{\\\"content\\\":\\\"ok\\\",\\\"secretHookKnown\\\":false,\\\"providerMetadata\\\":{\\\"accountRouting\\\":{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"accountId\\\":\\\"00000000-0000-4000-8000-0000000000a2\\\",\\\"sessionAccountId\\\":\\\"00000000-0000-4000-8000-0000000000a2\\\"}}}\",null]"
           },
           {
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
-          },
-          {
-            "direction": "host handled event",
-            "operation": "model-proxy-request"
           }
         ],
         "timers": {
           "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
             {
               "api": "setTimeout",
               "ms": 10000,
@@ -15972,7 +16045,17 @@
             },
             {
               "api": "setTimeout",
-              "ms": 20000,
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
               "atMs": 0
             },
             {
@@ -15997,7 +16080,17 @@
             },
             {
               "api": "setTimeout",
-              "ms": 20000,
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
               "atMs": 0
             },
             {
