@@ -2945,6 +2945,12 @@ impl SessionActor {
             self.delete_turn_ended();
         }
         self.run_deferred_prune();
+        // A compaction the model scheduled (`takePendingCompact`, `turn-settle.mjs`) runs once the turn is over; the
+        // answer has no reader.
+        if self.cell.pending_compact.swap(false, SeqCst) {
+            let (tx, _) = oneshot::channel();
+            self.compact_start(None, tx, None);
+        }
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }

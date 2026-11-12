@@ -1,0 +1,108 @@
+{
+  "cases": 8,
+  "command": "node benchmarks/rust-core/recorders/record-session-compact-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "internal-tool-executor.mjs createInternalToolExecutor (the session tool, actions compact and fork, over a lifecycle stand-in that answers {sessionId: \"new-1\", compacted: compact === true}); turn-settle.mjs createTurnSettlement.settleTurn with the pending-compact seams",
+  "exclusions": {
+    "fork without a lifecycle API": "Node answers \"session: fork is unavailable in this runtime\" when no lifecycle is installed; the core always has the thread requests, so no client can reach it"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2656,
+      "path": "golden.json",
+      "sha256": "e5219c863b3beae5d41a68755d1c694b6fb3ef98f00db9d36f7ea6aba8f691a9"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "a485a887ae28a5dc21879f95298ec9fed80580c83191ea3a036d5e925f0aecf7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-compact-cases.mjs",
+  "recorderSha256": "acd938baa07c6e02a281d924f7268138af5f431def161e310745b51baeae7457",
+  "replay": {
+    "compare": "SessionTool::call over DirectorySessionPort (the tool answer of compact and fork, and the requests the port makes); the settle cases through the session actor: a thread whose compaction was scheduled compacts when its turn settles, once, and another thread's turn does not run it",
+    "entry": "Drive these public items on o1: mixdog-tools/src/orch/session.rs:204 SessionTool (the session tool: actions compact and fork); mixdog-core/src/run_host/tool_pool/session_port.rs:377 DirectorySessionPort::schedule_compact; mixdog-core/src/run_host/tool_pool/session_port.rs:381 DirectorySessionPort::fork; mixdog-core-session/src/session/directory.rs:459 SessionDirectory::schedule_compact_after_turn (the actor runs the scheduled compaction when the thread's turn settles).",
+    "existsButNotPublicOnO1": [
+      "the settle itself (mixdog-core-session/src/session/actor.rs run_ended) is private: a replay reaches it by running a turn on a SessionDirectory"
+    ],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 204,
+        "methods": "the session tool: actions compact and fork",
+        "name": "SessionTool",
+        "path": "native/core/crates/mixdog-tools/src/orch/session.rs"
+      },
+      {
+        "line": 377,
+        "name": "DirectorySessionPort::schedule_compact",
+        "path": "native/core/crates/mixdog-core/src/run_host/tool_pool/session_port.rs"
+      },
+      {
+        "line": 381,
+        "name": "DirectorySessionPort::fork",
+        "path": "native/core/crates/mixdog-core/src/run_host/tool_pool/session_port.rs"
+      },
+      {
+        "line": 459,
+        "methods": "the actor runs the scheduled compaction when the thread's turn settles",
+        "name": "SessionDirectory::schedule_compact_after_turn",
+        "path": "native/core/crates/mixdog-core-session/src/session/directory.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "session-compact-cases",
+  "totalBytes": 2656,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

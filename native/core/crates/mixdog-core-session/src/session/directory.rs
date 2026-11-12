@@ -454,6 +454,21 @@ impl SessionDirectory {
         true
     }
 
+    /// The stored transcript of a thread, loaded or not, oldest first: what `session action=read` quotes.
+    pub async fn transcript_items(&self, id: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        super::reads::history_items(&self.inner.deps, id).await
+    }
+
+    /// `rt.pendingCompactSessionIds.add(id)` of the `session` tool's compact: the loaded thread compacts
+    /// when its turn settles (once, whatever the turn's outcome). A thread that is not loaded has no turn to wait for.
+    pub fn schedule_compact_after_turn(&self, id: &ThreadId) -> Result<(), CoreError> {
+        let Some(handle) = self.inner.loaded(id).filter(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)) else {
+            return Err(mixdog_core_base::support::failed("session", format!("session: {} is not loaded", id.as_str())));
+        };
+        handle.cell.pending_compact.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
     /// `abortSession({sessionId})` for the `session` tool's cancel: the user's interrupt of the
     /// turn running in the session. `true` when a turn was running and is now cancelled; a
     /// session that is not loaded or runs no turn is `false`.
@@ -1405,6 +1420,7 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            pending_compact: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
