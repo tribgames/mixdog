@@ -38,6 +38,7 @@ pub mod user_send;
 pub mod exchange_script;
 #[cfg(test)]
 mod agent_room_replay;
+pub mod room_ask;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

@@ -446,6 +446,61 @@ impl RoomHosts for LiveRooms {
     }
 }
 
+impl super::room_ask::AskRooms for LiveRooms {
+    fn room(&self, room_id: &str) -> Result<Arc<dyn super::room_ask::AskRoom>, String> {
+        let live = lock(&self.shared.live).get(room_id).cloned().ok_or_else(|| "This room no longer exists.".to_owned())?;
+        Ok(Arc::new(View { shared: self.shared.clone(), live, room_id: room_id.to_owned() }))
+    }
+}
+
+#[async_trait]
+impl super::room_ask::AskRoom for View {
+    fn name(&self) -> String {
+        lock(&self.live.record).name.clone()
+    }
+
+    fn members(&self) -> Vec<String> {
+        View::members(self)
+    }
+
+    async fn labels(&self) -> Result<HashMap<String, MemberLabel>, String> {
+        RoomExchangeHost::labels(self).await
+    }
+
+    /// `names.get(agentId)`: the name the agent catalog gives it.
+    async fn display_name(&self, agent_id: &str) -> Option<String> {
+        self.shared.ports.labels.labels(&[agent_id.to_owned()]).await.ok()?.remove(agent_id).map(|label| label.name)
+    }
+
+    async fn member_session(&self, member: &MemberLabel) -> Result<String, String> {
+        MemberHost::member_session(self, member).await
+    }
+
+    async fn post(&self, rows: Vec<Value>) -> Result<(), String> {
+        RoomTurnHost::post(self, rows).await
+    }
+
+    fn set_last_at(&self, at: i64) {
+        lock(&self.live.record).last_at = Some(at);
+    }
+
+    async fn persist(&self) -> Result<(), String> {
+        MemberHost::persist(self).await
+    }
+
+    fn republish_catalog(&self) {
+        RoomExchangeHost::republish_catalog(self);
+    }
+
+    fn now(&self) -> i64 {
+        RoomTurnHost::now(self)
+    }
+
+    fn new_id(&self) -> String {
+        RoomTurnHost::new_id(self)
+    }
+}
+
 #[async_trait]
 impl RoomRowsSource for LiveRooms {
     async fn rows(&self, room_id: &str) -> Result<Vec<Value>, String> {

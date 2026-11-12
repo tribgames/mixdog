@@ -113,6 +113,8 @@ pub mod turn_warm;
 mod pending_read_tests;
 mod reads;
 mod routine_turn;
+pub use routine_turn::SendSettle;
+pub mod report_runtime;
 pub mod room_member;
 pub mod room_approval;
 pub mod approval_notification;
@@ -230,6 +232,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+pub use self::reads::transcript_row;
+pub use self::transcript::live_end;
 #[cfg(any(test, feature = "test-support"))]
 pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;

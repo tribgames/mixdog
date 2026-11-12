@@ -134,6 +134,9 @@ pub(crate) struct RoutineStart {
     pub from_agent: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
+    /// The sender's own `transcriptMeta` (`sendTranscriptMeta`: `sender`, `fromAgent`), ahead of
+    /// the hop and the bot chain on the queue entry and the input row.
+    pub meta: serde_json::Map<String, serde_json::Value>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
     pub on_start: Box<dyn FnOnce() + Send>,
     /// Answered with the run's outcome when it ends.
@@ -186,6 +189,8 @@ pub(crate) struct ControlCell {
     pub approvals: ArcSwap<HashSet<u64>>,
     /// The approval the session shows now (`state.toolApproval`), if any.
     pub shown_approval: ArcSwapOption<mixdog_core_api::domain::approval::ApprovalRequest>,
+    /// Counts the changes of `shown_approval`; its receivers wake on each.
+    pub shown_changed: tokio::sync::watch::Sender<u64>,
     /// What the session's open takeover holds (the secret fill's two locks read it).
     pub takeover: ArcSwap<super::secret_input::TakeoverHold>,
     /// The acked view (thread/read, resume results).
@@ -237,6 +242,9 @@ pub(crate) struct ControlCell {
     /// A compaction the model scheduled (`session action=compact`: Node's `pendingCompactSessionIds`): the actor
     /// runs it, once, when the next turn of this thread settles.
     pub pending_compact: std::sync::atomic::AtomicBool,
+    /// The scheduled compaction holds the thread's turns back (`afterCompaction`), as the actor last stepped: a prompt
+    /// submitted meanwhile is Node's ask waiting on the gate, which a stop still hands back to the composer.
+    pub gated: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -269,6 +277,11 @@ pub(crate) struct ControlCell {
     /// No draft file write is queued or running and none owed (a removal or sweep to try again), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub drafts_settled: std::sync::atomic::AtomicBool,
+    /// How many times the scheduled compaction held work back (a request it parked, or a queue it
+    /// kept from draining), counted in the step that held it: a test that shows nothing started
+    /// waits on this, so the gate was consulted before it asserts.
+    #[cfg(any(test, feature = "test-support"))]
+    pub gate_holds: std::sync::atomic::AtomicU64,
     /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]

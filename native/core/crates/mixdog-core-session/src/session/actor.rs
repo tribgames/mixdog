@@ -312,6 +312,20 @@ pub(crate) enum UnwindAt {
     Delete,
 }
 
+/// What waits on a scheduled compaction: the requests asked meanwhile, in arrival order, and
+/// whether the settled turn's Goal continues.
+pub(super) struct AfterCompaction {
+    waiting: Vec<Waiting>,
+    goal_active: bool,
+}
+
+/// One thing the scheduled compaction holds: a request, or an admitted retry turn (Node's
+/// `retryFailedTurn` enqueues it and its `runtime.ask` waits on the gate like any ask).
+pub(super) enum Waiting {
+    Request(CoreRequest, Waiter),
+    Retry(super::quota_lane::RetryTurn),
+}
+
 /// Results of lane jobs the actor submitted.
 pub(crate) enum JobDone {
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
@@ -409,6 +423,8 @@ pub(crate) enum JobDone {
     Compacted { op: Option<OpId>, tx: Waiter, result: Value, recover: bool },
     /// A manual compaction ended (its answer follows).
     CompactionEnded,
+    /// The compaction the session tool scheduled answered.
+    ScheduledCompactionEnded,
     /// The claim window of the desktop request `id` ended.
     SetupUiExpired(String),
     /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
@@ -635,6 +651,13 @@ struct RunSlot {
     start_failed: bool,
     /// A worker's turn: told the run's final result, then its outcome.
     agent: Option<(Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>)>,
+    /// The host submissions steered into this run (`turnSettlements`, `steering.mjs:219`): each
+    /// is answered with this run's outcome, as the turn it joined settles.
+    joined: Vec<oneshot::Sender<RunOutcome>>,
+    /// A reply of this run already showed text (`stream.committedSegments`).
+    text_shown: bool,
+    /// The replies that close the run after shown text: live, they read as the final text's remainder.
+    paragraphs: std::collections::HashSet<String>,
     /// The run's `onSensitiveValuesMarked` subscription (`ask-turn-state.mjs:104`).
     _marks: Box<dyn Send>,
     /// The turn's last model row (`session.messages` ends with it): the input row until the run
@@ -758,6 +781,11 @@ pub(crate) struct SessionActor {
     /// state.stats (usage totals), folded from each model call's usage event.
     stats: super::stats::SessionStats,
     steer_marked: Vec<QueuedId>,
+    /// The `transcriptMeta` of each entry a boundary took on its own, by queue id, until its message is committed: the
+    /// steered message stores it (`steeringMessageFromEntry`, `session-flow/steering.mjs:49`), a bot's sender with it.
+    steered_meta: std::collections::HashMap<String, Value>,
+    /// Opened from the store, not yet resumed: the first resume drains the restored queue.
+    restored_queue: bool,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
     held_display: Option<ThreadContext>,
     /// What a route move read for the header it is about to write ([`Self::route_status_read`]), taken by the step that accepts the
@@ -792,8 +820,9 @@ pub(crate) struct SessionActor {
     goal_watch: super::goal_lane::GoalWatch,
     /// A turn ended and its settlement (`turn_settled`) is not back yet: no turn starts.
     settling: bool,
-    /// A worker's settling turn: its outcome, told once the settlement is back.
-    agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
+    /// A worker's settling turn, and the host submissions steered into it: its outcome, told once
+    /// the settlement is back.
+    agent_done: Vec<(oneshot::Sender<RunOutcome>, RunOutcome)>,
     /// The last completed run's id, stop reason and termination reason (`ask-turn-commit.mjs`): its `turn/completed`
     /// carries the two, which the run record does not keep.
     completed_reasons: Option<(String, Option<String>, Option<String>)>,
@@ -892,6 +921,14 @@ pub(crate) struct SessionActor {
     quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
+    /// `pendingCompactSessionIds` holds this session: the session tool scheduled a compaction for
+    /// when the turn settles.
+    compact_scheduled: bool,
+    /// The scheduled compaction runs (`createCompactionGate`'s tail).
+    after_compaction: Option<AfterCompaction>,
+    /// A retry the compaction held, released while another turn it held ran: it is the next turn
+    /// (Node's retry ask waits on the ask lock behind that turn).
+    pending_retry: Option<super::quota_lane::RetryTurn>,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
     retry_hidden: bool,
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
@@ -1171,6 +1208,8 @@ impl SessionActor {
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
+            steered_meta: Default::default(),
+            restored_queue: false,
             held_display: None,
             route_status: None,
             route_move: None,
@@ -1186,7 +1225,7 @@ impl SessionActor {
             goal_suppressed: String::new(),
             goal_scheduled: false,
             settling: false,
-            agent_done: None,
+            agent_done: Vec::new(),
             completed_reasons: None,
             starting: false,
             submitter: None,
@@ -1236,6 +1275,9 @@ impl SessionActor {
             quota_pending: None,
             quota_answered: None,
             compactions: 0,
+            compact_scheduled: false,
+            after_compaction: None,
+            pending_retry: None,
             retry_hidden: false,
             transcript_rewritten: false,
             prune_deferred: false,
@@ -1254,6 +1296,7 @@ impl SessionActor {
 
     pub async fn run(mut self, init: Init) {
         let mut created_at = None;
+        self.restored_queue = matches!(init, Init::Open { .. });
         match init {
             Init::Create { session, tx, value, seed, settings, kept } => {
                 self.seed = seed;
@@ -1338,6 +1381,7 @@ impl SessionActor {
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
             self.cell.compacting.store(self.compactions > 0, SeqCst);
+            self.cell.gated.store(self.starts_gated(), SeqCst);
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
@@ -1946,6 +1990,10 @@ impl SessionActor {
         // What recovery commits of a crashed turn shows as a reopened history shows it, not as a live turn.
         let live = !self.recovering;
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
+        let paragraph = match (&*record, self.run.as_ref()) {
+            (Record::Item(row), Some(slot)) => slot.paragraphs.contains(row.iid.as_str()),
+            _ => false,
+        };
         let at = self.deps.clock.now_ms();
         // A full cpu lane is waited out: the record is a row of the thread, never dropped for a busy lane.
         let encode = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| {
@@ -1975,9 +2023,18 @@ impl SessionActor {
                             mixdog_store::schema::blob::Slot::Inline(body) => (body.pointer("/meta/transcript/attemptId").and_then(Value::as_str), body.get("content").and_then(Value::as_str)),
                             _ => (None, None),
                         };
+                        let live = |item| {
+                            let mut item = super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at);
+                            if paragraph
+                                && let ThreadItem::AgentMessage { text: mixdog_protocol::MaybeBlob::Inline(text), .. } = &mut item
+                            {
+                                text.insert_str(0, "\n\n");
+                            }
+                            item
+                        };
                         match shown {
-                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
-                            Shown::Update(item) => Shown::Update(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
+                            Shown::Item(item) => Shown::Item(live(item)),
+                            Shown::Update(item) => Shown::Update(live(item)),
                         }
                     })
                     .collect();
@@ -2138,13 +2195,17 @@ impl SessionActor {
                 // The turn is settled: queued work runs first, then an active Goal continues
                 // once the thread is idle (`onGoalTurnSettled`).
                 self.settling = false;
-                if let Some((done, outcome)) = self.agent_done.take() {
+                for (done, outcome) in std::mem::take(&mut self.agent_done) {
                     let _ = done.send(outcome);
                 }
                 self.finish_quota_settlement(goal.clone().flatten().as_ref());
                 let active = goal.and_then(|goal| self.publish_goal(goal)).is_some_and(|goal| goal_lane_status(&goal) == "active");
                 if self.deleting {
                     return;
+                }
+                // A compaction the model scheduled runs once the turn is over, before what follows it.
+                if std::mem::take(&mut self.compact_scheduled) {
+                    return self.run_scheduled_compaction(active);
                 }
                 self.start_next_queued();
                 if active {
@@ -2197,6 +2258,7 @@ impl SessionActor {
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
             JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
+            JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained, provenance } => self.retry_checked(op, tx, key, retained, provenance),
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
@@ -3071,7 +3133,12 @@ impl SessionActor {
         self.projected = projected;
     }
 
-    fn publish(&mut self, notes: Vec<Note>) {
+    fn publish(&mut self, mut notes: Vec<Note>) {
+        // A deleted session leaves its viewers before its turn is stopped (`deleteSessionLocked`
+        // drops the projection first): the stopped turn's rows reach no client.
+        if self.deleting {
+            notes.retain(|note| !(note.method.starts_with("item/") || note.method.starts_with("turn/")));
+        }
         let start = self.seq + 1;
         let frames: Vec<FeedFrame> = notes
             .iter()
@@ -3135,6 +3202,8 @@ impl SessionActor {
         let shown = self.book.shown();
         if self.cell.shown_approval.load().as_ref().map(|request| request.id) != shown.map(|request| request.id) {
             self.cell.shown_approval.store(shown.cloned().map(Arc::new));
+            // `runtime.subscribe`: a state change its watchers read (a send's approval wait).
+            self.cell.shown_changed.send_modify(|seq| *seq += 1);
         }
     }
 
@@ -3239,8 +3308,12 @@ impl SessionActor {
                     }
                 }
             }
+            // What an earlier process left queued runs at the first resume: the restore alone starts no turn
+            // (`restoreLeadSteeringFromDisk`, `steering.mjs:291`), the resume's release drains it once (`resume.mjs:72`).
+            // A resume also drains the rows the thread holds queued now.
             Ctl::Resumed => {
-                if !self.projected.queued_rows().is_empty() {
+                let restored = std::mem::take(&mut self.restored_queue);
+                if restored || !self.projected.queued_rows().is_empty() {
                     self.start_next_queued();
                 }
             }
@@ -3397,6 +3470,7 @@ impl SessionActor {
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
+        self.steered_meta.clear();
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
         self.deps.snapshots.turn_settled(&self.id);
@@ -3430,7 +3504,10 @@ impl SessionActor {
             if let (Some(terminal), RunOutcome::Completed(result)) = (terminal, &outcome) {
                 terminal(result);
             }
-            self.agent_done = Some((done, outcome.clone()));
+            self.agent_done.push((done, outcome.clone()));
+        }
+        for done in slot.joined {
+            self.agent_done.push((done, outcome.clone()));
         }
         for listener in self.cell.turn_listeners() {
             listener.turn_settled(settled.clone());
@@ -3840,9 +3917,16 @@ impl SessionActor {
         // Nothing is dequeued while starts are held: the drain goes on once they are not (an unsaved turn's records
         // are written again first).
         if self.starts_gated() {
+            #[cfg(any(test, feature = "test-support"))]
+            if !self.projected.queue.is_empty() {
+                self.cell.gate_holds.fetch_add(1, SeqCst);
+            }
             self.drain_held = true;
             self.retry_due |= self.outbox.has_unsaved();
             return;
+        }
+        if let Some(retry) = self.pending_retry.take() {
+            return self.begin_retry(retry);
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
         while !self.wake_tail.is_empty() {
@@ -3898,7 +3982,17 @@ impl SessionActor {
             device: next.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).unwrap_or_default().to_owned(),
             restorable,
         });
-        self.start_run(input, None, None, None);
+        // The drained entry's `transcriptMeta` starts the turn (`beginTurn`): a bot's message keeps its sender and chain when the
+        // process that queued it (and its in-memory start) is gone.
+        let mut body = self.deps.transcript.user_message(&input);
+        if let Some(meta) = pending::steered_meta(&next.entry) {
+            for key in ["sender", "fromAgent", "hop", "botChain", "roomRow"] {
+                if let Some(value) = meta.get(key) {
+                    body["meta"]["transcript"][key] = value.clone();
+                }
+            }
+        }
+        self.start_run_with(input, body, None, None, None, false);
     }
 
     /// A queued completion as a turn's input row, stored as a task notification.
@@ -3967,12 +4061,25 @@ impl SessionActor {
         {
             run.tool_calls += 1;
         }
+        // `settleFinalText` (`turn-stream.mjs:694`): the turn's closing reply shows what its final text holds past the segments
+        // already shown, peeled off the front with the paragraph break that joins them, so it reads `\n\n` first live.
+        let reply_text = (item.role.as_deref() == Some("assistant")).then(|| {
+            let text = item.body.get("content").and_then(Value::as_str).unwrap_or_default();
+            let calls = item.body.get("toolCalls").and_then(Value::as_array).is_some_and(|calls| !calls.is_empty());
+            (!text.trim().is_empty(), calls)
+        });
         match self.item_record(&turn, item, facts, None) {
             Ok(record) => {
-                if let (Record::Item(row), Some(run)) = (&record, self.run.as_mut())
-                    && row.model
-                {
-                    run.last_model = Some(row.clone());
+                if let (Record::Item(row), Some(run)) = (&record, self.run.as_mut()) {
+                    if row.model {
+                        run.last_model = Some(row.clone());
+                    }
+                    if let Some((text, calls)) = reply_text {
+                        if text && !calls && run.text_shown {
+                            run.paragraphs.insert(row.iid.as_str().to_owned());
+                        }
+                        run.text_shown |= text;
+                    }
                 }
                 self.accept_record(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
@@ -3990,9 +4097,11 @@ impl SessionActor {
 
     /// Work on the session may not start now, whatever would start it (a turn of any origin in
     /// [`Self::start_run_with`], a queue drain, prioritised entry or live notification in
-    /// [`Self::start_next_queued`]): the previous turn is unsaved. A held start waits and [`Self::pump`] resumes it.
+    /// [`Self::start_next_queued`], a Goal entry): the previous turn is unsaved, or the scheduled compaction runs
+    /// (`afterCompaction`, `compaction-gate.mjs`, wraps every ask; its end drains the queue). A held start waits and
+    /// [`Self::pump`] resumes it.
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled()
+        self.turn_unsettled() || self.after_compaction.is_some()
     }
 
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
@@ -4288,6 +4397,10 @@ impl SessionActor {
                         self.draft_push(marker, None);
                     }
                 }
+                // A message a boundary took on its own stores its entry's `transcriptMeta` (`injectSteerMessage`).
+                if item.role.as_deref() == Some("user") {
+                    self.stamp_steered_meta(&mut item.body);
+                }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
                 self.with_facts(body, move |read| match read {
@@ -4371,6 +4484,16 @@ impl SessionActor {
                 // none: its count is the telemetry's (`rememberCompactTelemetry`, `compact-policy.mjs:877`), written
                 // once by the pass's own `pass_change`.
                 let cid = new_id();
+                // An agent-mode session compacts silently: no divider, live or in its archive (`divider = !isAgentModeSession`,
+                // `compaction-archive-capture.mjs:798`; `ask-turn-loop-options.mjs:202`). A compaction the session tool
+                // scheduled runs after the turn with no host listening (`session.compact()`, `compaction-gate.mjs`): it shows
+                // nothing live either.
+                let agent_mode = {
+                    let mut header = self.acked.header.clone();
+                    header.entry("id").or_insert_with(|| Value::String(self.id.as_str().to_owned()));
+                    mixdog_store::agent_mode::session_mode_of(&header) == "agent"
+                };
+                let shown_live = !agent_mode && !(turn.as_str().is_empty() && self.after_compaction.is_some());
                 // The divider shows live where the compaction happened (`compactionDivider`).
                 let divider = super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
@@ -4387,7 +4510,7 @@ impl SessionActor {
                         message_ids: d.message_ids,
                         call_ids: d.call_ids,
                     }),
-                    silent: None,
+                    silent: agent_mode.then_some(true),
                     replacement: Slot::Inline(
                         compaction
                             .replacement
@@ -4405,7 +4528,8 @@ impl SessionActor {
                 // A manual compaction's commit awaits its save (`commitCompaction`): a failed save fails it, as a close's mark.
                 let ack = if turn.as_str().is_empty() { Effect::MarkAck(ack) } else { Effect::ItemAck(ack) };
                 let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![ack]) } else { (vec![ack], Vec::new()) };
-                self.accept_record(record, Class::Normal, Display::Items(vec![Shown::Item(divider)]), vec![note], compaction_ack);
+                let (display, notes) = if shown_live { (Display::Items(vec![Shown::Item(divider)]), vec![note]) } else { (Display::None, Vec::new()) };
+                self.accept_record(record, Class::Normal, display, notes, compaction_ack);
                 if let Some(header) = header {
                     let change = header(&self.projected.header);
                     self.accept_record(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }), Class::Normal, Display::None, Vec::new(), header_ack);
@@ -4473,6 +4597,29 @@ impl SessionActor {
         }
     }
 
+    /// The stored metadata of a message a boundary took on its own: its entry's `transcriptMeta` joins `meta.transcript`
+    /// (what the run stamped stays), so a bot's message names its sender and chain.
+    fn stamp_steered_meta(&mut self, body: &mut Value) {
+        let ids: Vec<String> = body
+            .pointer("/meta/submissionIds")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| id.as_str().map(str::to_owned))
+            .collect();
+        for id in ids {
+            let Some(Value::Object(meta)) = self.steered_meta.remove(&id) else { continue };
+            let Some(stored) = body.as_object_mut() else { return };
+            let meta_row = stored.entry("meta").or_insert_with(|| Value::Object(Default::default()));
+            let Some(meta_row) = meta_row.as_object_mut() else { return };
+            let transcript = meta_row.entry("transcript").or_insert_with(|| Value::Object(Default::default()));
+            let Some(transcript) = transcript.as_object_mut() else { return };
+            for (key, value) in meta {
+                transcript.entry(key).or_insert(value);
+            }
+        }
+    }
+
     /// `drainPendingSteering` for a run's boundary. A queued Goal entry is delivered only while
     /// its Goal still wants it (`canDeliverSteeringEntry`); the check reads the Goal runtime, so
     /// the drain waits for it and comes back here with `checked` (a Goal entry's queue id -> due).
@@ -4491,16 +4638,40 @@ impl SessionActor {
         let mut taken: Vec<QueuedId> = Vec::new();
         let mut dropped: Vec<QueuedId> = Vec::new();
         let mut out: Vec<SteerInput> = Vec::new();
-        for qid in &self.steer_marked {
-            if let Some(q) = self.acked.queue.iter().find(|q| {
-                q.qid == qid.as_str() && within_priority(&q.entry, max_priority)
-            }) {
-                taken.push(qid.clone());
-                // `raiseTurnHop(opts.session, merged.transcriptMeta)` (`steering.mjs:145`): a
-                // bot's message at a higher hop makes the running turn bot-descended at that hop.
-                self.cell.turn_chain.raise(pending::steered_meta(&q.entry));
-                out.push(pending::steered(qid.clone(), &q.entry));
+        // The steered entries first, then the host's own queued prompts (`drainPendingSteering`, `session-flow/steering.mjs:204`):
+        // every typed prompt within the drain's priority is its own input at every boundary, never merged.
+        let host_prompts: Vec<QueuedId> = self
+            .projected
+            .queue
+            .iter()
+            .filter(|q| {
+                !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
+                    && !self.wake_tail.contains(&q.qid)
+                    && !completions::is_notification(&q.entry)
+                    && !super::goal_lane::is_goal_entry(&q.entry)
+                    && !pending::is_slash_entry(&q.entry)
+            })
+            .map(|q| QueuedId::from(q.qid.as_str()))
+            .collect();
+        let candidates: Vec<QueuedId> = self.steer_marked.iter().cloned().chain(host_prompts).collect();
+        for qid in candidates {
+            let Some(entry) = self
+                .acked
+                .queue
+                .iter()
+                .find(|q| q.qid == qid.as_str() && within_priority(&q.entry, max_priority))
+                .map(|q| q.entry.clone())
+            else {
+                continue;
+            };
+            // `raiseTurnHop(opts.session, merged.transcriptMeta)` (`steering.mjs:145`): a
+            // bot's message at a higher hop makes the running turn bot-descended at that hop.
+            self.cell.turn_chain.raise(pending::steered_meta(&entry));
+            if let Some(meta) = pending::steered_meta(&entry) {
+                self.steered_meta.insert(qid.as_str().to_owned(), meta.clone());
             }
+            out.push(pending::steered(qid.clone(), &entry));
+            taken.push(qid);
         }
         self.steer_marked.retain(|qid| !taken.contains(qid));
         self.sync_turn_chain();
@@ -4563,6 +4734,14 @@ impl SessionActor {
             // with no row of its own (`suppressDisplay`); so does a notice the Goal lane queued
             // for the model alone, which has no execution to name: its queue id stands for it.
             if let Some(q) = self.acked.queue.iter().find(|q| q.qid == qid.as_str()) {
+                // A host submission steered in settles with this turn (`turnSettlements.set(epoch, ...)`,
+                // `steering.mjs:219`).
+                let submission = q.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).unwrap_or_default();
+                let joined = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).remove(submission);
+                if let (Some(start), Some(run)) = (joined, self.run.as_mut()) {
+                    (start.on_start)();
+                    run.joined.push(start.done);
+                }
                 if let Some(execution) = suppressed_execution(&q.entry) {
                     self.suppressed.insert(execution);
                 } else if q.entry.get("suppressDisplay") == Some(&Value::Bool(true)) {
@@ -5147,6 +5326,16 @@ impl SessionActor {
             };
             return fail(error, tx, &mut self.ops);
         }
+        // `afterCompaction`: a clear, rewind or compaction waits for the scheduled compaction. A turn
+        // is admitted at once (`submitToSession` answers `true`) and queued; its ask waits on the gate.
+        if let Some(after) = &mut self.after_compaction
+            && matches!(req.method.as_str(), "thread/clear" | "thread/rewind" | "thread/compact/start")
+        {
+            after.waiting.push(Waiting::Request(req, tx));
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.gate_holds.fetch_add(1, SeqCst);
+            return Ok(());
+        }
         // The `/goal` route (`goalControl`): the Goal runtime answers; no record of its own.
         if matches!(req.method.as_str(), "thread/goal/set" | "thread/goal/clear" | "thread/goal/control") {
             let request = match super::goal_lane::control_request(req.method.as_str(), &req.params) {
@@ -5325,8 +5514,9 @@ impl SessionActor {
             });
             self.archive_goal_on_user_input();
         }
-        // A turn starting or still settling holds the next one back: it is queued and starts after.
-        if !self.turn_busy() {
+        // A turn starting or still settling, or the scheduled compaction's gate, holds the next one
+        // back: it is queued and starts after.
+        if !self.turn_busy() && !self.starts_gated() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -5373,12 +5563,12 @@ impl SessionActor {
         let host_meta = params.input.options.as_ref().and_then(|o| o.client_submission_id.as_deref()).and_then(|submission| {
             let starts = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner());
             let start = starts.get(submission)?;
-            let mut meta = serde_json::Map::new();
+            let mut meta = start.meta.clone();
             if let Some(sender) = start.sender {
-                meta.insert("sender".into(), json!(sender));
+                meta.entry("sender").or_insert_with(|| json!(sender));
             }
             if let Some(agent) = &start.from_agent {
-                meta.insert("fromAgent".into(), json!(agent));
+                meta.entry("fromAgent").or_insert_with(|| json!(agent));
             }
             if let Some(hop) = start.hop {
                 meta.insert("hop".into(), json!(hop));
@@ -6271,6 +6461,9 @@ impl SessionActor {
                 if let Some(trigger) = &routine.trigger {
                     body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
                 }
+                for (key, value) in &routine.meta {
+                    body["meta"]["transcript"][key] = value.clone();
+                }
                 if let Some(sender) = routine.sender {
                     body["meta"]["transcript"]["sender"] = json!(sender);
                 }
@@ -6512,6 +6705,9 @@ impl SessionActor {
             goal_reminder: goal_reminder.as_ref().map(|reminder| reminder.revision),
             notice: notice.clone(),
             agent,
+            joined: Vec::new(),
+            text_shown: false,
+            paragraphs: Default::default(),
             _marks: marks,
             last_model,
             started_at: self.deps.clock.now_ms(),

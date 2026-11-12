@@ -181,4 +181,5 @@ mod room_rows_replay;
 mod room_send_replay;
 #[cfg(test)]
 mod pool_list_replay;
+pub mod task_report_store;
 pub mod room_labels;

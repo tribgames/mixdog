@@ -918,6 +918,23 @@ impl StoreThreads {
     }
 }
 
+/// The window rows a compaction took out of the context, which a restored window still shows (1.4.5 `archived: true`): the model
+/// rows it dropped, and the display rows (a turn's end) of a turn none of whose messages is left.
+fn archived_ordinals(rows: &[HistoryRow]) -> Vec<u64> {
+    use std::collections::HashSet;
+    let turn_of = |row: &HistoryRow| row.turn.clone();
+    let gone: HashSet<String> = rows.iter().filter(|row| row.model && row.archived).filter_map(turn_of).collect();
+    let live: HashSet<String> = rows.iter().filter(|row| row.model && !row.archived).filter_map(turn_of).collect();
+    rows.iter()
+        .filter(|row| match (row.model, &row.turn) {
+            (true, _) => row.archived,
+            (false, Some(turn)) => gone.contains(turn) && !live.contains(turn),
+            (false, None) => false,
+        })
+        .map(|row| row.ordinal)
+        .collect()
+}
+
 /// Context rows read per page.
 const CONTEXT_PAGE_ROWS: usize = 200;
 
@@ -1315,6 +1332,7 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
+    archived: Vec<u64>,
     dividers: Vec<super::seams::WindowDivider>,
     has_older: bool,
     prompts: Vec<String>,
@@ -1382,6 +1400,7 @@ impl ThreadStore for StoreThreads {
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
+        let archived = archived_ordinals(&rows);
         let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some())?;
         let prompts = self
             .index
@@ -1432,6 +1451,7 @@ impl ThreadStore for StoreThreads {
         }
         Ok(WindowRead(Box::new(Window {
             window,
+            archived,
             dividers,
             has_older: cursor.is_some(),
             prompts,
@@ -1467,6 +1487,7 @@ impl ThreadStore for StoreThreads {
             approvals: read.approvals,
             queue: read.queue,
             window: read.window,
+            archived: read.archived,
             dividers: read.dividers,
             has_older: read.has_older,
             prompts: read.prompts,
@@ -1856,6 +1877,47 @@ fn prompt_row(text: String) -> ItemRecord {
         prompt: Some(Slot::Inline(text)),
         refs: Vec::new().try_into().expect("empty list fits"),
         body: Slot::Inline(serde_json::Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod archived_tests {
+    use super::*;
+    use mixdog_store::schema::record::Form;
+
+    fn row(ordinal: u64, turn: &str, model: bool, archived: bool) -> HistoryRow {
+        HistoryRow {
+            session: "sess_a".into(),
+            ordinal,
+            iid: format!("i{ordinal}"),
+            turn: Some(turn.into()),
+            form: if model { Form::Message } else { Form::Display },
+            model,
+            pos: mixdog_store::schema::checkpoint::FramePos { ordinal, file_no: 0, offset: 0 },
+            frame_len: 0,
+            amend: None,
+            archived,
+            dropped_text: archived,
+            dropped_calls: Vec::new(),
+            kept: Vec::new(),
+            model_switches: Vec::new(),
+        }
+    }
+
+    /// A restored window marks the rows a compaction took out: its model rows, and the end row of a turn none of whose messages
+    /// is left; a turn that kept a message stays live whole.
+    #[test]
+    fn a_window_marks_the_rows_a_compaction_took_out_and_the_end_of_a_turn_left_with_nothing() {
+        let rows = [
+            row(1, "t1", true, true),
+            row(2, "t1", false, false),
+            row(3, "t2", true, true),
+            row(4, "t2", true, false),
+            row(5, "t2", false, false),
+            row(6, "t3", true, false),
+            row(7, "t3", false, false),
+        ];
+        assert_eq!(archived_ordinals(&rows), vec![1, 2, 3]);
     }
 }
 

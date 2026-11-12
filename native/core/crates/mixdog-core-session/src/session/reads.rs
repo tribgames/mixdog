@@ -401,6 +401,87 @@ pub(super) fn display_row(item: &ThreadItem) -> Value {
     row
 }
 
+/// The Node transcript row an item stands for, with every field the `session` tool's read
+/// consults (`conversationItem`, `session-tool-output.mjs`): `kind`, the id the client holds,
+/// `name`, `status`, `isError`, `text` / `detail` / `label`, a tool's `args`, `rawResult` and
+/// `result`, and the attachment lists a row carries.
+pub fn transcript_row(item: &ThreadItem) -> Value {
+    let m = meta(item);
+    let mut row = serde_json::Map::new();
+    row.insert("kind".into(), json!(row_kind(item)));
+    row.insert("id".into(), json!(super::transcript::displayed_id(item)));
+    for (key, value) in &m.ext {
+        row.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+    if let Some(label) = &m.label {
+        row.insert("label".into(), json!(label));
+    }
+    if let Some(detail) = &m.detail {
+        row.insert("detail".into(), json!(detail));
+    }
+    let inline = |text: &mixdog_protocol::MaybeBlob<String>| match text {
+        mixdog_protocol::MaybeBlob::Inline(text) => Some(text.clone()),
+        mixdog_protocol::MaybeBlob::Blob(_) => None,
+    };
+    let lists = |row: &mut serde_json::Map<String, Value>, key: &str, list: Value| {
+        if list.as_array().is_some_and(|l| !l.is_empty()) {
+            row.insert(key.into(), list);
+        }
+    };
+    match item {
+        ThreadItem::UserMessage { display_text, details, .. } => {
+            row.insert("text".into(), json!(display_text));
+            lists(&mut row, "attachments", json!(details.attachments));
+            lists(&mut row, "images", json!(details.images));
+            lists(&mut row, "imageRefs", json!(details.image_refs));
+        }
+        ThreadItem::AgentMessage { text, .. } => {
+            if let Some(text) = inline(text) {
+                row.insert("text".into(), json!(text));
+            }
+        }
+        ThreadItem::ToolCall { name, input, run, .. } => {
+            row.insert("name".into(), json!(name));
+            if !input.is_null() {
+                row.insert("args".into(), input.clone());
+            }
+            if let Some(raw) = run.raw_result.as_ref().and_then(inline) {
+                row.insert("rawResult".into(), json!(raw));
+            }
+            if let Some(result) = run.result.as_ref().and_then(inline) {
+                row.insert("result".into(), json!(result));
+            }
+            if let Some(is_error) = run.is_error {
+                row.insert("isError".into(), json!(is_error));
+            }
+        }
+        ThreadItem::TurnEnd { status, detail, .. } => {
+            let status = match status {
+                TurnEndStatus::Done => "done",
+                TurnEndStatus::Failed => "failed",
+                TurnEndStatus::Cancelled => "cancelled",
+            };
+            row.insert("status".into(), json!(status));
+            if let Some(detail) = detail {
+                row.insert("detail".into(), json!(detail));
+            }
+        }
+        ThreadItem::ContextCompaction { .. } => {
+            row.insert("kind".into(), json!("statusdone"));
+            row.insert("status".into(), json!("compacted"));
+        }
+        ThreadItem::RoomRow { text, attachments, images, .. } => {
+            if let Some(text) = inline(text) {
+                row.insert("text".into(), json!(text));
+            }
+            lists(&mut row, "attachments", json!(attachments));
+            lists(&mut row, "images", json!(images));
+        }
+        _ => {}
+    }
+    Value::Object(row)
+}
+
 fn str_of(row: &Value, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).map(str::to_owned)
 }

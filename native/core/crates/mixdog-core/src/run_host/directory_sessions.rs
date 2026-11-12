@@ -37,11 +37,19 @@ pub struct DirectorySessions {
     state: Arc<dyn ThreadState>,
     /// The archive stamps the host's own archive hands out too (Node's one `lastArchiveStamp`).
     stamps: Arc<ArchiveStamps>,
+    /// `updateSessionRoute`: a created session's first route is seated through it (its model's window with it); without it
+    /// the route is written as plain header fields.
+    routes: Option<Arc<dyn mixdog_core_ports::ports::route::RouteSession>>,
 }
 
 impl DirectorySessions {
     pub fn new(directory: Arc<SessionDirectory>, state: Arc<dyn ThreadState>) -> Self {
-        Self { directory, state, stamps: Arc::default() }
+        Self { directory, state, stamps: Arc::default(), routes: None }
+    }
+
+    /// Seats a created session's first route through the session route adapter.
+    pub fn with_routes(self, routes: Arc<dyn mixdog_core_ports::ports::route::RouteSession>) -> Self {
+        Self { routes: Some(routes), ..self }
     }
 
     /// Shares the host's archive stamps (`ThreadSettingsParts::archive_stamps`).
@@ -127,10 +135,27 @@ impl SessionOps for DirectorySessions {
         if let Some(fields) = params.as_object() {
             header.extend(fields.clone());
         }
-        self.directory
-            .create_with_id(ThreadId::from(session_id), header, params.clone())
-            .await
-            .map_err(port)
+        // A home or room member session is Node's `createSession` with `sessionOptions` (`session-options.mjs:47`): a user's
+        // Lead's tool policy (the goal tools denied) that runs as its home agent.
+        mixdog_core_session::session::session_options::write_header(&Default::default(), &mut header);
+        if let Some(agent) = params.pointer("/sessionProfile/homeAgent").and_then(Value::as_str).map(str::trim).filter(|a| !a.is_empty()) {
+            header.insert("agent".into(), json!(agent));
+        }
+        // The route is the thread's first route, seated as a new task's is: `createSession` resolves the model's window with it
+        // (`resolveSessionContextMeta`, `session-lifecycle.mjs:281`), without which no compaction has a budget.
+        let Some(routes) = &self.routes else {
+            return self.directory.create_seeded_with_id(ThreadId::from(session_id), header, params.clone()).await.map_err(port);
+        };
+        let route: Map<String, Value> = ["provider", "model", "effort"]
+            .iter()
+            .filter_map(|key| header.shift_remove(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v)))
+            .collect();
+        let thread = ThreadId::from(session_id);
+        self.directory.create_seeded_with_id(thread.clone(), header, params.clone()).await.map_err(port)?;
+        if route.is_empty() {
+            return Ok(());
+        }
+        routes.update_route(&thread, route, false).await.map(|_| ()).map_err(port)
     }
 
     async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {

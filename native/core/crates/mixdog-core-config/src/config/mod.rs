@@ -35,6 +35,8 @@ pub mod secret_changes;
 mod watch;
 mod channel_follow;
 
+pub use storage::migrate_codex_route;
+pub use storage::migrate_codex_route_over;
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;

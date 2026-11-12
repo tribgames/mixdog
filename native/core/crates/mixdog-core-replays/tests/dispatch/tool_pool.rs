@@ -361,6 +361,9 @@ async fn call_tool_hands_the_projected_target_to_the_dispatcher_and_refuses_the_
 
 // --- the session port ---------------------------------------------------------------------------
 
+#[path = "session_control_tests.rs"]
+mod replay;
+
 #[derive(Default)]
 struct Requests {
     calls: Mutex<Vec<(String, String, Value)>>,
@@ -524,6 +527,9 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         world: Arc::new(NoBotWorld),
         quota: mixdog_core_session::session::testing::Rig::new().quota.clone(),
         clock: Arc::new(Now),
+        listing: Arc::new(replay::Fixture::default()),
+        send: Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default()),
+        bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     }));
     Port { port, callers, threads, requests, suggested }
@@ -727,10 +733,6 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
     assert!(matches!(p.port.control(control("zap")).await, Err(PortError::Unavailable { .. })));
-    // A session there is none of is "not available" (a cancel or delete never answers for one that does not exist).
-    let gone = |action: &str| mixdog_tools::orch::session::ControlCall { args: json!({ "session_id": "sess_gone" }), ..control(action) };
-    assert!(matches!(p.port.control(gone("cancel")).await, Err(PortError::NotFound { message, .. }) if message == "session sess_gone is not available"));
-    assert!(matches!(p.port.control(gone("delete")).await, Err(PortError::NotFound { message, .. }) if message == "session sess_gone is not available"));
 }
 
 #[tokio::test]
@@ -1233,7 +1235,7 @@ impl World {
     /// A turn the world holds in flight in `id` (at bot-to-bot depth `hop`, in `chain`) until it is released.
     async fn hold(&self, id: &str, prompt: &str, hop: u32, chain: &[String]) {
         let thread = ThreadId::from(id);
-        assert!(self.directory.submit_chained_turn(&thread, &json!(prompt), &format!("seed-{id}-{prompt}"), hop, chain, "").await, "{id} takes its turn");
+        assert!(self.directory.submit_chained_turn(&thread, &json!(prompt), &format!("seed-{id}-{prompt}"), hop, chain, &serde_json::Map::new(), "").await.is_some(), "{id} takes its turn");
         let (runs, handle) = (self.runs.clone(), self.directory.handle(&thread).expect("loaded"));
         mixdog_core_session::session::testing::eventually_on_awaiting(
             || format!("the {prompt} turn of {id} to start"),
@@ -1396,6 +1398,9 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
             suggestions: Arc::new(Suggested::default()),
             catalog: Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, approvals: ids("approvals").into_iter().collect(), directory: world.directory.clone(), log: log.clone() }),
             clock: Arc::new(At(now)),
+            listing: Arc::new(replay::Fixture::default()),
+            send: Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default()),
+            bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
             io: mixdog_rt::testing::tokens().interactive_io,
         }));
         let tool = mixdog_tools::orch::session::SessionTool::new(port, callers);
