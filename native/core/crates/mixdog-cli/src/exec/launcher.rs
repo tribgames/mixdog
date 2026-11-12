@@ -129,6 +129,8 @@ impl CoreLauncher for InProcessLauncher {
         let outgoing = mixdog_app_server::Outgoing::new();
         let config = ComposeConfig {
             user_data_dir: data_dir.join("userdata"),
+            // The exec's private runtime root (boundary.rs): no remote intent of the user's own core is read or written.
+            runtime_root: boundary.runtime_root.clone(),
             log: mixdog_app_server_daemon::daemon_log::DaemonLog::new(data_dir.join("daemon.log"), self.tokens.maintenance_io, stop.clone()),
             data_dir,
             js_runtime,
