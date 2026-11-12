@@ -95,8 +95,9 @@ impl Inner {
     /// Persist `state` for the record files under `keys`, bumping the revision when anything
     /// changed: the one state write of composer and historical Undo.
     async fn write_turn_change_state(&self, owner: &str, checkpoint_id: &str, keys: &IndexSet<String>, state: &'static str) -> std::io::Result<Option<Record>> {
+        let keys = keys.clone();
         self.store
-            .update_turn_change_record(owner, checkpoint_id, |current| {
+            .update_turn_change_record(owner, checkpoint_id, move |current| {
                 let mut changed = false;
                 let files: Vec<Obj> = current
                     .get("files")
@@ -122,11 +123,12 @@ impl Inner {
     /// unknown in the record, or, when the store refuses that write too, for the rest of this
     /// runtime, so no reply reads them as cleanly applied or reverted.
     async fn mark_turn_change_state_unknown(&self, owner: &str, checkpoint_id: &str, keys: &IndexSet<String>) {
+        let marking = keys.clone();
         let marked = self
             .store
-            .update_turn_change_record(owner, checkpoint_id, |current| {
+            .update_turn_change_record(owner, checkpoint_id, move |current| {
                 let files = current.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
-                Some(mark_unknown(&files, keys))
+                Some(mark_unknown(&files, &marking))
             })
             .await;
         if marked.is_ok() {

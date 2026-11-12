@@ -1,0 +1,49 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-change-store.mjs --tree <product tree with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 28664,
+      "path": "scenarios.json",
+      "sha256": "c4a5a0c94219e6882fa3fdda7ea5559ba01674a64c59166989e46fe13feef101"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "fields": [
+      "createdAt",
+      "updatedAt"
+    ],
+    "reason": "Date.now is a counter in the recording; a core stamps real time"
+  },
+  "product": {
+    "appsSha256": "f8b2ed1fdd44915fe3f84a648a365670cdafc6b49cb588d94a8d0548902a82a1",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21674,
+    "refComparison": {
+      "closestCommit": "ab38b2561a68ac5e819e8206d8bf5406e105616e",
+      "commitFilesMissingFromTree": 266,
+      "exact": false,
+      "filesDifferingFromCommit": 13031
+    },
+    "srcSha256": "a98e3fc84745f83987804533e3d9817785dea69094e9315848e94fef76681070",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-change-store.mjs",
+  "recorderSha256": "b7eb52ec82168dbf0fe40beb829851e5ceeb6f5a1ac060899ad9286c793cde52",
+  "set": "turn-change-store",
+  "totalBytes": 28664
+}

@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use super::nodepath;
 use super::patch::change_path_key;
 use super::ports::CurrentText;
+use super::ports::Appended;
 use super::ports::BlockingFs;
 use super::ports::BlockingJob;
 use super::ports::CurrentFile;
@@ -243,6 +244,34 @@ impl BlockingFs for LaneFs<'_> {
 
     fn create_private_dir_all(&self, path: &Path) -> std::io::Result<()> {
         mixdog_statefile::create_private_dir_all(self.lane, path)
+    }
+
+    fn append_verified(&self, path: &Path, bytes: &[u8]) -> std::io::Result<Appended> {
+        use std::io::Seek;
+        use std::io::Write;
+        let mut handle = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+        let prior = handle.metadata()?.len();
+        let landed = (|| -> std::io::Result<()> {
+            handle.write_all(bytes)?;
+            let mut held = vec![0u8; bytes.len()];
+            let mut reader = std::fs::File::open(path)?;
+            reader.seek(std::io::SeekFrom::Start(prior))?;
+            reader.read_exact(&mut held)?;
+            if held != bytes {
+                return Err(std::io::Error::other("turn change record was not written whole"));
+            }
+            Ok(())
+        })();
+        drop(handle);
+        if let Err(error) = landed {
+            // By the path: Windows refuses to truncate through a handle opened to append.
+            let cut = std::fs::OpenOptions::new().write(true).open(path).and_then(|file| file.set_len(prior));
+            return Err(match cut {
+                Ok(()) => error,
+                Err(cut) => std::io::Error::new(error.kind(), format!("{error} (the file was not cut back: {cut})")),
+            });
+        }
+        Ok(Appended { prior_size: prior, stamp: stamp(&std::fs::metadata(path)?) })
     }
 }
 
