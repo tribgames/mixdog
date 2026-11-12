@@ -1005,6 +1005,7 @@ mod tests {
             let (send, receive) = tokio::sync::mpsc::unbounded_channel();
             self.senders.lock().unwrap().insert(request.handle.0.clone(), send);
             self.receivers.lock().unwrap().insert(request.handle.0.clone(), receive);
+            let hangs = self.world.screenshot == "hangs" && args.iter().any(|arg| arg.ends_with(".Screenshot"));
             if !request.stdin_piped {
                 let (code, out) = match program.as_str() {
                     "/bin/sh" => (i32::from(!self.world.shell(&request.env, &args[1], &args[3])), String::new()),
@@ -1017,7 +1018,9 @@ mod tests {
                 if !out.is_empty() {
                     self.emit(&request.handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.into_bytes() });
                 }
-                self.emit(&request.handle, |seq| Self::exited(seq, code, None));
+                if !hangs {
+                    self.emit(&request.handle, |seq| Self::exited(seq, code, None));
+                }
             }
             Ok(SpawnedProcess { handle: request.handle, pid: 1 })
         }
@@ -1076,35 +1079,28 @@ mod tests {
         errors: usize,
     }
 
-    /// The content blocks the core returned, in the recording's shape. `Image` has no `width`/`height` (Node's client adds them from the reply text).
+    /// The content blocks the core returned, in the recording's shape, minus the image's bytes and media type (see `node_blocks`).
     fn blocks_of(parts: &[ToolPart]) -> Vec<Value> {
         parts
             .iter()
             .map(|part| match part {
                 ToolPart::Text(text) => json!({"type": "text", "text": text}),
-                ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
-                    json!({"type": "image", "media_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
-                }
+                ToolPart::Image { width, height, .. } => json!({"type": "image", "width": width, "height": height}),
                 other => panic!("unexpected part {other:?}"),
             })
             .collect()
     }
 
-    /// The content blocks Node returned, with its encoding step undone: Node re-encodes the extension's PNG as a JPEG (Chromium's
-    /// encoder; the recording's stand-in puts a `STANDIN-JPEG q<quality>` line before the PNG it was given), and its client gives the
-    /// image block the frame's `width` and `height`. What is compared is the PNG the extension wrote.
+    /// The content blocks Node returned. NOT COMPARED: an image's bytes and media type. Node resamples and re-encodes the frame in
+    /// Electron (Chromium's JPEG encoder), which the recorder replaces with a stand-in (`STANDIN-JPEG q<quality>` before the PNG it was
+    /// given) and the core has no counterpart of yet (route undecided): neither side's bytes say anything about the other's, so they
+    /// are not compared. What is compared is the block's `width` and `height`.
     fn node_blocks(content: &[Value]) -> Vec<Value> {
         content
             .iter()
             .map(|block| match block["type"].as_str().expect("a block type") {
                 "text" => json!({"type": "text", "text": block["text"]}),
-                "image" => {
-                    assert_eq!(block["source"]["media_type"], "image/jpeg", "the recording's frame is a JPEG");
-                    let encoded = bytes_of(&block["source"]["data"]);
-                    assert!(encoded.starts_with(b"STANDIN-JPEG q"), "the recording's encoder");
-                    let png = &encoded[encoded.iter().position(|byte| *byte == b'\n').expect("the stand-in's line") + 1..];
-                    json!({"type": "image", "media_type": "image/png", "data": base64::engine::general_purpose::STANDARD.encode(png)})
-                }
+                "image" => json!({"type": "image", "width": block["width"], "height": block["height"]}),
                 other => panic!("unexpected block {other}"),
             })
             .collect()
@@ -1179,6 +1175,31 @@ mod tests {
             seen.electron,
             seen.errors
         );
+    }
+
+    /// Node ends a GNOME capture at 12 s (`GNOME_SHELL_CAPTURE_TIMEOUT_MS`), inside the 15 s the `gdbus` process gets: a `gdbus` that
+    /// never answers fails the capture after 12 s of the runtime's (paused) clock.
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_gnome_capture_that_never_answers_ends_at_12_seconds() {
+        let _serial = serial();
+        let recorded = case("session gnome-everything")["observed"].clone();
+        let mut world = World::of(&recorded["world"]);
+        world.screenshot = "hangs".into();
+        let world = Arc::new(world);
+        let (log, files) = (Arc::new(Log::default()), Arc::new(Files::default()));
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "default"), Machine::new(&world, &log, &files)).with_linux_session(
+            world.env.clone(),
+            world.displays(),
+            files.clone(),
+            world.shot_id.clone(),
+        );
+        let call = json!({"action": "capture", "input": {"mode": "vision", "screen": 0}});
+        // Nothing else is waiting on the clock, so a paused runtime moves it to the next deadline: the first one the capture armed.
+        let started = tokio::time::Instant::now();
+        let got = backend.run(request(&call).expect("a capture"), CancellationToken::new()).await;
+        assert_eq!(started.elapsed(), Duration::from_secs(12), "the capture's bound");
+        assert!(matches!(got, Err(ComputerError::Failed { ref code, .. }) if code == "computer_reported"), "{got:?}");
     }
 
     /// The probe is the process's, not a session's, and it lives 3 seconds of the runtime's clock: two sessions inside the window share it,

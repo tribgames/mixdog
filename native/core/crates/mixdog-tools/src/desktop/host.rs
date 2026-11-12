@@ -168,7 +168,7 @@ pub fn browser_output(value: &Value) -> ToolOutcome {
             let Some(bytes) = bytes else {
                 return Err(bridge_error("browser bridge returned an invalid image"));
             };
-            parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes) });
+            parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None });
         }
     }
     let output = ToolOutput { parts, ..ToolOutput::default() };

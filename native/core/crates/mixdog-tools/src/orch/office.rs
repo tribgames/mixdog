@@ -97,7 +97,7 @@ fn render(result: &Value) -> ToolOutcome {
                 let mime = source.get("media_type").and_then(Value::as_str).unwrap_or_default();
                 let bytes = source.get("data").and_then(Value::as_str).and_then(|d| STANDARD.decode(d).ok());
                 if let (false, Some(bytes)) = (mime.is_empty(), bytes) {
-                    parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes) });
+                    parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None });
                 }
             }
             _ => {}

@@ -767,7 +767,7 @@ impl ProcessComputerBackend {
         let frame = self.next_frame.fetch_add(1, Ordering::SeqCst);
         Ok(vec![
             ToolPart::Text(computer_gnome::frame_text(&mode, frame, size, ready, reason)),
-            ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(png) },
+            ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(png), width: Some(size.0), height: Some(size.1) },
         ])
     }
 
@@ -932,7 +932,7 @@ fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError>
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|_| invalid("computer bridge returned an invalid or oversized image"))?;
-        parts.push(ToolPart::Image { mime: mime.into(), data: ImageData::Bytes(bytes) });
+        parts.push(ToolPart::Image { mime: mime.into(), data: ImageData::Bytes(bytes), width: None, height: None });
     }
     Ok(parts)
 }
@@ -1425,7 +1425,7 @@ mod tests {
         let result = input(json!({"text":"hi","image_base64":"aGk="}));
         let parts = parts_of(&result).unwrap();
         assert_eq!(parts[0], ToolPart::Text("hi".into()));
-        assert_eq!(parts[1], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()) });
+        assert_eq!(parts[1], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None });
         assert!(parts_of(&input(json!({"image":{"data":"aGk=","mimeType":"image/gif"}}))).is_err());
         assert_eq!(envelope(json!({"id":1,"ok":false,"error":"x"})), Err("x".into()));
         assert_eq!(leading_id("{\"id\": 42,\"ok\":true"), Some(42));

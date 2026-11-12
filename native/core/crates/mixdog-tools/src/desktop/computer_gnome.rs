@@ -23,6 +23,8 @@ use super::computer_linux::run_short;
 pub const ARRIVALS_SESSION_ID: &str = "__computer_window_arrivals__";
 /// `gnome-helper.ts` `CALL_TIMEOUT_SECONDS` plus the 5 s its process gets.
 const SHOT_LIMIT: Duration = Duration::from_secs(15);
+/// `capture-source-plan.ts` `GNOME_SHELL_CAPTURE_TIMEOUT_MS`: the whole shell capture ends here, above the 10 s gdbus call timeout.
+const CAPTURE_LIMIT: Duration = Duration::from_secs(12);
 /// The words of every failed pixel read on GNOME: Node reports only the code of the `capture_source_unavailable: …` error.
 const PIXEL_UNAVAILABLE_MESSAGE: &str = "exact screen capture unavailable; composited: capture_source_unavailable";
 
@@ -105,11 +107,16 @@ pub async fn screenshot(manager: &dyn ProcessManager, env: &Env, files: &dyn Sho
     let path = format!("{}/mixdog-shot-{id}.png", runtime.trim_end_matches('/'));
     let args = screenshot_args(target, &path);
     let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-    let outcome = match run_short(manager, env, "gdbus", &argv, SHOT_LIMIT).await {
-        Some((true, _)) => files.read(&path).map_err(|error| error.to_string()),
-        Some((false, _)) => Err("gdbus failed".to_owned()),
-        None => Err("gdbus did not run".to_owned()),
+    let capture = async {
+        match run_short(manager, env, "gdbus", &argv, SHOT_LIMIT).await {
+            Some((true, _)) => files.read(&path).map_err(|error| error.to_string()),
+            Some((false, _)) => Err("gdbus failed".to_owned()),
+            None => Err("gdbus did not run".to_owned()),
+        }
     };
+    let outcome = mixdog_rt::time::timeout(CAPTURE_LIMIT, capture)
+        .await
+        .unwrap_or_else(|_| Err("capture_timeout: GNOME shell capture timed out after 12000ms".to_owned()));
     files.remove(&path);
     outcome
 }

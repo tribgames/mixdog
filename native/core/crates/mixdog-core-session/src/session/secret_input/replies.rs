@@ -249,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn a_computer_reply_and_failure_hide_the_sessions_secret_and_keep_other_parts() {
         let secrets = remembering("S1", VALUE);
-        let image = ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1, 2]) };
+        let image = ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1, 2]), width: None, height: None };
         let parts = vec![ToolPart::Text(format!("typed {VALUE}")), image.clone(), ToolPart::Json(json!({ "k": VALUE }))];
         let backend = RedactingComputerBackend::new(Arc::new(Screen { parts: parts.clone(), failure: None }), ThreadId::from("S1"), secrets.clone());
         let got = backend.run(click(), CancellationToken::new()).await.unwrap();

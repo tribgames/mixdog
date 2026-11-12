@@ -601,7 +601,7 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
         match part {
             ToolPart::Text(text) => rendered.push(ContentPart::Text(text, None)),
             ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string(), None)),
-            ToolPart::Image { mime, data } => {
+            ToolPart::Image { mime, data, .. } => {
                 text_only = false;
                 let source = match data {
                     ImageData::Bytes(bytes) => ImageSource::Base64 {
