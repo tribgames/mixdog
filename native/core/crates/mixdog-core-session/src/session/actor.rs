@@ -3283,10 +3283,23 @@ impl SessionActor {
         }
         let now = tokio::time::Instant::now();
         let mut flushed = None;
+        // `settleTurn` flushes after the turn's close was set (`publishTurnClose`, turn.mjs:605-664: the idle runtime among
+        // it), so the runtime note the close put right behind the completion goes in the completion's frame, not in one of its own.
+        let mut settling = false;
         for note in &notes {
-            if let Some(mark) = super::phone_frame::mark_of(note) {
-                flushed = flushed.or(self.frames.mark(mark, now));
+            let Some(mut mark) = super::phone_frame::mark_of(note) else { continue };
+            if settling && note.method != "thread/runtime/updated" {
+                flushed = flushed.or(self.frames.flush());
             }
+            let closes = settling;
+            settling = std::mem::take(&mut mark.now);
+            flushed = flushed.or(self.frames.mark(mark, now));
+            if closes {
+                flushed = flushed.or(self.frames.flush());
+            }
+        }
+        if settling {
+            flushed = flushed.or(self.frames.flush());
         }
         self.publish_notes(notes);
         self.publish_frame(flushed);
