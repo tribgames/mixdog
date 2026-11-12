@@ -3,7 +3,7 @@
 // (`createStaleRowTransition` in terminal-reaper/stale-rows.mjs, `createTerminalReaper(...).tombstoneBlocksScan`), over the rows the
 // Node tests of that pass seed (terminal-reaper/stale-rows.test.mjs): a worker index file written on disk, the real worker index
 // reading it, a session manager that answers what the scenario says is live. Per scenario: the rows and sessions it was given
-// (whole), the config, and the outcome: the session ids the index still holds, the `tag:sessionId` of every tombstone the pass left,
+// (whole), the config, and the outcome: the index file's workers and tombstones maps as Node wrote them (whole, in Node's order),
 // and the scan's verdict for each session.
 //
 // The clock is the deterministic world's; every stamp is written as an ISO text at an offset from it.
@@ -121,15 +121,20 @@ for (const [n, scenario] of scenarios.entries()) {
   const file = join(dir, 'agent-workers.json');
   writeFileSync(file, JSON.stringify({ version: 2, workers: Object.fromEntries(scenario.rows.map((r) => [r.sessionId, r])) }));
   const index = make(dir);
+  // The rows as the index handed them to the pass: Node's index load already settles a row stored as running whose session the
+  // manager does not run, and fills each row's absent fields.
+  const loaded = JSON.parse(JSON.stringify(index.readWorkerRows({})));
   const live = new Set(scenario.live ?? []);
   const common = { cfgMod: { loadConfig: () => config }, mgr, tagMaps: { unbindIfOwned() {} }, index };
   const { transitionStaleNonterminalRows } = createStaleRowTransition({ ...common, getLiveSession: (id) => (live.has(id) ? { id } : null) });
   transitionStaleNonterminalRows();
   flushAllIndexWritesSync();
   const doc = JSON.parse(readFileSync(file, 'utf8'));
+  // The rows the index holds after the pass, as its reader returns them (the file keeps the rows it was given until a change
+  // rewrites it), and the tombstones the pass wrote, whole and in the order Node holds them.
   const result = {
-    workers: Object.keys(doc.workers).sort(),
-    tombstoned: Object.values(doc.tombstones ?? {}).map((t) => `${t.tag}:${t.sessionId}`).sort(),
+    workers: Object.fromEntries(index.readWorkerRows({}).filter((r) => r.agent !== 'lead').map((r) => [r.sessionId, r])),
+    tombstones: doc.tombstones ?? {},
   };
   if (scenario.scan) {
     // The scan runs over an index that holds no tombstone: the verdict is the sessions' own stamps'.
@@ -138,7 +143,7 @@ for (const [n, scenario] of scenarios.entries()) {
     const reaper = createTerminalReaper({ ...common, index: make(scanDir), getLiveSession: () => null });
     result.blocked = scenario.scan.map((session) => reaper.tombstoneBlocksScan(session, session.agentTag, new Map()));
   }
-  out.push({ ...scenario, result });
+  out.push({ ...scenario, loaded, result });
 }
 
 const finalOut = join(FIXTURES_ROOT, 'agent-stale-rows');
@@ -156,9 +161,11 @@ writeSetManifest(stage, {
       'the worker rows and the scan sessions: the rows and sessions of terminal-reaper/stale-rows.test.mjs, every stamp an offset from the fixed clock',
       'the session manager: answers only the in-flight, pending-message and runtime-stage facts a scenario names, no session record',
     ],
-    keptWhole: 'per scenario: its rows, config, manager facts and scan sessions, the ids the index still holds, every tombstone as tag:sessionId, the scan verdicts',
+    keptWhole: 'per scenario: its rows, config, manager facts and scan sessions, the rows the index holds after the pass and the tombstones the pass wrote (every row and tombstone whole, recorded in Node\'s order), the scan verdicts',
     exclusions: {
-      'sort order of workers and tombstoned': 'the index file is a map; both lists are sorted by text before they are compared',
+      'the rows as stored in the index file':'a replay starts from `loaded`, the rows as Node\'s index handed them to the pass: its load settles a row stored as running whose session the manager does not run (restart-settlement.mjs:21, row-liveness) and fills absent fields, and the core settles such rows at its boot (agent_registry/restart.rs), not at a refresh. `rows`, the scenario\'s own input, is recorded beside it',
+      'null members of rows and tombstones':'Node writes `null` for a tombstone field it has no value for (cwd, parent and owner ids); the core builds the tombstone without such a field, so a replay leaves null members out of both sides. Every non-null member of every row and tombstone is compared',
+      'order of the rows and tombstones': 'recorded in the order Node\'s index lists them, but the core keeps each row in its own session\'s header (agent_registry/mod.rs:6-13), so it has no file order to compare; the rows and tombstones are compared as maps',
       'rows of the Lead pool (agent "lead")': 'Node leaves them out of the index file whenever the file is written again (its worker rows are projected without them), so no recorded list holds one; the core keeps the Lead\'s own row in its session header (agent_registry/lead_row.rs), which no pass removes, so a replay leaves them out of the list it compares',
       'the count of config loads': 'Node counts how often its reaper loads the config; the core reads its config from memory and has no load to count',
     },

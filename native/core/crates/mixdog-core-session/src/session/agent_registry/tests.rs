@@ -2538,25 +2538,34 @@ async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
         work.extend(mgr["stages"].as_object().into_iter().flatten().map(|(id, _)| id.clone()));
         let live = Arc::new(WorkLive { open: ids(&case["live"]), work });
         let rig = Rig::new();
-        for row in case["rows"].as_array().unwrap() {
+        // The rows as Node's index handed them to the pass (its load settles a stored-running row its manager does not run).
+        for row in case["loaded"].as_array().unwrap() {
             rig.store.write(row["sessionId"].as_str().unwrap(), Some(obj(row.clone())));
         }
         let registry = AgentRegistry::new(rig.store.clone(), live.clone(), Arc::new(ConfigReap(config.clone())), rig.clock.clone());
         registry.refresh_tags_from_sessions(false, &Scope::default()).await;
-        let mut workers = Vec::new();
-        let mut tombstoned = Vec::new();
+        // Node's index file maps, whole: each row and tombstone with its fields (the maps are compared as maps: the core
+        // keeps each row in its session's own header, which has no file order). A tombstone the core builds leaves out a field
+        // it has no value for where Node writes `null`, so a `null` member is left out of both sides; the tombstone's
+        // `sessionId` is the identity of the map holding it here.
+        let bare = |value: Value| Value::Object(value.as_object().unwrap().iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect());
+        let mut workers = serde_json::Map::new();
+        let mut tombstones = serde_json::Map::new();
         for (id, map) in rig.store.listed() {
             if map.contains_key("sessionId") && map.get("agent").and_then(Value::as_str) != Some("lead") {
-                workers.push(id.clone());
+                workers.insert(id.clone(), bare(Value::Object(map.clone())));
             }
             if let Some(tombstone) = map.get("tombstone") {
-                tombstoned.push(format!("{}:{id}", tombstone["tag"].as_str().unwrap()));
+                let mut tombstone = tombstone.as_object().unwrap().clone();
+                tombstone.insert("sessionId".into(), json!(id));
+                tombstones.insert(tombstone_key(&tombstone), bare(Value::Object(tombstone)));
             }
         }
-        workers.sort();
-        tombstoned.sort();
-        assert_eq!(json!(workers), case["result"]["workers"], "{name}: rows held");
-        assert_eq!(json!(tombstoned), case["result"]["tombstoned"], "{name}: tombstones");
+        let want_workers = case["result"]["workers"].as_object().unwrap();
+        let want_tombstones = case["result"]["tombstones"].as_object().unwrap();
+        let want_bare = |map: &serde_json::Map<String, Value>| Value::Object(map.iter().map(|(k, v)| (k.clone(), bare(v.clone()))).collect());
+        assert_eq!(Value::Object(workers), want_bare(want_workers), "{name}: rows held");
+        assert_eq!(Value::Object(tombstones), want_bare(want_tombstones), "{name}: tombstones");
 
         if let Some(sessions) = case["scan"].as_array() {
             let scan = Rig::new();
@@ -2571,3 +2580,5 @@ async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
         }
     }
 }
+
+mod job_views;
