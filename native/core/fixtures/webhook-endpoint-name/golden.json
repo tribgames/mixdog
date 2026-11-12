@@ -620,5 +620,110 @@
       "body": "{\"error\":\"payload too large\",\"limit\":5242880}",
       "destroyed": true
     }
+  ],
+  "cutBodies": [
+    {
+      "name": "aborted event before any chunk",
+      "chunks": [],
+      "cut": "aborted-event",
+      "answeredAfter": [],
+      "settled": false,
+      "received": null,
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "aborted event after one chunk",
+      "chunks": [
+        {
+          "hex": "6162"
+        }
+      ],
+      "cut": "aborted-event",
+      "answeredAfter": [
+        false
+      ],
+      "settled": false,
+      "received": null,
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "connection reset before any chunk",
+      "chunks": [],
+      "cut": "reset",
+      "answeredAfter": [],
+      "settled": false,
+      "received": null,
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "connection reset after two chunks",
+      "chunks": [
+        {
+          "hex": "6162"
+        },
+        {
+          "hex": "e282"
+        }
+      ],
+      "cut": "reset",
+      "answeredAfter": [
+        false,
+        false
+      ],
+      "settled": false,
+      "received": null,
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "socket error after one chunk",
+      "chunks": [
+        {
+          "hex": "6162"
+        }
+      ],
+      "cut": "socket-error",
+      "answeredAfter": [
+        false
+      ],
+      "settled": false,
+      "received": null,
+      "status": 0,
+      "headers": null,
+      "body": "",
+      "destroyed": false
+    },
+    {
+      "name": "socket error after the cap and one byte more is answered first",
+      "chunks": [
+        {
+          "fill": 97,
+          "length": 5242881
+        }
+      ],
+      "cut": "socket-error",
+      "answeredAfter": [
+        true
+      ],
+      "settled": true,
+      "received": null,
+      "status": 413,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"error\":\"payload too large\",\"limit\":5242880}",
+      "destroyed": true
+    }
   ]
 }

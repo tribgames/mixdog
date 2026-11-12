@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 13343,
+      "bytes": 15479,
       "path": "golden.json",
-      "sha256": "56a551092c76938495297af72b3aab920d2903f0aac62735a363b2926517e914"
+      "sha256": "d77289cbb8a70999ed4ccd882f5e9726f7dc96ff6fdb5d9e897137dde00adc24"
     }
   ],
   "inputs": [
@@ -37,7 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs",
-  "recorderSha256": "7cc546d14d7b6039c6857793763409451e389d65aa438c9729284837d03616a1",
+  "recorderSha256": "dc44b3733ce8495cb86c78cd6ca107333c6f30a94b06cc3de60ee75761ee5795",
   "set": "webhook-endpoint-name",
-  "totalBytes": 13343
+  "totalBytes": 15479
 }

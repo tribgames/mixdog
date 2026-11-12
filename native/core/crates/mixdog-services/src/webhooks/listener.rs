@@ -28,7 +28,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::handler::{BodyCollector, HttpReply, WebhookService};
+use super::handler::{BodyCollector, HttpReply, Rejection, WebhookService};
 use super::signature::Headers;
 use crate::channels::running::WorkGuard;
 
@@ -198,7 +198,7 @@ fn reply(status: u16, content_type: &str, body: Vec<u8>, close: bool) -> Reply {
 }
 
 fn json_reply(reply_body: &HttpReply, close: bool) -> Reply {
-    reply(reply_body.status, "application/json", serde_json::to_vec(&reply_body.body).unwrap_or_default(), close)
+    reply(reply_body.status, HttpReply::CONTENT_TYPE,serde_json::to_vec(&reply_body.body).unwrap_or_default(), close)
 }
 
 async fn respond(request: Request<Incoming>, service: &WebhookService) -> Reply {
@@ -232,12 +232,12 @@ async fn webhook(service: &WebhookService, target: &str, headers: Headers, body:
     let _busy = service.listening();
     let name = match service.precheck(target).await {
         Ok(name) => name,
-        Err(refusal) => return json_reply(&refusal, false),
+        Err(Rejection(refusal)) => return json_reply(&refusal, true),
     };
     match mixdog_rt::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
         Err(_) => reply(408, "text/plain", b"Request Timeout".to_vec(), true),
         Ok(Err(_)) => reply(400, "text/plain", b"Bad Request".to_vec(), true),
-        Ok(Ok(Collected::TooLarge(refusal))) => json_reply(&refusal, true),
+        Ok(Ok(Collected::TooLarge(Rejection(refusal)))) => json_reply(&refusal, true),
         Ok(Ok(Collected::Done(bytes))) => json_reply(&service.process(&name, &headers, &bytes).await, false),
     }
 }
@@ -245,14 +245,22 @@ async fn webhook(service: &WebhookService, target: &str, headers: Headers, body:
 enum Collected {
     Done(Vec<u8>),
     /// The 413 to send; the connection is closed after it.
-    TooLarge(HttpReply),
+    TooLarge(Rejection),
 }
 
 /// Feeds the body frame by frame; a frame that crosses the cap ends the read at once.
 async fn collect(mut body: Incoming) -> Result<Collected, hyper::Error> {
     let mut collector = BodyCollector::default();
     while let Some(frame) = body.frame().await {
-        if let Some(data) = frame?.data_ref()
+        let frame = match frame {
+            Ok(frame) => frame,
+            Err(err) => {
+                // Nothing is processed or sent for the part of the body that arrived.
+                collector.cut_short();
+                return Err(err);
+            }
+        };
+        if let Some(data) = frame.data_ref()
             && let Err(refusal) = collector.push(data)
         {
             return Ok(Collected::TooLarge(refusal));

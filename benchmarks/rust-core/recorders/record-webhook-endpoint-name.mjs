@@ -6,7 +6,7 @@
 // pass the gate need PostgreSQL and are not recorded here), and `collectRawBody` for chunked bodies (a chunk split inside a
 // multi-byte character, exactly the cap, one byte past it with later chunks, a body of no chunk). The request is an
 // EventEmitter fed synchronously, the response records `writeHead`/`end`; per chunk the recorder notes whether the
-// response had been written yet. Nothing waits on time.
+// response had been written yet, and bodies cut short (abort, reset, socket error) mid-body. Nothing waits on time.
 //
 //   node benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs --tree <b6f10295a with node_modules> [--out <file>]
 //
@@ -14,6 +14,8 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { IncomingMessage } from 'node:http';
+import { Socket } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -150,7 +152,66 @@ for (const c of bodyCases) {
   });
 }
 
-const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults };
+// Bodies cut short: Node's collector listens to 'data' and 'end' only, so a request that is aborted or errors mid-body
+// leaves its promise pending for good. Each case runs through the real collector on a real IncomingMessage (or, for the
+// old 'aborted' event, an emitter); the cut is one event, then the event loop is turned (setImmediate, no timer) to let
+// anything that was going to happen happen. `destroyed` counts only the handler's own `req.destroy()`.
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+const cutCases = [
+  { name: 'aborted event before any chunk', chunks: [], cut: 'aborted-event' },
+  { name: 'aborted event after one chunk', chunks: [{ hex: '6162' }], cut: 'aborted-event' },
+  { name: 'connection reset before any chunk', chunks: [], cut: 'reset' },
+  { name: 'connection reset after two chunks', chunks: [{ hex: '6162' }, { hex: 'e282' }], cut: 'reset' },
+  { name: 'socket error after one chunk', chunks: [{ hex: '6162' }], cut: 'socket-error' },
+  { name: 'socket error after the cap and one byte more is answered first', chunks: [{ fill: 97, length: MAX_BODY_BYTES + 1 }], cut: 'socket-error' },
+];
+const cutResults = [];
+for (const c of cutCases) {
+  const real = c.cut !== 'aborted-event';
+  const req = real ? new IncomingMessage(new Socket()) : new EventEmitter();
+  let destroyed = false;
+  req.destroy = (...a) => {
+    destroyed = true;
+    return real ? IncomingMessage.prototype.destroy.apply(req, a) : undefined;
+  };
+  const res = response();
+  let settled = false;
+  const received = collectRawBody(req, res).then((bytes) => {
+    settled = true;
+    return bytes;
+  });
+  const answeredAfter = [];
+  for (const spec of c.chunks) {
+    if (real) req.push(chunk(spec));
+    else req.emit('data', chunk(spec));
+    await flush();
+    answeredAfter.push(res.status !== 0);
+  }
+  if (c.cut === 'aborted-event') {
+    req.emit('aborted');
+    req.emit('close');
+  } else {
+    const err = c.cut === 'reset' ? Object.assign(new Error('aborted'), { code: 'ECONNRESET' }) : new Error('read EPIPE');
+    IncomingMessage.prototype.destroy.call(req, err);
+  }
+  await flush();
+  await flush();
+  const bytes = settled ? await received : undefined;
+  cutResults.push({
+    name: c.name,
+    chunks: c.chunks,
+    cut: c.cut,
+    answeredAfter,
+    settled,
+    received: bytes === undefined || bytes === null ? null : { length: bytes.length },
+    status: res.status,
+    headers: res.headers,
+    body: res.body,
+    destroyed,
+  });
+}
+
+const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults };
 const out = args.get('out');
 if (out) {
   writeFileSync(out, JSON.stringify(result, null, 1));
