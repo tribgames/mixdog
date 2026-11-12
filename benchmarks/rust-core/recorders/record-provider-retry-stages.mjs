@@ -10,8 +10,9 @@
 // (the refusal text is scrubbed of the credential the request carried, not only of token shapes), node-patches/node-fix-scrub-echoed-credential.patch
 // (the same for an Anthropic stream's error event, a Gemini or Antigravity refusal, a Cursor end-frame error and token exchange, a Grok refresh refusal)
 // and node-patches/node-fix-cursor-end-frame-error.patch (a Connect end frame carrying an error reaches the bridge as that error, not as the
-// `aborted` its own cancel raises).
-//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch [--only <case>]
+// `aborted` its own cancel raises), and node-patches/node-fix-scrub-canonical-credential.patch (the credential is found through the
+// canonical view of the text, whatever its escapes, and a short one as a whole token).
+//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch [--only <case>]
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
@@ -34,7 +35,7 @@ const rec = await startRecording({
     '`streaming stages` is not compared: the core raises `streaming` from its run loop when a stream opens (mixdog-agent/src/send.rs, `RunEvent::Stage(Stage::Streaming)`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage and the provider\'s own `requesting` stage (raised where Node\'s send raises it: SendIdentity::raise_stage / SendStages), compared whole and in order',
   ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world\'s h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
-  compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines.',
+  compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines. The OpenAI OAuth route is built with the recording host\'s Codex client identity (user agent, version, beta features: the values its first request carries, the host\'s OS named in the user agent) and its `x-client-request-id`s are the world\'s 16-byte `randomBytes` draws (`draws.bytes16First`/`bytes16Count`).',
   replay: 'Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build("anthropic" | "xai" | "vertex-ai" | "anthropic-oauth" | "openrouter" | "grok-oauth" | "antigravity-oauth" | "devin-oauth") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).',
 });
 // Cursor sends over `node:http2` (cursor-wire-transport.mjs:4): its streams reach the world's h2c hub (lib/h2-world.mjs), which must be
@@ -56,6 +57,15 @@ const countedUuid = () => {
 };
 crypto.randomUUID = countedUuid;
 Object.defineProperty(globalThis.crypto, 'randomUUID', { value: countedUuid, configurable: true });
+// The same for the world's 16-byte `crypto.randomBytes` (a stream of its own per size): the OpenAI OAuth HTTP/SSE request's
+// `x-client-request-id` is one.
+const seededBytes = crypto.randomBytes;
+let bytes16Drawn = 0;
+let bytes16Start = 0;
+crypto.randomBytes = (size, ...rest) => {
+  if (size === 16) bytes16Drawn += 1;
+  return seededBytes(size, ...rest);
+};
 syncBuiltinESMExports();
 // `randomDrawn` / `uuidDrawn` when the running case began (before its provider is built).
 let caseStart = 0;
@@ -73,7 +83,7 @@ const HISTORY = [{ role: 'user', content: 'hi' }];
 // One send: the k-th request that arrives is answered by `replies[k]`; every retry wait is one clock step, taken once the product armed it.
 // `aux(record)`: the answer of a request that is no attempt of the send (a token grant, a session exchange, a catalog read), or
 // undefined for an attempt; the attempts are answered in order by `replies`.
-const send = async ({ net, clock }, provider, model, replies, aux = () => undefined, options = {}) => {
+const send = async ({ net, clock }, provider, model, replies, aux = () => undefined, options = {}, history = HISTORY) => {
   let attempt = 0;
   // The positions (among the arrivals) of the requests that are attempts of the send.
   const attemptRequests = [];
@@ -97,13 +107,13 @@ const send = async ({ net, clock }, provider, model, replies, aux = () => undefi
   };
   try {
     const outcome = provider
-      .send(HISTORY, model, [], { ...options, onStageChange: (stage, payload) => {
+      .send(history, model, [], { ...options, onStageChange: (stage, payload) => {
         sequence.push({ stage });
         stages.push(payload === undefined ? { stage } : { stage, payload });
       } })
       .then((result) => ({ result }), (error) => ({ error }));
     const done = await clock.followRetries(outcome, { what: 'the retry ladder', causes: () => { const n = net.records.length; return () => net.records.length > n; } });
-    return { ...done, stages, sequence, stderr, attemptRequests, draws: { first: firstDraw, count: randomDrawn - firstDraw, uuidFirst: uuidStart, uuidCount: uuidDrawn - uuidStart } };
+    return { ...done, stages, sequence, stderr, attemptRequests, draws: { first: firstDraw, count: randomDrawn - firstDraw, uuidFirst: uuidStart, uuidCount: uuidDrawn - uuidStart, bytes16First: bytes16Start, bytes16Count: bytes16Drawn - bytes16Start } };
   } finally {
     process.stderr.write = write;
   }
@@ -224,6 +234,7 @@ for (const [id, source, input, make, model, replies] of cases) {
   await rec.run(id, source, input, (ctx) => {
     caseStart = randomDrawn;
     uuidStart = uuidDrawn;
+    bytes16Start = bytes16Drawn;
     return send(ctx, make(), model, replies);
   });
 }
@@ -313,6 +324,23 @@ const cursorTooLargeRoute = [
     cursorAux,
     { sessionId: 'fixture-session' },
 ];
+// The key of the encoding cases: `/` and `+` are what an encoder rewrites.
+const WIDE_KEY = 'long/key+value';
+const WIDE_BASE64 = Buffer.from(WIDE_KEY).toString('base64');
+// A JWT-shaped key short enough in its first segment that the recorder's secret scan does not take it for a live token.
+const JWT_KEY = 'eyJ0eXAi.cGF5bG9hZC1maXh0dXJlLWtleQ.c2lnbmF0dXJlLWZpeHR1cmU';
+// A body written as it stands.
+const rawJson = (status, body) => ({ status, contentType: 'application/json', body });
+// A Gemini API send under `apiKey` whose one answer is `reply`, over `history` when given.
+const geminiEcho = (id, apiKey, reply, history) => [
+  id,
+  'src/runtime/agent/orchestrator/providers/gemini.mjs:194',
+  { provider: 'gemini', credentials: {}, ...(history ? { history } : {}) },
+  () => new GeminiProvider({ apiKey, preconnect: false }),
+  'gemini-2.5-pro',
+  [reply],
+];
+const { OpenAIOAuthProvider } = await rec.P(`${P}openai-oauth.mjs`);
 const anthropicOauthInput = { provider: 'anthropic-oauth', credentials: { 'anthropic-oauth-credentials.json': { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } } } };
 // The subscription's token endpoint (a forced refresh after a revoked-token 403).
 const anthropicTokenGrant = (record) => (record.path === '/v1/oauth/token' ? json(200, { access_token: 'fixture-refreshed-token', refresh_token: 'fixture-refresh-token-2', expires_in: 3600, token_type: 'Bearer' }) : undefined);
@@ -430,6 +458,38 @@ const routes = [
     // the error text carries each redacted (node-patches/node-fix-scrub-echoed-credential.patch).
     [json(400, geminiError(400, 'INVALID_ARGUMENT', `the credential ${encodeURIComponent(ODD_KEY)}, ${Buffer.from(ODD_KEY).toString('base64url')} and ${ODD_KEY} was refused for this model`))],
   ],
+  // One refusal per encoding a server or a proxy wraps the key in (review 1122y, item 1), each found through the canonical view
+  // (node-patches/node-fix-scrub-canonical-credential.patch): the error text carries each redacted whole.
+  ...[
+    ['double-percent', `the credential ${encodeURIComponent(encodeURIComponent(WIDE_KEY))} was refused`],
+    ['mixed-case-percent', 'the credential long%2fkey%2Bvalue was refused'],
+    ['wrapped-base64', `the credential ${WIDE_BASE64.slice(0, 16)}\n${WIDE_BASE64.slice(16)} was refused`],
+    ['html-entity', 'the credential long&#47;key&#x2B;value and long&sol;key&plus;value was refused'],
+  ].map(([encoding, message]) => geminiEcho(`gemini-redacts-a-${encoding}-credential-in-a-400`, WIDE_KEY, json(400, geminiError(400, 'INVALID_ARGUMENT', message)))),
+  // JSON escapes as the body spells them (`\/`, `\u002f`): the body is written as it stands, not through JSON.stringify.
+  geminiEcho('gemini-redacts-a-json-escaped-credential-in-a-400', WIDE_KEY, rawJson(400, '{"error":{"code":400,"message":"the credential long\\/key+value and long\\u002fkey\\u002Bvalue was refused","status":"INVALID_ARGUMENT"}}')),
+  // UTF-16 text: each character of the key followed by its NUL high byte, raw in the body.
+  geminiEcho('gemini-redacts-a-utf16-credential-in-a-400', WIDE_KEY, rawJson(400, `{"error":{"code":400,"message":"the credential ${Buffer.from(WIDE_KEY, 'utf16le').toString('latin1')} was refused","status":"INVALID_ARGUMENT"}}`)),
+  // A JWT key whose payload and signature are echoed one by one.
+  geminiEcho('gemini-redacts-each-segment-of-a-jwt-credential-in-a-400', JWT_KEY, json(400, geminiError(400, 'INVALID_ARGUMENT', `the payload ${JWT_KEY.split('.')[1]} and the signature ${JWT_KEY.split('.')[2]} were refused`))),
+  // A field named `code` in the request body (a tool call's argument) is ordinary text: the refusal that repeats it keeps it (review
+  // 1122y, item 3).
+  geminiEcho('gemini-keeps-an-ordinary-field-named-code-in-a-400', 'fixture-key', json(400, geminiError(400, 'INVALID_ARGUMENT', 'the tool call print(1) is not allowed')), [
+    { role: 'user', content: 'run it' },
+    { role: 'assistant', content: '', toolCalls: [{ id: 'call_1', name: 'python', arguments: { code: 'print(1)' } }] },
+    { role: 'tool', toolCallId: 'call_1', content: '1' },
+  ]),
+  [
+    'openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again',
+    'src/runtime/agent/orchestrator/providers/openai-oauth-dispatch.mjs:209',
+    { provider: 'openai-oauth', credentials: { 'openai-oauth.json': OAUTH }, env: { MIXDOG_OAI_TRANSPORT: 'http-sse' } },
+    () => new OpenAIOAuthProvider({}),
+    'gpt-5.5',
+    // The HTTP/SSE request is refused 401: one forced refresh and one reissue, a request of its own (review 1122y, item 4) whose
+    // `requesting` names a first attempt again; it is refused as not retryable.
+    [json(401, openaiError('invalid_request_error', 'expired token')), json(400, openaiError('invalid_request_error', 'bad field'))],
+    (record) => (record.path === '/oauth/token' ? json(200, { access_token: 'fixture-refreshed-token', refresh_token: 'fixture-refresh-token-2', expires_in: 3600, token_type: 'Bearer' }) : record.method === 'GET' ? json(200, {}) : undefined),
+  ],
   [
     'antigravity-redacts-an-opaque-credential-in-a-400',
     'src/runtime/agent/orchestrator/providers/antigravity-transport.mjs:55',
@@ -521,6 +581,7 @@ for (const [id, source, input, make, model, replies, aux, options] of ordered) {
   await rec.run(id, source, input, async (ctx) => {
     caseStart = randomDrawn;
     uuidStart = uuidDrawn;
+    bytes16Start = bytes16Drawn;
     for (const [file, doc] of Object.entries(input.credentials)) rec.write(file, JSON.stringify(doc));
     for (const [name, value] of Object.entries(input.env ?? {})) process.env[name] = value;
     // The model listing is process state of the Cursor runtime: each Cursor case starts with none, as a replay's fresh process does.
@@ -532,7 +593,7 @@ for (const [id, source, input, make, model, replies, aux, options] of ordered) {
       rec.write('modelsdev-catalog.json', JSON.stringify({ fetchedAt: 1, data: input.modelsDev }));
       await warmCatalogFromDisk({ background: true });
     }
-    return send(ctx, make(), model, replies, aux, options);
+    return send(ctx, make(), model, replies, aux, options, input.history);
   });
 }
 await rec.finish();

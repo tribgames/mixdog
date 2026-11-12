@@ -732,6 +732,16 @@ impl From<ProviderError> for Failed {
 }
 
 impl OpenAiAdapter {
+    /// A resend is a request of its own, which Node builds anew with a fresh `x-client-request-id`
+    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`).
+    fn renew_request_id(&self, wire: &mut WireRequest) {
+        for (name, value) in &mut wire.headers {
+            if name.eq_ignore_ascii_case("x-client-request-id") {
+                *value = self.context.request_id();
+            }
+        }
+    }
+
     /// The exchange on one wire with the credential repeats of an attempt.
     async fn run(&self, wire_kind: Wire, request: &Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, Failed> {
         let codec = match wire_kind {
@@ -739,23 +749,29 @@ impl OpenAiAdapter {
             Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
         };
         let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
-        // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
-        // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`).
         let identity = &request.options.send_identity;
-        match wire_kind {
-            Wire::Ws => identity.raise_stage("requesting"),
-            Wire::Http => {
-                let attempt = identity.next_attempt();
-                identity.raise_stage_with(
-                    "requesting",
-                    serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
-                );
-            }
-        }
         let mut credential = self.credentials.current().await?;
         let mut refreshed = false;
         let mut stripped = false;
         loop {
+            // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
+            // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`). A resend below (the reloaded
+            // credential, `openai-oauth.mjs:293` / `openai-oauth-dispatch.mjs:209`; the effort update removed, the whole send
+            // again, `effort-configuration.mjs:112`) is a request of its own: it raises the stage again, and over HTTP its
+            // attempts count from the first.
+            match wire_kind {
+                Wire::Ws => identity.raise_stage("requesting"),
+                Wire::Http => {
+                    if refreshed || stripped {
+                        identity.restart_attempts();
+                    }
+                    let attempt = identity.next_attempt();
+                    identity.raise_stage_with(
+                        "requesting",
+                        serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
+                    );
+                }
+            }
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
                 Wire::Ws => self.open_ws(request, authorized, &credential).await?,
@@ -775,14 +791,23 @@ impl OpenAiAdapter {
             let rejected = scrub_refusal(rejected, &credential);
             if rejected.status == Some(401) && !refreshed {
                 refreshed = true;
+                // `openai-oauth-dispatch.mjs:205` (HTTP/SSE) and `openai-oauth.mjs:285` (WebSocket).
+                if self.codec.route() == Route::Codex {
+                    match wire_kind {
+                        Wire::Http => mixdog_rt::node_stderr!("[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE"),
+                        Wire::Ws => mixdog_rt::node_stderr!("[openai-oauth-ws] 401 — forcing refresh and retrying once over WS"),
+                    }
+                }
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
+                    self.renew_request_id(&mut wire);
                     continue;
                 }
             }
             if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
                 stripped = true;
                 wire = next;
+                self.renew_request_id(&mut wire);
                 continue;
             }
             let mut err = codec.classify(&rejected);

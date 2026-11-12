@@ -72,6 +72,7 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
         "devin-oauth" => "DevinOAuthProvider",
         // The registered OpenCode Go provider wraps the gateway engines the recorder drove (`OpenCodeGoProvider`).
         "opencode-go-oauth" => "OpenCodeGoProvider",
+        "openai-oauth" => "OpenAIOAuthProvider",
         other => panic!("{}: a provider this set does not record: {other}", case.id),
     };
     plain(&case.args_of(class, 0)[0])
@@ -96,6 +97,15 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         "anthropic-api-key-falls-back-to-a-non-streaming-request" | "xai-chat-raises-the-stage-again-after-a-key-reload" => (2, None),
         "gemini-redacts-an-opaque-credential-in-a-400"
         | "gemini-redacts-an-encoded-credential-in-a-400"
+        | "gemini-redacts-a-double-percent-credential-in-a-400"
+        | "gemini-redacts-a-mixed-case-percent-credential-in-a-400"
+        | "gemini-redacts-a-wrapped-base64-credential-in-a-400"
+        | "gemini-redacts-a-html-entity-credential-in-a-400"
+        | "gemini-redacts-a-json-escaped-credential-in-a-400"
+        | "gemini-redacts-a-utf16-credential-in-a-400"
+        | "gemini-redacts-each-segment-of-a-jwt-credential-in-a-400"
+        | "gemini-keeps-an-ordinary-field-named-code-in-a-400"
+        | "openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again"
         | "antigravity-redacts-an-opaque-credential-in-a-400"
         | "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh"
         | "cursor-token-exchange-redacts-an-opaque-credential" => (0, None),
@@ -127,7 +137,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 34, "the recorded cases");
+    assert_eq!(set.cases.len(), 43, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -140,6 +150,7 @@ async fn every_case_replays_as_nodes() {
     // Every case replays, and a failed one is reported with the rest.
     let mut failures = Vec::new();
     let mut uuids_consumed = 0_u32;
+    let mut bytes16_consumed = 0_u32;
     for case in &set.cases {
       let replay = async {
         let what = format!("retry-stages {}", case.id);
@@ -177,6 +188,19 @@ async fn every_case_replays_as_nodes() {
         }
         mixdog_ai::random::script(uuid_draws);
         uuids_consumed += uuid_count;
+        // The world's 16-byte `crypto.randomBytes`, another stream: the OpenAI OAuth HTTP/SSE request ids the send drew.
+        let (bytes_first, bytes_count) = (recorded_draws.get("bytes16First").as_f64() as u32, recorded_draws.get("bytes16Count").as_f64() as u32);
+        while bytes16_consumed < bytes_first {
+            draws.bytes(16);
+            bytes16_consumed += 1;
+        }
+        let request_ids: std::collections::VecDeque<String> =
+            (0..bytes_count).map(|_| draws.bytes(16).iter().map(|b| format!("{b:02x}")).collect()).collect();
+        bytes16_consumed += bytes_count;
+        let request_ids = std::sync::Mutex::new(request_ids);
+        let context = SessionContext::with_sources(mixdog_ai::wall::scripted_now_ms, move || {
+            request_ids.lock().unwrap().pop_front().expect("a request id the recorded send drew")
+        });
 
         let endpoint = Endpoint::start().await;
         endpoint.serve(case);
@@ -202,7 +226,20 @@ async fn every_case_replays_as_nodes() {
             std::fs::write(home.path().join("catalog").join("modelsdev-catalog.json"), text).expect("the models.dev disk copy");
         }
         // Antigravity reads the updater's manifest before its first send, which the recording holds as its first arrival.
-        let builder = replay_world::builder_versioned(&endpoint, home.path(), env, SessionContext::new(), matches!(provider, "antigravity-oauth" | "cursor-oauth")).await;
+        // The Codex client identity the recording host had (its user agent names that host's OS): the one the recorded Codex
+        // request carries, blank for every other route.
+        let header = |name: &str| {
+            case.requests.first().and_then(|request| {
+                request.get("headers").as_array().iter().find(|pair| pair.as_array()[0].as_str() == name).map(|pair| pair.as_array()[1].as_str().to_owned())
+            })
+        };
+        let identity = mixdog_ai::providers::openai::config::CodexIdentity {
+            installation_id: String::new(),
+            user_agent: header("User-Agent").filter(|_| provider == "openai-oauth").unwrap_or_default().into(),
+            version: header("version").filter(|_| provider == "openai-oauth").unwrap_or_default().into(),
+            beta_features: header("x-codex-beta-features").filter(|_| provider == "openai-oauth").unwrap_or_default(),
+        };
+        let builder = replay_world::builder_identified(&endpoint, home.path(), env, context, matches!(provider, "antigravity-oauth" | "cursor-oauth"), identity).await;
         let adapter = replay_world::adapter(&builder, provider, &config(case, provider)).await;
         let args = case.args_of("#send", 0);
         // The options the send was called with: the stage callback (the sink's) and the gateway case's output ceiling.

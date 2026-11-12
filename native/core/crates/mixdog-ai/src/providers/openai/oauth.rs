@@ -135,6 +135,8 @@ impl Inner {
         let Some(refresh_token) = stored.refresh_token.clone().filter(|t| !t.is_empty()) else {
             return Err(login_required("the stored ChatGPT login has no refresh token"));
         };
+        // `refreshUnderLock` (openai-oauth-tokens.mjs:337): the reason is the rejection's status, or the token's expiry.
+        mixdog_rt::node_stderr!("[openai-oauth] Token {}, refreshing...", if rejected.is_some() { "401" } else { "preemptive" });
         // The serializer is not `Send`: it is finished before the await.
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("grant_type", "refresh_token")
@@ -178,6 +180,9 @@ impl Inner {
             .get("expires_in")
             .and_then(Value::as_u64)
             .map_or(0, |secs| now_ms() + secs * 1000);
+        // `Math.round(((expires_at || Date.now()) - Date.now()) / 1000)` (openai-oauth-tokens.mjs:343).
+        let left_ms = if expires_at == 0 { 0 } else { expires_at.saturating_sub(now_ms()) };
+        mixdog_rt::node_stderr!("[openai-oauth] Token refreshed, expires in {}s", (left_ms + 500) / 1000);
         let mut update = Map::new();
         update.insert("access_token".into(), json!(access_token));
         update.insert(
