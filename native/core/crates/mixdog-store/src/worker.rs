@@ -123,7 +123,10 @@ pub struct IndexedSession {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkerIndexRead {
     pub revision: u64,
-    /// `sessions` is every listed session (a first load, or a revision this index never had); otherwise the sessions written
+    /// Which index built the revision: a rebuild numbers from 0 again, so a revision names a state only with it.
+    pub generation: u64,
+    /// `sessions` is every listed session (a first load, a revision of another generation or one this index never
+    /// reached, or one older than the removals it still keeps); otherwise the sessions written
     /// since the revision asked about, and those asked for by id, listed or not.
     pub full: bool,
     pub sessions: Vec<IndexedSession>,
@@ -152,7 +155,8 @@ pub(crate) const INDEXED_SINCE_SQL: &str = indexed_sql!("worker_rev > ?1");
 pub(crate) const INDEXED_ONE_SQL: &str = indexed_sql!("id = ?1");
 /// The listed sessions deleted without their delete mark since a revision.
 pub(crate) const REMOVED_SINCE_SQL: &str = "SELECT id FROM worker_removed WHERE rev > ?1";
-pub(crate) const REVISION_SQL: &str = "SELECT rev FROM worker_revision";
+/// `(rev, floor, gen)`.
+pub(crate) const REVISION_SQL: &str = "SELECT rev, floor, gen FROM worker_revision";
 
 /// `String(value ?? '').trim()`.
 fn clean(v: Option<&Value>) -> String {

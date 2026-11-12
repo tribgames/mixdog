@@ -103,6 +103,8 @@ pub enum Index {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Revision {
     pub index: u64,
+    /// The index's generation: `index` names a state only within one.
+    pub generation: u64,
     pub kept: u64,
 }
 
@@ -1749,8 +1751,8 @@ impl WorkerStore for StoreWorkers {
             KeptSince::Changed(changed) => changed.iter().map(|(id, _)| id.clone()).collect(),
             KeptSince::All(_) => Vec::new(),
         };
-        let read = self.index.worker_index_since(since.map(|r| r.index), also).await.map_err(|e| format!("{e:?}"))?;
-        let revision = Revision { index: read.revision, kept: kept_revision };
+        let read = self.index.worker_index_since(since.map(|r| (r.generation, r.index)), also).await.map_err(|e| format!("{e:?}"))?;
+        let revision = Revision { index: read.revision, generation: read.generation, kept: kept_revision };
         let session_of = |s: &mixdog_store::worker::IndexedSession| {
             let (activity, summary) = s.agent.as_ref()?;
             Some((Place::stamped(Some(*activity), &s.session), serde_json::from_str::<Row>(summary).ok()?))

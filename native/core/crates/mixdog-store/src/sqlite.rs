@@ -2030,11 +2030,13 @@ impl SqliteStore {
     /// every session written since, with the sessions in `also` read again whatever their revision; every listed session
     /// when `since` is `None` or a revision this index never reached. The revision and the rows are one read transaction,
     /// so they are one committed state, whichever connection or process wrote it (FORMAT.md §8.2 worker index revision).
-    pub async fn worker_index_since(&self, since: Option<u64>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
+    pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
         use crate::worker::IndexedSession;
         self.read(move |c| {
             let tx = c.unchecked_transaction()?;
-            let revision = tx.query_row(crate::worker::REVISION_SQL, [], |r| r.get::<_, i64>(0))? as u64;
+            let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
+                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))
+            })?;
             let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<IndexedSession> {
                 let worker = match r.get::<_, Option<String>>(2)? {
                     Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
@@ -2049,13 +2051,13 @@ impl SqliteStore {
                 };
                 Ok(IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
             };
-            let full = since.is_none_or(|since| since > revision);
+            let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
             let mut sessions: Vec<IndexedSession> = Vec::new();
             if full {
                 let mut stmt = tx.prepare_cached(crate::worker::INDEXED_ALL_SQL)?;
                 sessions = stmt.query_map([], row)?.collect::<Result<_, _>>()?;
             } else {
-                let since = since.unwrap_or_default() as i64;
+                let since = since.map_or(0, |(_, rev)| rev) as i64;
                 let mut at: HashMap<String, usize> = HashMap::new();
                 let mut put = |sessions: &mut Vec<IndexedSession>, s: IndexedSession| match at.get(&s.session) {
                     Some(&i) => sessions[i] = s,
@@ -2083,7 +2085,7 @@ impl SqliteStore {
                     put(&mut sessions, found.unwrap_or_else(|| gone(id)));
                 }
             }
-            Ok(crate::worker::WorkerIndexRead { revision, full, sessions })
+            Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
         })
         .await
     }
