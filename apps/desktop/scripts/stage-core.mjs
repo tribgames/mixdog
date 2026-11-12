@@ -74,6 +74,8 @@ export { workspaceVersion };
  * @param {(file: string) => string} [options.reportedVersion]  `mixdogd --version` of the host binary
  * @param {typeof buildJsPayload} [options.buildPayload]  builds one server platform's JS runtime payload
  * @param {typeof verifyRemotePayload} [options.verifyPayload]  integrity check of that payload before it is archived
+ * @param {boolean} [options.hostOnly]  stage only this app's own core: no server bundles for the ssh install, so no other
+ *   platform's binary is needed (an app built for the machine it is built on, not a release)
  */
 export async function stageCore({
   targetDir,
@@ -84,6 +86,7 @@ export async function stageCore({
   reportedVersion = hostReportedVersion,
   buildPayload = buildJsPayload,
   verifyPayload = verifyRemotePayload,
+  hostOnly = false,
 }) {
   const hostKey = `${host.platform}-${host.arch}`;
   const hostTarget = HOST_TARGETS[hostKey];
@@ -105,6 +108,7 @@ export async function stageCore({
   await copyFile(hostSource, join(coreDir, binaryName(host.platform)));
   await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
 
+  if (hostOnly) return null;
   const binaries = {};
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {
     const source = await builtBinary(targetDir, target, key.split('-')[0]);
@@ -137,8 +141,13 @@ if (invokedPath === import.meta.url) {
       runtimeDir: join(desktopDir, '.runtime'),
       version: argument('version') ?? (await workspaceVersion()),
       host: { platform: argument('platform') ?? process.platform, arch: argument('arch') ?? process.arch },
+      hostOnly: process.argv.includes('--host-only'),
     });
-    console.log(`[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`);
+    console.log(
+      manifest
+        ? `[stage-core] ${manifest.version} build ${manifest.build}: ${Object.keys(manifest.binaries).join(', ')}`
+        : '[stage-core] host core only (no server bundles)'
+    );
   } catch (error) {
     console.error(`[stage-core] failed: ${error.message}`);
     process.exitCode = 1;
