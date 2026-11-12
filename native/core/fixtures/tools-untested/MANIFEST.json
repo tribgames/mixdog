@@ -8,7 +8,7 @@
     "fs-markers": "capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them",
     "scm-locks": "the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; the \"rejected\" outcome of an aborted wait is a list apart from the events, because the order of a promise's rejection handler against another task's start is a tick of Node's promise queue, not a behaviour"
   },
-  "fileCount": 13,
+  "fileCount": 14,
   "files": [
     {
       "bytes": 166333,
@@ -39,6 +39,11 @@
       "bytes": 459482,
       "path": "exec-hoist-long.json",
       "sha256": "a8dc38e3b8412f063897a9b8d4e3461a7de2fa64285baf3e9a967680390ab334"
+    },
+    {
+      "bytes": 12119,
+      "path": "fs-list-page.json",
+      "sha256": "22b2a43c4f174162fa35cf773344571c37eca88c130148db6123145f42533512"
     },
     {
       "bytes": 2838,
@@ -97,6 +102,7 @@
     "agent-tool-call-ids",
     "agent-repeat-signature",
     "scm-locks",
+    "fs-list-page",
     "web-extract",
     "web-search-format",
     "fs-patch-parse"
@@ -120,7 +126,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-untested.mjs",
-  "recorderSha256": "b154d6f30169cbc38fbbfa3eb4c1261084133e784954f8414cad5ed63a468407",
+  "recorderSha256": "3c6c78fdb91b185557b995361c204de469285770eed9298f8c5c14581d1905b2",
   "set": "tools-untested",
-  "totalBytes": 1428456
+  "totalBytes": 1440575
 }
