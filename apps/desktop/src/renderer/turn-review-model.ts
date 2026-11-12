@@ -277,6 +277,56 @@ export function toolPublishesPatch(item: TranscriptItem): boolean {
   return classifyToolCategory(String(item.name || ''), item.args) === 'Patch';
 }
 
+/** Categories whose tools cannot write the worktree. Every other one (Patch,
+ *  Shell and Git, which run arbitrary commands, an agent whose worker edits,
+ *  Visualize, whose capture and export write project files,
+ *  MCP/Office/Tidy/Other tools) may, so a finished call of it re-reads. */
+const READ_ONLY_CATEGORIES = new Set([
+  'Read',
+  'Search',
+  'Load',
+  'Skill',
+  'Web Research',
+  'Memory',
+  'Explore',
+  'Setup',
+  'Browser',
+]);
+
+export function toolMayChangeFiles(item: TranscriptItem): boolean {
+  const keys = item.categories && typeof item.categories === 'object' ? Object.keys(item.categories) : [];
+  // A grouped card keys its categories as `Patch|Editing|Edited|file|files`.
+  const categories = keys.length
+    ? keys.map((key) => key.split('|')[0])
+    : [classifyToolCategory(String(item.name || ''), item.args)];
+  return categories.some((category) => !READ_ONLY_CATEGORIES.has(category));
+}
+
+/** What can change the worktree's review within a transcript: a finished
+ *  call of a tool that may write files, and a turn's end. Text, reasoning,
+ *  read-only tools, running tools and sub-agent progress leave it alone. */
+export function fileChangeKey(items: readonly TranscriptItem[] | undefined): string {
+  if (!Array.isArray(items)) return '';
+  let hash = 0x811c9dc5;
+  let count = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    let state: string;
+    if (item?.kind === 'turndone' || item?.kind === 'statusdone') state = `e${item.id ?? index}`;
+    else if (item?.kind === 'tool' && toolMayChangeFiles(item)) {
+      const status = String(item.status || '');
+      const done =
+        item.completedAt || item.completedCount || item.result !== undefined || (status !== '' && status !== 'running');
+      if (item.streaming || status === 'running' || !done) continue;
+      state = `t${item.id ?? index}:${item.completedAt ?? item.completedCount ?? ''}`;
+    } else continue;
+    count += 1;
+    for (let at = 0; at < state.length; at += 1) hash = Math.imul(hash ^ state.charCodeAt(at), 0x01000193);
+    hash = Math.imul(hash ^ 0x7c, 0x01000193);
+  }
+  return `${count}:${(hash >>> 0).toString(36)}`;
+}
+
 export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: number) {
   let additions = 0;
   let deletions = 0;

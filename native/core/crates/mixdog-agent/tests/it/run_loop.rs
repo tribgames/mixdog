@@ -2172,6 +2172,30 @@ impl TranscriptSink for OrderedSink {
     async fn durable(&self, ticket: Ticket) {
         self.log.lock().unwrap().push(("durable", ticket.0, self.provider.requests().len()));
     }
+    async fn drafted(&self) {
+        self.log.lock().unwrap().push(("drafted", 0, self.provider.requests().len()));
+    }
+}
+
+/// Each request leaves only after the sink stored what the run drafted, the mark of that send among it: a process killed
+/// with the request on the wire then recovers knowing it was sent (the tool result it ended with keeps `sentRequestTail`),
+/// where a request that left first is recovered as a turn still in its tool run. Fails without the wait in
+/// `Run::send_attempts` (`send.rs`).
+#[tokio::test]
+async fn each_request_leaves_after_the_mark_of_its_send_is_stored() {
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let sink = Arc::new(OrderedSink { provider: h.provider.clone(), tickets: AtomicU64::new(0), log: Mutex::new(Vec::new()) });
+    let mut env = h.run_env();
+    env.sink = sink.clone();
+    let run = Run::new(env, h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]), h.tool_env(), config(), vec![AgentMessage::user("go")], RunCarry::default());
+    finish(run).await;
+    assert_eq!(h.provider.requests().len(), 2);
+    let log = sink.log.lock().unwrap().clone();
+    let waited: Vec<usize> = log.iter().filter(|(what, ..)| *what == "drafted").map(|&(_, _, sent)| sent).collect();
+    assert_eq!(waited, [0, 1], "one wait before each request, with only the earlier requests sent: {log:?}");
 }
 
 /// The request after a tool batch leaves only once the tool result it carries is durable: Node appends each turn row

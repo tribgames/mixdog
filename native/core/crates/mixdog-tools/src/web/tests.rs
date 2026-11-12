@@ -468,7 +468,7 @@ mod tools {
         let web = service(|_| {});
         let out = call(&web, "image_fetch", json!({"url": format!("{}/i.png", server.uri())})).await.unwrap();
         assert!(matches!(&out.parts[0], ToolPart::Text(t) if t.ends_with("(image/png, 5 bytes)")));
-        assert!(matches!(&out.parts[1], ToolPart::Image { mime, data: ImageData::Bytes(b) } if mime == "image/png" && b.len() == 5));
+        assert!(matches!(&out.parts[1], ToolPart::Image { mime, data: ImageData::Bytes(b), .. } if mime == "image/png" && b.len() == 5));
         let wrong = text(&call(&web, "image_fetch", json!({"url": format!("{}/not-image", server.uri())})).await);
         assert!(wrong.contains("Blocked unsupported image content-type: text/html"), "{wrong}");
         let away = text(&call(&web, "image_fetch", json!({"url": format!("{}/away", server.uri())})).await);

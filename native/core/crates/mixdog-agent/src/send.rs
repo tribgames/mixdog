@@ -322,6 +322,8 @@ impl Run {
         self.request_started_ms = self.env.clock.now_ms();
         self.send_identity = Default::default();
         self.emit(RunEvent::ProviderSendStarted);
+        // The mark of this send is stored before the request leaves; a cancel ends the wait and the loop below reports it.
+        let _ = or_cancelled(&self.cancel, self.env.sink.drafted()).await;
         loop {
             self.throw_if_aborted()?;
             // Calls a dead attempt started are dropped with it.

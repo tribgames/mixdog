@@ -62,7 +62,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function build(overrides = {}) {
   const wire = pair();
-  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], exported: [], lifecycle: [], toasts: [], sounds: 0, activations: 0 };
+  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], exported: [], lifecycle: [], toasts: [], sounds: 0, activations: 0, captured: [], computerOff: false };
   const clicks = [];
   const host = createDesktopHost({
     connection: wire.connection,
@@ -118,6 +118,21 @@ function build(overrides = {}) {
       localPageUrl: async (root, rel, scope) => `http://127.0.0.1:1/t/${scope}/${rel}`,
     }),
     resolveProxy: async (url) => (url.includes('bad') ? Promise.reject(new Error('PAC http://u:p@pac/x')) : `PROXY ${url}`),
+    computer: () =>
+      calls.computerOff
+        ? null
+        : {
+            assertPublic: (command) => {
+              if (command?.action === 'launch') throw new Error('invalid_action: computer bridge action is not available');
+            },
+            answer: async (command) => {
+              calls.captured.push(command);
+              return command.screen === 9
+                ? { ok: false, error: 'screen must be an integer from 0 to 0' }
+                : { ok: true, value: { text: '{"ok":true}', image: { mimeType: 'image/jpeg', data: 'AA==' } } };
+            },
+            displays: () => [{ index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 }],
+          },
     notifications: {
       createNotification: (content) => {
         const toast = { content, show() {}, on: (event, fn) => event === 'click' && clicks.push(fn) };
@@ -240,6 +255,27 @@ test('system proxy answers rules for http(s) origins and a failure by name only'
     wire.call('host/systemProxy/resolve', { url: 'https://bad.test' }),
     (error) => error.message === 'Error'
   );
+});
+
+test('computer reads answer the host reply as it is, its refusal by message, and nothing while Computer Use is off', async () => {
+  const { wire, calls } = build();
+  const command = { action: 'capture', mode: 'vision', screen: 0, session_id: 's1' };
+  assert.deepEqual(await wire.call('host/computer/capture', { command }), {
+    text: '{"ok":true}',
+    image: { mimeType: 'image/jpeg', data: 'AA==' },
+  });
+  assert.deepEqual(calls.captured, [command]);
+  await assert.rejects(
+    wire.call('host/computer/capture', { command: { ...command, screen: 9 } }),
+    (error) => error.code === -32000 && error.message === 'screen must be an integer from 0 to 0'
+  );
+  await assert.rejects(wire.call('host/computer/capture', { command: { action: 'launch' } }), (error) => error.code === -32602);
+  await assert.rejects(wire.call('host/computer/capture', { command: { action: 'list_windows' } }), (error) => error.code === -32602);
+  assert.deepEqual(await wire.call('host/computer/displays', {}), [{ index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 }]);
+  calls.computerOff = true;
+  const unavailable = (error) => error.code === -32000 && error.message.startsWith('computer use is unavailable;');
+  await assert.rejects(wire.call('host/computer/capture', { command }), unavailable);
+  await assert.rejects(wire.call('host/computer/displays', {}), unavailable);
 });
 
 test('a shown notification plays its sound and a click reports the thread', () => {

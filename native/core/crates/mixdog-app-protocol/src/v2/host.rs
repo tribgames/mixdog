@@ -372,6 +372,52 @@ pub struct HostNotificationStatus {
     pub idle_seconds: Option<f64>,
 }
 
+/// Params of `host/computer/capture` (core → host): the `capture` command exactly as the loopback bridge was
+/// posted it (`computer-bridge/client.mjs`: the host command plus `session_id`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct HostComputerCaptureParams {
+    pub command: JsonValue,
+}
+
+/// The image of a computer host reply: its media type and base64 bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerImage {
+    pub mime_type: String,
+    pub data: String,
+}
+
+/// Result of `host/computer/capture`: the computer host's reply value (`{ text, image? }`), as the bridge's
+/// `{ ok: true, value }` carried it. A command the host refused is a JSON-RPC error carrying the host's message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostComputerCaptureResult {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<HostComputerImage>,
+}
+
+/// Params of `host/computer/displays` (core → host): none.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(deny_unknown_fields)]
+pub struct HostComputerDisplaysParams {}
+
+/// One display of `host/computer/displays` (`computer/host/display-reads.ts` `readDisplays`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct HostComputerDisplay {
+    pub index: u32,
+    pub id: String,
+    pub primary: bool,
+    pub scale_factor: f64,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostSystemProxyResolveParams {

@@ -50,7 +50,7 @@ pub struct Manifest {
 pub struct Roots {
     /// `<D>`.
     pub data: String,
-    /// `<H>` = `~/.mixdog` (holds `projects.json`).
+    /// `<H>` = `~/.mixdog` (holds `projects.json`: preserved as it is; the core's first start imports it once into the `projects` rows).
     pub home: String,
     /// `<P>`, the Electron profile; absent when the data dir has none.
     #[serde(skip_serializing_if = "Option::is_none")]

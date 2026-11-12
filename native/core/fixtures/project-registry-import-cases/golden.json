@@ -1,0 +1,350 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "projects.json only",
+      "observed": {
+        "profile": {
+          "name": "projects.json only",
+          "registry": [
+            {
+              "path": "alpha",
+              "addedAt": 1000
+            },
+            {
+              "path": "beta",
+              "name": "beta",
+              "addedAt": 3000,
+              "lastSelectedAt": 5000
+            },
+            {
+              "path": "gamma",
+              "addedAt": 2000,
+              "lastSelectedAt": 2500
+            },
+            {
+              "path": "delta",
+              "addedAt": 2500
+            },
+            {
+              "path": "epsilon",
+              "name": "Zed",
+              "addedAt": 4000
+            }
+          ]
+        },
+        "listed": {
+          "projects": [
+            {
+              "name": "beta",
+              "path": "<root>\\beta",
+              "alias": null
+            },
+            {
+              "name": "Zed",
+              "path": "<root>\\epsilon",
+              "alias": null
+            },
+            {
+              "name": "delta",
+              "path": "<root>\\delta",
+              "alias": null
+            },
+            {
+              "name": "gamma",
+              "path": "<root>\\gamma",
+              "alias": null
+            },
+            {
+              "name": "alpha",
+              "path": "<root>\\alpha",
+              "alias": null
+            }
+          ],
+          "recents": [
+            "<root>\\beta",
+            "<root>\\epsilon",
+            "<root>\\delta",
+            "<root>\\gamma",
+            "<root>\\alpha"
+          ]
+        }
+      }
+    },
+    {
+      "case": "both files: aliases, one of a path that is not registered, one blank",
+      "observed": {
+        "profile": {
+          "name": "both files: aliases, one of a path that is not registered, one blank",
+          "registry": [
+            {
+              "path": "alpha",
+              "addedAt": 1000
+            },
+            {
+              "path": "beta",
+              "name": "beta",
+              "addedAt": 3000,
+              "lastSelectedAt": 5000
+            },
+            {
+              "path": "gamma",
+              "addedAt": 2000,
+              "lastSelectedAt": 2500
+            },
+            {
+              "path": "delta",
+              "addedAt": 2500
+            },
+            {
+              "path": "epsilon",
+              "name": "Zed",
+              "addedAt": 4000
+            }
+          ],
+          "preferences": {
+            "aliases": {
+              "alpha": "The A",
+              "gamma": "  ",
+              "ghost": "Ghost"
+            },
+            "hidden": []
+          }
+        },
+        "listed": {
+          "projects": [
+            {
+              "name": "beta",
+              "path": "<root>\\beta",
+              "alias": null
+            },
+            {
+              "name": "Zed",
+              "path": "<root>\\epsilon",
+              "alias": null
+            },
+            {
+              "name": "delta",
+              "path": "<root>\\delta",
+              "alias": null
+            },
+            {
+              "name": "gamma",
+              "path": "<root>\\gamma",
+              "alias": null
+            },
+            {
+              "name": "alpha",
+              "path": "<root>\\alpha",
+              "alias": "The A"
+            }
+          ],
+          "recents": [
+            "<root>\\beta",
+            "<root>\\epsilon",
+            "<root>\\delta",
+            "<root>\\gamma",
+            "<root>\\alpha"
+          ]
+        }
+      }
+    },
+    {
+      "case": "a tombstoned path that is still registered",
+      "observed": {
+        "profile": {
+          "name": "a tombstoned path that is still registered",
+          "registry": [
+            {
+              "path": "alpha",
+              "addedAt": 1000
+            },
+            {
+              "path": "beta",
+              "name": "beta",
+              "addedAt": 3000,
+              "lastSelectedAt": 5000
+            },
+            {
+              "path": "gamma",
+              "addedAt": 2000,
+              "lastSelectedAt": 2500
+            },
+            {
+              "path": "delta",
+              "addedAt": 2500
+            },
+            {
+              "path": "epsilon",
+              "name": "Zed",
+              "addedAt": 4000
+            }
+          ],
+          "preferences": {
+            "aliases": {
+              "beta": "The B"
+            },
+            "hidden": [
+              "beta",
+              "ghost"
+            ]
+          }
+        },
+        "listed": {
+          "projects": [
+            {
+              "name": "beta",
+              "path": "<root>\\beta",
+              "alias": "The B"
+            },
+            {
+              "name": "Zed",
+              "path": "<root>\\epsilon",
+              "alias": null
+            },
+            {
+              "name": "delta",
+              "path": "<root>\\delta",
+              "alias": null
+            },
+            {
+              "name": "gamma",
+              "path": "<root>\\gamma",
+              "alias": null
+            },
+            {
+              "name": "alpha",
+              "path": "<root>\\alpha",
+              "alias": null
+            }
+          ],
+          "recents": [
+            "<root>\\beta",
+            "<root>\\epsilon",
+            "<root>\\delta",
+            "<root>\\gamma",
+            "<root>\\alpha"
+          ]
+        }
+      }
+    },
+    {
+      "case": "an entry whose folder no longer exists",
+      "observed": {
+        "profile": {
+          "name": "an entry whose folder no longer exists",
+          "registry": [
+            {
+              "path": "alpha",
+              "addedAt": 1000
+            },
+            {
+              "path": "beta",
+              "name": "beta",
+              "addedAt": 3000,
+              "lastSelectedAt": 5000
+            },
+            {
+              "path": "gamma",
+              "addedAt": 2000,
+              "lastSelectedAt": 2500
+            },
+            {
+              "path": "delta",
+              "addedAt": 2500
+            },
+            {
+              "path": "epsilon",
+              "name": "Zed",
+              "addedAt": 4000
+            },
+            {
+              "path": "vanished",
+              "addedAt": 6000
+            }
+          ],
+          "missing": [
+            "vanished"
+          ]
+        },
+        "listed": {
+          "projects": [
+            {
+              "name": "vanished",
+              "path": "<root>\\vanished",
+              "alias": null
+            },
+            {
+              "name": "beta",
+              "path": "<root>\\beta",
+              "alias": null
+            },
+            {
+              "name": "Zed",
+              "path": "<root>\\epsilon",
+              "alias": null
+            },
+            {
+              "name": "delta",
+              "path": "<root>\\delta",
+              "alias": null
+            },
+            {
+              "name": "gamma",
+              "path": "<root>\\gamma",
+              "alias": null
+            },
+            {
+              "name": "alpha",
+              "path": "<root>\\alpha",
+              "alias": null
+            }
+          ],
+          "recents": [
+            "<root>\\vanished",
+            "<root>\\beta",
+            "<root>\\epsilon",
+            "<root>\\delta",
+            "<root>\\gamma",
+            "<root>\\alpha"
+          ]
+        }
+      }
+    },
+    {
+      "case": "neither file",
+      "observed": {
+        "profile": {
+          "name": "neither file"
+        },
+        "listed": {
+          "projects": [],
+          "recents": []
+        }
+      }
+    },
+    {
+      "case": "desktop-projects.json only: nothing is registered",
+      "observed": {
+        "profile": {
+          "name": "desktop-projects.json only: nothing is registered",
+          "preferences": {
+            "aliases": {
+              "alpha": "The A"
+            },
+            "hidden": [
+              "beta"
+            ]
+          }
+        },
+        "listed": {
+          "projects": [],
+          "recents": []
+        }
+      }
+    }
+  ]
+}

@@ -2385,8 +2385,9 @@
   },
   {
    "class": "free",
-   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name.",
+   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name, the text of a Computer Use reply (the model reads it as the tool's result).",
    "fields": [
+    "answer host/computer/capture /text",
     "answer host/screen/displays /*/label",
     "answer host/update/command /message",
     "notification host/update/report /state/message",
@@ -3457,6 +3458,7 @@
    "class": "refused",
    "reason": "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text",
    "fields": [
+    "answer host/computer/displays /*/id",
     "answer host/screen/displays /*/screenId",
     "answer item/browser/requestApproval /answers/*/selected/*",
     "answer item/computer/requestApproval /answers/*/selected/*",
@@ -4383,6 +4385,8 @@
    "class": "refused",
    "reason": "encoded bytes or a media type (base64, data URL, SDP), decoded, not text",
    "fields": [
+    "answer host/computer/capture /image/data",
+    "answer host/computer/capture /image/mimeType",
     "answer host/visualize/command /thumbnail",
     "notification host/browser/frame /frame/image/data",
     "notification process/input /bytesB64",

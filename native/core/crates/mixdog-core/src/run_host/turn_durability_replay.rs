@@ -494,7 +494,6 @@ fn draft_hook(step: DraftStep, _rid: &str, body: Option<&Value>) -> std::io::Res
             seen.3 |= body.get("tools") == Some(&Value::Bool(false));
             match case {
                 "crash-mid-stream" if seen.2 == "partial streamed answer" => kill("draft Appended"),
-                "crash-tool-wire" if seen.1 && seen.3 => kill("draft Appended"),
                 // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
                 "crash-sealed-unsaved" | "resume-held" if sealed => SESSION_SAVES_FAIL.store(true, Ordering::SeqCst),
                 _ => {}
@@ -551,7 +550,6 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
             }
             seen.1 |= has_role(records, "tool");
             match case {
-                "crash-tool-wire" if seen.1 && seen.3 => die(),
                 "crash-saved-uncleared" if has_run(records, RunPhase::Completed) => die(),
                 _ => {}
             }
@@ -647,7 +645,14 @@ async fn crash_child() {
                         hang: false, more: None,
                     }
                 } else {
-                    Play { events: VecDeque::new(), hang: true, more: None }
+                    // Killed with the second request on the wire, as Node was. The request leaves only after the tool's row and the
+                    // mark of its send are stored (`Run::send_attempts`), so both are on disk here.
+                    let (tool_row, mark) = {
+                        let seen = lock(&SEEN);
+                        (seen.1, seen.3)
+                    };
+                    assert!(tool_row && mark, "the request left before the tool's row ({tool_row}) and the mark of its send ({mark}) were stored");
+                    kill("the second request")
                 }
             })
         }),
