@@ -98,14 +98,14 @@
       "sha256": "cfe78a5a4d229cc0fbdb2f72ca74ebb05429e596ce588067da85ba96fe8aea32"
     },
     {
-      "bytes": 63111,
+      "bytes": 67989,
       "path": "connect-errors/golden/connect_errors.json",
-      "sha256": "1356ed648d9d81ba61dfea3771764d85e2e2263fb526683d34034ff33693660a"
+      "sha256": "d8f1a6ed1a647fd76f74df24c637ca7c461822028f9b982d80ceda9c4ddb2b7d"
     },
     {
-      "bytes": 34780,
+      "bytes": 37159,
       "path": "connect-errors/record.mjs",
-      "sha256": "b4657fb18ff66f943cbfa48c6c3e18e67ccb6468fff666098360a8e98db722c8"
+      "sha256": "df694f9e04eb8996883c75fb15f0a71a3b818727475451a380f4ff247b3bd955"
     },
     {
       "bytes": 1817,
@@ -423,6 +423,13 @@
       "sha256": "12fda8b6b84474881528ff9582557365bb1b22f4886b5e18db4961dfb5b6854f"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -441,5 +448,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4220847
+  "totalBytes": 4228104
 }

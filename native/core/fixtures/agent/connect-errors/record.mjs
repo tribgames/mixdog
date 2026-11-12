@@ -28,6 +28,9 @@
 // `--only sites` records `sites` alone: the real Node function of each production call site that bounds its request with
 // a timer of its own, run with that timer ended at once against a server that never answers; see `recordSites`.
 //
+// `--only refreshAnswers` records `refreshAnswers` alone: what the OpenAI token refresh reports for an answer that is
+// 2xx but no usable token (not JSON, JSON of the wrong shape); see `recordRefreshAnswers`.
+//
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
 // (the timers `sleepWithAbort` arms are armed at 0 ms), and `Math.random` is pinned to 0.5 so every jittered wait is
@@ -588,6 +591,51 @@ async function recordSites() {
   return out;
 }
 
+// The refresh answers that are 2xx and still no token: the real `refreshStoredTokens({ force: true })` (the 401 retry)
+// against a token endpoint that answers each scripted status and body. `thrown` is the text the caller of the refresh
+// receives; the cause of a body that is not JSON is the runtime's own `JSON.parse` message.
+async function recordRefreshAnswers() {
+  process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
+  const openaiFile = join(scratch, 'openai-oauth.json');
+  process.env.OPENAI_OAUTH_CREDENTIALS_PATH = openaiFile;
+  const openaiTokens = await load(`${orchestrator}/providers/openai-oauth-tokens.mjs`);
+  const answers = [
+    ['plain-text', 200, 'not json'],
+    ['html-page', 200, '<html><body><h1>502 Bad Gateway</h1></body></html>'],
+    ['empty-200', 200, ''],
+    ['empty-204', 204, null],
+    ['truncated-in-string', 200, '{"access_token":"a'],
+    ['truncated-after-value', 200, '{"access_token":"abc","refresh_token":"r2"'],
+    ['byte-order-mark-then-brace', 200, '\ufeff{'],
+    ['non-ascii-text', 200, 'é maintenance'],
+    ['array-empty', 200, '[]'],
+    ['array-of-token-object', 200, '[{"access_token":"a"}]'],
+    ['json-null', 200, 'null'],
+    ['json-string', 200, '"x"'],
+    ['json-number', 200, '0'],
+    ['object-empty', 200, '{}'],
+    ['object-without-token', 200, '{"refresh_token":"r2","expires_in":3600}'],
+    ['token-empty-string', 200, '{"access_token":""}'],
+    ['token-null', 200, '{"access_token":null}'],
+  ];
+  const realFetch = globalThis.fetch;
+  const out = [];
+  for (const [name, status, body] of answers) {
+    writeFileSync(openaiFile, JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1 }));
+    globalThis.fetch = async () => new Response(body, { status });
+    let thrown;
+    try {
+      await openaiTokens.refreshStoredTokens({ force: true });
+      thrown = { resolved: true };
+    } catch (error) {
+      thrown = { name: error.name ?? null, message: String(error.message) };
+    }
+    globalThis.fetch = realFetch;
+    out.push({ name, status, body, thrown });
+  }
+  return out;
+}
+
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 const goldenFile = join(here, 'golden', 'connect_errors.json');
 const golden = only ? JSON.parse(readFileSync(goldenFile, 'utf8')) : { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
@@ -609,6 +657,7 @@ if (!only || only === 'probes') {
 }
 if (!only || only === 'transports') golden.transports = await recordTransports();
 if (!only || only === 'sites') golden.sites = await recordSites();
+if (!only || only === 'refreshAnswers') golden.refreshAnswers = await recordRefreshAnswers();
 for (const [name, first] of only && only !== 'cut' ? [] : [
   ['cut', ': open\n\n'],
   ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
