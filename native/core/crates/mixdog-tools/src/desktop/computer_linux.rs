@@ -24,6 +24,7 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_protocol::ProcessHandle;
+use mixdog_rt::time::Instant;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Map;
@@ -46,7 +47,7 @@ const DISPLAY_HINT: &str = "display_unavailable: no graphical session to drive; 
 pub const CAPABILITY_UNAVAILABLE_CODE: &str = "computer_capability_unavailable";
 pub const CAPTURE_FALLBACK_NOTE: &str = "Note: window control is not available on this Linux session, so this is a full-screen capture of screen 0 instead of the foreground window.";
 /// A probe is asked again once it is older than this, so a fix is noticed on the next call.
-const CACHE_MS: f64 = 3000.0;
+const CACHE_LIFE: Duration = Duration::from_millis(3000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -519,42 +520,36 @@ pub struct Fallback {
 
 type Probe = Shared<BoxFuture<'static, Arc<Readiness>>>;
 
-/// The probe, taken at most once per few seconds and shared by concurrent calls (`getLinuxComputerReadiness`).
-#[derive(Default)]
-pub struct ReadinessCache {
-    cached: Mutex<Option<(f64, Probe)>>,
+/// The one probe of the process, as Node's module-level `cached`: every session reads it, whichever backend it runs on. It is taken
+/// at most once per [`CACHE_LIFE`] of the runtime's clock and shared by concurrent calls (`getLinuxComputerReadiness`).
+static CACHED: Mutex<Option<(Instant, Probe)>> = Mutex::new(None);
+
+async fn shared_readiness(check: impl FnOnce() -> BoxFuture<'static, Readiness>) -> Arc<Readiness> {
+    let probe = {
+        let mut cached = CACHED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = Instant::now();
+        match cached.as_ref() {
+            Some((at, probe)) if now.saturating_duration_since(*at) <= CACHE_LIFE => probe.clone(),
+            _ => {
+                let probe: Probe = check().map(Arc::new).boxed().shared();
+                *cached = Some((now, probe.clone()));
+                probe
+            }
+        }
+    };
+    probe.await
 }
 
-impl ReadinessCache {
-    async fn get(&self, now_ms: f64, check: impl FnOnce() -> BoxFuture<'static, Readiness>) -> Arc<Readiness> {
-        let probe = {
-            let mut cached = self.cached.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            match cached.as_ref() {
-                Some((at, probe)) if now_ms - at <= CACHE_MS => probe.clone(),
-                _ => {
-                    let probe: Probe = check().map(Arc::new).boxed().shared();
-                    *cached = Some((now_ms, probe.clone()));
-                    probe
-                }
-            }
-        };
-        probe.await
-    }
+/// `resetLinuxComputerPreflightCache`.
+#[cfg(test)]
+fn reset_probe() {
+    *CACHED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }
 
 /// `linuxComputerPreflight`: `None` when the command can run; otherwise the refusal, whose text names every missing capability
-/// and says nothing ran. Other platforms are never blocked.
-pub async fn preflight(
-    cache: &ReadinessCache,
-    command: &Map<String, Value>,
-    linux: bool,
-    now_ms: f64,
-    check: impl FnOnce() -> BoxFuture<'static, Readiness>,
-) -> Option<Refusal> {
-    if !linux {
-        return None;
-    }
-    let readiness = cache.get(now_ms, check).await;
+/// and says nothing ran. The caller skips it on a platform that is not Linux.
+pub async fn preflight(command: &Map<String, Value>, check: impl FnOnce() -> BoxFuture<'static, Readiness>) -> Option<Refusal> {
+    let readiness = shared_readiness(check).await;
     let missing = missing_capabilities(&readiness, command);
     if missing.is_empty() {
         return None;
@@ -585,17 +580,11 @@ pub async fn preflight(
 
 /// `linuxCaptureFallback`: a default capture resolves the foreground window; without window control it becomes a full-screen
 /// capture instead of a refusal. `None` when no fallback applies.
-pub async fn capture_fallback(
-    cache: &ReadinessCache,
-    command: &Map<String, Value>,
-    linux: bool,
-    now_ms: f64,
-    check: impl FnOnce() -> BoxFuture<'static, Readiness>,
-) -> Option<Fallback> {
-    if !linux || !is_foreground_window_capture(command) {
+pub async fn capture_fallback(command: &Map<String, Value>, check: impl FnOnce() -> BoxFuture<'static, Readiness>) -> Option<Fallback> {
+    if !is_foreground_window_capture(command) {
         return None;
     }
-    let readiness = cache.get(now_ms, check).await;
+    let readiness = shared_readiness(check).await;
     if !readiness.capabilities.windows.state.blocks() {
         return None;
     }
@@ -760,10 +749,28 @@ impl Probes for SystemProbes {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::MutexGuard;
+    use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering;
 
+    use mixdog_core_api::domain::computer::ComputerBackend;
+    use mixdog_core_api::domain::computer::ComputerError;
+    use mixdog_core_api::domain::process::KillReason;
+    use mixdog_core_api::domain::process::ProcessError;
+    use mixdog_core_api::domain::process::ProcessExit;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+    use tokio::sync::mpsc::UnboundedReceiver;
+    use tokio::sync::mpsc::UnboundedSender;
+    use tokio_util::sync::CancellationToken;
+
     use super::*;
+    use crate::desktop::computer::request;
+    use crate::desktop::computer_backend::ComputerConfig;
+    use crate::desktop::computer_backend::ProcessComputerBackend;
+    use crate::desktop::computer_backend::RESPONSE_MARKER;
+    use crate::desktop::computer_recovery::format_tool_error;
 
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-linux-readiness/golden.json");
 
@@ -784,66 +791,8 @@ mod tests {
         value.as_object().expect("env").iter().map(|(key, value)| (key.clone(), value.as_str().expect("env value").to_owned())).collect()
     }
 
-    /// The test's injected probes, with the counters it reads.
-    struct Injected {
-        uinput: bool,
-        window_version: Option<u32>,
-        helper: HelperStatus,
-        a11y: bool,
-        bus: bool,
-        tools: Vec<String>,
-        window_calls: AtomicUsize,
-        helper_calls: AtomicUsize,
-        a11y_calls: AtomicUsize,
-    }
-
-    impl Injected {
-        fn of(input: &Value) -> Self {
-            Self {
-                uinput: input["uinput"].as_bool().expect("uinput"),
-                window_version: input["windowVersion"].as_u64().map(|version| version as u32),
-                helper: HelperStatus { installed: input["helper"]["installed"].as_bool().expect("installed"), enabled: input["helper"]["enabled"].as_bool().expect("enabled") },
-                a11y: input["a11y"].as_bool().expect("a11y"),
-                bus: input["bus"].as_bool().expect("bus"),
-                tools: input["tools"].as_array().expect("tools").iter().map(|tool| tool.as_str().expect("tool").to_owned()).collect(),
-                window_calls: AtomicUsize::new(0),
-                helper_calls: AtomicUsize::new(0),
-                a11y_calls: AtomicUsize::new(0),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Probes for Injected {
-        async fn can_write(&self, file: &str) -> bool {
-            file == "/dev/uinput" && self.uinput
-        }
-        async fn has_command(&self, name: &str) -> bool {
-            self.tools.iter().any(|tool| tool == name)
-        }
-        async fn has_session_bus(&self) -> bool {
-            self.bus
-        }
-        async fn window_helper_version(&self) -> Option<u32> {
-            self.window_calls.fetch_add(1, Ordering::SeqCst);
-            self.window_version
-        }
-        async fn window_helper_status(&self) -> HelperStatus {
-            self.helper_calls.fetch_add(1, Ordering::SeqCst);
-            self.helper
-        }
-        async fn accessibility_reachable(&self) -> bool {
-            self.a11y_calls.fetch_add(1, Ordering::SeqCst);
-            self.a11y
-        }
-    }
-
-    fn ready_value(readiness: &Readiness) -> Value {
-        serde_json::to_value(readiness).expect("readiness serialises")
-    }
-
-    fn check_of(readiness: Readiness) -> impl FnOnce() -> BoxFuture<'static, Readiness> {
-        move || async move { readiness }.boxed()
+    fn strings(value: &Value) -> Vec<String> {
+        value.as_array().expect("a list").iter().map(|item| item.as_str().expect("a string").to_owned()).collect()
     }
 
     /// The session and desktop of every recorded environment.
@@ -868,108 +817,307 @@ mod tests {
         }
     }
 
-    /// Every recorded session: its readiness and probe counts, what each command is missing, the refusal and the capture rewrite.
-    #[tokio::test]
-    async fn every_recorded_session_is_decided_as_node_decides_it() {
-        let commands = case("the commands every session is asked about")["observed"].clone();
-        let commands = commands.as_array().expect("commands").clone();
-        let mut sessions = 0;
+    // --- the stand-in machine: what the preflight's probes read, answered at the process manager ---
+
+    /// The recorded world: the same environment, executables, paths and answers Node's probing read through `fs` and `spawn`.
+    struct World {
+        env: Env,
+        executables: Vec<String>,
+        writable: Vec<String>,
+        existing: Vec<String>,
+        window_version: Option<u32>,
+        a11y: bool,
+        enabled: String,
+        disabled: String,
+    }
+
+    impl World {
+        fn of(value: &Value) -> Self {
+            Self {
+                env: env_of(&value["env"]),
+                executables: strings(&value["executables"]),
+                writable: strings(&value["writable"]),
+                existing: strings(&value["existing"]),
+                window_version: value["windowVersion"].as_u64().map(|version| version as u32),
+                a11y: value["a11y"].as_bool().expect("a11y"),
+                enabled: value["gsettings"]["enabled"].as_str().expect("enabled").to_owned(),
+                disabled: value["gsettings"]["disabled"].as_str().expect("disabled").to_owned(),
+            }
+        }
+
+        /// The shell checks the real probes run (`test -w`, `command -v`, `test -e`), against the world's files and the `PATH` they were given.
+        fn shell(&self, env: &EnvSpec, script: &str, arg: &str) -> bool {
+            match script {
+                "test -w \"$1\"" => self.writable.iter().any(|file| file == arg),
+                "command -v \"$1\" >/dev/null 2>&1" => {
+                    let path = env.set.iter().find(|(key, _)| key == "PATH").map_or("", |(_, value)| value.as_str());
+                    path.split(':').filter(|dir| !dir.is_empty()).any(|dir| self.executables.contains(&format!("{dir}/{arg}")))
+                }
+                "test -e \"$1/bus\"" => self.existing.contains(&format!("{arg}/bus")),
+                "test -e \"$1/metadata.json\"" => self.existing.contains(&format!("{arg}/metadata.json")),
+                other => panic!("the stand-in machine does not know the probe {other:?}"),
+            }
+        }
+
+        /// What `gdbus` and `gsettings` answer: the exit code and stdout.
+        fn tool(&self, program: &str, args: &[String]) -> (i32, String) {
+            let has = |word: &str| args.iter().any(|arg| arg == word);
+            match program {
+                "gdbus" if has("Version") => match self.window_version {
+                    Some(version) => (0, format!("(<uint32 {version}>,)\n")),
+                    None => (1, String::new()),
+                },
+                "gdbus" if has("org.a11y.Bus.GetAddress") => {
+                    if self.a11y { (0, "('unix:path=/run/user/1000/at-spi/bus',)\n".into()) } else { (1, String::new()) }
+                }
+                "gsettings" if args.get(1).map(String::as_str) == Some("org.gnome.shell") && args.get(2).map(String::as_str) == Some("enabled-extensions") => {
+                    (0, self.enabled.clone())
+                }
+                "gsettings" if args.get(1).map(String::as_str) == Some("org.gnome.shell") && args.get(2).map(String::as_str) == Some("disable-user-extensions") => {
+                    (0, self.disabled.clone())
+                }
+                _ => (1, String::new()),
+            }
+        }
+    }
+
+    /// What the machines of one test were asked.
+    #[derive(Default)]
+    struct Log {
+        /// Every `gdbus` / `gsettings` process started, as program and arguments.
+        spawned: Mutex<Vec<Vec<String>>>,
+        /// Every request line the helper was sent.
+        requests: Mutex<Vec<Value>>,
+    }
+
+    impl Log {
+        fn spawned(&self) -> Value {
+            json!(std::mem::take(&mut *self.spawned.lock().unwrap()))
+        }
+
+        fn requests(&self) -> usize {
+            std::mem::take(&mut *self.requests.lock().unwrap()).len()
+        }
+    }
+
+    struct Feed(UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Feed {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    /// A process manager that starts nothing: it answers the probes from the world, and a helper that answers every request `ok`.
+    struct Machine {
+        world: Arc<Mutex<World>>,
+        log: Arc<Log>,
+        senders: Mutex<HashMap<String, UnboundedSender<ProcessEvent>>>,
+        receivers: Mutex<HashMap<String, UnboundedReceiver<ProcessEvent>>>,
+        seq: AtomicU64,
+    }
+
+    impl Machine {
+        fn new(world: &Arc<Mutex<World>>, log: &Arc<Log>) -> Arc<Self> {
+            Arc::new(Self { world: world.clone(), log: log.clone(), senders: Mutex::default(), receivers: Mutex::default(), seq: AtomicU64::new(0) })
+        }
+
+        fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
+            let sender = self.senders.lock().unwrap().get(&handle.0).cloned();
+            if let Some(sender) = sender {
+                let _ = sender.send(event(self.seq.fetch_add(1, Ordering::SeqCst)));
+            }
+        }
+
+        fn exited(seq: u64, code: i32, killed: Option<KillReason>) -> ProcessEvent {
+            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed } }
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Machine {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            let CommandSpec::Argv { program, args } = &request.command else { panic!("the stand-in machine starts argv commands") };
+            let (send, receive) = tokio::sync::mpsc::unbounded_channel();
+            self.senders.lock().unwrap().insert(request.handle.0.clone(), send);
+            self.receivers.lock().unwrap().insert(request.handle.0.clone(), receive);
+            if !request.stdin_piped {
+                let (code, out) = {
+                    let world = self.world.lock().unwrap();
+                    match program.as_str() {
+                        "/bin/sh" => (i32::from(!world.shell(&request.env, &args[1], &args[3])), String::new()),
+                        "gdbus" | "gsettings" => {
+                            self.log.spawned.lock().unwrap().push(std::iter::once(program.clone()).chain(args.iter().cloned()).collect());
+                            world.tool(program, args)
+                        }
+                        other => return Err(ProcessError::ProgramNotFound { program: other.to_owned() }),
+                    }
+                };
+                if !out.is_empty() {
+                    self.emit(&request.handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.into_bytes() });
+                }
+                self.emit(&request.handle, |seq| Self::exited(seq, code, None));
+            }
+            Ok(SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let receive = self.receivers.lock().unwrap().remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
+            Ok(Box::new(Feed(receive)))
+        }
+
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            let request: Value = serde_json::from_slice(&bytes).expect("a request line");
+            let reply = format!("{}{}\n", RESPONSE_MARKER, json!({"id": request["id"], "ok": true, "result": {"text": "ok"}}));
+            self.log.requests.lock().unwrap().push(request);
+            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: reply.into_bytes() });
+            Ok(())
+        }
+
+        fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+            Err(ProcessError::StdinClosed)
+        }
+
+        fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
+            Err(ProcessError::NotPty)
+        }
+
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.emit(handle, |seq| Self::exited(seq, 0, Some(KillReason::Requested)));
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// The probe cache is the process's: tests that read it run one at a time.
+    fn serial() -> MutexGuard<'static, ()> {
+        static ONE: Mutex<()> = Mutex::new(());
+        let held = ONE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        reset_probe();
+        held
+    }
+
+    /// A session of the `computer` tool on the stand-in machine; `linux` names the platform, whatever this test runs on.
+    fn backend(world: &Arc<Mutex<World>>, log: &Arc<Log>, session: &str, linux: bool) -> ProcessComputerBackend {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(world, log));
+        if linux { backend.with_linux_session(world.lock().unwrap().env.clone()) } else { backend }
+    }
+
+    /// One recorded call through `ProcessComputerBackend::run`, compared with what Node's tool did with it: refused (the tool's error text, no
+    /// request to the helper) or run; a whole-screen capture is the rewritten command, and the gdbus/gsettings processes started are Node's.
+    async fn replay(backend: &ProcessComputerBackend, log: &Log, args: &Value, node: &Value, label: &str) {
+        let got = backend.run(request(args).expect("a recorded call"), CancellationToken::new()).await;
+        let result = &node["result"];
+        let text = result["content"][0]["text"].as_str().expect("text");
+        let dispatched = node["dispatched"].as_array().expect("dispatched");
+        if let Some(meta) = result.get("toolMeta") {
+            assert!(dispatched.is_empty(), "{label}: recording: a refused call dispatches nothing");
+            let Err(ComputerError::Failed { code, message }) = &got else { panic!("{label}: refused by Node, got {got:?}") };
+            assert_eq!(code, meta["code"].as_str().expect("code"), "{label}: code");
+            assert_eq!(format_tool_error(message, args), text, "{label}: the error text the tool returns");
+            assert_eq!(log.requests(), 0, "{label}: a refused action reached the helper");
+        } else {
+            assert_eq!(dispatched.len(), 1, "{label}: recording: one command to the bridge");
+            let rewritten = dispatched[0].get("screen").is_some_and(|screen| screen == 0) && args["input"].get("screen").is_none();
+            let blocks = result["content"].as_array().expect("content").len();
+            assert_eq!(blocks, if rewritten { 2 } else { 1 }, "{label}: Node's note rides as its own block, for a rewritten capture only");
+            if rewritten {
+                assert_eq!(result["content"][1]["text"], CAPTURE_FALLBACK_NOTE, "{label}: the note");
+            }
+            if dispatched[0].get("screen").is_some() {
+                // The rewritten capture is the one executed: it names a screen, which the backend does not capture itself (no snapshot goes to the helper).
+                let Err(ComputerError::Unavailable { reason }) = &got else { panic!("{label}: a screen capture, got {got:?}") };
+                assert!(reason.contains("whole screen"), "{label}: {reason}");
+                assert_eq!(log.requests(), 0, "{label}: a whole-screen capture went to the helper");
+            } else {
+                assert!(got.is_ok(), "{label}: Node ran it, got {got:?}");
+                assert!(log.requests() > 0, "{label}: nothing reached the helper");
+            }
+        }
+        assert_eq!(log.spawned(), node["spawns"], "{label}: the gdbus/gsettings processes started");
+    }
+
+    /// Every recorded session, every tool call, whole, through the backend's own entry on the Linux path.
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn every_recorded_session_replays_through_the_backend() {
+        let _serial = serial();
+        let tool_calls = case("the tool calls every session is asked")["observed"].clone();
+        let tool_calls = tool_calls.as_array().expect("tool calls");
+        let (mut sessions, mut refused, mut rewritten) = (0, 0, 0);
         for recorded in cases().into_iter().filter(|case| case["case"].as_str().is_some_and(|name| name.starts_with("session ") && name != "session and desktop detection")) {
             let name = recorded["case"].as_str().expect("name");
             let observed = &recorded["observed"];
-            let input = &observed["input"];
-            let injected = Injected::of(input);
-            let env = env_of(&input["env"]);
-            let readiness = check_readiness(&env, &injected).await;
-            assert_eq!(ready_value(&readiness), observed["readiness"], "{name}: readiness");
-            assert_eq!(
-                json!({ "windowCalls": injected.window_calls.load(Ordering::SeqCst), "a11y": injected.a11y_calls.load(Ordering::SeqCst), "helper": injected.helper_calls.load(Ordering::SeqCst) }),
-                observed["calls"],
-                "{name}: probe counts"
-            );
-            for (at, command) in commands.iter().enumerate() {
-                let command_map = command_of(command);
-                let label = format!("{name} / {command}");
-                assert_eq!(Value::Array(missing_capabilities(&readiness, &command_map)), observed["missing"][at], "{label}: missing");
-                let refusal = preflight(&ReadinessCache::default(), &command_map, true, 0.0, check_of(readiness.clone())).await;
-                assert_eq!(refusal.as_ref().map_or(Value::Null, Refusal::to_value), observed["preflight"][at], "{label}: preflight");
-                let fallback = capture_fallback(&ReadinessCache::default(), &command_map, true, 0.0, check_of(readiness.clone())).await;
-                let want = &observed["fallback"][at];
-                match fallback {
-                    None => assert!(want.is_null(), "{label}: fallback"),
-                    Some(fallback) => assert_eq!(json!({ "command": fallback.command, "note": fallback.note }), *want, "{label}: fallback"),
-                }
+            let world = Arc::new(Mutex::new(World::of(&observed["world"])));
+            let log = Arc::new(Log::default());
+            let backend = backend(&world, &log, "s1", true);
+            let calls = observed["calls"].as_array().expect("calls");
+            assert_eq!(calls.len(), tool_calls.len(), "{name}");
+            for (args, node) in tool_calls.iter().zip(calls) {
+                reset_probe();
+                refused += usize::from(node["result"].get("toolMeta").is_some());
+                rewritten += usize::from(node["dispatched"][0].get("screen").is_some() && args["input"].get("screen").is_none());
+                replay(&backend, &log, args, node, &format!("{name} / {args}")).await;
             }
             sessions += 1;
         }
-        assert!(sessions >= 25, "{sessions}");
+        assert!(sessions >= 30 && refused > 500 && rewritten >= 3, "{sessions} sessions, {refused} refused, {rewritten} rewritten");
     }
 
-    #[tokio::test]
-    async fn other_platforms_are_never_blocked_and_never_rewritten() {
-        let rows = case("other platforms are never blocked and never rewritten")["observed"].clone();
-        let injected = Injected {
-            uinput: false,
-            window_version: None,
-            helper: HelperStatus { installed: false, enabled: false },
-            a11y: true,
-            bus: true,
-            tools: vec!["gdbus".into()],
-            window_calls: AtomicUsize::new(0),
-            helper_calls: AtomicUsize::new(0),
-            a11y_calls: AtomicUsize::new(0),
-        };
-        let env = env_of(&json!({"WAYLAND_DISPLAY": "wayland-0", "XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "ubuntu:GNOME", "PATH": ""}));
-        let readiness = check_readiness(&env, &injected).await;
-        for row in rows.as_array().expect("rows") {
-            let command = command_of(&row["command"]);
-            assert!(row["preflight"].is_null() && row["fallback"].is_null(), "recording: a platform that is not linux is never blocked");
-            assert!(preflight(&ReadinessCache::default(), &command, false, 0.0, check_of(readiness.clone())).await.is_none());
-            assert!(capture_fallback(&ReadinessCache::default(), &command, false, 0.0, check_of(readiness.clone())).await.is_none());
+    /// Another platform is never blocked and never rewritten: the preflight does not run, nothing is probed.
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_platform_that_is_not_linux_is_never_blocked_and_never_rewritten() {
+        let _serial = serial();
+        let recorded = case("a platform that is not linux is never blocked and never rewritten")["observed"].clone();
+        let world = Arc::new(Mutex::new(World::of(&recorded["world"])));
+        let log = Arc::new(Log::default());
+        let backend = backend(&world, &log, "s1", false);
+        for node in recorded["calls"].as_array().expect("calls") {
+            replay(&backend, &log, &node["args"], node, &format!("{} / {}", node["platform"], node["args"])).await;
         }
     }
 
-    /// The probe is cached for 3 seconds; concurrent calls share one probe; the fix is noticed once the window passes.
-    #[tokio::test]
-    async fn the_probe_is_cached_for_three_seconds_and_concurrent_calls_share_it() {
-        let recorded = case("the probe is cached for 3 seconds and concurrent calls share one probe")["observed"].clone();
-        let pointers: Vec<String> = recorded["pointers"].as_array().expect("pointers").iter().map(|p| p.as_str().expect("pointer").to_owned()).collect();
-        let command = command_of(&json!({"action": "sequence", "steps": [{"action": "click", "x": 1, "y": 2}]}));
-        let cache = ReadinessCache::default();
-        let probes = Arc::new(AtomicUsize::new(0));
+    /// The probe is the process's, not a session's, and it lives 3 seconds of the runtime's clock: two sessions inside the window share it
+    /// (the concurrent calls of one instant too), and the first call after it asks again. The window passes by advancing that clock.
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn the_probe_is_shared_by_two_sessions_inside_3_seconds_and_asked_again_after() {
+        let _serial = serial();
+        let recorded = case("the probe is shared by two sessions inside 3 seconds and asked again after")["observed"].clone();
+        let world = Arc::new(Mutex::new(World::of(&recorded["world"])));
+        let log = Arc::new(Log::default());
+        let (first, second) = (backend(&world, &log, "s1", true), backend(&world, &log, "s2", true));
+        let mut now = 0;
         for step in recorded["steps"].as_array().expect("steps") {
-            let at = step["at"].as_f64().expect("at");
-            let run = || {
-                let (probes, pointers) = (probes.clone(), pointers.clone());
-                preflight(&cache, &command, true, at, move || {
-                    async move {
-                        let index = probes.fetch_add(1, Ordering::SeqCst).min(pointers.len() - 1);
-                        let ready = Cap::of(State::Ready);
-                        Readiness {
-                            session: "wayland".into(),
-                            desktop: "gnome".into(),
-                            capabilities: Capabilities {
-                                capture: Cap::of(State::Unknown),
-                                windows: ready.clone(),
-                                accessibility: ready.clone(),
-                                semantic_actions: ready.clone(),
-                                pointer: if pointers[index] == "ready" { ready.clone() } else { Cap::needs("allow_input") },
-                                keyboard: ready.clone(),
-                                clipboard: ready.clone(),
-                                ocr: ready,
-                            },
-                        }
+            let at = step["at"].as_u64().expect("at");
+            tokio::time::advance(Duration::from_millis(at - now)).await;
+            now = at;
+            world.lock().unwrap().writable = if step["uinput"].as_bool().expect("uinput") { vec!["/dev/uinput".to_owned()] } else { Vec::new() };
+            let args = &recorded["call"];
+            let runs = step["sessions"].as_array().expect("sessions").iter().map(|session| {
+                let backend = if session == "s1" { &first } else { &second };
+                backend.run(request(args).expect("a recorded call"), CancellationToken::new())
+            });
+            let got = futures::future::join_all(runs).await;
+            let results = step["results"].as_array().expect("results");
+            assert_eq!(got.len(), results.len(), "at {at}");
+            for (got, node) in got.iter().zip(results) {
+                match node.get("toolMeta") {
+                    Some(_) => {
+                        let Err(ComputerError::Failed { message, .. }) = got else { panic!("at {at}: refused by Node, got {got:?}") };
+                        assert_eq!(format_tool_error(message, args), node["content"][0]["text"], "at {at}");
                     }
-                    .boxed()
-                })
-            };
-            let mut results = Vec::new();
-            for _ in 0..step["concurrent"].as_u64().expect("concurrent") {
-                results.push(run());
+                    None => assert!(got.is_ok(), "at {at}: Node ran it, got {got:?}"),
+                }
             }
-            let results: Vec<Value> = futures::future::join_all(results).await.iter().map(|r| r.as_ref().map_or(Value::Null, Refusal::to_value)).collect();
-            assert_eq!(Value::Array(results), step["results"], "at {at}");
-            assert_eq!(probes.load(Ordering::SeqCst), step["probes"].as_u64().expect("probes") as usize, "probes at {at}");
+            assert_eq!(got.iter().filter(|got| got.is_ok()).count() as u64, step["dispatches"].as_u64().expect("dispatches"), "dispatches at {at}");
+            assert_eq!(log.spawned(), step["spawns"], "the probe's processes at {at}");
+            log.requests();
         }
     }
 }
