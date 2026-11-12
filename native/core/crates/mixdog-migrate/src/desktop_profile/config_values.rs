@@ -257,7 +257,8 @@ fn read_config(data: &Path) -> Result<(Value, Option<String>), ApplyError> {
         })
     };
     let text = std::str::from_utf8(&bytes).map_err(|error| schema(error.to_string()))?;
-    let doc: Value = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text))
+    // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+    let doc: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text.strip_prefix('\u{feff}').unwrap_or(text)))
         .map_err(|error| schema(error.to_string()))?;
     if !doc.is_object() {
         return Err(schema("the config is not an object".to_owned()));
@@ -285,14 +286,20 @@ fn get_path<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
     key.split('.').try_fold(doc, |node, part| node.get(part))
 }
 
-pub(super) fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<Staged> {
-    let data = cx.roots.data.as_path();
-    let key = config_key(item)?;
-    let (value, replaced_surrogates) = config_value(cx, item)?;
+/// The config document with `key` set to `value`, as the bytes the item stages.
+fn rewritten(data: &Path, key: &str, value: Value) -> Result<Vec<u8>, ApplyError> {
     let (mut doc, _) = read_config(data)?;
     set_path(&mut doc, key, value, &data.join(CONFIG_FILE))?;
     let mut bytes = serde_json::to_vec_pretty(&doc).expect("a value serializes");
     bytes.push(b'\n');
+    Ok(bytes)
+}
+
+pub(super) fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<Staged> {
+    let data = cx.roots.data.as_path();
+    let key = config_key(item)?;
+    let (value, replaced_surrogates) = config_value(cx, item)?;
+    let bytes = rewritten(data, key, value)?;
     let path = cx.stage_dir(item.key.as_str()).join(CONFIG_FILE);
     // The config may hold credentials of other features: the replacement is owner-only.
     fsx::write_new(&path, &bytes, true).map_err(|error| ApplyError::io("write", &path, error))?;
@@ -360,6 +367,26 @@ mod tests {
 
     fn json(text: &str) -> Value {
         serde_json::from_str(text).unwrap()
+    }
+
+    /// A config Node wrote with a profile title a phone sent cut inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the migration reads the document
+    /// Node's `JSON.parse` reads (the half emoji as U+FFFD) instead of stopping the run.
+    #[test]
+    fn a_config_node_wrote_with_half_an_emoji_is_read_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = json(&std::fs::read_to_string(set.join("cases.json")).unwrap());
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "config-profile").unwrap();
+        let data = tempfile::tempdir().unwrap();
+        std::fs::copy(set.join("config-profile/before").join(CONFIG_FILE), data.path().join(CONFIG_FILE)).unwrap();
+        let (doc, hash) = read_config(data.path()).unwrap();
+        assert_eq!(doc.to_string(), case["before"][CONFIG_FILE].to_string());
+        assert!(hash.is_some());
+        // Node's own rewrite of the document with one more key set: the core stages the same document (U+FFFD where Node
+        // wrote the escape, decisions.md "frame-lone-surrogate").
+        let op = &case["op"]["setPath"];
+        let bytes = rewritten(data.path(), op["key"].as_str().unwrap(), op["value"].clone()).unwrap();
+        assert_eq!(json(std::str::from_utf8(&bytes).unwrap()).to_string(), case["after"][CONFIG_FILE].to_string());
     }
 
     #[test]

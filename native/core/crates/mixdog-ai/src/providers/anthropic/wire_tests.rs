@@ -267,7 +267,7 @@ impl Background {
         if let Some(gate) = self.release.take() {
             let _ = gate.send(());
         }
-        tokio::time::timeout(Duration::from_secs(10), self.done)
+        mixdog_rt::time::timeout(Duration::from_secs(10), self.done)
             .await
             .unwrap_or_else(|_| panic!("{what}: the background read of message_stop did not end within 10 s"))
             .unwrap_or_else(|_| panic!("{what}: the reply body was lost before its read ended"));

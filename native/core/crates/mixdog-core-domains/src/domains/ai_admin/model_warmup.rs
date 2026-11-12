@@ -24,17 +24,62 @@ use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::time::Duration;
 
+use serde_json::Value;
+use serde_json::json;
+
 use super::model_list::ModelListService;
 
+/// What the runtime sees of its background warm-ups: Node's `bootProfile` marks and the caller-owned timer slots of
+/// `timer-arm.mjs` (`timers[slot]`).
+pub trait WarmupMarks: Send + Sync {
+    /// `bootProfile(event, meta)`: the diagnostic mark; `None` is a mark without meta.
+    fn profile(&self, event: &str, detail: Option<Value>);
+    /// `timers[slot] = setTimeout(run, delay)`.
+    fn armed(&self, _slot: &'static str, _delay: Duration) {}
+    /// A job of `slot` started (its timer fired, or it runs at once) or ended.
+    fn running(&self, _slot: &'static str, _running: bool) {}
+}
+
 /// Why a background job must wait for an idle runtime, or none (`busyReason` of `timer-arm.mjs`).
-pub trait WarmupGates: Send + Sync {
+pub trait WarmupGates: WarmupMarks {
     fn busy(&self) -> Option<&'static str>;
     /// `isCloseRequested()`.
     fn closing(&self) -> bool;
     /// Resolves when the runtime starts closing (teardown clears the warm-up timers): a pending delay ends at once.
     fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-    /// `bootProfile(event, detail)`: the diagnostic mark Node writes at the end of a warm.
-    fn profile(&self, event: &str, detail: &str);
+}
+
+/// The provider model cache as its warm sees it (`getProviderModelsCache`, `getProviderModelsPromise`,
+/// `isCatalogRefreshPending`, `warmProviderModelCache`).
+pub trait ModelCacheWarm: Send + Sync {
+    /// Neither loaded nor loading.
+    fn warm_needed(&self) -> bool;
+    /// The startup catalog refresh is still running.
+    fn refresh_pending(&self) -> bool;
+    /// `warmProviderModelCache({ loadSecrets })`.
+    fn warm(&self, load_secrets: bool);
+    /// Waits for the load in flight, if any.
+    fn settle(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>;
+}
+
+impl ModelCacheWarm for ModelListService {
+    fn warm_needed(&self) -> bool {
+        ModelListService::warm_needed(self)
+    }
+    fn refresh_pending(&self) -> bool {
+        self.catalog.refresh_in_flight()
+    }
+    fn warm(&self, load_secrets: bool) {
+        self.warm_cache(load_secrets);
+    }
+    fn settle(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(self.settle_warm())
+    }
+}
+
+/// `envFlag(name)` as the runtime's switches read it.
+pub fn warmup_env_flag(raw: Option<String>) -> bool {
+    env_flag(raw, false)
 }
 
 /// `envFlag(name)`: only the documented spellings flip the fallback.
@@ -58,6 +103,8 @@ pub struct WarmupConfig {
     pub enabled: bool,
     /// `providerModelWarmupDelayMs`.
     pub delay: Duration,
+    /// `envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN')`: a warm before the first turn is not a deferred one.
+    pub before_first_turn: bool,
 }
 
 impl WarmupConfig {
@@ -65,12 +112,16 @@ impl WarmupConfig {
         Self {
             enabled: !env_flag(env("MIXDOG_DISABLE_PROVIDER_WARMUP"), false) && !env_flag(env("MIXDOG_DISABLE_MODEL_PREFETCH"), false),
             delay: env_delay(env("MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS"), 0, 120_000.0),
+            before_first_turn: env_flag(env("MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN"), false),
         }
     }
 }
 
+/// `timers.providerModelWarmupTimer`.
+const SLOT: &str = "providerModelWarmupTimer";
+
 struct Bindings {
-    list: Arc<ModelListService>,
+    cache: Arc<dyn ModelCacheWarm>,
     gates: Arc<dyn WarmupGates>,
 }
 
@@ -101,7 +152,7 @@ impl ModelWarmup {
     /// with the same switches, delay and parking as the boot's.
     pub fn bind(self: &Arc<Self>, list: Arc<ModelListService>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
         let catalog = list.catalog.clone();
-        self.bound.set(Bindings { list, gates }).map_err(|_| ())?;
+        self.bind_cache(list, gates)?;
         let this = Arc::downgrade(self);
         catalog.bind_warmup(move || {
             if let Some(warmup) = this.upgrade() {
@@ -111,12 +162,22 @@ impl ModelWarmup {
         Ok(())
     }
 
+    /// Binds the cache the warm loads and the runtime's gates; once.
+    pub fn bind_cache(&self, cache: Arc<dyn ModelCacheWarm>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
+        self.bound.set(Bindings { cache, gates }).map_err(|_| ())
+    }
+
     pub fn is_bound(&self) -> bool {
         self.bound.get().is_some()
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `timers.providerModelWarmupTimer` is set.
+    pub fn pending(&self) -> bool {
+        self.state().pending
     }
 
     /// The boot's `scheduleProviderModelWarmup()`.
@@ -139,33 +200,49 @@ impl ModelWarmup {
             return;
         }
         state.pending = true;
+        bound.gates.armed(SLOT, delay);
         // `setTimeout` counts from the call, not from when the task is first polled.
         let deadline = tokio::time::Instant::now() + delay;
         let this = self.clone();
         state.task = Some(mixdog_rt::spawn("model-warmup", mixdog_rt::TaskClass::Work, async move {
             if !delay.is_zero() {
-                tokio::time::sleep_until(deadline).await;
+                mixdog_rt::time::sleep_until(deadline).await;
             }
             this.fire();
         }));
     }
 
-    /// `warmProviderModels`.
+    /// The timer fired: `warmProviderModels` unless the runtime is closing.
     fn fire(self: &Arc<Self>) {
         let Some(bound) = self.bound.get() else { return };
+        bound.gates.running(SLOT, true);
+        self.warm_models(bound);
+        bound.gates.running(SLOT, false);
+    }
+
+    /// `warmProviderModels`.
+    fn warm_models(&self, bound: &Bindings) {
         let mut state = self.state();
         state.pending = false;
-        if bound.gates.closing() || !bound.list.warm_needed() {
+        if bound.gates.closing() || !bound.cache.warm_needed() {
             return;
         }
         // The runtime is busy, or the startup catalog refresh is still running (it invalidates every model-derived
         // cache when it lands): wait for the next wake instead of polling.
-        if bound.gates.busy().is_some() || bound.list.catalog.refresh_in_flight() {
+        let reason = bound.gates.busy().or_else(|| bound.cache.refresh_pending().then_some("catalog-refresh-pending"));
+        if let Some(reason) = reason {
             state.parked = true;
+            drop(state);
+            bound.gates.profile("provider-models:warm-deferred", Some(json!({ "reason": reason })));
             return;
         }
+        // Before the first turn the warm still runs, secrets-aware; the first turn's settle schedules it again.
+        let deferred = !state.first_turn_done && !self.config.before_first_turn;
         drop(state);
-        bound.list.warm_cache(true);
+        if deferred {
+            bound.gates.profile("provider-models:warm-deferred", Some(json!({ "reason": "first-turn-pending" })));
+        }
+        bound.cache.warm(true);
     }
 
     /// `rt.wakeDeferredWarmups()`: a parked run re-checks once, on its own tick.
@@ -187,7 +264,7 @@ impl ModelWarmup {
     /// `loadSecrets`, so the load runs but is not adopted as the cache.
     pub fn warm_now(&self) {
         if let Some(bound) = self.bound.get() {
-            bound.list.warm_cache(false);
+            bound.cache.warm(false);
         }
     }
 
@@ -203,7 +280,7 @@ impl ModelWarmup {
             }
         }
         if let Some(bound) = self.bound.get() {
-            bound.list.settle_warm().await;
+            bound.cache.settle().await;
         }
     }
 }

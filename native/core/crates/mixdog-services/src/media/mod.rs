@@ -59,6 +59,8 @@ pub mod generator;
 #[cfg(test)]
 mod generator_tests;
 pub mod renditions;
+#[cfg(test)]
+mod replay_k1_tests;
 pub mod section;
 pub mod service;
 pub mod store;

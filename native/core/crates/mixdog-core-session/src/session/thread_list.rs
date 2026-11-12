@@ -45,6 +45,7 @@ use super::thread_edges::on_roster;
 use super::transcript::summary_of_list_row;
 
 pub const LIST: &str = "thread/list";
+const STARTED: &str = "thread/started";
 const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DOMAIN: &str = "thread list";
 
@@ -181,6 +182,9 @@ pub struct ThreadListService {
     fence: OnceLock<Arc<dyn ListFence>>,
     /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
+    /// The row last sent on the app feed per thread: Node hands a catalog only when it differs from the one its listener holds
+    /// (`CatalogChannel.publish`, `session-host-publication.ts:141`), so a row that did not change is not sent again.
+    announced: std::sync::Mutex<std::collections::HashMap<String, ThreadSummary>>,
 }
 
 /// The longest a list waits for the projections queued before it: the interactive lane's job lease (`mixdog-rt` `lane_lease`,
@@ -198,7 +202,27 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into(), announced: Default::default() }
+    }
+
+    /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it is the row
+    /// last sent for that thread. Every send of a thread row goes through here, so the baseline is what the feed's listeners hold.
+    pub fn announce(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary, started: bool) {
+        let mut announced = self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if announced.get(thread.id.as_str()) == Some(&thread) {
+            return;
+        }
+        announced.insert(thread.id.as_str().to_owned(), thread.clone());
+        if started {
+            app.notify(STARTED, &mixdog_app_protocol::v2::thread::ThreadStartedParams { thread });
+        } else {
+            app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+        }
+    }
+
+    /// A thread left the catalog: its next row is news again.
+    pub fn forget(&self, thread: &ThreadId) {
+        self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
     }
 
     /// Whether a listing has been answered (Node's `sessionCatalogLoaded`), which decides how a room call publishes the catalog.
@@ -219,7 +243,7 @@ impl ThreadListService {
     /// Waits, at most [`FENCE_BOUND`], for the projections queued before this call; it holds no lock while it waits.
     async fn caught_up(&self) {
         let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) else { return };
-        if tokio::time::timeout(FENCE_BOUND, wait).await.is_err() {
+        if mixdog_rt::time::timeout(FENCE_BOUND, wait).await.is_err() {
             tracing::warn!("thread/list: the index has not taken the writes acknowledged before this list within {FENCE_BOUND:?}; answering what it holds");
         }
     }
@@ -381,7 +405,8 @@ pub struct RoomSummaries {
     /// The index writes' notifications ([`Self::follow`]): a pass sends what it read only once every write it may have read is
     /// published.
     edges: std::sync::OnceLock<Arc<super::thread_edges::ThreadEdges>>,
-    /// The background listings started by [`Self::republish_catalog`] that have not ended (a test's step boundary).
+    /// The background listings started by [`Self::republish_catalog`], and the republishes of [`Self::republish`], that have not
+    /// ended (a test's step boundary).
     #[cfg(any(test, feature = "test-support"))]
     background: tokio::sync::watch::Sender<usize>,
     /// Told when a listing has its rows in hand, before it waits to publish them (see [`Self::listing_in_hand`]).
@@ -500,16 +525,36 @@ impl RoomSummaries {
         self.written().await;
         publish.await;
         for thread in rows {
-            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+            self.list.announce(&self.app, thread, false);
         }
         Ok(())
     }
 
-    /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
-    /// without waiting for it.
+    /// `deps.republishCatalog` as a room's exchange or post makes it (`session-host.ts:353-356`, `agent-room-exchange.ts:138`,
+    /// `agent-room-log.ts:71`), not awaited: with the catalog loaded (Node's `sessionCatalogLoaded`) a pass; before that a whole
+    /// listing, as Node's `void publishCatalogs()`, which marks the catalog loaded (`session-host.ts:807`); a failed one is dropped.
     pub fn republish(self: &Arc<Self>) {
         let this = self.clone();
-        tokio::spawn(async move { this.publish().await });
+        #[cfg(any(test, feature = "test-support"))]
+        let open = {
+            self.background.send_modify(|open| *open += 1);
+            Background(self.background.clone())
+        };
+        tokio::spawn(async move {
+            this.republish_now().await;
+            #[cfg(any(test, feature = "test-support"))]
+            drop(open);
+        });
+    }
+
+    /// [`Self::republish`] to its end, as the start-up's recovery awaits it (`agent-rooms.ts:479`): a pass, or before any listing
+    /// answered a whole listing.
+    pub async fn republish_now(&self) {
+        if self.list.catalog_loaded() {
+            self.publish().await;
+        } else {
+            self.publish_catalogs().await;
+        }
     }
 
     /// `deps.republish(roomSessionId)`: the room view of one room changed (a member started or
@@ -542,7 +587,7 @@ impl RoomSummaries {
         let row = self.list.room_row(room_thread).await;
         self.written().await;
         match row {
-            Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+            Ok(Some(thread)) => self.list.announce(&self.app, thread, false),
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = room_thread.as_str(), "room summaries: the row could not be read"),
         }
@@ -575,7 +620,7 @@ impl RoomSummaries {
         }
         self.written().await;
         for thread in rows {
-            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+            self.list.announce(&self.app, thread, false);
         }
         first.map_or(Ok(()), Err)
     }
@@ -720,7 +765,7 @@ mod tests {
             tokio::spawn(async move { value(&*service, request(LIST, json!({ "limit": 100 }), None)).await.expect("thread/list") })
         };
         // The list has to be at the gate before the projector applies the write, or it could read either row.
-        tokio::time::timeout(std::time::Duration::from_secs(10), waiting)
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), waiting)
             .await
             .expect("the list never waited for the pending projection")
             .expect("gate");
@@ -875,7 +920,7 @@ mod tests {
             let summaries = summaries.clone();
             tokio::spawn(async move { summaries.publish_catalogs().await })
         };
-        tokio::time::timeout(DEADLINE, at_fence).await.expect("the listing never waited for the projections").expect("gate");
+        mixdog_rt::time::timeout(DEADLINE, at_fence).await.expect("the listing never waited for the projections").expect("gate");
 
         // The row's write commits there; its notification stops at its lookup.
         let (open_edge, held) = tokio::sync::oneshot::channel();
@@ -885,13 +930,13 @@ mod tests {
         let header = json!({ "id": id, "title": "Written late", "cwd": "C:\\Tasks", "desktopSession": { "classification": "task", "projectPath": null }, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
         let head = CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
         list.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
-        tokio::time::timeout(DEADLINE, at_edge).await.expect("the write was never announced").expect("stop");
+        mixdog_rt::time::timeout(DEADLINE, at_edge).await.expect("the write was never announced").expect("stop");
 
         // The listing reads the row; it may not send it while the row's `thread/started` is held.
         let mut waits = edges.waits();
         let before = *waits.borrow_and_update();
         open_fence.send(()).expect("the listing waits at the fence");
-        tokio::time::timeout(DEADLINE, async {
+        mixdog_rt::time::timeout(DEADLINE, async {
             tokio::select! {
                 waited = waits.wait_for(|waits| *waits > before) => drop(waited.expect("the waits are held by the edges")),
                 ended = &mut listing => ended.expect("the listing's task"),
@@ -901,9 +946,9 @@ mod tests {
         .expect("the listing neither ended nor waited for the write's announcement");
         open_edge.send(()).expect("the announcement waits at the stop");
         if !listing.is_finished() {
-            tokio::time::timeout(DEADLINE, listing).await.expect("the listing never ended").expect("the listing's task");
+            mixdog_rt::time::timeout(DEADLINE, listing).await.expect("the listing never ended").expect("the listing's task");
         }
-        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the write was never published");
+        mixdog_rt::time::timeout(DEADLINE, edges.settled()).await.expect("the write was never published");
 
         let frames: Vec<String> = app
             .drain_text()
@@ -912,7 +957,8 @@ mod tests {
             .filter(|frame| frame["params"]["thread"]["id"] == id)
             .map(|frame| frame["method"].as_str().expect("method").to_owned())
             .collect();
-        assert_eq!(frames, ["thread/started", SUMMARY_UPDATED], "the late row's frames");
+        // The listing's copy of the row is the one the `thread/started` carried: Node hands a catalog its listener already holds once.
+        assert_eq!(frames, ["thread/started"], "the late row's frames");
     }
 
     /// The index holds the log of `room01` and not that of `gone01`.
@@ -947,6 +993,21 @@ mod tests {
         assert!(sent[1].contains(r#""id":"sess_room_gone01""#) && sent[1].contains(r#""agentRoom":{"id":"gone01"}"#), "{}", sent[1]);
     }
 
+    /// Node's catalog channel hands a listener only a catalog that differs from the one it holds
+    /// (`session-host-publication.ts:141`): a second pass over unchanged rooms sends nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pass_over_unchanged_rows_sends_nothing() {
+        let data = crate::session::testing::DataDir::default();
+        let list = room_list(&data).await;
+        let (summaries, app) = room_rig(list);
+        summaries.publish().await;
+        let first = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
+        assert_eq!(first, 2, "the first pass sends both room rows");
+        summaries.publish().await;
+        let again: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
+        assert!(again.is_empty(), "an unchanged row was sent again: {again:?}");
+    }
+
     /// Tells a waiter when a listing is published.
     struct Listed(std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>);
     impl mixdog_core_api::state::CatalogObserver for Listed {
@@ -971,15 +1032,15 @@ mod tests {
         let publish = mixdog_rt::CancellationToken::new();
         publish.cancel();
         let ended = summaries.republish_catalog(publish.clone()).await.expect("the first call answers without the publication").expect("a background listing");
-        tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
-        tokio::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         assert!(summaries.republish_catalog(publish).await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
-        // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
-        // pass chain: the second call's pass starts after the background pass has sent its rows).
+        // Every row of the background listing went out once; the second call's pass (inside the call, as its `None` shows) sent
+        // the two room rows the listing had sent already, which Node's catalog channel does not hand again.
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
         let whole = list.whole_listing().await.expect("the whole listing").len();
-        assert_eq!(sent, whole + 2, "the second call's publication was not inside the call");
+        assert_eq!(sent, whole, "a row that did not change was sent again");
     }
 
     /// A room's republish sets its log thread's `roomView` (opening the log for it), so the
@@ -1081,6 +1142,231 @@ mod tests {
             let published = serde_json::to_value(published).expect("summary json");
             assert_eq!(published["classification"], desktop["classification"], "{id}");
             assert_eq!(published["projectPath"], desktop["projectPath"], "{id}");
+        }
+    }
+
+    use crate::session::seams::AppendPosition;
+    use crate::session::seams::BarrierError;
+    use crate::session::seams::CommitRecord;
+    use crate::session::seams::SessionLog;
+    use crate::session::seams::ThreadStore;
+    use mixdog_rt::DurabilityIo;
+    use mixdog_rt::InLane;
+    use mixdog_rt::InteractiveIo;
+
+    /// The gate between a room post's two writes: a commit that stores a message row without the post's stamp (`updatedAt`
+    /// 5000) says so once it is stored, and returns once the test lets it go, so whatever its projection publishes is seen
+    /// before the stamp can be stored.
+    type Split = std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+
+    fn stamped(record: &mixdog_store::schema::record::Record) -> bool {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::MetaRecord;
+        use mixdog_store::schema::record::Record;
+        matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("updatedAt") == Some(&json!(5000)))
+    }
+
+    struct GatedLog {
+        inner: Box<dyn SessionLog>,
+        split: Arc<Split>,
+    }
+    impl SessionLog for GatedLog {
+        fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
+            let ordinals = self.inner.commit(lane, batch)?;
+            let row = batch.iter().any(|c| matches!(&*c.record, mixdog_store::schema::record::Record::Item(_)));
+            if row && !batch.iter().any(|c| stamped(&c.record)) {
+                let stop = self.split.lock().unwrap().take();
+                if let Some((reached, held)) = stop {
+                    let _ = reached.send(());
+                    let _ = held.recv();
+                }
+            }
+            Ok(ordinals)
+        }
+        fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+            self.inner.retry(lane)
+        }
+    }
+
+    /// The store, its logs behind [`GatedLog`].
+    struct GatedStore {
+        inner: Arc<dyn ThreadStore>,
+        split: Arc<Split>,
+    }
+    impl ThreadStore for GatedStore {
+        fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<crate::session::seams::HeadRead, CoreError> {
+            self.inner.read_head(lane, id)
+        }
+        fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<mixdog_store::schema::record::Header, CoreError> {
+            self.inner.read_header(lane, id)
+        }
+        fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+            self.inner.read_log_id(lane, id)
+        }
+        fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &crate::session::seams::HeadRead) -> Result<crate::session::seams::WindowRead, CoreError> {
+            self.inner.read_window(lane, id, head)
+        }
+        fn decode(&self, lane: &InLane<mixdog_rt::CpuInteractive>, id: &ThreadId, head: crate::session::seams::HeadRead, window: crate::session::seams::WindowRead) -> Result<crate::session::seams::OpenedLog, CoreError> {
+            self.inner.decode(lane, id, head, window)
+        }
+        fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<mixdog_store::schema::record::ItemRecord>, CoreError> {
+            self.inner.user_rows(lane, id)
+        }
+        fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<mixdog_store::schema::record::ItemRecord>), CoreError> {
+            self.inner.history_rows(lane, id)
+        }
+        fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<crate::session::seams::StoredOp>, CoreError> {
+            self.inner.thread_op(lane, id, op)
+        }
+        fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
+            self.inner.fenced_ops(lane, id)
+        }
+        fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+            self.inner.history_row(lane, id, iid)
+        }
+        fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+            self.inner.compaction_entry(lane, id, iid)
+        }
+        fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<crate::session::seams::ContextRead>) -> Result<crate::session::seams::ContextRead, CoreError> {
+            self.inner.context_io(lane, id, read)
+        }
+        fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<crate::session::seams::SessionMeta>, CoreError>> {
+            self.inner.session_meta(id)
+        }
+        fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+            self.inner.purge_deleted()
+        }
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<crate::session::seams::OffloadCopies, CoreError>> {
+            self.inner.copies_of(id)
+        }
+        fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+            self.inner.record_offload_scan(session, ordinal, sources)
+        }
+        fn context_cpu(&self, lane: &InLane<mixdog_rt::CpuInteractive>, read: crate::session::seams::ContextRead) -> Result<crate::session::seams::ContextStep, CoreError> {
+            self.inner.context_cpu(lane, read)
+        }
+        fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+            let inner = self.inner.open_log(lane, id, at)?;
+            Ok(Box::new(GatedLog { inner, split: self.split.clone() }))
+        }
+        fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+            let (inner, ordinal) = self.inner.create_log(lane, id, session)?;
+            Ok((Box::new(GatedLog { inner, split: self.split.clone() }), ordinal))
+        }
+    }
+
+    /// A room post's rows and the `updatedAt` it stamps (`thread/roomRows/commit`) change the room's row in one step, as Node's
+    /// one save of the log does: a client of the app feed is never handed the room log with a message newer than its
+    /// `updatedAt` (its `messageCount` up, its `updatedAt` not). A commit that stores the rows without the stamp is held, once
+    /// stored, until what its projection publishes is seen: the point where the rows alone reach the client.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_post_changes_the_rooms_row_and_its_updated_at_in_one_step() {
+        use mixdog_core_api::FeedSource;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockFeed;
+        use mixdog_core_api::mock::MockLimits;
+        use mixdog_store::schema::record::Header;
+        use std::sync::atomic::Ordering::SeqCst;
+
+        use crate::session::room_log::RoomLog;
+
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        let data = crate::session::testing::DataDir::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let index = data.index(index);
+        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
+        let threads = Arc::new(
+            crate::session::StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("the thread store"),
+        );
+        list.fence(threads.clone());
+        let rig = crate::session::testing::Rig::new();
+        let split = Arc::new(Split::default());
+        let deps = rig.deps_parts(Arc::new(GatedStore { inner: threads, split: split.clone() }));
+        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(deps)));
+
+        let limits = MockLimits::default();
+        let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
+        let app = MockConnection::new(ConnectionId(1), limits);
+        let source: Arc<dyn FeedSource> = feed.clone();
+        let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+        let section = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
+        let deletions = super::super::thread_edges::ThreadDeletions::new(section.clone());
+        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
+            list.clone(),
+            section,
+            deletions,
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
+        list.store.observe_rows(edges.clone()).expect("the row sink");
+
+        let thread = ThreadId::from("sess_room_post01".to_owned());
+        let mut header = Header::new();
+        header.insert("title".into(), json!("Room"));
+        header.insert("cwd".into(), json!("/tasks"));
+        header.insert("createdAt".into(), json!(1000));
+        header.insert("updatedAt".into(), json!(1000));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("room log");
+        value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the log is projected");
+        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the log's row was never published");
+
+        rig.clock.0.store(5000, SeqCst);
+        let (reached, mut stored_alone) = tokio::sync::oneshot::channel();
+        let (open, held) = std::sync::mpsc::channel();
+        *split.lock().unwrap() = Some((reached, held));
+        let mut posting = {
+            let room_log = crate::session::room_log::SessionRoomLog::new(directory.clone());
+            let id = thread.as_str().to_owned();
+            tokio::spawn(async move {
+                room_log.append_rows(&id, vec![json!({ "role": "assistant", "content": "posted", "meta": { "transcript": { "messageId": "m1" } } })]).await
+            })
+        };
+        // Either the post answers (its rows and stamp stored together), or its rows were stored alone: then what they publish
+        // is taken before the stamp may follow.
+        let answered = tokio::time::timeout(DEADLINE, async {
+            tokio::select! {
+                answer = &mut posting => Some(answer),
+                Ok(()) = &mut stored_alone => None,
+            }
+        })
+        .await
+        .expect("the post neither answered nor stored its rows");
+        let answered = match answered {
+            Some(answer) => answer,
+            None => {
+                value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the rows are projected");
+                tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the rows' row was never published");
+                open.send(()).expect("the commit waits at its stop");
+                tokio::time::timeout(DEADLINE, posting).await.expect("the post never answered")
+            }
+        };
+        drop(open);
+        assert_eq!(answered.expect("the post's task").expect("the post"), 1);
+        value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the post is projected");
+        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the post's row was never published");
+
+        let rows: Vec<Value> = app
+            .drain_text()
+            .into_iter()
+            // A control release carries no JSON body.
+            .filter_map(|text| text.find('{').map(|at| serde_json::from_str::<Value>(&text[at..]).expect("frame")))
+            .filter(|frame| frame["params"]["thread"]["id"] == thread.as_str())
+            .map(|frame| frame["params"]["thread"].clone())
+            .collect();
+        let posted: Vec<&Value> = rows.iter().filter(|row| row["messageCount"] == 1).collect();
+        assert!(!posted.is_empty(), "the post's row was never published: {rows:?}");
+        for row in &posted {
+            assert_eq!(row["updatedAt"], 5000, "a row with the posted message and an older updatedAt was published: {row}");
         }
     }
 

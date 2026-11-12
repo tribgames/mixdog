@@ -347,7 +347,7 @@ async fn a_mutation_waits_for_the_lock_of_its_file() {
     });
     // The check and the write of another mutation of the same file are in progress.
     assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(200), &mut save)
+        mixdog_rt::time::timeout(std::time::Duration::from_millis(200), &mut save)
             .await
             .is_err()
     );

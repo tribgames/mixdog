@@ -46,7 +46,7 @@ async fn rest(pause: Duration, cancel: &CancellationToken) -> Result<(), FlushFa
     tokio::select! {
         biased;
         () = cancel.cancelled() => Err(FlushFailure::Cancelled),
-        () = tokio::time::sleep(pause) => Ok(()),
+        () = mixdog_rt::time::sleep(pause) => Ok(()),
     }
 }
 

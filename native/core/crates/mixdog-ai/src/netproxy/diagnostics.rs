@@ -162,7 +162,7 @@ pub async fn check_proxy_connection(
 ) -> Result<Value, RouteError> {
     let route = explain_proxy_route(clients.policy(), origin, setting).await?;
     let started = tokio::time::Instant::now();
-    let outcome = match tokio::time::timeout(CHECK_TIMEOUT, head_request(clients.policy(), origin, setting)).await {
+    let outcome = match mixdog_rt::time::timeout(CHECK_TIMEOUT, head_request(clients.policy(), origin, setting)).await {
         Ok(outcome) => outcome,
         Err(_) => Err("ETIMEDOUT".to_owned()),
     };

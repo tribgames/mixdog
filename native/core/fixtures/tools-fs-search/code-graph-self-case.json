@@ -1,0 +1,80 @@
+{
+  "name": "code-graph-self-case",
+  "files": {
+    "mono/src/a.ts": "export const alpha = 1;\n",
+    "mono/src/b.ts": "import { alpha } from './a';\n\nexport function beta() {\n  return alpha;\n}\n"
+  },
+  "warmup": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "warmupNone"
+        ],
+        "cwd": "<ROOT>/mono"
+      }
+    }
+  ],
+  "drainAfterWarmup": true,
+  "calls": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "alpha"
+        ],
+        "cwd": "<ROOT>/mono"
+      },
+      "text": "# best declaration candidate\nsrc/a.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const alpha = 1;\n\n# scope: cwd=<ROOT>/mono",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "alpha"
+        ],
+        "cwd": "<ROOT>/MONO"
+      },
+      "text": "# best declaration candidate\nsrc/a.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const alpha = 1;\n\n# scope: cwd=<ROOT>/MONO",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "references",
+        "symbols": [
+          "alpha"
+        ],
+        "cwd": "<ROOT>/Mono"
+      },
+      "text": "# declaration\n# best declaration candidate\nsrc/a.ts:1-1:14 (typescript, export variable, matches=1)\nexport const alpha = 1;\n\n# references\nsrc/b.ts:4:10\treference\towner=beta\treturn alpha;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": "src/b.ts",
+        "cwd": "<ROOT>/MONO"
+      },
+      "text": "export function beta (L3-5)  function beta()",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "beta"
+        ],
+        "cwd": "<ROOT>/mono"
+      },
+      "text": "# best declaration candidate\nsrc/b.ts:3-5:17 (typescript, export function, matches=1)\n3: export function beta() {\n4:   return alpha;\n5: }",
+      "isError": false
+    }
+  ]
+}

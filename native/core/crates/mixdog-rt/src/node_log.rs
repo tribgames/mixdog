@@ -63,6 +63,9 @@ pub fn install(sink: Sink) {
 
 /// Writes one Node stderr line (`line` has no newline).
 pub fn emit(origin: Origin, channel: Channel, line: &str) {
+    // A replay waits on these lines (`wait` on the replay's clock).
+    #[cfg(feature = "virtual-clock")]
+    crate::virtual_clock::logged(line);
     if let Some(local) = LOCAL.with(|local| local.borrow().clone()) {
         local(origin, channel, line);
         return;

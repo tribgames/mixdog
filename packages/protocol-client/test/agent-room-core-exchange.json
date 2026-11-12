@@ -1,0 +1,32 @@
+{
+  "inputs": "0a7722ed9b5af595f6ccab29fddbcd8a650d61e1d159f05abbac0cbc1fa9bf88",
+  "core": {
+    "25": {
+      "onlyExchange": {
+        "result": {
+          "outcome": "done",
+          "rounds": 1,
+          "steps": 0,
+          "messages": 1
+        },
+        "spoken": [
+          "gh"
+        ],
+        "turns": [
+          {
+            "id": "gh",
+            "turn": {
+              "addressed": [
+                "gh"
+              ],
+              "instruction": "",
+              "mentionedBy": "",
+              "scene": "work"
+            }
+          }
+        ],
+        "steps": []
+      }
+    }
+  }
+}

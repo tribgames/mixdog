@@ -45,7 +45,7 @@ pub fn reached(reach: &Path) -> Vec<Value> {
             text.lines()
                 .map(|line| {
                     let mut record: Value = serde_json::from_str(line).expect("a reach line");
-                    let seq = record.as_object_mut().and_then(|object| object.remove("seq")).and_then(|seq| seq.as_u64()).expect("a reach line's seq");
+                    let seq = record.as_object_mut().and_then(|object| object.shift_remove("seq")).and_then(|seq| seq.as_u64()).expect("a reach line's seq");
                     (seq, record)
                 })
                 .collect()

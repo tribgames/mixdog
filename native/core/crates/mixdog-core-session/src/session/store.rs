@@ -114,12 +114,20 @@ pub struct Projector {
     stopped: Arc<std::sync::atomic::AtomicBool>,
     /// How long an exact read waits ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND); a test sets its own).
     bound: std::time::Duration,
+    /// The number of the last projection sent.
+    sent: Arc<std::sync::atomic::AtomicU64>,
+    /// Per session, the number of its first projection the index failed to take: its frames are missing from the index until
+    /// the next start re-projects the session from its log.
+    lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
 }
 
 enum Projecting {
-    Frames(Box<Projection>),
+    Frames(u64, Box<Projection>),
     /// Answered once every projection sent before it is committed.
     Flush(tokio::sync::oneshot::Sender<()>),
+    /// Answers `reached` once every projection sent before it is committed, then takes nothing more until `release`
+    /// resolves (dropped included): a log rewrite changes the files and the rows meanwhile.
+    Hold { reached: tokio::sync::oneshot::Sender<()>, release: tokio::sync::oneshot::Receiver<()> },
 }
 
 /// Marks the projector stopped when its task ends, and says so once when a panic ended it.
@@ -141,7 +149,7 @@ impl Projector {
         // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
         Self::spawn_with(move |projection| {
             let index = index.clone();
-            async move { drop(index.project(projection).await) }
+            async move { index.project(projection).await.map_err(|error| error.to_string()) }
         })
     }
 
@@ -149,32 +157,77 @@ impl Projector {
     fn spawn_with<F, P>(mut project: P) -> Self
     where
         P: FnMut(Projection) -> F + Send + 'static,
-        F: std::future::Future<Output = ()> + Send,
+        F: std::future::Future<Output = Result<(), String>> + Send,
     {
         let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
         let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (done_count, mark) = (pending.clone(), StopMark(stopped.clone()));
+        let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
+        let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
         tokio::spawn(async move {
             let _mark = mark;
             while let Some(msg) = rx.recv().await {
                 match msg {
-                    Projecting::Frames(projection) => {
-                        project(*projection).await;
+                    Projecting::Frames(number, projection) => {
+                        let session = projection.session.clone();
+                        match project(*projection).await {
+                            Err(error) => {
+                                tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
+                                failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
+                            }
+                            // A later projection carries the session's whole head (its header), so the index holds the header
+                            // writes again: the header waits stop failing.
+                            Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
+                        }
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     Projecting::Flush(done) => drop(done.send(())),
+                    Projecting::Hold { reached, release } => {
+                        drop(reached.send(()));
+                        drop(release.await);
+                        done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                 }
             }
         });
-        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND }
+        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost }
+    }
+
+    /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
+    /// when the projector is gone), and nothing sent later is taken, an exact read waiting included, until `release` is
+    /// sent or dropped.
+    fn hold(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        let (reached, reached_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.queue.send(Projecting::Hold { reached, release: release_rx }).is_err() {
+            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        (reached_rx, release)
     }
 
     fn send(&self, projection: Projection) {
         // Counted before it is queued, so a reader that follows the barrier's ack sees it pending until the index holds it.
         self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if self.queue.send(Projecting::Frames(Box::new(projection))).is_err() {
+        let number = self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        if self.queue.send(Projecting::Frames(number, Box::new(projection))).is_err() {
             self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// [`caught_up`](Self::caught_up), then the writes of `session` acknowledged so far are in the index: an error with the
+    /// reason when one of them failed to go in (the index lacks it until the next start re-projects the session), so a call
+    /// that answers after this never reports a write the listings cannot show.
+    async fn indexed(&self, session: &str) -> Result<(), CoreError> {
+        let mark = self.sent.load(std::sync::atomic::Ordering::SeqCst);
+        self.caught_up().await?;
+        let lost = self.lost.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied();
+        match lost {
+            Some(number) if number <= mark => Err(internal(
+                "index-write-failed",
+                &format_args!("the index did not take the change to session {session}: it is not listed until the next start re-projects it"),
+            )),
+            _ => Ok(()),
         }
     }
 
@@ -195,7 +248,7 @@ impl Projector {
     /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
     async fn caught_up(&self) -> Result<(), CoreError> {
         let bound = self.bound;
-        if tokio::time::timeout(bound, self.drained()).await.is_err() {
+        if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
             return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
         }
         if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
@@ -225,8 +278,218 @@ fn barrier(error: AppendError) -> BarrierError {
 
 /// [`SessionLog`] over a `LogWriter` (which places checkpoints and rotates by itself).
 struct StoreLog {
-    writer: LogWriter,
+    /// `None` when the log could not be reopened after a rewrite: the next start settles it (`log_rewrite::recover`).
+    writer: Option<LogWriter>,
     projector: Projector,
+    redaction: Option<Redaction>,
+}
+
+/// The readers' side of a log rewrite (`log_rewrite`'s steps 4-8): every read of a session's log and index rows
+/// holds it shared for its lane job; a rewrite holds it exclusively from moving the old folder out to removing its
+/// parts, and moves the generation, so a read that spans jobs (the model context) sees that its earlier job read
+/// another log and starts again.
+type ReadGate = Arc<std::sync::RwLock<u64>>;
+
+/// What the writer of a thread needs to take a value marked sensitive out of what it wrote before the mark
+/// (`redactSessionFiles`, `session-writers.mjs`): the log rewritten (`log_rewrite`), the thread's index rows rebuilt
+/// from it, and the writer reopened on it, between two barriers.
+struct Redaction {
+    marks: Arc<dyn super::seams::SensitiveMarks>,
+    thread: ThreadId,
+    data: PathBuf,
+    index: SqliteStore,
+    deps: WriterDeps,
+    runtime: tokio::runtime::Handle,
+    gate: ReadGate,
+    /// The marks' version the log was rewritten for.
+    seen: u64,
+    /// A rewrite of this log stopped in this process (its parts are on disk): settled before anything else.
+    unfinished: bool,
+    /// Told each version the log was rewritten for, so a journaled mark is dropped once every session holding it is.
+    journal: Option<Arc<super::mark_journal::MarksOnDisk>>,
+    rewrites: Arc<Rewrites>,
+}
+
+/// The sensitive rewrites running now (each holds the projector and then the read gate): a read awaits none running
+/// ([`ThreadStore::unheld`]) before it takes an io-interactive thread, so reads issued meanwhile wait off the lane rather
+/// than holding its few threads blocked on the gate and filling its queue (where the next job, a row's commit included,
+/// would be refused).
+#[derive(Default)]
+struct Rewrites {
+    running: std::sync::atomic::AtomicUsize,
+    done: tokio::sync::Notify,
+}
+
+/// One running rewrite; ends when dropped.
+struct Rewriting(Arc<Rewrites>);
+
+impl Rewrites {
+    fn start(self: &Arc<Self>) -> Rewriting {
+        self.running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Rewriting(self.clone())
+    }
+
+    /// Once none runs, or after `bound` (the read then waits inside its job, as before).
+    async fn idle(&self, bound: std::time::Duration) {
+        let wait = async {
+            loop {
+                let done = self.done.notified();
+                tokio::pin!(done);
+                done.as_mut().enable();
+                if self.running.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return;
+                }
+                done.await;
+            }
+        };
+        if mixdog_rt::time::timeout(bound, wait).await.is_err() {
+            tracing::warn!(bound_ms = bound.as_millis() as u64, "a read waited out its bound for a sensitive rewrite; it goes on and waits on the lane");
+        }
+    }
+}
+
+impl Drop for Rewriting {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.done.notify_waiters();
+    }
+}
+
+fn writer_lost() -> BarrierError {
+    BarrierError::Indeterminate { io_kind: "writerLost".into() }
+}
+
+/// A test build's hold at a named point of a sensitive rewrite, run on the rewrite's own lane thread: `planned` once the plan
+/// has read the log, `held` while the rewrite holds the reads. Compiled only into a build that asks for `crash-gates`.
+#[cfg(feature = "crash-gates")]
+pub mod rewrite_holds {
+    type Hold = std::sync::Arc<dyn Fn() + Send + Sync>;
+    static HOLDS: std::sync::Mutex<Vec<(&'static str, Hold)>> = std::sync::Mutex::new(Vec::new());
+
+    /// Runs `hold` whenever a rewrite reaches `point`.
+    pub fn set(point: &'static str, hold: impl Fn() + Send + Sync + 'static) {
+        HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((point, std::sync::Arc::new(hold)));
+    }
+
+    pub(super) fn at(point: &str) {
+        let holds: Vec<Hold> = HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|(p, _)| *p == point).map(|(_, h)| h.clone()).collect();
+        for hold in holds {
+            hold();
+        }
+    }
+}
+
+#[cfg(not(feature = "crash-gates"))]
+mod rewrite_holds {
+    pub(super) fn at(_point: &str) {}
+}
+
+impl Redaction {
+    /// As `StoreThreads::wait`: a lane thread is no runtime thread; an inline lane (tests) runs on a runtime worker.
+    #[allow(clippy::disallowed_methods, reason = "runs inside the io-durability job (lane proof argument)")]
+    fn wait<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+        let block = || self.runtime.block_on(future);
+        if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() }
+    }
+
+    /// Steps 3-8 of `log_rewrite` from wherever this log's rewrite stands, with every reader out: the writer's handle is
+    /// closed first and the writer reopened on the log in place after, whatever the outcome. A rewrite stopped before
+    /// step 5 puts the old folder back, so the thread goes on over its old log and the next attempt builds again.
+    fn settle(&mut self, lane: &InLane<DurabilityIo>, writer: &mut Option<LogWriter>) -> bool {
+        let gate = self.gate.clone();
+        let mut generation = gate.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *generation += 1;
+        rewrite_holds::at("held");
+        *writer = None;
+        let session = self.thread.as_str().to_owned();
+        let (index, blobs) = (self.index.clone(), self.deps.blobs.clone());
+        let mut index_step = |superseded| {
+            let rewrite = mixdog_store::sqlite::Rewritten { data: self.data.clone(), session: session.clone(), dirty: DirtyMark::Set, superseded, blobs: blobs.clone() };
+            self.wait(index.reproject(rewrite)).map_err(|e| e.to_string())
+        };
+        let settled = mixdog_store::log_rewrite::settle(lane, &self.data, &session, &*self.deps.io, &self.deps.blobs, &mut index_step);
+        if let Err(error) = &settled {
+            tracing::warn!(thread = %session, "the sensitive rewrite of the log stopped; it is tried again at the next barrier: {error}");
+            if let Err(error) = mixdog_store::log_rewrite::undo_move(lane, &self.data, &session) {
+                tracing::error!(thread = %session, "the old log could not be put back; the next start settles the rewrite: {error}");
+            }
+        }
+        self.unfinished = settled.is_err();
+        let dir = self.data.join("sessions").join(&session);
+        let reopened = log::open_log(lane, &dir, &self.deps.blobs, &*self.deps.index)
+            .map_err(|e| e.to_string())
+            .and_then(|opened| LogWriter::open(lane, opened, self.deps.clone()).map_err(|e| e.to_string()));
+        match reopened {
+            Ok(reopened) => *writer = Some(reopened),
+            Err(error) => tracing::error!(thread = %session, "the log could not be reopened after its sensitive rewrite; the next start settles it: {error}"),
+        }
+        drop(generation);
+        settled.is_ok()
+    }
+}
+
+impl StoreLog {
+    /// Runs before the barrier of a batch when the thread took a mark since the last rewrite, or a rewrite of its log
+    /// stopped: `log_rewrite`'s steps, with the index taking no projection meanwhile (a read that waits for it sees the
+    /// new rows). What fails is tried again at the next barrier, or settled by the next start once the intent is on disk.
+    fn redact_written(&mut self, lane: &InLane<DurabilityIo>) {
+        let Some(redaction) = &mut self.redaction else { return };
+        let version = redaction.marks.version(&redaction.thread);
+        if version == redaction.seen && !redaction.unfinished {
+            return;
+        }
+        let _rewriting = redaction.rewrites.start();
+        let (reached, release) = self.projector.hold();
+        if redaction.wait(reached).is_err() {
+            return;
+        }
+        // A rewrite left unfinished goes first: a new plan reads the log it puts in place.
+        if redaction.unfinished && !redaction.settle(lane, &mut self.writer) {
+            drop(release);
+            return;
+        }
+        if version != redaction.seen {
+            let session = redaction.thread.as_str().to_owned();
+            let mut replace = redaction.marks.rewriter(&redaction.thread);
+            let planned = mixdog_store::log_rewrite::plan(lane, &redaction.data, &session, &*redaction.deps.io, &redaction.deps.blobs, &mut *replace);
+            drop(replace);
+            rewrite_holds::at("planned");
+            match planned {
+                Ok(None) => redaction.seen = version,
+                // The new blobs' pins hold until the rebuilt rows name them.
+                Ok(Some(pins)) => {
+                    if redaction.settle(lane, &mut self.writer) {
+                        redaction.seen = version;
+                    }
+                    drop(pins);
+                }
+                Err(error) => tracing::warn!(thread = %session, "the sensitive rewrite of the log could not be planned; it is tried again at the next barrier: {error}"),
+            }
+        }
+        if redaction.seen == version
+            && let Some(journal) = &redaction.journal
+        {
+            journal.applied(redaction.thread.as_str(), version);
+        }
+        drop(release);
+    }
+
+    /// The batch as the log stores it now: a record encoded before the thread's newest mark (encoding runs ahead of the
+    /// barrier) is projected again and encoded again when that changes it, so no value marked meanwhile is appended.
+    fn stored_batch(&self, batch: &[CommitRecord]) -> Result<Vec<Encoded>, BarrierError> {
+        let mut encoded: Vec<Encoded> = batch.iter().map(|c| c.encoded.0.clone()).collect();
+        let Some(redaction) = &self.redaction else { return Ok(encoded) };
+        if redaction.marks.version(&redaction.thread) == 0 {
+            return Ok(encoded);
+        }
+        let mut replace = redaction.marks.rewriter(&redaction.thread);
+        for (record, out) in batch.iter().zip(&mut encoded) {
+            if let Some(next) = replace(record.record.as_ref()) {
+                *out = mixdog_store::encode::encode_record(next).map_err(|e| BarrierError::Failed { io_kind: format!("encode:{e}").into() })?;
+            }
+        }
+        Ok(encoded)
+    }
 }
 
 impl SessionLog for StoreLog {
@@ -235,15 +498,21 @@ impl SessionLog for StoreLog {
         lane: &InLane<DurabilityIo>,
         batch: &[CommitRecord],
     ) -> Result<Vec<u64>, BarrierError> {
-        let encoded: Vec<Encoded> = batch.iter().map(|c| c.encoded.0.clone()).collect();
-        let ack = self.writer.append_barrier(lane, encoded).map_err(barrier)?;
+        self.redact_written(lane);
+        let encoded = self.stored_batch(batch)?;
+        let writer = self.writer.as_mut().ok_or_else(writer_lost)?;
+        let ack = writer.append_barrier(lane, encoded).map_err(barrier)?;
         let ordinals = ack.positions.iter().map(|p| p.ordinal).collect();
         self.projector.send(ack.projection);
         Ok(ordinals)
     }
 
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
-        self.writer.retry_storage(lane).map_err(barrier)
+        self.writer.as_mut().ok_or_else(writer_lost)?.retry_storage(lane).map_err(barrier)
+    }
+
+    fn redact(&mut self, lane: &InLane<DurabilityIo>) {
+        self.redact_written(lane);
     }
 }
 
@@ -257,6 +526,12 @@ pub struct StoreThreads {
     projector: Projector,
     maintenance: MaintenanceIo,
     runtime: tokio::runtime::Handle,
+    /// The marks whose values the logs keep out of what they wrote before (bound once, by the composition).
+    sensitive: std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>,
+    /// The marks' journal, bound with them.
+    journal: std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>,
+    gate: ReadGate,
+    rewrites: Arc<Rewrites>,
 }
 
 impl super::thread_list::ListFence for StoreThreads {
@@ -279,7 +554,97 @@ impl StoreThreads {
             writer,
             maintenance,
             runtime: tokio::runtime::Handle::current(),
+            sensitive: std::sync::OnceLock::new(),
+            journal: std::sync::OnceLock::new(),
+            gate: ReadGate::default(),
+            rewrites: Arc::default(),
         }
+    }
+
+    /// Holds the index projections (as a rewrite does), for a test of what waits on them.
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    pub(super) fn hold_index(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        self.projector.hold()
+    }
+
+    /// The read gate, shared for one lane job of a read (see [`ReadGate`]). Taken after any wait on the projector: a
+    /// rewrite holds the projector while it waits for the gate.
+    fn read_gate(&self) -> std::sync::RwLockReadGuard<'_, u64> {
+        self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// At start, before any thread is served: the marks this data dir saved are known again, and a thread that owes a rewrite
+    /// for one has it.
+    #[allow(clippy::disallowed_methods, reason = "the session folder is looked up inside the durability lane job")]
+    pub async fn settle_marks(&self, durability: DurabilityIo) -> Result<(), CoreError> {
+        let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else { return Ok(()) };
+        let refused = |what: &str| internal("sensitive-marks", &what);
+        // Each job waits out a full lane: a mark owed is settled, not skipped for a busy one.
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let never = mixdog_rt::CancellationToken::new();
+        let loaded = {
+            let journal = journal.clone();
+            wait(self.maintenance, &never, move |_lane| journal.load()).await?
+        };
+        for (from, to) in loaded.carries {
+            marks.carry(&ThreadId::from(from.as_str()), &ThreadId::from(to.as_str()));
+        }
+        // Each pending mark is marked again (journaled anew, carried along the carries), and its old file goes.
+        for (n, origin, values, sessions) in loaded.pending {
+            for session in std::iter::once(origin).chain(sessions) {
+                marks.restore(&ThreadId::from(session.as_str()), &values);
+            }
+            let journal = journal.clone();
+            wait(self.maintenance, &never, move |_lane| journal.forget(n)).await?;
+        }
+        for session in journal.owed() {
+            let (id, dir) = (ThreadId::from(session.as_str()), self.dir(&session));
+            let (deps, journal) = (self.writer.clone(), journal.clone());
+            let opened = wait(durability, &never, move |lane| {
+                if !dir.is_dir() {
+                    // A session deleted since holds nothing.
+                    journal.applied(&session, u64::MAX);
+                    return Ok(None);
+                }
+                let opened = log::open_log(lane, &dir, &deps.blobs, &*deps.index).map_err(|e| e.to_string())?;
+                LogWriter::open(lane, opened, deps).map(Some).map_err(|e| e.to_string())
+            })
+            .await?
+            .map_err(|error| refused(&error))?;
+            let Some(writer) = opened else { continue };
+            let mut log = self.store_log(&id, writer);
+            wait(durability, &never, move |lane| log.redact(lane)).await?;
+        }
+        Ok(())
+    }
+
+    /// The marks the session actors take (`SessionDeps::sensitive`, the same instance): a log rewrites what it wrote before
+    /// a mark at its next barrier, and the marks are journaled under the data dir. A second bind is refused.
+    pub fn redact_with(&self, marks: Arc<dyn super::seams::SensitiveMarks>) -> Result<(), Arc<dyn super::seams::SensitiveMarks>> {
+        self.sensitive.set(marks.clone())?;
+        let journal = Arc::new(super::mark_journal::MarksOnDisk::new(&self.data));
+        if marks.journal_with(journal.clone()) {
+            let _ = self.journal.set(journal);
+        }
+        Ok(())
+    }
+
+    fn store_log(&self, id: &ThreadId, writer: LogWriter) -> Box<dyn SessionLog> {
+        let redaction = self.sensitive.get().map(|marks| Redaction {
+            marks: marks.clone(),
+            thread: id.clone(),
+            data: self.data.clone(),
+            index: self.index.clone(),
+            deps: self.writer.clone(),
+            runtime: self.runtime.clone(),
+            gate: self.gate.clone(),
+            seen: 0,
+            unfinished: false,
+            journal: self.journal.get().cloned(),
+            rewrites: self.rewrites.clone(),
+        });
+        Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction })
     }
 
     /// Over the data dir's stores: `index` is the core's one `SqliteStore` (WP-STORE opens it,
@@ -337,7 +702,8 @@ impl StoreThreads {
     }
 
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) async fn projected(&self) {
         self.projector.drained().await;
     }
@@ -519,6 +885,8 @@ struct ContextState {
     cut: Option<u64>,
     out: Vec<(ItemId, Value)>,
     at: ContextAt,
+    /// The read gate's generation its first job read under.
+    generation: u64,
 }
 
 enum ContextAt {
@@ -535,11 +903,12 @@ enum ContextAt {
 }
 
 impl StoreThreads {
-    /// The first page of the read, over the lineage as of now.
+    /// The first page of the read, over the lineage as of now; the caller holds the read gate at `generation`.
     fn context_start(
         &self,
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
+        generation: u64,
     ) -> Result<ContextState, CoreError> {
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
@@ -553,6 +922,7 @@ impl StoreThreads {
             cut,
             out: Vec::new(),
             at: ContextAt::Page(page),
+            generation,
         })
     }
 
@@ -617,12 +987,244 @@ impl super::seams::TurnIngest for SessionSearchTurns {
     }
 }
 
-/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store.
-pub struct SensitiveMarksOf(pub Arc<mixdog_services::memory::sensitive::SensitiveStore>);
+/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store, with the bodies the store's projection
+/// redacted, as they were committed: thread → item id → body. Like the store's values, they stay for the life of the
+/// process (Node's loaded session holds the same text in memory, `sensitive-values.mjs:12`), and nothing writes them.
+pub struct SensitiveMarksOf {
+    store: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    held: std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, Value>>>,
+}
+
+impl SensitiveMarksOf {
+    pub fn new(store: Arc<mixdog_services::memory::sensitive::SensitiveStore>) -> Self {
+        Self { store, held: std::sync::Mutex::default() }
+    }
+
+    fn held_bodies(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, std::collections::HashMap<String, Value>>> {
+        self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `_withSensitiveHeaderRedacted` (`store/serialize.mjs`, the Node fix `node-fix-sensitive-header-summary.patch`): the
+    /// header fields that hold the conversation's text (the title, from the first prompt) or a tool call's arguments (the
+    /// repeat-failure guards keep each failed call's signature) take the marker. True when one changed.
+    fn header_redacted(&self, session: &str, header: &mut mixdog_store::schema::record::Header) -> bool {
+        let mut changed = false;
+        let mut text = |value: &mut Value| {
+            if let Value::String(text) = value {
+                let next = self.store.redact_text(session, text);
+                if next != *text {
+                    *text = next;
+                    changed = true;
+                }
+            }
+        };
+        if let Some(title) = header.get_mut("title") {
+            text(title);
+        }
+        for key in ["_repeatFailGuard", "_repeatArgShapeFailGuard"] {
+            if let Some(sig) = header.get_mut(key).and_then(|guard| guard.get_mut("sig")) {
+                text(sig);
+            }
+        }
+        if let Some(Value::Array(history)) = header.get_mut("_repeatFailHistory") {
+            history.iter_mut().for_each(&mut text);
+        }
+        changed
+    }
+
+    /// Every string of an inline slot with the thread's values replaced; true when one changed.
+    fn text_redacted(&self, session: &str, slot: Option<&mut mixdog_store::schema::blob::Slot<Value>>) -> bool {
+        fn walk(store: &mixdog_services::memory::sensitive::SensitiveStore, session: &str, value: &mut Value) -> bool {
+            match value {
+                Value::String(text) => {
+                    let next = store.redact_text(session, text);
+                    let changed = next != *text;
+                    *text = next;
+                    changed
+                }
+                Value::Array(items) => items.iter_mut().fold(false, |changed, item| walk(store, session, item) | changed),
+                Value::Object(map) => map.values_mut().fold(false, |changed, item| walk(store, session, item) | changed),
+                Value::Null | Value::Bool(_) | Value::Number(_) => false,
+            }
+        }
+        match slot {
+            Some(mixdog_store::schema::blob::Slot::Inline(value)) => walk(&self.store, session, value),
+            _ => false,
+        }
+    }
+
+    /// `record` as the log stores it, and each message body it carries with the body as committed when the projection
+    /// changed it (`None`: stored as it is). `None` for a record stored as it is.
+    #[allow(clippy::type_complexity)]
+    fn projected(&self, session: &str, record: &mixdog_store::schema::record::Record) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::Record;
+        let mut out = record.clone();
+        // (item id, the body as committed when the projection changed it).
+        let mut bodies: Vec<(String, Option<Value>)> = Vec::new();
+        let mut project = |iid: &str, body: &mut Value| {
+            let next = self.store.redact_message(session, body);
+            if next == *body {
+                bodies.push((iid.to_owned(), None));
+            } else {
+                bodies.push((iid.to_owned(), Some(std::mem::replace(body, next))));
+            }
+        };
+        let mut prompt_changed = false;
+        match &mut out {
+            Record::Item(row) => {
+                if let Slot::Inline(body) = &mut row.body {
+                    project(row.iid.as_str(), body);
+                }
+                // The prompt-history text is the row's own text as it displays (`content`'s text): stored as its content is.
+                if let Some(Slot::Inline(prompt)) = &mut row.prompt
+                    && let Value::String(next) = self.store.redact_content(session, &Value::String(prompt.clone()))
+                    && next != *prompt
+                {
+                    *prompt = next;
+                    prompt_changed = true;
+                }
+            }
+            Record::Amend(amend) => {
+                if let Slot::Inline(body) = &mut amend.body {
+                    project(amend.iid.as_str(), body);
+                }
+            }
+            Record::Compacted(compacted) => {
+                if let Slot::Inline(entries) = &mut compacted.replacement {
+                    for entry in entries {
+                        project(&entry.iid, &mut entry.body);
+                    }
+                }
+            }
+            Record::Meta(meta) => {
+                if let Slot::Inline(change) = &mut meta.change {
+                    prompt_changed = self.header_redacted(session, &mut change.set);
+                }
+            }
+            Record::Session(start) => {
+                if let Slot::Inline(header) = &mut start.header {
+                    prompt_changed = self.header_redacted(session, header);
+                }
+            }
+            Record::Checkpoint(checkpoint) => {
+                if let Slot::Inline(state) = &mut checkpoint.state {
+                    prompt_changed = self.header_redacted(session, &mut state.header);
+                }
+            }
+            // Text that is no message: a run's failure detail, an op's error, an approval's request (a tool call's
+            // arguments) or decision, a queued message: every string of them takes the marker.
+            Record::Run(run) => prompt_changed = self.text_redacted(session, run.detail.as_mut()),
+            Record::Op(op) => prompt_changed = self.text_redacted(session, op.detail.as_mut()),
+            Record::Approval(approval) => prompt_changed = self.text_redacted(session, approval.body.as_mut()),
+            Record::Queue(queue) => prompt_changed = self.text_redacted(session, queue.entry.as_mut()),
+            // No text: positions, ids, a provider and model id.
+            Record::Rewind(_) | Record::ModelSwitch(_) => return (None, Vec::new()),
+        }
+        let changed = prompt_changed || bodies.iter().any(|(_, body)| body.is_some());
+        (changed.then_some(out), bodies)
+    }
+}
 
 impl super::seams::SensitiveMarks for SensitiveMarksOf {
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
-        Box::new(self.0.on_marked(thread.as_str(), move |_| listener()))
+        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
+    }
+
+    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
+        self.store.remember(thread.as_str(), calls)
+    }
+
+    fn carry(&self, from: &ThreadId, to: &ThreadId) {
+        self.store.carry(from.as_str(), to.as_str());
+    }
+
+    fn on_carried(&self, listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
+        self.store.on_carried(move |session| listener(&ThreadId::from(session)))
+    }
+
+    fn restore(&self, thread: &ThreadId, values: &[String]) -> bool {
+        self.store.restore(thread.as_str(), values)
+    }
+
+    fn journal_with(&self, journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
+        self.store.journal_with(journal)
+    }
+
+    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
+        let session = thread.as_str();
+        // A thread with no marked value holds no redacted body either (both live for the process).
+        if self.store.version(session) == 0 {
+            return None;
+        }
+        let (out, bodies) = self.projected(session, record);
+        let mut held = self.held_bodies();
+        let thread_held = held.entry(session.to_owned()).or_default();
+        for (iid, body) in bodies {
+            match body {
+                Some(body) => {
+                    thread_held.insert(iid, body);
+                }
+                // A later body of the row (an amend) that holds no value is stored as it is and read as stored.
+                None => {
+                    thread_held.remove(&iid);
+                }
+            }
+        }
+        out
+    }
+
+    fn version(&self, thread: &ThreadId) -> u64 {
+        self.store.version(thread.as_str())
+    }
+
+    fn redact_text(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_text(thread.as_str(), text)
+    }
+
+    fn rewriter<'a>(&'a self, thread: &ThreadId) -> Box<dyn FnMut(&mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> + 'a> {
+        let session = thread.as_str().to_owned();
+        // The rows whose body this pass took out; a later body of one of them that holds no value is read as stored.
+        let mut taken = std::collections::HashSet::new();
+        Box::new(move |record| {
+            if self.store.version(&session) == 0 {
+                return None;
+            }
+            let (out, bodies) = self.projected(&session, record);
+            let mut held = self.held_bodies();
+            let thread_held = held.entry(session.clone()).or_default();
+            for (iid, body) in bodies {
+                match body {
+                    // The record handed here may already be a stored copy (redacted for an earlier mark): the body the
+                    // first redaction kept, the committed one, stays.
+                    Some(body) => {
+                        thread_held.entry(iid.clone()).or_insert(body);
+                        taken.insert(iid);
+                    }
+                    None if taken.contains(&iid) => {
+                        thread_held.remove(&iid);
+                    }
+                    None => {}
+                }
+            }
+            out
+        })
+    }
+
+    fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value> {
+        self.store.redact_messages(thread.as_str(), messages)
+    }
+
+    fn held(&self, thread: &ThreadId, rows: &mut [(ItemId, Value)]) {
+        let held = self.held_bodies();
+        let Some(bodies) = held.get(thread.as_str()) else {
+            return;
+        };
+        for (iid, body) in rows {
+            if let Some(full) = bodies.get(iid.as_str()) {
+                body.clone_from(full);
+            }
+        }
     }
 }
 
@@ -685,6 +1287,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<HeadRead, CoreError> {
+        let _gate = self.read_gate();
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
@@ -693,6 +1296,7 @@ impl ThreadStore for StoreThreads {
 
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        let _gate = self.read_gate();
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
@@ -700,6 +1304,7 @@ impl ThreadStore for StoreThreads {
     }
 
     fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+        let _gate = self.read_gate();
         Ok(self.open(lane, id)?.fold.log_id.clone())
     }
 
@@ -712,6 +1317,9 @@ impl ThreadStore for StoreThreads {
         // The window comes from the index: it must hold every barrier acked so far (a thread
         // unloaded and reopened in this process).
         self.wait(lane, self.projector.caught_up())?;
+        // The head was read in an earlier job; only the thread's own loaded actor rewrites its log, and a head is read
+        // to load the thread, so no rewrite of this log comes between the two.
+        let _gate = self.read_gate();
         let opened = head
             .0
             .downcast_ref::<log::OpenedLog>()
@@ -819,6 +1427,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let prompts = self
@@ -837,6 +1446,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -863,6 +1473,7 @@ impl ThreadStore for StoreThreads {
 
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
         let Some(row) = self.index.thread_op_on_lane(lane, id.as_str(), op).map_err(|e| internal("thread-op", &e))? else {
             return Ok(None);
         };
@@ -895,6 +1506,7 @@ impl ThreadStore for StoreThreads {
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -923,11 +1535,17 @@ impl ThreadStore for StoreThreads {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index
             .compaction_entry_on_lane(lane, &lineage, opened.fold.base_cut, iid)
             .map_err(|e| internal("history", &e))
+    }
+
+    fn indexed(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (projector, session) = (self.projector.clone(), id.as_str().to_owned());
+        Box::pin(async move { projector.indexed(&session).await })
     }
 
     fn session_meta(
@@ -942,6 +1560,33 @@ impl ThreadStore for StoreThreads {
             let title = index.title(&id).await.map_err(|e| internal("meta", &e))?;
             Ok(Some(super::seams::SessionMeta::of(title, &summary)))
         })
+    }
+
+    fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+        let (rewrites, projector) = (self.rewrites.clone(), self.projector.clone());
+        Box::pin(async move {
+            rewrites.idle(super::thread_list::FENCE_BOUND).await;
+            // The read's job waits for the index again (on the lane, where it must hold); waited here first, that wait is
+            // already over when the job takes its thread. A failure is the job's to report.
+            let _ = projector.caught_up().await;
+        })
+    }
+
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            projector.caught_up().await?;
+            let found = index.offload_referencers(&id, mixdog_store::offload_sources::boot()).await.map_err(|e| internal("copies", &e))?;
+            if let Some((heir, source)) = found.copying {
+                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation of {source}")));
+            }
+            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown, unreadable: found.unreadable })
+        })
+    }
+
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (index, session) = (self.index.clone(), session.to_owned());
+        Box::pin(async move { index.record_offload_scan(&session, ordinal, sources).await.map_err(|e| internal("copies", &e)) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
@@ -963,9 +1608,15 @@ impl ThreadStore for StoreThreads {
         let Some(read) = read else {
             // The read must see every row acked so far.
             self.wait(lane, self.projector.caught_up())?;
-            return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
+            let gate = self.read_gate();
+            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
         };
+        let gate = self.read_gate();
         let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
+        // A log rewritten since the read's earlier jobs: their positions and blobs are of the old log, so it starts again.
+        if state.generation != *gate {
+            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
+        }
         state.at = match state.at {
             ContextAt::Next(cursor) => match self.index.context_page_on_lane(
                 lane,
@@ -977,7 +1628,7 @@ impl ThreadStore for StoreThreads {
             ) {
                 Ok(page) => ContextAt::Page(page),
                 Err(ContextError::Db(DbError::CursorStale)) => {
-                    return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
+                    return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
                 }
                 Err(e) => return Err(internal("context", &e)),
             },
@@ -999,8 +1650,8 @@ impl ThreadStore for StoreThreads {
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
         let state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
-        let ContextState { lineage, cut, out, at } = state;
-        let rest = |at| ContextState { lineage, cut, out, at };
+        let ContextState { lineage, cut, out, at, generation } = state;
+        let rest = |at| ContextState { lineage, cut, out, at, generation };
         match at {
             ContextAt::Page(page) => {
                 let decoded = decode_context(lane, page).map_err(|e| internal("context", &e))?;
@@ -1040,10 +1691,7 @@ impl ThreadStore for StoreThreads {
                 io_kind: e.op.to_string().into(),
             },
         })?;
-        Ok(Box::new(StoreLog {
-            writer,
-            projector: self.projector.clone(),
-        }))
+        Ok(self.store_log(id, writer))
     }
 
     /// RL §9.2 rule 4: the catalog row (dirty) is committed before `log.000000` is published.
@@ -1093,13 +1741,7 @@ impl ThreadStore for StoreThreads {
         .map_err(barrier)?;
         let ordinal = ack.positions[0].ordinal;
         self.projector.send(ack.projection);
-        Ok((
-            Box::new(StoreLog {
-                writer,
-                projector: self.projector.clone(),
-            }),
-            ordinal,
-        ))
+        Ok((self.store_log(id, writer), ordinal))
     }
 }
 
@@ -1196,6 +1838,45 @@ mod projector_tests {
         assert!(projector.settle().is_none(), "a dead projector is waited on");
     }
 
+    /// A session write the index failed to take is never answered as in the index: the wait after it (`ThreadStore::indexed`,
+    /// which a header patch awaits before it answers) fails with the reason, and keeps failing for that session, as the index
+    /// keeps lacking it until the next start re-projects it; another session's write that went in answers done.
+    #[tokio::test]
+    async fn a_write_the_index_failed_to_take_is_not_answered_as_indexed() {
+        let projector = Projector::spawn_with(|projection: Projection| {
+            let session = projection.session.clone();
+            async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+        });
+        projector.send(empty_projection("sess_bad"));
+        projector.send(empty_projection("sess_ok"));
+        let failed = |result: Result<(), CoreError>| match result {
+            Err(CoreError::Internal { incident_id }) => assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}"),
+            Ok(()) => panic!("a write the index did not take was answered as indexed"),
+            Err(other) => panic!("{other:?}"),
+        };
+        failed(projector.indexed("sess_bad").await);
+        projector.indexed("sess_ok").await.expect("the write that went in");
+        failed(projector.indexed("sess_bad").await);
+    }
+
+    /// Once a later projection of the session goes in, the index holds its head again (a projection carries the whole header),
+    /// so the header waits after it answer done instead of failing until a restart.
+    #[tokio::test]
+    async fn a_session_the_index_took_again_is_answered_as_indexed() {
+        let refused = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let projector = Projector::spawn_with({
+            let refused = refused.clone();
+            move |_: Projection| {
+                let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
+                async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+            }
+        });
+        projector.send(empty_projection("sess_bad"));
+        assert!(projector.indexed("sess_bad").await.is_err(), "the refused write");
+        projector.send(empty_projection("sess_bad"));
+        projector.indexed("sess_bad").await.expect("the index holds the session again");
+    }
+
     /// The exact class's wait: behind a projection that never ends it still waits one tick before
     /// [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it fails, saying the index is behind; it never goes
     /// on to read.
@@ -1203,7 +1884,7 @@ mod projector_tests {
     async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
         let bound = super::super::thread_list::FENCE_BOUND;
         let _clock = crate::session::testing::HeldClock::hold();
-        let projector = Projector::spawn_with(|_| std::future::pending::<()>());
+        let projector = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
         projector.send(empty_projection("sess_stuck"));
         let read = projector.caught_up();
         tokio::pin!(read);
@@ -1231,7 +1912,7 @@ mod projector_tests {
         let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
             .await
             .expect("store");
-        let mut stuck = Projector::spawn_with(|_| std::future::pending::<()>());
+        let mut stuck = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
         stuck.bound = std::time::Duration::ZERO;
         stuck.send(empty_projection("sess_a"));
         let store = Arc::new(StoreThreads { projector: stuck, ..store });

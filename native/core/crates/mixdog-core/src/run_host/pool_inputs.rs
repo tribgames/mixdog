@@ -42,11 +42,11 @@ impl RegistryPoolStore {
 #[async_trait]
 impl PoolStore for RegistryPoolStore {
     async fn agent_index(&self) -> Option<Value> {
-        Some(self.registry.pool_index().0)
+        Some(self.registry.pool_index().await.0)
     }
 
     async fn lead_index(&self) -> Option<Value> {
-        Some(self.registry.pool_index().1)
+        Some(self.registry.pool_index().await.1)
     }
 
     /// One answer per id, in order; `None` for a session that is not stored.

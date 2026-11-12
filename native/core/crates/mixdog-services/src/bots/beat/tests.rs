@@ -392,7 +392,7 @@ impl Rig {
             if self.live.notices.lock().unwrap().len() >= count {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         self.live.notices.lock().unwrap().clone()
     }

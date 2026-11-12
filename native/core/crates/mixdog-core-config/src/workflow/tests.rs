@@ -286,3 +286,22 @@ async fn the_catalog_lists_the_packs_as_node_does() {
         assert_eq!(got.to_string(), case["result"].to_string(), "{} {}", case["world"], case["config"]);
     }
 }
+
+/// An agent.json Node wrote with a name and a job cut inside an emoji (`fixtures/lone-surrogate-files`,
+/// record-lone-surrogate-files.mjs) is the manifest `packDefinitionFromDir` reads (the half emoji as U+FFFD): with an
+/// entry file holding only the saved body, the name and the job come from it and nowhere else.
+#[test]
+fn an_agent_manifest_node_wrote_with_half_an_emoji_is_read() {
+    let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "agent-definition").unwrap();
+    let saved = std::fs::read_to_string(set.join("agent-definition/before/agents/helper/AGENT.md")).unwrap();
+    let body = saved.splitn(3, "---\n").nth(2).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::copy(set.join("agent-definition/before/agents/helper/agent.json"), dir.path().join("agent.json")).unwrap();
+    std::fs::write(dir.path().join("AGENT.md"), body).unwrap();
+    let definition = super::pack::definition_from_dir(dir.path(), "AGENT.md", "helper").unwrap();
+    let manifest = &case["before"]["agents/helper/agent.json"];
+    assert_eq!((definition.name.as_str(), definition.description.as_str()), (manifest["name"].as_str().unwrap(), manifest["description"].as_str().unwrap()));
+    assert!(definition.fields.is_empty());
+}
