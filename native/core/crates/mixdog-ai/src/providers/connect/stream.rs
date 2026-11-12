@@ -77,7 +77,14 @@ impl ModelStream for DecodedStream {
                 None => {
                     self.ended = true;
                     let result = self.decoder.finish();
+                    // A decoder that ends in failure but still owes events (the leak guard's held-back text) hands them
+                    // out first and keeps the failure for the next call.
+                    let owes_failure = matches!(&result, Ok(events) if !events.is_empty()) && !self.decoder.terminal_seen();
                     self.push(result);
+                    if owes_failure {
+                        let failure = self.decoder.finish();
+                        self.push(failure);
+                    }
                 }
             }
         }

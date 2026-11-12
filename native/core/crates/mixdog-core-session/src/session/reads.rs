@@ -48,7 +48,12 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
 
+use std::sync::Arc;
+
 use super::SessionDeps;
+use super::SessionLanes;
+use super::ThreadStore;
+use super::Transcript;
 use super::directory::DirInner;
 use super::transcript::position_of_id;
 use super::view::meta;
@@ -113,29 +118,22 @@ async fn display_rows(deps: &SessionDeps, records: Vec<mixdog_store::schema::rec
     rows.await.map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })
 }
 
-/// One `thread/items/list` page, read from the newest `WINDOW_RECORDS` stored rows, widened until they hold what the page
-/// needs (its anchor, and the rows before it): the page is what the whole history answers, as the rows a page names are
-/// the newest ones or those around its anchor. A page from the oldest row (`asc`, no anchor) is read from the whole.
-async fn items_list_window(deps: &SessionDeps, id: &ThreadId, p: ThreadItemsListParams) -> Result<Reply, CoreError> {
-    const WINDOW_RECORDS: usize = 128;
-    let from_start = matches!(p.sort_direction, Some(SortDirection::Asc)) && p.cursor.is_none();
-    let mut records = if from_start { usize::MAX } else { WINDOW_RECORDS };
-    loop {
-        let token = CancellationToken::new();
-        deps.store.unheld().await;
-        let (store, thread, take) = (deps.store.clone(), id.clone(), records);
-        let (rev, stored, older) = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.history_window(lane, &thread, take))?
-            .await
-            .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })??;
-        let rows = display_rows(deps, stored).await?;
-        if let Some(reply) = items_list_in(id, rev, &rows, !older, p.clone())? {
-            return Ok(reply);
-        }
-        records = records.saturating_mul(8);
-    }
+/// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
+pub(super) async fn history_tail(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    rows: usize,
+) -> Result<(History, bool), CoreError> {
+    let token = CancellationToken::new();
+    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+    store.unheld().await;
+    let (store, thread) = (store.clone(), id.clone());
+    let (rev, records, complete) = lanes.io.submit(&token, move |lane| store.history_tail(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let transcript = transcript.clone();
+    let rows = lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
 }
 
 impl DirInner {
@@ -148,7 +146,14 @@ impl DirInner {
             .map(ThreadId::from)
             .ok_or_else(|| invalid("threadId", "a thread id"))?;
         if req.method.as_str() == "thread/items/list" {
-            return items_list_window(&self.deps, &id, params(req, "ThreadItemsListParams")?).await;
+            let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
+            let deps = &self.deps;
+            let thread = &id;
+            return list_from_tail(&id, &p, |rows| async move {
+                let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
+                Ok((rev, rows, complete))
+            })
+            .await;
         }
         let History { rev: _, rows } = history(&self.deps, &id).await?;
         let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
@@ -196,15 +201,10 @@ impl DirInner {
 /// row a rewind or a clear removed answers `cursorInvalidated` (protocol §5.5, retracting
 /// D-reads-1's `itemNotFound`): the client restarts from its snapshot. The page's byte budget
 /// counts `rows`' display-row lengths, as Node's `budgetedEdge` counts the transcript rows.
-#[cfg(test)]
-fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadItemsListParams) -> Result<Reply, CoreError> {
-    Ok(items_list_in(id, rev, rows, true, p)?.expect("a complete history answers every page"))
-}
-
-/// [`items_list`] over `rows`, which are the history's newest rows (`complete`: all of them). `None` when they do not hold
-/// what the page needs: its anchor, and `limit` rows before it (one more, to say whether older rows exist), or the newest
-/// `limit` and one more.
-fn items_list_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+///
+/// `rows` are the newest rows of the history, or all of it when `complete`. The page is one only the newest rows can decide
+/// (no cursor, and an older page that ends before the rows run out), or `None`: more rows are needed.
+pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -227,24 +227,25 @@ fn items_list_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete
         .collect();
     let at = match anchor {
         None => None,
+        // A cursor names the first row that displays it, else the first of that item id (`position_of_id`), and a user
+        // row displays its client's own submission id: an older row may display the same id, so only the whole history
+        // proves which row a cursor names.
+        Some(_) if !complete => return Ok(None),
         Some(item) => match position_of_id(turn.iter().map(|(row, _)| row), item) {
             Some(at) => Some(at),
-            None if complete => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
-            None => return Ok(None),
+            None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
         },
     };
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
-    let held = match (at, older) {
-        (None, true) => turn.len() > limit,
-        (None, false) => false,
-        (Some(at), true) => at > limit,
-        (Some(_), false) => true,
-    };
-    if !complete && !held {
+    // The oldest page is the one thing the newest rows cannot give.
+    if !complete && anchor.is_none() && !older {
         return Ok(None);
     }
     let sizes: Vec<usize> = turn.iter().map(|(_, bytes)| *bytes).collect();
     let page = page_of(&sizes, at, older, limit, budget).expect("the anchor is a position of the rows");
+    if !complete && older && page.start == 0 {
+        return Ok(None);
+    }
     let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
     let edge = |row: Option<&ThreadItem>, wanted: bool| row.filter(|_| wanted).map(|item| item.id().as_str().to_owned());
     // The cursor onward in the page's own direction, and the one back.
@@ -255,6 +256,28 @@ fn items_list_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete
     };
     let response = ThreadItemsListResponse { data, has_older: page.has_older, has_newer: page.has_newer, next_cursor: next, backwards_cursor: back };
     Ok(Some(Reply::Value(serde_json::to_value(response).expect("protocol types serialize"))))
+}
+
+/// Rows read at first for a page; each short read asks for twice as many, so a page deep in the history costs
+/// at most twice the rows before it and a page at the end only these.
+const FIRST_TAIL_ROWS: usize = 128;
+
+/// `thread/items/list` from the newest rows of the history only: `fetch(n)` answers the newest `n` stored rows
+/// (their items, with the history revision, and whether that is all of the history).
+pub(super) async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
+where
+    F: FnMut(usize) -> Fut,
+    Fut: std::future::Future<Output = Result<(u64, Vec<(ThreadItem, usize)>, bool), CoreError>>,
+{
+    // A cursor's row is only known from the whole history; the page of the newest rows reads as few as it needs.
+    let mut want = if p.cursor.is_some() { usize::MAX } else { FIRST_TAIL_ROWS };
+    loop {
+        let (rev, rows, complete) = fetch(want).await?;
+        if let Some(reply) = items_window(id, rev, &rows, complete, p)? {
+            return Ok(reply);
+        }
+        want = want.saturating_mul(2);
+    }
 }
 
 fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
@@ -692,7 +715,7 @@ mod tests {
     }
 
     fn page(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], params: Value) -> Result<Value, CoreError> {
-        match items_list(id, rev, rows, serde_json::from_value(params).expect("params"))? {
+        match items_window(id, rev, rows, true, &serde_json::from_value(params).expect("params"))?.expect("a whole history decides every page") {
             Reply::Value(v) => Ok(v),
             _ => panic!("a value"),
         }
@@ -745,8 +768,9 @@ mod tests {
         assert!(replayed > 200, "{replayed}");
     }
 
-    /// A page read from the newest stored rows only is the page the whole history gives (every recorded Node request, from every
-    /// window start), or asks for more rows: never another page.
+    /// A page read from the newest stored rows only is the page the whole history gives, or asks for more rows: never another
+    /// page. A cursor is never answered from a window (a user row displays its client's submission id, so an older row may
+    /// display the same id): every recorded Node request with a cursor asks for the whole history from every window start.
     #[test]
     fn a_page_from_the_newest_rows_is_the_page_of_the_whole_history() {
         let golden = golden();
@@ -773,24 +797,22 @@ mod tests {
                 params["byteBudget"] = json!(budget);
             }
             let params: ThreadItemsListParams = serde_json::from_value(params).expect("params");
-            let whole = show(items_list_in(&id, 0, &rows, true, params.clone()));
-            for start in (0..rows.len()).step_by(5) {
-                let got = show(items_list_in(&id, 0, &rows[start..], start == 0, params.clone()));
-                if got != "more rows" {
-                    assert_eq!(got, whole, "{request} from row {start}");
-                    answered += usize::from(start > 0);
-                }
+            let whole = show(items_window(&id, 0, &rows, true, &params));
+            for start in (1..rows.len()).step_by(5) {
+                assert_eq!(show(items_window(&id, 0, &rows[start..], false, &params)), "more rows", "{request} from row {start}");
+                answered += 1;
             }
+            assert_ne!(whole, "more rows", "{request}");
         }
         assert!(answered > 100, "{answered}");
         // The newest page needs one row more than it returns, to say whether older rows exist.
-        let three = |rows: &[(ThreadItem, usize)], complete| items_list_in(&id, 0, rows, complete, serde_json::from_value(json!({ "threadId": "t", "limit": 3 })).expect("params"));
+        let three = |rows: &[(ThreadItem, usize)], complete| items_window(&id, 0, rows, complete, &serde_json::from_value(json!({ "threadId": "t", "limit": 3 })).expect("params"));
         let ten = history_of(&[10; 10]);
         assert!(three(&ten[7..], false).expect("a page").is_none(), "three rows do not say whether more exist");
         assert_eq!(show(three(&ten[6..], false)), show(three(&ten, true)));
         // The oldest page is never in a window of the newest rows.
         let from_oldest = json!({ "threadId": "t", "limit": 3, "sortDirection": "asc" });
-        assert!(items_list_in(&id, 0, &ten[1..], false, serde_json::from_value(from_oldest).expect("params")).expect("a page").is_none());
+        assert!(items_window(&id, 0, &ten[1..], false, &serde_json::from_value(from_oldest).expect("params")).expect("a page").is_none());
     }
 
     /// Protocol §5.5: a cursor into history a rewind or a clear removed is `cursorInvalidated`,

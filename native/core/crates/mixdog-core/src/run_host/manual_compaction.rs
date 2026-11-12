@@ -71,6 +71,8 @@ pub struct ManualParts {
     pub io: ToolIo,
     pub data_dir: PathBuf,
     pub blobs: Arc<dyn BlobReads>,
+    /// The sessions' result caches: a compaction that replaced the transcript starts the session a new read epoch.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The meters of a thread's pressure on one provider, as the latest `prepare_books` left them.
@@ -408,6 +410,8 @@ impl ManualCompaction for HostManualCompaction {
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
         match directory.commit_compaction(thread, snapshot_ids, compaction, Some(header)).await? {
             CompactionCommit::Applied => {
+                // `compaction-runner.mjs:699`: `resetReadStateAfterCompaction` once the changed transcript is adopted.
+                self.parts.reuses.compacted(thread.as_str());
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }

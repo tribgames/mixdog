@@ -1,0 +1,141 @@
+{
+  "cases": 8,
+  "command": "node benchmarks/rust-core/recorders/record-named-attachment-file-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the other seven tests of the Node file (file names, staging bounds, concurrent stagers, lock, crash, census) are closed by other sets",
+    "runs": "attachments/store.mjs materializePromptSubmission, attachmentsForIntake, namedAttachmentFile; attachment-reference.mjs attachedFilesNote, mediaPartToReference; transcript-restore/user-text.mjs restoredUserText; shared/transcript-metadata.mjs normalizeMessageAttachments; tui/session/session-api/media.mjs stageOriginal"
+  },
+  "exclusions": {
+    "intake": "materializePromptSubmission is not replayed: its output (attachment records, parts) is the recorded input of the core calls",
+    "restoredUserText": "the restored bubble text is replayed through the stored-message restore row (transcript_rows::restore)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 68629,
+      "path": "golden.json",
+      "sha256": "824adc964f05ed7e6ae764cc700a39d7c86e0f98f99c67a5167c8b19b161a57d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.note.text",
+      "$.cases[0].observed.note.attachmentReference.files[0].path",
+      "$.cases[0].observed.note.attachmentReference.files[1].path",
+      "$.cases[0].observed.photo.path",
+      "$.cases[0].observed.reusedPath",
+      "$.cases[1].observed.note.text",
+      "$.cases[1].observed.note.attachmentReference.files[0].path",
+      "$.cases[1].observed.note.attachmentReference.files[1].path",
+      "$.cases[2].observed.note.text",
+      "$.cases[2].observed.note.attachmentReference.files[0].path",
+      "$.cases[2].observed.note.attachmentReference.files[1].path",
+      "$.cases[3].observed.note.text",
+      "$.cases[3].observed.note.attachmentReference.files[0].path",
+      "$.cases[3].observed.note.attachmentReference.files[1].path",
+      "$.cases[3].observed.reference.text",
+      "$.cases[3].observed.photoPath",
+      "$.cases[4].observed.note.text",
+      "$.cases[4].observed.note.attachmentReference.files[0].path",
+      "$.cases[4].observed.file.path",
+      "$.cases[4].observed.other",
+      "$.cases[5].observed.sends[0].note.text",
+      "$.cases[5].observed.sends[0].note.attachmentReference.files[0].path",
+      "$.cases[5].observed.sends[0].file.path",
+      "$.cases[5].observed.sends[1].note.text",
+      "$.cases[5].observed.sends[1].note.attachmentReference.files[0].path",
+      "$.cases[5].observed.sends[1].file.path",
+      "$.cases[7].observed.note.text",
+      "$.cases[7].observed.note.attachmentReference.files[0].path",
+      "$.cases[7].observed.file.path"
+    ],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-named-attachment-file-cases.mjs",
+  "recorderSha256": "a37cba74639a023487ec4e5e95f053945f27c65a65b198cba2c4006192dc412f",
+  "replay": {
+    "compare": "plant every recorded blob in a fresh store, build the attachment records the intake recorded, run attached_files_note and reference_part_with over StoreFiles, compare the note text, the files object, the copy names and bytes",
+    "entry": "Drive these public items on o1: mixdog-core/src/run_host/attachment_store.rs:291 StoreFiles; mixdog-core/src/run_host/attachment_reference.rs:156 ReferencedMedia (attached_files_note, reference_part_with); mixdog-core/src/run_host/attachment_reference.rs:286 AttachedFile; mixdog-core-session/src/session/transcript_rows.rs:117 normalize_attachments.",
+    "existsButNotPublicOnO1": [
+      "the submission intake (materializePromptSubmission, attachmentsForIntake) is not replayed: its recorded output is the input of the core calls"
+    ],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 291,
+        "name": "StoreFiles",
+        "path": "native/core/crates/mixdog-core/src/run_host/attachment_store.rs"
+      },
+      {
+        "line": 156,
+        "methods": "attached_files_note, reference_part_with",
+        "name": "ReferencedMedia",
+        "path": "native/core/crates/mixdog-core/src/run_host/attachment_reference.rs"
+      },
+      {
+        "line": 286,
+        "name": "AttachedFile",
+        "path": "native/core/crates/mixdog-core/src/run_host/attachment_reference.rs"
+      },
+      {
+        "line": 117,
+        "name": "normalize_attachments",
+        "path": "native/core/crates/mixdog-core-session/src/session/transcript_rows.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "named-attachment-file-cases",
+  "totalBytes": 68629,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

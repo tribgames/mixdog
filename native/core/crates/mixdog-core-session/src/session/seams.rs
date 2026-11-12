@@ -365,6 +365,20 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
 
+    /// [`history_rows`](Self::history_rows) of the newest `rows` rows only (oldest first), with whether they are all of
+    /// the history: a page of the transcript reads the rows it shows, not the whole conversation.
+    fn history_tail(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+        let (rev, mut all) = self.history_rows(lane, id)?;
+        let complete = all.len() <= rows;
+        all.drain(..all.len().saturating_sub(rows));
+        Ok((rev, all, complete))
+    }
+
     /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index
     /// holds every barrier acked so far), `None` when the thread never recorded it.
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
@@ -409,20 +423,6 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// [`context_len`](Self::context_len) counts them): the read's later steps are the same, and its rows are the context's
     /// without its first `skip`, with no frame of those read.
     fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError>;
-
-    /// The newest `records` history rows with the history revision, oldest first, and whether older rows exist: what
-    /// [`history_rows`](Self::history_rows) returns, cut to its tail. A store that cannot read less returns the whole history cut.
-    fn history_window(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        records: usize,
-    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
-        let (rev, mut rows) = self.history_rows(lane, id)?;
-        let older = rows.len() > records;
-        rows.drain(..rows.len().saturating_sub(records));
-        Ok((rev, rows, older))
-    }
 
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
@@ -695,6 +695,8 @@ impl TaskWorkspace for mixdog_core_agents::agents::AgentDefinitions {
 pub trait NewThreadPlace: Send + Sync + 'static {
     /// Every registered Project's path (`listProjectsStrict`).
     async fn projects(&self) -> Result<Vec<String>, String>;
+    /// `touchProject(path)` of `submitNewTask`: the Project becomes the most recently selected once the first prompt is accepted.
+    async fn touch_project(&self, path: &str) -> Result<(), String>;
     /// `createNewTask`'s worktree step, before the first prompt (`session-host-lifecycle.ts:847-897`): the created
     /// `thread` enters the draft's `worktree` (`{branch?, create?, confirmLarge?, fromDefault?}`) through the workspace
     /// service. `input` is the start's `initialInput` (its prompt titles the worktree, its submission id keys it).

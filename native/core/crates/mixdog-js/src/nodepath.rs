@@ -260,6 +260,93 @@ pub fn is_absolute(style: Style, path: &str) -> bool {
     }
 }
 
+/// `path.normalize`: separators, `.` and `..` fold; a `..` never removes a UNC share or a drive.
+pub fn normalize(style: Style, path: &str) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    let len = chars.len();
+    if len == 0 {
+        return ".".to_owned();
+    }
+    let trailing_sep = style.is_sep(chars[len - 1]);
+    if style == Style::Posix {
+        let absolute = chars[0] == '/';
+        let tail = normalize_string(&chars, !absolute, '/', |c| c == '/');
+        return match (tail.is_empty(), absolute) {
+            (true, true) => "/".to_owned(),
+            (true, false) => if trailing_sep { "./" } else { "." }.to_owned(),
+            (false, _) => format!("{}{tail}{}", if absolute { "/" } else { "" }, if trailing_sep { "/" } else { "" }),
+        };
+    }
+    let is_sep = |c: char| c == '/' || c == '\\';
+    if len == 1 {
+        return if is_sep(chars[0]) { "\\".to_owned() } else { path.to_owned() };
+    }
+    let mut root_end = 0usize;
+    let mut device: Option<String> = None;
+    let mut absolute = false;
+    if is_sep(chars[0]) {
+        absolute = true;
+        if is_sep(chars[1]) {
+            let mut j = 2;
+            let mut last = j;
+            while j < len && !is_sep(chars[j]) {
+                j += 1;
+            }
+            if j < len && j != last {
+                let first_part: String = chars[last..j].iter().collect();
+                last = j;
+                while j < len && is_sep(chars[j]) {
+                    j += 1;
+                }
+                if j < len && j != last && (first_part == "." || first_part == "?") {
+                    // A device root (`\\?\`, `\\.\`) is the prefix alone: the next part is a path segment `..` can remove.
+                    device = Some(format!("\\\\{first_part}"));
+                    root_end = j;
+                } else if j < len && j != last {
+                    last = j;
+                    while j < len && !is_sep(chars[j]) {
+                        j += 1;
+                    }
+                    let second: String = chars[last..j].iter().collect();
+                    if j == len {
+                        return format!("\\\\{first_part}\\{second}\\");
+                    }
+                    if j != last {
+                        device = Some(format!("\\\\{first_part}\\{second}"));
+                        root_end = j;
+                    }
+                }
+            }
+        } else {
+            root_end = 1;
+        }
+    } else if is_device_root(chars[0]) && chars[1] == ':' {
+        device = Some(chars[..2].iter().collect());
+        root_end = 2;
+        if len > 2 && is_sep(chars[2]) {
+            absolute = true;
+            root_end = 3;
+        }
+    }
+    let mut tail = if root_end < len { normalize_string(&chars[root_end..], !absolute, '\\', is_sep) } else { String::new() };
+    if tail.is_empty() && !absolute {
+        tail = ".".to_owned();
+    }
+    if !tail.is_empty() && is_sep(chars[len - 1]) {
+        tail.push('\\');
+    }
+    match (device, absolute) {
+        (None, true) => format!("\\{tail}"),
+        (None, false) => tail,
+        (Some(device), true) => format!("{device}\\{tail}"),
+        (Some(device), false) => format!("{device}{tail}"),
+    }
+}
+
+pub fn normalize_host(path: &str) -> String {
+    normalize(Style::host(), path)
+}
+
 /// `path.relative(from, to)`.
 pub fn relative(style: Style, from: &str, to: &str) -> String {
     match style {

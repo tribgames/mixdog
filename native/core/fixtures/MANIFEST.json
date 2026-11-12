@@ -614,6 +614,15 @@
       "totalBytes": 5771
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-owner-lock.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "owner-lock/MANIFEST.json",
+      "manifestSha256": "ac3bac39e72b94571830c73ca9b20cd84407d1565723c82fe40214d8cc56a0d4",
+      "recorder": "benchmarks/rust-core/recorders/record-owner-lock.mjs",
+      "set": "owner-lock",
+      "totalBytes": 744
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-pending-queue.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "pending-queue/MANIFEST.json",
@@ -1082,6 +1091,15 @@
       "totalBytes": 841746
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-trace-spool.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "trace-spool/MANIFEST.json",
+      "manifestSha256": "3ba07bb0d4aa15c0f8268ead82c955b1f8113ee14c7d096c349bac200c7da60c",
+      "recorder": "benchmarks/rust-core/recorders/record-trace-spool.mjs",
+      "set": "trace-spool",
+      "totalBytes": 553594
+    },
+    {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-turn-ops.mjs --tree <tree>)",
       "fileCount": 4,
       "manifest": "turn-ops/MANIFEST.json",
@@ -1134,6 +1152,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-worktree-inspect-repo.mjs",
       "set": "worktree-inspect-repo",
       "totalBytes": 745
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-worktree-slug.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "worktree-slug/MANIFEST.json",
+      "manifestSha256": "2ef4ce81de40cc715ee4fa16be8813eb18f0010f35cefc9861c2201a17d7aff2",
+      "recorder": "benchmarks/rust-core/recorders/record-worktree-slug.mjs",
+      "set": "worktree-slug",
+      "totalBytes": 4492
     }
   ]
 }

@@ -1,0 +1,46 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "an explicit reveal or hide request is forwarded to every client as a non-droppable open event",
+      "observed": {
+        "eventName": "browserOpenRequested",
+        "requests": [
+          {
+            "sessionId": "s",
+            "reveal": true
+          },
+          {
+            "sessionId": "s",
+            "hide": true
+          }
+        ],
+        "broadcasts": [
+          [
+            {
+              "event": "browserOpenRequested",
+              "payload": {
+                "sessionId": "s",
+                "reveal": true
+              }
+            },
+            false
+          ],
+          [
+            {
+              "event": "browserOpenRequested",
+              "payload": {
+                "sessionId": "s",
+                "hide": true
+              }
+            },
+            false
+          ]
+        ]
+      }
+    }
+  ]
+}

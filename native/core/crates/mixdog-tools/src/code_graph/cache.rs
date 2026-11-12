@@ -303,7 +303,7 @@ fn is_cache_hash(value: &str) -> bool {
 }
 
 /// A temp name of [`write_atomic`]: `<name>.mixdog-tmp-<16 hex>`.
-fn is_tmp_name(name: &str) -> bool {
+pub fn is_tmp_name(name: &str) -> bool {
     name.rsplit_once(".mixdog-tmp-").is_some_and(|(_, hex)| (16..=24).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 

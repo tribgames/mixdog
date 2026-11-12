@@ -200,9 +200,6 @@ impl super::ThreadStore for HeldStore {
     fn context_from_io(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, skip: usize) -> Result<super::seams::ContextRead, CoreError> {
         self.store.context_from_io(lane, id, skip)
     }
-    fn history_window(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, records: usize) -> Result<(u64, Vec<mixdog_store::schema::record::ItemRecord>, bool), CoreError> {
-        self.store.history_window(lane, id, records)
-    }
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         let read = self.store.session_meta(id);
         let held = lock(&self.meta).take();

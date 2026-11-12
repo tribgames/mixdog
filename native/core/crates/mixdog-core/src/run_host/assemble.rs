@@ -37,7 +37,6 @@ use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
-use super::result_reuse::ToolResultReuse;
 use mixdog_core_run::run_host::route_fallback::HopHost;
 use mixdog_core_run::run_host::route_fallback::RouteHop;
 use mixdog_core_ports::ports::gate::GateEnv;
@@ -725,11 +724,8 @@ impl RunParts for HostRunParts {
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
-            reuse: Some({
-                let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
-                s.reuses.track(&reuse);
-                reuse
-            }),
+            // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
+            reuse: Some(s.reuses.run(s.io, session_id, &cwd, read_body, s.clock.clone())),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(self.tail_reminder(header)),

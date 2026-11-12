@@ -297,10 +297,13 @@ mod tests {
 
     #[test]
     fn subfolder_projects_map_into_the_checkout() {
-        assert_eq!(project_subdir_of("/r", "/r/apps/web"), "apps/web");
-        assert_eq!(project_subdir_of("/r", "/r"), "");
-        assert_eq!(project_subdir_of("/r", "/other"), "");
-        assert!(is_within("/r", "/r/a") && !is_within("/r", "/rx"));
+        // Absolute on every platform: the path key resolves a relative or drive-less spelling against the working directory.
+        let r = std::env::temp_dir().join("r").to_string_lossy().replace('\\', "/");
+        let other = std::env::temp_dir().join("other").to_string_lossy().replace('\\', "/");
+        assert_eq!(project_subdir_of(&r, &format!("{r}/apps/web")), "apps/web");
+        assert_eq!(project_subdir_of(&r, &r), "");
+        assert_eq!(project_subdir_of(&r, &other), "");
+        assert!(is_within(&r, &format!("{r}/a")) && !is_within(&r, &format!("{r}x")));
     }
 
     #[test]

@@ -27,6 +27,8 @@ mod hosted_native_tests;
 mod render_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod node_cases;
 
 pub use cache::CacheFile;
 pub use lanes::WebLanes;

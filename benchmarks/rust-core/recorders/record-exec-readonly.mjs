@@ -271,11 +271,12 @@ async function runCase(tree, name, out) {
 
 // ---------------------------------------------------------------- the parent: stage, run each case, manifest
 async function main() {
-  const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+  const { FIXTURES_ROOT, commitStage, exactProductIdentity, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
   const args = parseArgs();
   const tree = resolveTree(args);
   if (args.has('case')) return runCase(tree, args.get('case'), args.get('out'));
-  const identity = exactProductIdentity(tree, args.get('commit'));
+  // `--patch <file>[,<file>…]`: the tree is the commit with those Node changes applied; the manifest names them.
+const identity = args.get('patch') ? nodeTreeIdentity(args, tree, args.get('commit')) : exactProductIdentity(tree, args.get('commit'));
   const finalDir = join(FIXTURES_ROOT, 'exec-readonly');
   const stage = stageSet(finalDir);
   const scratch = mkdtempSync(join(tmpdir(), 'exec-readonly-parent-'));
@@ -290,7 +291,7 @@ async function main() {
     writeJson(join(stage, `${name}.json`), { ...result, usage: JSON.parse(result.usage) });
   }
   rmSync(scratch, { recursive: true, force: true });
-  writeSetManifest(stage, { set: 'exec-readonly', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url) } });
+  writeSetManifest(stage, { set: 'exec-readonly', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url) } });
   commitStage(stage, finalDir);
 }
 await main();
