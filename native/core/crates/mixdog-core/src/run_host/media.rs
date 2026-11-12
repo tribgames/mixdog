@@ -846,23 +846,37 @@ mod tests {
         }
     }
 
-    /// The prompt's PDFs, lowered on the test's clock: the texts the model gets and the virtual time it took.
-    async fn lowered_pdfs(files: &[&'static str]) -> (Vec<String>, Duration) {
-        let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
-        let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(SlowDocs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
-        let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
-        let started = tokio::time::Instant::now();
-        let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
-        let took = started.elapsed();
-        let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        let texts = parts
-            .iter()
-            .map(|p| match p {
-                ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
-                other => panic!("a PDF stayed a part: {other:?}"),
-            })
-            .collect();
-        (texts, took)
+    /// The prompt's PDFs lowering on the test's clock, which moves only by `advance`.
+    struct Lowering(tokio::task::JoinHandle<Vec<String>>);
+
+    impl Lowering {
+        fn start(files: &[&'static str]) -> Self {
+            let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
+            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(SlowDocs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
+            let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
+            Self(tokio::spawn(async move {
+                let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
+                let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
+                parts
+                    .iter()
+                    .map(|p| match p {
+                        ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
+                        other => panic!("a PDF stayed a part: {other:?}"),
+                    })
+                    .collect()
+            }))
+        }
+
+        /// Moves the clock by `ms` and lets the lowering run to wherever that takes it.
+        async fn advance(&self, ms: u64) {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            tokio::time::advance(Duration::from_millis(ms)).await;
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        }
     }
 
     /// A PDF the worker never reads is, at the bound, the text Node gives a PDF it cannot read (the recorded `not-a-pdf`
@@ -875,14 +889,21 @@ mod tests {
         let unreadable = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
         assert_eq!(unreadable, PDF_UNREADABLE_TEXT);
 
-        let (texts, took) = lowered_pdfs(&["hang", "hang2"]).await;
-        assert_eq!(texts, [unreadable.clone(), unreadable.clone()]);
-        assert_eq!(took, Duration::from_millis(PDF_INTAKE_TIMEOUT_MS), "two PDFs that never answer took the bound once");
+        let both = Lowering::start(&["hang", "hang2"]);
+        both.advance(PDF_INTAKE_TIMEOUT_MS - 1).await;
+        assert!(!both.0.is_finished(), "answered a millisecond before the bound");
+        both.advance(1).await;
+        assert!(both.0.is_finished(), "the second PDF was still waiting at the turn's bound");
+        assert_eq!(both.0.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
 
         // The first PDF's 40 s are spent from the same bound: the one after it has the 20 s that are left.
-        let (texts, took) = lowered_pdfs(&["one", "hang"]).await;
-        assert_eq!(texts, ["ONE".to_owned(), unreadable]);
-        assert_eq!(took, Duration::from_millis(PDF_INTAKE_TIMEOUT_MS));
+        let slow_then_hung = Lowering::start(&["one", "hang"]);
+        slow_then_hung.advance(40_000).await;
+        slow_then_hung.advance(PDF_INTAKE_TIMEOUT_MS - 40_000 - 1).await;
+        assert!(!slow_then_hung.0.is_finished(), "answered a millisecond before the bound");
+        slow_then_hung.advance(1).await;
+        assert!(slow_then_hung.0.is_finished(), "the second PDF got more than what was left of the bound");
+        assert_eq!(slow_then_hung.0.await.unwrap(), ["ONE".to_owned(), unreadable]);
     }
 
     #[tokio::test]
