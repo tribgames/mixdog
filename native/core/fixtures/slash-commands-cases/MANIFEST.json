@@ -5,9 +5,7 @@
     "notRun": "the Node TUI is not rendered: the /btw panel cases record its pure scroll and row functions (overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows) as a client observes them",
     "runs": "src/tui/app/slash-commands.mjs normalizeSlashCommandName and slashArgumentHint over the real command registry"
   },
-  "exclusions": {
-    "btwContentRows": "case 'btw scroll offsets…': `contentRows` (btwContentRows of a finished answer) is measureMarkdownRenderedRows, the Node TUI's markdown renderer; the core has none, so the replay takes the recorded number as the input of btw_panel_rows and compares panelRows, chromeRows, scrollMax and scrollOffset"
-  },
+  "exclusions": {},
   "fileCount": 1,
   "files": [
     {
@@ -23,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -43,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ef44d7f9eaf31054314f2a8829c5e972de793bf1cab34db4788b1a3546875bca"
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -69,20 +67,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-slash-commands-cases.mjs",
-  "recorderSha256": "d2c37d22787d7aa62792fd091853c2b308222ae18e1551e8d37e96edf6fdb621",
+  "recorderSha256": "db64f8b60f9a3ebf64142891b6a6cdfa158a09e19e29cd0b05dbfdfa52160d94",
   "replay": {
     "compare": "mixdog-core-session session/pending.rs (slash tokens): resolve each recorded name and compare; compare the argument hint of each recorded input",
-    "entry": "NO RUST ENTRY ON o1: btwContentRows of a finished answer (measureMarkdownRenderedRows, the TUI markdown renderer): the core has no markdown renderer; the recorded contentRows is the input of btw_panel_rows.",
-    "existsButNotPublicOnO1": [
-      "mixdog-core-session/src/session/slash_commands.rs: the registry, normalize_slash_command_name, slash_argument_hint, overlay_blocks_global_transcript_scroll, btw_scroll_max / btw_scroll_offset / btw_panel_rows are pub(crate): the replay is an in-crate test (slash_commands_tests.rs)"
-    ],
+    "entry": "NO RUST ENTRY ON o1: slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart; the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "btwContentRows of a finished answer (measureMarkdownRenderedRows, the TUI markdown renderer): the core has no markdown renderer; the recorded contentRows is the input of btw_panel_rows"
+      "slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart",
+      "the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI"
     ],
     "normalised": {},
     "protocolMethods": [],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": "src/tui/app/slash-commands-replay.test.mjs: every case through the K1 TUI (src/tui/app/slash-commands.mjs normalizeSlashCommandName, slashArgumentHint, overlayBlocksGlobalTranscriptScroll; src/tui/app/btw-controller.mjs btwScrollMax/Offset, btwContentRows/PanelRows), the whole observed value exact-encoded. The TUI owns these; the core recognises slash tokens only (pending.rs recognised_slash_token)."
   },
   "set": "slash-commands-cases",
   "totalBytes": 4063,

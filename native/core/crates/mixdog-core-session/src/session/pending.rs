@@ -84,6 +84,14 @@ pub(crate) struct Normalized {
     pub text: String,
 }
 
+/// The names and aliases of the registered slash commands (`SLASH_COMMANDS`, `tui/app/slash-commands.mjs`).
+const SLASH_TOKENS: &[&str] = &[
+    "clear", "new", "project", "projects", "compact", "btw", "goal", "autoclear", "resume", "context", "shells", "stop",
+    "fork", "inherit", "usage", "model", "websearch", "workflow", "outputstyle", "output-style", "style", "theme",
+    "agents", "effort", "fast", "mcp", "skills", "memory", "plugins", "providers", "settings", "setting", "config",
+    "profile", "update", "doctor", "quit", "exit", "q",
+];
+
 /// `isSlashQueuedEntry` (`queue-helpers.mjs`): the entry is not marked `skipSlashCommands` (JS truthiness) and its
 /// text (`content ?? text`, a queued prompt's `message` here) begins with `/` and a registered command or alias
 /// (`recognisedSlashToken`: `/^\s*\/(\S+)/`, lower-cased).
@@ -110,7 +118,7 @@ pub(crate) fn is_slash_entry(entry: &Value) -> bool {
 pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
     let rest = mixdog_js::js_trim_start(text).strip_prefix('/')?;
     let token = mixdog_js::js_to_lowercase(rest.split(mixdog_js::is_js_space).next().unwrap_or_default());
-    (!token.is_empty() && super::slash_commands::is_token(&token)).then_some(token)
+    (!token.is_empty() && SLASH_TOKENS.contains(&token.as_str())).then_some(token)
 }
 
 #[cfg(test)]
@@ -134,11 +142,7 @@ mod slash_tests {
             .flat_map(|command| std::iter::once(command["name"].clone()).chain(command["aliases"].as_array().expect("aliases").clone()))
             .map(|token| token.as_str().expect("token").to_owned())
             .collect();
-        let mut ours: Vec<String> = crate::session::slash_commands::COMMANDS
-            .iter()
-            .flat_map(|command| std::iter::once(command.name).chain(command.aliases.iter().copied()))
-            .map(str::to_owned)
-            .collect();
+        let mut ours: Vec<String> = SLASH_TOKENS.iter().map(|token| (*token).to_owned()).collect();
         recorded.sort();
         ours.sort();
         assert_eq!(ours, recorded);
