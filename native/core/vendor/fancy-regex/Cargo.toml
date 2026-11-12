@@ -1,0 +1,80 @@
+# fancy-regex 0.19.2 as published on crates.io (its normalized manifest, without the examples, tests, benches and
+# dev-dependencies, whose files are not copied), modified so a match can be stopped (see MIXDOG.md: an MCP output
+# schema's `pattern` runs under a bound of 10^10 steps and must end when its call is cancelled). native/core patches
+# crates.io's fancy-regex with this copy.
+
+[package]
+edition = "2018"
+rust-version = "1.66"
+name = "fancy-regex"
+version = "0.19.2"
+authors = [
+    "Raph Levien <raph@google.com>",
+    "Robin Stocker <robin@nibor.org>",
+    "Keith Hall <keith.hall@available.systems>",
+]
+build = false
+exclude = [
+    "/.github/*",
+    "/Cargo.lock.msrv",
+]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "An implementation of regexes, supporting a relatively rich set of features, including backreferences and look-around. Aims to be compatible with Oniguruma syntax when the relevant flag is set."
+documentation = "https://docs.rs/fancy-regex"
+readme = "README.md"
+categories = ["text-processing"]
+license = "MIT"
+repository = "https://github.com/fancy-regex/fancy-regex"
+
+[features]
+default = [
+    "unicode",
+    "perf",
+    "std",
+    "variable-lookbehinds",
+]
+leftmost_longest = []
+# mixdog: the steps at which matches read their stop (`interrupt::probe`), for tests.
+probe = []
+perf = ["regex-automata/perf"]
+perf-dfa-full = ["regex-automata/dfa-build"]
+std = [
+    "regex-automata/std",
+    "regex-syntax/std",
+    "bit-set/std",
+]
+track_caller = []
+unicode = [
+    "regex-automata/unicode",
+    "regex-syntax/unicode",
+]
+variable-lookbehinds = ["regex-automata/dfa-search"]
+
+[lib]
+name = "fancy_regex"
+path = "src/lib.rs"
+
+[dependencies.bit-set]
+version = "0.8"
+default-features = false
+
+[dependencies.regex-automata]
+version = "0.4.16"
+features = [
+    "alloc",
+    "syntax",
+    "meta",
+    "nfa",
+    "dfa-onepass",
+    "dfa-search",
+    "hybrid",
+]
+default-features = false
+
+[dependencies.regex-syntax]
+version = "0.8"
+default-features = false

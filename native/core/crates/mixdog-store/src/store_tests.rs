@@ -627,6 +627,22 @@ async fn a_group_is_recovered_whole_or_not_at_all_however_it_is_damaged() {
     }
 }
 
+/// A room post writes its rows and the `updatedAt` it stamps (a `meta` record) as one batch: a kill at any offset of the write
+/// (cut there, or zeroed from there) before the sync leaves the log with neither the rows nor the stamp, never the rows alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_killed_before_its_sync_recovers_neither_its_rows_nor_its_stamp() {
+    let stamp = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":5000u64},"unset":[]}}}));
+    let (_env, w) = written(vec![vec![item("x")]], vec![item("row1"), item("row2"), stamp]).await;
+    assert_eq!(w.after.len(), w.before.len() + 3, "the rows and the stamp");
+    let len = w.bytes.len();
+    for kill in w.write_start..=len {
+        assert_eq!(w.before_or_after(&format!("killed after {kill} bytes"), &w.bytes[..kill]), kill == len, "cut at {kill}");
+        let mut zeroed = w.bytes.clone();
+        zeroed[kill..].fill(0);
+        assert_eq!(w.before_or_after(&format!("zeroed from {kill}"), &zeroed), kill == len, "zero from {kill}");
+    }
+}
+
 /// Stale bytes after a new marker (a longer earlier write whose truncation did not last): the members the marker names
 /// are not there, so none of the stale frames completes the group.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

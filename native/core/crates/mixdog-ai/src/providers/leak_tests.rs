@@ -55,6 +55,19 @@ fn the_guard_recovers_and_holds_back_what_node_s_does() {
     }
 }
 
+/// One 300 000-character delta passes in linear time: only its last characters can start an opener.
+#[test]
+fn a_long_delta_holds_back_only_its_opener_tail() {
+    let mut guard = LeakGuard::new(["read".to_owned()].into_iter().collect(), false);
+    let body = "x".repeat(300_000);
+    let started = std::time::Instant::now();
+    let (text, calls) = guard.push(&format!("{body}<inv"), false);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "took {:?}", started.elapsed());
+    assert_eq!(text, body);
+    assert!(calls.is_empty());
+    assert_eq!(guard.flush().0, "<inv");
+}
+
 /// A repeated native id is one call; a name+arguments repeat of a minted id is one call; a native call a leak
 /// already ran is suppressed once.
 #[test]

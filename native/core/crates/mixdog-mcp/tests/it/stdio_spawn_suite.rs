@@ -108,7 +108,7 @@ async fn a_stdio_server_that_fails_reads_as_nodes_row() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_string_lossy().into_owned();
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     for case in golden["connect"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let entry: Value = serde_json::from_str(&case["entry"].to_string().replace("<ROOT>", &root.replace('\\', "\\\\"))).unwrap();
