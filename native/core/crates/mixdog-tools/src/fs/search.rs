@@ -643,8 +643,13 @@ impl Tool for GlobTool {
         }
         let windowed = files.get(offset..).unwrap_or(&[]);
         let page = &windowed[..windowed.len().min(limit)];
-        let lines: Vec<String> =
-            page.iter().map(|(p, _)| display_path(p.as_path(), &ctx.cwd)).collect();
+        // Node's `relativeSearchResultPath` strips `<cwd>/`; a filesystem root as the cwd already ends in its separator, so
+        // no path starts with `<cwd>//` and every one stays absolute.
+        let root_cwd = ctx.cwd.as_path().parent().is_none();
+        let lines: Vec<String> = page
+            .iter()
+            .map(|(p, _)| if root_cwd { super::common::fwd(p.as_path()) } else { display_path(p.as_path(), &ctx.cwd) })
+            .collect();
         let remaining = total.saturating_sub(offset + page.len());
         let mut text = lines.join("\n");
         if remaining > 0 {

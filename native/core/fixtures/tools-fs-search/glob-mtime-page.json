@@ -1,0 +1,49 @@
+{
+  "name": "glob-mtime-page",
+  "files": {
+    "a-tie.txt": "x\n",
+    "b-tie.txt": "x\n",
+    "failed-first.txt": "x\n",
+    "failed-second.txt": "x\n",
+    "middle.txt": "x\n",
+    "newest.txt": "x\n",
+    "z-epoch.txt": "x\n"
+  },
+  "mtimes": {
+    "a-tie.txt": "1970-01-01T00:00:00.009Z",
+    "b-tie.txt": "1970-01-01T00:00:00.009Z",
+    "failed-first.txt": "1970-01-01T00:00:00.000Z",
+    "failed-second.txt": "1970-01-01T00:00:00.000Z",
+    "middle.txt": "1970-01-01T00:00:00.005Z",
+    "newest.txt": "1970-01-01T00:00:00.012Z",
+    "z-epoch.txt": "1970-01-01T00:00:00.000Z"
+  },
+  "warmup": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.txt",
+        "limit": 0
+      },
+      "text": "newest.txt\na-tie.txt\nb-tie.txt\nmiddle.txt\nfailed-first.txt\nfailed-second.txt\nz-epoch.txt",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.txt",
+        "limit": 5
+      },
+      "text": "newest.txt\na-tie.txt\nb-tie.txt\nmiddle.txt\nfailed-first.txt\n[entries 1-5 of 7; offset:5 for more]",
+      "isError": false
+    }
+  ]
+}

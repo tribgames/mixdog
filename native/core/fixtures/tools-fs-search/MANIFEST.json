@@ -1,13 +1,15 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch fixes applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch,benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
   "exclusions": [
+    "glob-fs-root: Node prunes /proc, /sys and /dev under a root only when process.platform is posix, and its tool reads process.platform itself with a drive path as the root on the recording machine (Windows): the posix answer is not recorded here, only the helper's (tools-fs-glob-order)",
+    "glob-mtime-page: a stat that fails cannot be made on the recording machine, so the failed-stat order is recorded from the helper (tools-fs-glob-order); the page's continuation line is the public one",
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)",
     "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order",
     "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request; search-queue-burst fills the real server's queue and records its refusals and answer order",
     "search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call's request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait): when made, when admitted from the queue, or before its walk or a file open would read on that volume (a volume by the filesystem's identity: on Windows the volume GUID of the path's volume mount point, through junctions; on Unix the mount's device, a mount point below the root its own volume); Node has no answer for one stalled subtree, as a stalled read stalls its whole request, so the whole search gets that answer; the given-up threads one volume holds stay within 8 - 1 plus the searches that run at once (80 with the defaults: 8 + 1 interactive + 64 local walks), the searches already reading on the volume when it reached 8 being given up too; a refusal is by the root's volume as it is now: one fixed by the root's text (no junction, mounted folder, link, subst or mapped drive between) is refused at once, any other search is admitted and refused once its producer told its root's volume afresh, so a junction retargeted to a healthy volume is served; a stall while a root's volume is told is charged to that root's telling, which only searches of that root are admitted by; and the process as a whole holds at most 24 given-up threads (three volumes' worth) before every search, on any volume, gets that answer, which keeps the given-up threads of the process within 24 - 1 plus the searches that run at once (23 + 8 + 1 + 64 = 96 with the defaults); at 24 stranded threads every search is refused: this protects the process, and Node's server would be dead in that state"
   ],
-  "fileCount": 32,
+  "fileCount": 36,
   "files": [
     {
       "bytes": 5739,
@@ -65,6 +67,16 @@
       "sha256": "dbb867151a5fe3542c416a2eea36ea938f6d2233eb7bcca27d15cb9d62694992"
     },
     {
+      "bytes": 1912,
+      "path": "glob-fs-root.json",
+      "sha256": "03624ba985fb301d45fa4f8df576cfb6f6919474d408cefe5f89f0e61255ae2a"
+    },
+    {
+      "bytes": 1204,
+      "path": "glob-mtime-page.json",
+      "sha256": "880e368a893cbc170adf7483c410e0b07f08ce4d6ab76343cef024dcba85a836"
+    },
+    {
       "bytes": 47246,
       "path": "glob-past-cap.json",
       "sha256": "a95b954ac10d7698d920c660b5031416abd305c93578b8c9d6aa4b61cadcf333"
@@ -83,6 +95,16 @@
       "bytes": 3255,
       "path": "glob-verbatim.json",
       "sha256": "c959d955a11509f06150bc7a2088f6faae732ae39610c13735895580a474b303"
+    },
+    {
+      "bytes": 6068,
+      "path": "grep-fanout-nested.json",
+      "sha256": "dafaf9992a8440b41271aa9d4a5d008018e23c4e2a0fcfa4c4799196cfa3ba74"
+    },
+    {
+      "bytes": 44676,
+      "path": "grep-fanout-partial.json",
+      "sha256": "e22eaf7baa56972a8212dd0f92c0f1802dab3af501ea9d4ea7ad4e52c1c790f8"
     },
     {
       "bytes": 1945,
@@ -135,9 +157,9 @@
       "sha256": "39eecfd7d021db61f6bb15729575d5c7313bc614be750383059b1c7486d7aa9f"
     },
     {
-      "bytes": 13657,
+      "bytes": 567779,
       "path": "read-ipynb-image.json",
-      "sha256": "50a1ffa9873a9fb2f967edb5f1af608045c6835b4e3d392badb02c64565960b0"
+      "sha256": "ac873ded0aa9e88db9af869d9cd0fbbade6906e2aaa8e2d5183ea79af2a18dd6"
     },
     {
       "bytes": 3656,
@@ -172,7 +194,7 @@
   ],
   "graphBinary": {
     "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)",
-    "sha256": "8ebdf3820fa0a5d4ba36c8b338f6bf339b536222d287acdfc5b54dad157ff149"
+    "sha256": "1fbb5025d3bbe8ccecf83f1e3141e4c124791d017ee781fca1723613326854f6"
   },
   "inputs": [
     {
@@ -228,13 +250,13 @@
       "exact": false,
       "filesDifferingFromCommit": 4
     },
-    "srcSha256": "0d0c7409c86612334670b1c9eab1ddda4efedc1d793663680ee1838cbcf6841b",
+    "srcSha256": "c74e0d8787c28bf9ebfd4980aca5070e86adce567ba1ed928cbac6e7d909d6ff",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "07b5d833f404875a6e0d014a4185a363d4f6465e6bfa1ad14c7f7d206e1570e7",
+  "recorderSha256": "fd5e40e0167e5815cd6db0f5d9bc8e22001e6da51fb8c502ef9a1716082a2cfb",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -267,8 +289,12 @@
     "search-saturated",
     "search-queue-burst",
     "search-cancel-stalled",
-    "path-arg-shapes"
+    "path-arg-shapes",
+    "glob-fs-root",
+    "glob-mtime-page",
+    "grep-fanout-nested",
+    "grep-fanout-partial"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 3430917
+  "totalBytes": 4038899
 }
