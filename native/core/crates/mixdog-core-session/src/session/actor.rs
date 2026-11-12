@@ -3779,6 +3779,7 @@ impl SessionActor {
                         call_ids: d.call_ids,
                     }),
                     silent: agent_mode.then_some(true),
+                    legacy_lost: (),
                     replacement: Slot::Inline(
                         compaction
                             .replacement
@@ -3821,6 +3822,7 @@ impl SessionActor {
                     dropped_count: Some(0),
                     dropped: None,
                     silent: Some(true),
+                    legacy_lost: (),
                     replacement: Slot::Inline(
                         replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect(),
                     ),
