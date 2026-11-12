@@ -433,9 +433,10 @@ async fn replay(name: &str, dir: PathBuf) {
         }
         post = next_post(posts, "tool_result").await.expect("the endpoint's wait").0;
     }
-    // A stub still holding its handshake is let go, so it ends with the core.
+    // A stub still holding its handshake is let go, so it ends with the core. One whose startup budget passed was ended by the core
+    // already, and its side of the gate is closed: there is nothing left to let go.
     if let Some((mut first, arrivals)) = held_stubs {
-        first.write_all(b"go").expect("opening the gate");
+        let _ = first.write_all(b"go");
         for mut stub in arrivals.try_iter() {
             let _ = stub.write_all(b"go");
         }

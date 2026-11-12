@@ -1,11 +1,11 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-fix-deferred-listing-trigger.patch",
+  "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-fix-deferred-listing-trigger.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2271335,
+      "bytes": 2296440,
       "path": "golden.json",
-      "sha256": "1551390de415a3c662d0adb981d48dba189eb456c39efce00de13134b52781cb"
+      "sha256": "0934105490b695ca26d674703e74bce6c0a65462149de92d669d7c1c5d054d0a"
     }
   ],
   "inputs": [
@@ -15,7 +15,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lead-request-scenarios.mjs",
-      "sha256": "1a11c02370e70929e8b7ef3570f8cb3474f394a83e29a6e52eff699ab9798144"
+      "sha256": "d08b8dcb0fdaf32876a868aa8f8913a346c55f0cf6de5ad0c4eaba2094e842a1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/offline-network.mjs",
@@ -40,7 +40,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9141,
+    "files": 9146,
     "patches": [
       {
         "file": "node-fix-spawn-model-settings.patch",
@@ -60,21 +60,40 @@
           "src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs"
         ],
         "sha256": "f51d56c5d9536b802fb86cccbcc6dcfe10e29542002e4ea0cfc547471d52d963"
+      },
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 7
+      "filesDifferingFromCommit": 20
     },
-    "srcSha256": "c280aef53a643c7f77a8a1049e86e6e2415ae66434e87e7b0e2f7498f1274db0",
+    "srcSha256": "2ab1f3f583c7ba76aada52e7d9a1e82d7c8f5894980c83448101881cd3b0e031",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lead-request.mjs",
-  "recorderSha256": "19fbb967cb00b5864fc7b14727c81b0ca1d7e0a729b4f961e3d238428ca6e63d",
+  "recorderSha256": "14c696f8b15ceb067ae3c36d5dfdcd848f62b7dfe1980fdd5f1ef737437d3150",
   "scope": {
     "covered": "the desktop lead thread (session.create with a desktopSession, then submit)",
     "notCovered": [
@@ -83,5 +102,5 @@
     ]
   },
   "set": "lead-request",
-  "totalBytes": 2271335
+  "totalBytes": 2296440
 }
