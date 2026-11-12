@@ -63,7 +63,7 @@ fn points(case: &Value) -> Vec<String> {
         record.lock().expect("points").push(p.to_owned());
         Ok(())
     });
-    migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook) }).1.run().expect("the probe run completes");
+    migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook), verified: None }).1.run().expect("the probe run completes");
     let points = met.lock().expect("points").clone();
     points
 }
@@ -88,7 +88,7 @@ fn stopped(roots: &MigrationRoots, stop_at: usize, error: fn() -> std::io::Error
         }
         Ok(())
     });
-    let (_runtime, run) = migrator(roots, MigrateOptions { workers: 1, fault: Some(hook) });
+    let (_runtime, run) = migrator(roots, MigrateOptions { workers: 1, fault: Some(hook), verified: None });
     assert!(run.run().is_err(), "the stopped run does not complete");
 }
 

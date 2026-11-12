@@ -718,7 +718,7 @@ fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
     Migrator::new(
         roots.clone(),
         vec![Arc::new(DesktopProfileDriver::new())],
-        MigrateOptions { workers: 1, fault },
+        MigrateOptions { workers: 1, fault, verified: None },
     )
 }
 

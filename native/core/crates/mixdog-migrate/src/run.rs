@@ -63,11 +63,17 @@ use crate::plan::escape_key;
 /// `complete.json` (internal to a run, removed with the stage).
 const COUNTS_FILE: &str = "counts.json";
 
+/// Told the id of a session once its item is journaled `verified`, on the thread that converted it.
+pub type VerifiedHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct MigrateOptions {
     /// Session items converted at once (SM §11.5: 4).
     pub workers: usize,
     pub fault: Option<FaultHook>,
+    /// Set by a core that serves while the sessions convert ([`Back`]): it takes each session into its open index here.
+    /// With it the sessions convert newest first (the ones a person reaches for), not in key order.
+    pub verified: Option<VerifiedHook>,
 }
 
 impl Default for MigrateOptions {
@@ -75,6 +81,7 @@ impl Default for MigrateOptions {
         Self {
             workers: 4,
             fault: None,
+            verified: None,
         }
     }
 }
@@ -108,6 +115,146 @@ pub struct Migrator {
     options: MigrateOptions,
 }
 
+/// The sessions a [`Back`] has still to settle, and the ones asked for ahead of the rest: a serving core lists every one of
+/// them from its first start, and a person who opens one gets it converted next.
+#[derive(Default)]
+pub struct Waiting {
+    state: Mutex<WaitingState>,
+}
+
+#[derive(Default)]
+struct WaitingState {
+    /// Session ids not yet verified or quarantined.
+    open: BTreeSet<String>,
+    /// The ones a converter is on.
+    claimed: BTreeSet<String>,
+    /// Asked for first, oldest request first.
+    asked: std::collections::VecDeque<String>,
+    /// What to run once a session is settled.
+    told: BTreeMap<String, Vec<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Waiting {
+    fn state(&self) -> std::sync::MutexGuard<'_, WaitingState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The sessions still to settle.
+    pub fn pending(&self) -> Vec<String> {
+        self.state().open.iter().cloned().collect()
+    }
+
+    /// Asks for `session` ahead of the rest; `then` runs once it is settled (verified and handed to
+    /// [`MigrateOptions::verified`], or quarantined) or once the run has ended without it. `false`, with `then` dropped
+    /// unrun, when `session` is not one still to settle.
+    pub fn first(&self, session: &str, then: Box<dyn FnOnce() + Send>) -> bool {
+        let mut state = self.state();
+        if !state.open.contains(session) {
+            return false;
+        }
+        if !state.claimed.contains(session) && !state.asked.iter().any(|asked| asked == session) {
+            state.asked.push_back(session.to_owned());
+        }
+        state.told.entry(session.to_owned()).or_default().push(then);
+        true
+    }
+
+    /// The next session asked for that no converter is on, claimed.
+    fn asked(&self) -> Option<String> {
+        let mut state = self.state();
+        while let Some(session) = state.asked.pop_front() {
+            if state.open.contains(&session) && state.claimed.insert(session.clone()) {
+                return Some(session);
+            }
+        }
+        None
+    }
+
+    /// Claims `session` for the calling converter; `false` when another is on it or it is settled.
+    fn claim(&self, session: &str) -> bool {
+        let mut state = self.state();
+        state.open.contains(session) && state.claimed.insert(session.to_owned())
+    }
+
+    fn settled(&self, session: &str) {
+        let told = {
+            let mut state = self.state();
+            state.open.remove(session);
+            state.claimed.remove(session);
+            state.told.remove(session).unwrap_or_default()
+        };
+        told.into_iter().for_each(|then| then());
+    }
+
+    /// The run ended: nothing more is settled by it, and everyone waiting is told.
+    fn ended(&self) {
+        let told = {
+            let mut state = self.state();
+            state.open.clear();
+            state.asked.clear();
+            std::mem::take(&mut state.told)
+        };
+        told.into_values().flatten().for_each(|then| then());
+    }
+}
+
+/// Where [`Migrator::front`] left the migration.
+pub enum Front {
+    /// Complete, now or by an earlier run.
+    Complete(Complete),
+    /// Everything a core waits for is settled; the sessions, their index, disposal and the marker are left.
+    Pending(Back),
+}
+
+/// The rest of a migration whose front is settled: the sessions (one by one, each usable as soon as it is verified), the
+/// index, the verification of the whole, disposal and `complete.json`. A core runs it while it serves; a run that ends
+/// before the marker is resumed by the next [`Migrator::front`], as after any crash.
+pub struct Back {
+    migrator: Migrator,
+    pass: Pass,
+    manifest: Manifest,
+    manifest_sha256: String,
+    journal: Mutex<Journal>,
+    blobs: BlobStatuses,
+    waiting: Arc<Waiting>,
+}
+
+impl Back {
+    fn shared(&self) -> Shared<'_> {
+        Shared {
+            roots: &self.migrator.roots,
+            manifest: &self.manifest,
+            manifest_sha256: &self.manifest_sha256,
+            fault: self.migrator.options.fault.as_ref(),
+            blobs: &self.blobs,
+            journal: &self.journal,
+            waiting: Some(&self.waiting),
+        }
+    }
+
+    /// The sessions still to settle, and the way to ask for one ahead of the rest.
+    pub fn waiting(&self) -> Arc<Waiting> {
+        self.waiting.clone()
+    }
+
+    /// The session items the manifest plans: how many there are to take in.
+    pub fn sessions(&self) -> usize {
+        self.manifest.items.iter().filter(|item| item.key.as_str().starts_with("session/")).count()
+    }
+
+    /// Runs the rest to the completion marker.
+    pub fn run(self) -> Result<Complete> {
+        let Back { migrator, pass, .. } = &self;
+        let pass = match pass {
+            Pass::First => Pass::First,
+            Pass::Late(counts) => Pass::Late(*counts),
+        };
+        let outcome = migrator.finish(&self.shared(), pass);
+        self.waiting.ended();
+        outcome
+    }
+}
+
 /// The quarantine folder name of a code (`QuarantineCode`'s serde name).
 pub fn code_name(code: QuarantineCode) -> String {
     serde_json::to_value(code)
@@ -130,6 +277,7 @@ struct Shared<'a> {
     fault: Option<&'a FaultHook>,
     blobs: &'a BlobStatuses,
     journal: &'a Mutex<Journal>,
+    waiting: Option<&'a Waiting>,
 }
 
 impl Shared<'_> {
@@ -191,28 +339,54 @@ impl Migrator {
 
     /// Runs (or resumes) the migration to its completion marker.
     pub fn run(&self) -> Result<Complete> {
+        match self.front()? {
+            Front::Complete(complete) => Ok(complete),
+            Front::Pending(back) => back.run(),
+        }
+    }
+
+    /// Runs (or resumes) the part of the migration a core waits for before it serves: the plan, and every wave before the
+    /// sessions (settings, stores, the ledger, the profile's tables). What is left is the returned [`Back`].
+    pub fn front(&self) -> Result<Front> {
         let data = &self.roots.data;
         // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
         durable::sweep_tmp(&data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
         let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
-            return self.pass(Pass::First);
+            return self.begin(self.roots.clone(), Pass::First);
         };
         let complete: Complete = serde_json::from_slice(&bytes)
             .map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
         match self.late_profile(&complete)? {
-            Some(profile) => {
-                let late = Migrator::new(
-                    MigrationRoots { profile: Some(profile), ..self.roots.clone() },
-                    self.drivers.clone(),
-                    self.options.clone(),
-                );
-                late.pass(Pass::Late(complete.kinds.data))
-            }
+            Some(profile) => self.begin(MigrationRoots { profile: Some(profile), ..self.roots.clone() }, Pass::Late(complete.kinds.data)),
             None => {
                 durable::remove_dir_all(&data.join(STAGE_DIR))?;
-                Ok(complete)
+                Ok(Front::Complete(complete))
             }
         }
+    }
+
+    fn begin(&self, roots: MigrationRoots, pass: Pass) -> Result<Front> {
+        let migrator = Migrator::new(roots, self.drivers.clone(), self.options.clone());
+        let (manifest, manifest_sha256, journal) = migrator.open_or_plan(&pass)?;
+        let waiting = Waiting::default();
+        waiting.state().open = manifest
+            .items
+            .iter()
+            .filter_map(|item| item.key.as_str().strip_prefix("session/").map(|id| (item, id)))
+            .filter(|(item, _)| journal.progress(item.key.as_str()).is_some_and(|p| matches!(p.state, ItemState::Planned | ItemState::Staged | ItemState::Published)))
+            .map(|(_, id)| id.to_owned())
+            .collect();
+        let back = Back {
+            migrator,
+            pass,
+            manifest,
+            manifest_sha256,
+            journal: Mutex::new(journal),
+            blobs: BlobStatuses::default(),
+            waiting: Arc::new(waiting),
+        };
+        back.migrator.convert(&back.shared(), Wave::before_serving)?;
+        Ok(Front::Pending(back))
     }
 
     /// The profile a completed migration still has to migrate: one is named now and the
@@ -254,20 +428,11 @@ impl Migrator {
         Ok(self.roots.profile.clone())
     }
 
-    fn pass(&self, pass: Pass) -> Result<Complete> {
+    /// The waves a core does not wait for, then verification of the whole, disposal and the completion marker.
+    fn finish(&self, shared: &Shared<'_>, pass: Pass) -> Result<Complete> {
         let data = &self.roots.data;
-        let (manifest, manifest_sha256, journal) = self.open_or_plan(&pass)?;
-        let journal = Mutex::new(journal);
-        let blobs = BlobStatuses::default();
-        let shared = Shared {
-            roots: &self.roots,
-            manifest: &manifest,
-            manifest_sha256: &manifest_sha256,
-            fault: self.options.fault.as_ref(),
-            blobs: &blobs,
-            journal: &journal,
-        };
-        self.convert(&shared)?;
+        let (journal, manifest_sha256) = (shared.journal, shared.manifest_sha256);
+        self.convert(shared, |wave| !wave.before_serving())?;
         if !journal.lock().expect("journal").verified_all() {
             shared.record(
                 "verified_all",
@@ -283,21 +448,21 @@ impl Migrator {
             Some(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|e| Blocked::journal(format!("{COUNTS_FILE}: {e}")))?,
             None => {
-                let kinds = self.counts(&shared)?;
+                let kinds = self.counts(shared)?;
                 self.fault("counts:before")?;
                 durable::publish_file(&counts_path, &serde_json::to_vec(&kinds).expect("counts encode"))?;
                 self.fault("counts:after")?;
                 kinds
             }
         };
-        self.dispose(&shared)?;
+        self.dispose(shared)?;
         // The late pass planned no data item: the data counts stay the first pass's.
         if let Pass::Late(data_counts) = pass {
             kinds.data = data_counts;
         }
         let complete = Complete {
             format: COMPLETE_FORMAT,
-            manifest_sha256: manifest_sha256.clone(),
+            manifest_sha256: manifest_sha256.to_owned(),
             journal_end_ordinal: journal.lock().expect("journal").next_ordinal(),
             kinds,
         };
@@ -378,50 +543,114 @@ impl Migrator {
             .collect()
     }
 
-    fn convert(&self, shared: &Shared<'_>) -> Result<()> {
+    /// Drives the items of the waves `which` picks, wave by wave.
+    fn convert(&self, shared: &Shared<'_>, which: impl Fn(Wave) -> bool) -> Result<()> {
         let mut waves: BTreeMap<Wave, Vec<&ManifestItem>> = BTreeMap::new();
         for item in &shared.manifest.items {
-            waves
-                .entry(self.driver(item)?.wave(item))
-                .or_default()
-                .push(item);
+            let wave = self.driver(item)?.wave(item);
+            if which(wave) {
+                waves.entry(wave).or_default().push(item);
+            }
         }
-        for (wave, items) in waves {
-            let states = self.states(shared);
-            let cx = shared.cx(&states);
-            let workers = if wave == Wave::Sessions {
-                self.options.workers.max(1)
-            } else {
-                1
-            };
-            if workers == 1 {
-                for item in items {
-                    self.drive(shared, &cx, item)?;
-                }
-                continue;
+        for (wave, mut items) in waves {
+            if wave == Wave::Sessions && self.options.verified.is_some() {
+                self.newest_first(shared, &mut items);
             }
-            let next = AtomicUsize::new(0);
-            let stop = AtomicBool::new(false);
-            let failure: Mutex<Option<Blocked>> = Mutex::new(None);
-            std::thread::scope(|scope| {
-                for _ in 0..workers {
-                    scope.spawn(|| {
-                        while !stop.load(Ordering::Relaxed) {
-                            let i = next.fetch_add(1, Ordering::Relaxed);
-                            let Some(item) = items.get(i) else { break };
-                            if let Err(e) = self.drive(shared, &cx, item) {
-                                stop.store(true, Ordering::Relaxed);
-                                failure.lock().expect("failure").get_or_insert(e);
-                            }
-                        }
-                    });
-                }
-            });
-            if let Some(e) = failure.into_inner().expect("failure") {
-                return Err(e);
-            }
+            self.wave(shared, wave, &items)?;
         }
         Ok(())
+    }
+
+    /// Orders session items by their newest source, newest first (a source that is gone sorts last; ties keep key order).
+    fn newest_first(&self, shared: &Shared<'_>, items: &mut [&ManifestItem]) {
+        let newest = |item: &ManifestItem| {
+            item.sources
+                .iter()
+                .filter_map(|source| durable::modified(&shared.roots.resolve(source.root, &source.path).ok()?))
+                .max()
+        };
+        items.sort_by_cached_key(|item| std::cmp::Reverse(newest(item)));
+    }
+
+    /// Drives one item, and tells the hook of a session it leaves verified.
+    fn settle(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
+        self.drive(shared, cx, item)?;
+        let Some(id) = item.key.as_str().strip_prefix("session/") else {
+            return Ok(());
+        };
+        let verified = shared.journal.lock().expect("journal").progress(item.key.as_str()).is_some_and(|p| p.state == ItemState::Verified);
+        if let Some(hook) = self.options.verified.as_ref().filter(|_| verified) {
+            hook(id);
+        }
+        if let Some(waiting) = shared.waiting {
+            waiting.settled(id);
+        }
+        Ok(())
+    }
+
+    /// The next item a converter of the session wave takes: a session asked for first, else the next of `items` in order
+    /// that no other converter is on.
+    fn take<'i>(&self, shared: &'i Shared<'_>, waiting: &Waiting, items: &[&'i ManifestItem], next: &AtomicUsize) -> Option<&'i ManifestItem> {
+        loop {
+            if let Some(id) = waiting.asked() {
+                let key = format!("session/{id}");
+                match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
+                    Ok(at) => return Some(&shared.manifest.items[at]),
+                    Err(_) => {
+                        waiting.settled(&id);
+                        continue;
+                    }
+                }
+            }
+            let item = *items.get(next.fetch_add(1, Ordering::Relaxed))?;
+            match item.key.as_str().strip_prefix("session/") {
+                // Settled by an earlier run, taken ahead of its turn, or another converter is on it.
+                Some(id) if !waiting.claim(id) => continue,
+                _ => return Some(item),
+            }
+        }
+    }
+
+    /// Drives `items` of one wave to `verified` or `quarantined`, over the item states as they are when it starts.
+    fn wave(&self, shared: &Shared<'_>, wave: Wave, items: &[&ManifestItem]) -> Result<()> {
+        let states = self.states(shared);
+        let cx = shared.cx(&states);
+        let workers = if wave == Wave::Sessions {
+            self.options.workers.max(1)
+        } else {
+            1
+        };
+        let waiting = shared.waiting.filter(|_| wave == Wave::Sessions);
+        if workers == 1 && waiting.is_none() {
+            for item in items {
+                self.settle(shared, &cx, item)?;
+            }
+            return Ok(());
+        }
+        let next = AtomicUsize::new(0);
+        let stop = AtomicBool::new(false);
+        let failure: Mutex<Option<Blocked>> = Mutex::new(None);
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    while !stop.load(Ordering::Relaxed) {
+                        let item = match waiting {
+                            Some(waiting) => self.take(shared, waiting, items, &next),
+                            None => items.get(next.fetch_add(1, Ordering::Relaxed)).copied(),
+                        };
+                        let Some(item) = item else { break };
+                        if let Err(e) = self.settle(shared, &cx, item) {
+                            stop.store(true, Ordering::Relaxed);
+                            failure.lock().expect("failure").get_or_insert(e);
+                        }
+                    }
+                });
+            }
+        });
+        match failure.into_inner().expect("failure") {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Writes `reason.json`, withdraws a published target, then journals `quarantined`.
@@ -545,11 +774,22 @@ impl Migrator {
             }
             let (size, sha) = durable::hash_file(&path)?;
             if size != source.size || sha != source.sha256 {
+                if self.core_serves() {
+                    continue;
+                }
                 return Err(Blocked::SourceChanged { path });
             }
             present.push(path);
         }
         Ok(present)
+    }
+
+    /// Whether a core serves while this run converts ([`MigrateOptions::verified`]). Every item was settled from the
+    /// planned bytes; a file that differs from them at disposal is one that core has written since under the same name
+    /// (a cache 1.4.5 kept and the core keeps too), so it is the core's and stays. With no core serving nothing but an
+    /// earlier version can have written it, and the run is blocked.
+    fn core_serves(&self) -> bool {
+        self.options.verified.is_some()
     }
 
     fn dispose(&self, shared: &Shared<'_>) -> Result<()> {
@@ -633,6 +873,9 @@ impl Migrator {
             }
             let (size, sha) = durable::hash_file(&path)?;
             if size != file.file.size || sha != file.file.sha256 {
+                if self.core_serves() {
+                    continue;
+                }
                 return Err(Blocked::SourceChanged { path });
             }
             shared.fault(&format!("delete-shared:{}:before", file.file.path))?;

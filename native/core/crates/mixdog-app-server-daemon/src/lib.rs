@@ -166,7 +166,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         },
     )
     .await?;
-    let boot::Begun { started, booting, watch } = begun;
+    let boot::Begun { started, booting, watch, behind } = begun;
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
     // The daemon's run token and the one daemon log (`<data>/daemon.log`). Compose and every writer share the log; the one stop procedure
     // (`ComposedCore::run_stop_steps`) flushes it after the last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and
@@ -211,6 +211,15 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         }
     };
     tracing::info!("core composed");
+    // The sessions of the earlier version still to convert are listed before the first client can read the list, by the rows that version kept; an open of one waits for
+    // its conversion, which the open asks for ahead of the rest.
+    let mut behind = behind;
+    if let Some(behind) = behind.as_mut() {
+        behind.list(&core.catalog_index()).await;
+        if let Err(error) = core.set_arriving(behind.arriving()) {
+            tracing::error!(error, "the sessions still to convert could not be bound to the directory");
+        }
+    }
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
     let served = async {
         let serving = serving::attach(booting, core.clone(), outgoing).await?;
@@ -253,6 +262,15 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     core.open_memory_in_background();
     // A pinned channel session outlives the core that pinned it (daemon.mjs:1284-1293): restored after ready, off the boot path.
     core.restore_remote_intent();
+    // The sessions of the earlier version convert from here, behind the serving core: each is listed once it is verified, and a conversion the stop cuts is resumed by the next start.
+    if let Some(behind) = behind
+        && let Err(error) = behind.run(core.catalog_index(), stop.clone(), {
+            let log = ready_log.clone();
+            move |line| log.log(line)
+        })
+    {
+        tracing::error!(%error, "the thread that converts the earlier version's sessions could not start; the next start tries again");
+    }
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.

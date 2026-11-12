@@ -66,6 +66,18 @@ pub fn migrate(
     Migrator::new(roots, product_drivers(projector, office), MigrateOptions::default()).run()
 }
 
+/// Runs (or resumes) what a core waits for before it serves ([`Migrator::front`]); the rest is the returned
+/// [`super::Back`], which converts the sessions behind the serving core. `options.verified` and a `projector` that names
+/// its serving index are that core's way to take each session in.
+pub fn front(
+    roots: MigrationRoots,
+    projector: Arc<dyn IndexProjector>,
+    office: OfficeExtractor,
+    options: MigrateOptions,
+) -> Result<super::Front, Blocked> {
+    Migrator::new(roots, product_drivers(projector, office), options).front()
+}
+
 /// The roots of `mixdogd migrate`: `args` over the process environment; when there are none,
 /// says why on stderr and gives `EXIT_NO_DATA_DIR`.
 pub fn roots(args: &MigrateArgs) -> Result<MigrationRoots, u8> {

@@ -210,7 +210,7 @@ impl ItemDriver for DesktopProfileDriver {
 
     fn wave(&self, item: &ManifestItem) -> Wave {
         match family_of(item) {
-            Ok(Family::State | Family::Config | Family::SessionMetadata) => Wave::Late,
+            Ok(Family::State | Family::Config | Family::SessionMetadata) => Wave::Settings,
             _ => Wave::Stores,
         }
     }

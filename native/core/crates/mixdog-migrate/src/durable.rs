@@ -317,6 +317,11 @@ pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
+/// When a file was last written; `None` when it is gone or the platform does not say.
+pub fn modified(path: &Path) -> Option<std::time::SystemTime> {
+    fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
+}
+
 /// `(size, sha256 hex)` of a file, streamed.
 pub fn hash_file(path: &Path) -> Result<(u64, String)> {
     let mut file = File::open(path).map_err(|e| Blocked::io("open", path, e))?;

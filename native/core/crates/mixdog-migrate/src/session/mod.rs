@@ -8,6 +8,7 @@ pub mod ids;
 pub mod model;
 pub mod observe;
 pub mod restore;
+pub mod listed;
 pub mod source;
 pub mod splice;
 pub mod target;
@@ -177,7 +178,21 @@ impl ItemDriver for SessionDriver {
         let add = |sink: &mut PlanSink, key: String, kind, contract, sources| -> Result<()> {
             sink.add_item(plan::item(&key, KindGroup::Data, kind, contract, sources, None)?)
         };
-        for (name, is_dir) in durable::list_dir(&roots.data.join(SESSIONS_DIR))? {
+        let listed = durable::list_dir(&roots.data.join(SESSIONS_DIR))?;
+        let checkpoints = durable::list_dir(&roots.data.join(CHECKPOINT_DIR))?;
+        let ahead: Vec<String> = listed
+            .iter()
+            .filter(|(name, is_dir)| !is_dir && classify(name) != Entry::Unknown)
+            .map(|(name, _)| format!("{SESSIONS_DIR}/{name}"))
+            .chain(
+                checkpoints
+                    .iter()
+                    .filter(|(name, is_dir)| !is_dir && with_id(name, ".json").or_else(|| with_id(name, ".jsonl")).is_some())
+                    .map(|(name, _)| format!("{CHECKPOINT_DIR}/{name}")),
+            )
+            .collect();
+        sink.hash_ahead(data, &ahead)?;
+        for (name, is_dir) in listed {
             if is_dir {
                 continue;
             }
@@ -203,7 +218,7 @@ impl ItemDriver for SessionDriver {
                 None => add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![s])?,
             }
         }
-        for (name, is_dir) in durable::list_dir(&roots.data.join(CHECKPOINT_DIR))? {
+        for (name, is_dir) in checkpoints {
             let id = with_id(&name, ".json").or_else(|| with_id(&name, ".jsonl"));
             let (false, Some(id)) = (is_dir, id) else { continue };
             let rel = format!("{CHECKPOINT_DIR}/{name}");

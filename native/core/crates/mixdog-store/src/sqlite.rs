@@ -632,6 +632,8 @@ enum Command {
     Project { projection: Projection, ack: Option<Ack> },
     Labels { labels: PlaceholderLabels, ack: Ack },
     OffloadScan { session: String, ordinal: i64, sources: Vec<String>, ack: Ack },
+    /// The list row of a session still to be converted ([`SqliteStore::list_pending`]).
+    Pending { head: Box<CatalogHead>, stats: Box<crate::summary::MessageStats>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
@@ -1068,6 +1070,13 @@ impl Writer {
                     }
                     Command::OffloadScan { session, ordinal, sources, ack } => {
                         record_offload_scan(&tx, &session, ordinal, &sources)?;
+                        acks.push(ack);
+                    }
+                    Command::Pending { head, stats, ack } => {
+                        // A row there is (taken in already, or listed by an earlier start) is left as it is.
+                        if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
+                            write_row(&tx, &crate::summary::catalog_row(&head, &stats, now_ms()), DirtyMark::Clear, &self.labels)?;
+                        }
                         acks.push(ack);
                     }
                     Command::Close => unreachable!("the writer stops before it queues a close"),
@@ -2477,6 +2486,92 @@ impl ProjectTo for ToWriter<'_> {
             return Ok(());
         }
         self.send(session, frames, None)
+    }
+}
+
+/// The way into the open index of a session it holds no row of ([`SqliteStore::adopt`]): the row is written first, marked
+/// dirty, as a rebuild writes it before the frames; then each message is applied by the writer thread while the caller waits.
+struct Adopting<'a>(&'a mpsc::Sender<Command>);
+
+impl Adopting<'_> {
+    fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), String> {
+        let stopped = || "the index writer stopped".to_owned();
+        let (ack, done) = oneshot::channel();
+        self.0.send(make(ack)).map_err(|_| stopped())?;
+        done.blocking_recv().map_err(|_| stopped())?.map_err(|e| e.to_string())
+    }
+
+    fn row(&self, head: &CatalogHead, dirty: DirtyMark) -> Result<(), String> {
+        self.ask(|ack| Command::Upsert { head: Box::new(head.clone()), dirty, ack: Some(ack) })
+    }
+}
+
+impl ProjectTo for Adopting<'_> {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        self.row(head, DirtyMark::Set)
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if frames.is_empty() {
+            return Ok(());
+        }
+        ToWriter(self.0).send(session, frames, None)
+    }
+}
+
+/// The `log_id` of the row of a session the migration has still to convert: it has no log yet. The row is what the earlier
+/// version listed for it, so the session is in the list from the first start; taking the session in replaces it.
+pub const PENDING_LOG_ID: &str = "migration-pending";
+
+impl SqliteStore {
+    /// Lists a session the migration has still to convert, by the row the earlier version kept of it: `head.header` and
+    /// `stats` are that row's fields, and `head.log_id` is [`PENDING_LOG_ID`]. A session the index holds a row of is left
+    /// as it is.
+    pub async fn list_pending(&self, head: CatalogHead, stats: crate::summary::MessageStats) -> Result<(), DbError> {
+        self.ask(|ack| Command::Pending { head: Box::new(head), stats: Box::new(stats), ack }).await
+    }
+
+    /// The sessions still listed by a pending row.
+    pub async fn pending_sessions(&self) -> Result<Vec<String>, DbError> {
+        self.read(|c| {
+            let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE log_id = ?1 AND deleted = 0")?;
+            let rows = stmt.query_map([PENDING_LOG_ID], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            Ok(rows)
+        })
+        .await
+    }
+
+    /// Brings a session whose folder another writer published under `<data>/sessions` while the index is open (the
+    /// migration, converting behind a serving core) into the index: its row, then every frame of its log, then the row again
+    /// from the folded log, written clean. The row goes through the writer's own upsert, so the row sink is told of it as of
+    /// any created session. A session the index already holds a row of is left as it is, unless the row is a pending one
+    /// ([`PENDING_LOG_ID`]): that row stays as listed while the frames go in from the cursor it holds, and the folded row
+    /// replaces it. A process that ends in between leaves the row to be taken in again, from its cursor.
+    ///
+    /// Blocks the calling thread on the log's reads and the writer's answers: it must be no runtime's thread.
+    #[allow(clippy::disallowed_methods, reason = "blocking by contract: the caller is the migration's own thread")]
+    pub fn adopt(&self, data: &Path, session: &str) -> Result<(), DbError> {
+        let held: Option<String> =
+            self.shared.gate.with(|c| Ok(c.prepare_cached("SELECT log_id FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?))?;
+        let from = match held.as_deref() {
+            None => None,
+            Some(PENDING_LOG_ID) => self.shared.gate.with(|c| projected_on(c, session))?,
+            Some(_) => return Ok(()),
+        };
+        let mut to = Adopting(self.shared.gate.feed()?);
+        let dir = data.join("sessions").join(session);
+        let mut fold = None;
+        let damage = project_session(&mut to, &dir, &crate::blobs::BlobStore::new(data), &mut fold, from)
+            .map_err(DbError::Write)?
+            .err()
+            .map(|(error, at)| damage_text(&dir, at, &error));
+        let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
+        to.row(&head, DirtyMark::Clear).map_err(DbError::Write)?;
+        if let Some(damage) = damage {
+            let session = session.to_owned();
+            to.ask(|ack| Command::Status { session, status: SessionStatus::Damaged, damage: Some(damage), ack }).map_err(DbError::Write)?;
+        }
+        Ok(())
     }
 }
 

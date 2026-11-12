@@ -4,7 +4,8 @@
 //! 2. the control listener and the `booting` discovery (`serving::begin`, run as `startup::start`'s `init`);
 //! 3. the prior-owner verdict, a blocked one published on the lifecycle (discovery and the control listener answer it);
 //! 4. barrier `B`;
-//! 5. the migration (`mixdog_migrate::run::cli::migrate`, the roots of `mixdogd migrate`), the lifecycle `migrating` while it runs.
+//! 5. the migration's front (`mixdog_migrate::run::cli::front`, the roots of `mixdogd migrate`), the lifecycle `migrating` while it runs: the plan and everything but the
+//!    sessions. The sessions convert behind the serving core ([`Behind`]), so a first start after the update does not wait for them.
 //!
 //! Step 6 (composition, then the RPC listener and `serving`) is `serve`'s.
 
@@ -13,6 +14,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
 use mixdog_exthost::ExtDocumentText;
@@ -20,6 +23,10 @@ use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostPool;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::index::IndexProjector;
+use mixdog_migrate::index::ServingIndex;
+use mixdog_migrate::run::Back;
+use mixdog_migrate::run::Front;
+use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
 use mixdog_rt::LaneTokens;
@@ -46,6 +53,8 @@ pub struct Begun {
     pub booting: Booting,
     /// The one stop watcher, live from the start of boot to the end of `serve`.
     pub watch: StopWatch,
+    /// The sessions of the earlier version still to convert, once the core serves; `None` when the migration is complete.
+    pub behind: Option<Behind>,
 }
 
 /// The index projector of the migration: the store's `project_index`, which builds each catalog row with the store's one row builder (the same one as its live upsert).
@@ -103,9 +112,138 @@ fn migration_roots(data_dir: &Path, env: &dyn Fn(&str) -> Option<std::ffi::OsStr
         .ok_or_else(|| "no home directory for the migration roots (set MIXDOG_HOME or HOME)".to_owned())
 }
 
-/// The migration on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
-/// The host it uses is its own, closed when the migration returns; the core's starts later.
-fn migrate_data(data_dir: &Path, host: ExtHostConfig, runtime: &tokio::runtime::Handle) -> Result<(), String> {
+/// The index of the serving core as the migration reaches it: bound once the core is composed, which is before any session converts.
+#[derive(Default)]
+pub struct ServingProjector {
+    index: OnceLock<Arc<mixdog_store::sqlite::SqliteStore>>,
+}
+
+impl IndexProjector for ServingProjector {
+    fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
+        mixdog_store::sqlite::project_index(data, db, sessions)
+    }
+
+    fn serving(&self) -> Option<&dyn ServingIndex> {
+        Some(self)
+    }
+}
+
+impl ServingIndex for ServingProjector {
+    fn adopt(&self, data: &Path, session: &str) -> Result<(), String> {
+        let index = self.index.get().ok_or("the core's index is not open")?;
+        index.adopt(data, session).map_err(|error| error.to_string())
+    }
+}
+
+/// What the migration left for after the core serves ([`mixdog_migrate::run::Back`]): the sessions of the earlier version, converted one by one behind the serving core, each
+/// listed as soon as it is verified. Nobody waits for it: a person's first start after the update opens on the settings, the projects and the stores alone.
+pub struct Behind {
+    back: Back,
+    /// The migration's own extension host (its office extractor reads through it), closed when the conversion ends.
+    pool: Arc<ExtHostPool>,
+    runtime: tokio::runtime::Handle,
+    projector: Arc<ServingProjector>,
+    /// Set when the core stops: the conversion ends at its next step, as a kill would end it, and the next start resumes it.
+    stopped: Arc<AtomicBool>,
+    /// What the earlier version listed of its sessions (`mixdog_migrate::session::listed`), read before the core composed.
+    listed: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
+}
+
+/// The pending row of a session the earlier version listed by `row`: its message fields are the row's own, the rest is the header the row is built from.
+fn pending_row(session: String, mut row: serde_json::Map<String, serde_json::Value>) -> (mixdog_store::summary::CatalogHead, mixdog_store::summary::MessageStats) {
+    use serde_json::Value;
+    let mut text = |key: &str| match row.shift_remove(key) {
+        Some(Value::String(text)) => text,
+        _ => String::new(),
+    };
+    let (preview, last) = (text("preview"), text("lastMessagePreview"));
+    let mut count = |key: &str| row.shift_remove(key).and_then(|count| count.as_u64()).unwrap_or(0);
+    let stats = mixdog_store::summary::MessageStats {
+        count: count("messageCount"),
+        real: count("realTurnCount"),
+        incoming: row.shift_remove("incomingTail").and_then(|tail| serde_json::from_value(tail).ok()),
+        preview,
+        last,
+        last_routine: row.shift_remove("lastMessageRoutine").unwrap_or(Value::Null),
+    };
+    (mixdog_store::summary::CatalogHead { session, log_id: mixdog_store::sqlite::PENDING_LOG_ID.to_owned(), base_session: None, header: row }, stats)
+}
+
+/// The sessions still to convert, as the directory asks for one that is opened.
+struct Converting(Arc<mixdog_migrate::run::Waiting>);
+
+impl mixdog_core_session::session::ArrivingThreads for Converting {
+    fn arriving(&self, thread: &mixdog_protocol::ThreadId) -> Option<futures::future::BoxFuture<'static, ()>> {
+        let (settled, there) = tokio::sync::oneshot::channel();
+        let asked = self.0.first(thread.as_str(), Box::new(move || drop(settled.send(()))));
+        asked.then(|| -> futures::future::BoxFuture<'static, ()> {
+            Box::pin(async move {
+                let _ = there.await;
+            })
+        })
+    }
+}
+
+impl Behind {
+    /// Lists every session still to convert by the row the earlier version kept of it, so the list is whole before the first client reads it. A session that version listed
+    /// no row of appears when it is converted.
+    pub async fn list(&mut self, index: &mixdog_store::sqlite::SqliteStore) {
+        let waiting: std::collections::BTreeSet<String> = self.back.waiting().pending().into_iter().collect();
+        let rows = std::mem::take(&mut self.listed).into_iter().filter(|(session, _)| waiting.contains(session));
+        let written = futures::future::join_all(rows.map(|(session, row)| {
+            let (head, stats) = pending_row(session, row);
+            index.list_pending(head, stats)
+        }))
+        .await;
+        if let Some(error) = written.into_iter().find_map(Result::err) {
+            tracing::warn!(%error, "a session of the earlier version could not be listed before it is converted");
+        }
+    }
+
+    /// The directory's view of the sessions still to convert: one that is opened is converted next.
+    pub fn arriving(&self) -> Arc<dyn mixdog_core_session::session::ArrivingThreads> {
+        Arc::new(Converting(self.back.waiting()))
+    }
+
+    /// Converts the rest on a thread of its own, taking each session into `index`; returns at once. `stop` is the core's run token.
+    #[allow(clippy::disallowed_methods, reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take")]
+    pub fn run(self, index: Arc<mixdog_store::sqlite::SqliteStore>, stop: mixdog_rt::CancellationToken, report: impl Fn(&str) + Send + 'static) -> std::io::Result<()> {
+        let Behind { back, pool, runtime, projector, stopped, .. } = self;
+        let _ = projector.index.set(index.clone());
+        drop(mixdog_rt::spawn("migration-stop", mixdog_rt::TaskClass::Work, async move {
+            stop.cancelled().await;
+            stopped.store(true, Ordering::SeqCst);
+        }));
+        let sessions = back.sessions();
+        std::thread::Builder::new().name("mixdog-migrate".to_owned()).spawn(move || {
+            let _entered = runtime.enter();
+            let began = std::time::Instant::now();
+            report(&format!("migration: converting {sessions} sessions of the earlier version behind the serving core"));
+            let outcome = back.run();
+            runtime.block_on(pool.close());
+            let seconds = began.elapsed().as_secs();
+            match outcome {
+                Ok(_) => {
+                    // A session listed by its pending row that the migration set aside is no session: its row goes.
+                    let unlisted = runtime.block_on(async {
+                        let left = index.pending_sessions().await?;
+                        for session in &left {
+                            index.mark_deleted(session).await?;
+                        }
+                        Ok::<_, mixdog_store::sqlite::DbError>(left.len())
+                    });
+                    report(&format!("migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?})"));
+                }
+                Err(blocked) => report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}")),
+            }
+        })?;
+        Ok(())
+    }
+}
+
+/// The migration's front on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
+/// The host it uses is its own, closed when the migration ends; the core's starts later. `None`: the migration is complete.
+fn migrate_data(data_dir: &Path, host: ExtHostConfig, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
@@ -113,9 +251,41 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, runtime: &tokio::runtime::
                 let _entered = runtime.enter();
                 let pool = Arc::new(ExtHostPool::new(host).map_err(|error| format!("starting the extension host: {error}"))?);
                 let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.clone() };
-                let outcome = mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office);
-                runtime.block_on(pool.close());
-                outcome.map(drop).map_err(|blocked| blocked.to_string())
+                let projector = Arc::new(ServingProjector::default());
+                let stopped = Arc::new(AtomicBool::new(false));
+                let data = roots.data.clone();
+                let options = MigrateOptions {
+                    // Half the machine: the sessions are listed sooner than the one-shot run's four converters would list them, and the serving core keeps the other half.
+                    workers: std::thread::available_parallelism().map_or(4, usize::from).div_ceil(2).clamp(4, 12),
+                    fault: Some({
+                        let stopped = stopped.clone();
+                        Arc::new(move |_| if stopped.load(Ordering::SeqCst) { Err(mixdog_migrate::error::Blocked::journal("the core is stopping")) } else { Ok(()) })
+                    }),
+                    verified: Some({
+                        let (projector, data) = (projector.clone(), roots.data.clone());
+                        Arc::new(move |session| {
+                            // The index item takes in whatever is missed here, before the migration completes.
+                            if let Err(error) = projector.adopt(&data, session) {
+                                tracing::warn!(%error, session, "a converted session could not be listed yet");
+                            }
+                        })
+                    }),
+                    ..MigrateOptions::default()
+                };
+                match mixdog_migrate::run::cli::front(roots, projector.clone(), office, options) {
+                    Ok(Front::Pending(back)) => {
+                        let listed = mixdog_migrate::session::listed::rows(&data);
+                        Ok(Some(Behind { back, pool, runtime: runtime.clone(), projector, stopped, listed }))
+                    }
+                    Ok(Front::Complete(_)) => {
+                        runtime.block_on(pool.close());
+                        Ok(None)
+                    }
+                    Err(blocked) => {
+                        runtime.block_on(pool.close());
+                        Err(blocked.to_string())
+                    }
+                }
             })
             .join()
             .unwrap_or_else(|_| Err("the migration panicked".to_owned()))
@@ -145,9 +315,14 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
             Ok(())
         }
     };
+    let behind: Arc<Mutex<Option<Behind>>> = Arc::default();
     let migrate = {
-        let (data_dir, runtime) = (data_dir.to_path_buf(), tokio::runtime::Handle::current());
-        move || migrate_data(&data_dir, host, &runtime)
+        let (data_dir, runtime, behind) = (data_dir.to_path_buf(), tokio::runtime::Handle::current(), behind.clone());
+        move || {
+            let left = migrate_data(&data_dir, host, &runtime)?;
+            *behind.lock().unwrap_or_else(PoisonError::into_inner) = left;
+            Ok(())
+        }
     };
     // A stop request during startup (Node's signal handlers are installed before its start, `daemon.mjs:1297`) wakes a blocked verdict wait through the interrupt, which refuses
     // the start with `B` untouched. The migration cannot be interrupted: a stop waits until it has finished (`CommandError`'s text), and is honoured right after.
@@ -174,7 +349,8 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let started = started?;
     crate::stale_temps::sweep_summary_temps_of_start(tokens, data_dir).await;
     let booting = booted.lock().unwrap_or_else(PoisonError::into_inner).take().expect("startup ran init before it returned");
-    Ok(Begun { started, booting, watch })
+    let behind = behind.lock().unwrap_or_else(PoisonError::into_inner).take();
+    Ok(Begun { started, booting, watch, behind })
 }
 
 #[cfg(test)]

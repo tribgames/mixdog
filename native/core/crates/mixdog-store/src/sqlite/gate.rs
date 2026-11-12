@@ -178,6 +178,12 @@ impl Gate {
         self.pool.with(f)
     }
 
+    /// The writer's channel, for code that feeds the writer from its own thread: blocks it until the reconcile has ended.
+    pub(super) fn feed(&self) -> Result<&mpsc::Sender<Command>, DbError> {
+        self.settlement.wait_here()?;
+        Ok(&self.sender)
+    }
+
     /// A writer request, sent once the reconcile has ended; resolves with the writer's answer.
     pub(super) async fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), DbError> {
         self.settlement.waited().await?;
