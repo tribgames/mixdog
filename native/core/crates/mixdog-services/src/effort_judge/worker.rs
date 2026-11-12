@@ -274,6 +274,12 @@ impl JudgeWorker {
         self.shared.retire(None, true);
     }
 
+    /// Lets thread `generation` go if it still takes jobs: the host under it died, or the model was
+    /// unloaded for being idle. A newer thread is left alone.
+    pub(crate) fn retire(&self, generation: u64) {
+        self.shared.retire(Some(generation), true);
+    }
+
     /// The thread taking jobs, started when none runs and fewer than [`THREADS`] are alive.
     fn taking(&self) -> Result<Arc<Live>, JudgeError> {
         let mut threads = lock(&self.shared.threads);

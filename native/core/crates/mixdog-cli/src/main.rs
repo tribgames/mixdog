@@ -46,6 +46,16 @@ enum Command {
     },
     /// Headless one-shot: ask once on a pristine root, print the answer.
     Exec(exec::ExecArgs),
+    /// The process the effort judge's model runs in; started by the core, never by a user.
+    #[command(name = "effort-judge-host", hide = true)]
+    EffortJudgeHost {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long)]
+        ort_library: PathBuf,
+        #[arg(long)]
+        explicit: bool,
+    },
 }
 
 #[derive(Args)]
@@ -139,6 +149,9 @@ fn main() -> ExitCode {
             ExitCode::from(mixdog_app_server_daemon::server_ensure::main(&argument) as u8)
         }
         Command::Exec(args) => exec_command(args),
+        Command::EffortJudgeHost { dir, ort_library, explicit } => {
+            ExitCode::from(mixdog_app_server_daemon::effort_judge_host::run(dir, ort_library, explicit) as u8)
+        }
     }
 }
 

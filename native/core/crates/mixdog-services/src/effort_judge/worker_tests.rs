@@ -15,7 +15,7 @@ use mixdog_rt::{CancellationToken, CpuBulk, InLane, LaneToken};
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::input::TurnInput;
-use crate::effort_judge::judge::{JudgeOptions, Resident, Script};
+use crate::effort_judge::judge::{JudgeOptions, KEEP_WARM, RELOAD_WAIT, Resident, Script};
 use crate::effort_judge::ladder::{AutoLadder, StepLadder};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::effort_judge::worker::{Alarm, STUCK, Stopper, THREADS};
@@ -667,4 +667,178 @@ async fn shutdown_answers_the_running_and_queued_turns_and_waits_for_no_thread()
     assert_ne!(rig.next_start().await, one);
     assert_eq!(rig.loads(), 2);
     assert_eq!(rig.log, ["hold t1", "t3"], "t2 never ran");
+}
+
+/// A judge loaded by one answered turn (its model free to load).
+async fn loaded_rig(config: ModelConfig) -> Rig {
+    let mut rig = rig(config, Loads::Free);
+    let first = mixdog_rt::time::timeout(HANG, rig.judge.judge_turn(turn("t1"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&first, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{first:?}");
+    rig.threads_become((Some(1), 0)).await;
+    rig
+}
+
+/// The model is unloaded after `KEEP_WARM` (the embedder's six minutes) without a judgment, to the
+/// millisecond on the judge's clock, and a prewarm alone starts the period.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Free);
+    assert!(mixdog_rt::time::timeout(HANG, rig.judge.prewarm()).await.expect("prewarm"));
+    rig.until("the prewarm loaded the model", EffortJudgeModel::is_ready).await;
+    rig.clock.advance(KEEP_WARM - MS);
+    assert!(rig.judge.is_ready(), "still warm a millisecond before the period ends");
+    rig.clock.advance(MS);
+    rig.threads_become((None, 0)).await;
+    assert!(!rig.judge.is_ready());
+    assert_eq!(rig.dropped_on().len(), 1, "the model is dropped with its thread");
+    // A judgment after the unload is a cold start: one more load.
+    let next = mixdog_rt::time::timeout(HANG, rig.judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
+    assert_eq!(rig.loads(), 2);
+}
+
+/// Every judgment renews the period: the model of a session that judges every five minutes stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_judgment_restarts_the_idle_period() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let rig = loaded_rig(config).await;
+    rig.clock.advance(KEEP_WARM - MS);
+    let again = mixdog_rt::time::timeout(HANG, rig.judge.judge_turn(turn("t2"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&again, TurnVerdict::Probs { .. }), "{again:?}");
+    rig.clock.advance(KEEP_WARM - MS);
+    assert!(rig.judge.is_ready(), "five minutes fifty-nine seconds after the last judgment");
+    rig.clock.advance(MS);
+    assert!(!rig.judge.is_ready());
+    assert_eq!(rig.loads(), 1);
+}
+
+/// A turn's lease holds the model past the period; when the lease ends the period runs again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turns_lease_keeps_the_model_loaded_until_it_ends() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = loaded_rig(config).await;
+    let three = KEEP_WARM / 2;
+    rig.clock.advance(three);
+    rig.judge.hold_warm();
+    assert!(rig.judge.is_held_warm());
+    rig.clock.advance(three);
+    assert_eq!(rig.threads(), (Some(1), 0), "the period ended at six minutes under the lease");
+    rig.clock.advance(three);
+    assert!(!rig.judge.is_held_warm(), "the lease ran out at nine minutes");
+    assert!(rig.judge.is_ready());
+    rig.clock.advance(three - MS);
+    assert!(rig.judge.is_ready(), "the period the lease re-armed ends at twelve");
+    rig.clock.advance(MS);
+    rig.threads_become((None, 0)).await;
+}
+
+/// A load in progress and a judgment holding the gate keep the model, however long the period.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_load_in_progress_or_a_request_in_flight_is_never_unloaded() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Held);
+    let judge = rig.judge.clone();
+    let turn_during_load = tokio::spawn({
+        let judge = judge.clone();
+        async move { judge.judge_turn(turn("t1"), PATIENT).await }
+    });
+    rig.next_load().await;
+    rig.clock.advance(KEEP_WARM);
+    assert_eq!(mixdog_rt::time::timeout(HANG, turn_during_load).await.expect("the turn gave up waiting").unwrap(), TurnVerdict::Skipped("warming".into()));
+    assert_eq!(rig.threads(), (Some(1), 0), "the loading thread is still the judge's");
+    rig.finish_load(Ok(()));
+    rig.until("the load finished", EffortJudgeModel::is_ready).await;
+
+    let held = judge.hold_turn().await;
+    judge.idle_rang(judge.idle_epoch());
+    assert!(judge.is_ready(), "a request holds the gate");
+    drop(held);
+    judge.idle_rang(judge.idle_epoch());
+    assert!(!judge.is_ready(), "with nothing in flight the same ring unloads");
+}
+
+/// A request that has taken its place when the model is unloaded is answered by a fresh load, not
+/// lost, and the retired thread's end does not touch the replacement.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_that_arrives_during_the_unload_is_answered_by_a_fresh_load() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = loaded_rig(config).await;
+    let judge = rig.judge.clone();
+    let gate = judge.hold_turn().await;
+    let mut arriving = Box::pin(judge.judge_turn(turn("arriving"), PATIENT));
+    assert!(poll_once(&mut arriving).is_none(), "it has found the model ready and waits for its turn");
+    judge.unload_idle(1);
+    drop(gate);
+    let answered = mixdog_rt::time::timeout(HANG, arriving).await.expect("the request is answered");
+    assert!(matches!(&answered, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{answered:?}");
+    assert_eq!(rig.loads(), 2);
+    rig.threads_become((Some(2), 0)).await;
+    let after = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("after"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&after, TurnVerdict::Probs { .. }), "{after:?}");
+    assert_eq!(rig.loads(), 2, "the replacement keeps answering after the retired thread ended");
+}
+
+/// A model that loaded before and was unloaded for being idle makes the next turn wait for the reload
+/// (ten seconds), where a first load waits the cold three; a failed reload answers `warming` at ten.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_turn_after_an_idle_unload_waits_for_the_reload() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Held);
+    let judge = rig.judge.clone();
+    let node = JudgeTiming { warm: HANG, retry: HANG, ..JudgeTiming::default() };
+    let first = tokio::spawn({
+        let judge = judge.clone();
+        async move { judge.judge_turn(turn("t1"), node).await }
+    });
+    rig.next_load().await;
+    rig.finish_load(Ok(()));
+    assert!(matches!(mixdog_rt::time::timeout(HANG, first).await.expect("the first turn").unwrap(), TurnVerdict::Probs { .. }));
+
+    rig.clock.advance(KEEP_WARM);
+    rig.threads_become((None, 0)).await;
+    let mut again = Box::pin(judge.judge_turn(turn("t2"), node));
+    assert!(poll_once(&mut again).is_none());
+    rig.next_load().await;
+    rig.clock.advance(node.cold);
+    assert!(poll_once(&mut again).is_none(), "past the cold wait of a first load, the reload is still waited for");
+    rig.clock.advance(RELOAD_WAIT - node.cold - MS);
+    assert!(poll_once(&mut again).is_none());
+    rig.finish_load(Ok(()));
+    let answered = mixdog_rt::time::timeout(HANG, again).await.expect("the turn is judged after the reload");
+    assert!(matches!(&answered, TurnVerdict::Probs { .. }), "{answered:?}");
+
+    rig.clock.advance(KEEP_WARM);
+    rig.threads_become((None, 0)).await;
+    let mut slow = Box::pin(judge.judge_turn(turn("t3"), node));
+    assert!(poll_once(&mut slow).is_none());
+    rig.next_load().await;
+    rig.clock.advance(RELOAD_WAIT - MS);
+    assert!(poll_once(&mut slow).is_none());
+    rig.clock.advance(MS);
+    assert_eq!(poll_once(&mut slow), Some(TurnVerdict::Skipped("warming".into())));
 }

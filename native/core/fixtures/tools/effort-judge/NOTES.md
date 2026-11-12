@@ -2,6 +2,14 @@
 
 Node reference: `src/runtime/effort-judge/judge-client.mjs` and `judge-worker.mjs` at `bb8c5e3b7`.
 
+## Where the model runs
+
+Node loads the model in a worker. The core runs it in a host process (`mixdogd effort-judge-host`,
+`mixdog-services` `effort_judge/host.rs`): a native fault ends that process, the request answers
+`effort judge exited` and the next one starts a fresh host. The watchdog and the idle unload (six
+minutes, the embedder's keep-warm value) kill it. A stuck inference is thus killed as in Node; only
+a hang in a model load still holds its thread, as below.
+
 ## Remaining difference: work the terminate flag cannot stop
 
 - **Node:** the watchdog (`STUCK_MS`, 10 s) and `shutdownEffortJudge` terminate the worker thread,
