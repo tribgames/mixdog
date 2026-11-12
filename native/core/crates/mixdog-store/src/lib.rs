@@ -25,10 +25,13 @@ pub mod registry;
 pub mod schema;
 pub mod sqlite;
 pub mod state;
+pub mod state_rebuild;
 pub mod summary;
 pub mod title;
 pub mod worker;
 
+#[cfg(test)]
+mod state_set_aside_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]

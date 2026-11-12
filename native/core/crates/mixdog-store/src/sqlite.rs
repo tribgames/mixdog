@@ -168,7 +168,7 @@ pub const INDEX_FILE: &str = "index/store.sqlite";
 
 /// Whether an open of the index failed because of the file itself: another identity, or
 /// bytes SQLite cannot read as a database.
-fn needs_rebuild(e: &DbError) -> bool {
+pub(crate) fn needs_rebuild(e: &DbError) -> bool {
     match e {
         DbError::Rebuild(_) => true,
         DbError::Sqlite(e) => matches!(
