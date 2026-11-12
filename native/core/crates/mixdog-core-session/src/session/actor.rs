@@ -2010,7 +2010,9 @@ impl SessionActor {
                 // The final reply's completion restores as a `done` end in history; live, the turn's close shows its
                 // own end ([`Self::close_done`]), so this one is not shown. A sealed reply recovery commits has no close:
                 // its end shows as history shows it.
-                let shown: Vec<Shown> = deps
+                // The window keeps the item as a client that opens later reads it; a client already watching is told
+                // the paragraph break that joins a closing reply to the text shown before it (the notes below).
+                let both: Vec<(Shown, Shown)> = deps
                     .transcript
                     .items(lane, row)
                     .into_iter()
@@ -2018,14 +2020,14 @@ impl SessionActor {
                     .filter(|shown| !live || row.turn.is_none() || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
                     .map(|shown| {
                         if !live {
-                            return shown;
+                            return (shown.clone(), shown);
                         }
                         let (attempt, raw) = match &row.body {
                             mixdog_store::schema::blob::Slot::Inline(body) => (body.pointer("/meta/transcript/attemptId").and_then(Value::as_str), body.get("content").and_then(Value::as_str)),
                             _ => (None, None),
                         };
-                        let live = |item| {
-                            let mut item = super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at);
+                        let live = |item| super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at);
+                        let told = |mut item: ThreadItem| {
                             if paragraph
                                 && let ThreadItem::AgentMessage { text: mixdog_protocol::MaybeBlob::Inline(text), .. } = &mut item
                             {
@@ -2034,19 +2036,26 @@ impl SessionActor {
                             item
                         };
                         match shown {
-                            Shown::Item(item) => Shown::Item(live(item)),
-                            Shown::Update(item) => Shown::Update(live(item)),
+                            Shown::Item(item) => {
+                                let item = live(item);
+                                (Shown::Item(item.clone()), Shown::Item(told(item)))
+                            }
+                            Shown::Update(item) => {
+                                let item = live(item);
+                                (Shown::Update(item.clone()), Shown::Update(told(item)))
+                            }
                         }
                     })
                     .collect();
                 // An update's frame carries the merged item: it is built at release.
-                let notes = shown
+                let notes = both
                     .iter()
-                    .filter_map(|shown| match shown {
+                    .filter_map(|(_, told)| match told {
                         Shown::Item(item) if row.visible => Some(item_completed(&thread, row, item)),
                         _ => None,
                     })
                     .collect();
+                let shown: Vec<Shown> = both.into_iter().map(|(plain, _)| plain).collect();
                 (encoded, shown, notes)
             });
             result.map(|(encoded, shown, notes)| (encoded, shown, notes, stored))
