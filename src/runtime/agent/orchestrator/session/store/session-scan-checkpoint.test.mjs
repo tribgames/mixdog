@@ -17,6 +17,7 @@ mkdirSync(join(root, 'sessions'), { recursive: true });
 
 const { deleteSession, drainSessionStore, saveSessionDurably } = await import('../store.mjs');
 const { sweepStaleSessions } = await import('./sweep/stale-sweep.mjs');
+const { settleSessionSummaryIndex } = await import('./listing.mjs');
 const { readSessionLogSync } = await import('./session-log-reader.mjs');
 const { encodeAppend, encodeCompacted, encodeSessionRecord } = await import('./session-log-format.mjs');
 const { sessionLogPath, sessionScanCheckpointDir } = await import('./session-paths.mjs');
@@ -27,9 +28,11 @@ test.beforeEach(() => {
   _setScanCheckpointStrideForTest(1);
   rmSync(sessionScanCheckpointDir(), { recursive: true, force: true });
 });
-test.after(() => {
+test.after(async () => {
   _setScanCheckpointStrideForTest(null);
   drainSessionStore();
+  // A summary row still being written would land in the directory while it is removed.
+  await settleSessionSummaryIndex();
   rmSync(root, { recursive: true, force: true });
 });
 

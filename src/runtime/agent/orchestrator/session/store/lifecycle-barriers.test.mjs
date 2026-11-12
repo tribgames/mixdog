@@ -12,8 +12,11 @@ process.env.MIXDOG_DATA_DIR = root;
 const dir = join(root, 'sessions');
 mkdirSync(dir);
 
-const { saveSessionAsync, bumpSessionGeneration, markSessionClosed } = await import('../store.mjs');
-const { SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_SAVED } = await import('./live-state.mjs');
+const { saveSessionAsync, bumpSessionGeneration, markSessionClosed, loadSession, releaseIdleSessionWriter } =
+  await import('../store.mjs');
+const { SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_SAVED, _liveSessions } = await import('./live-state.mjs');
+const { forgetSessionLoadCache } = await import('./load-cache.mjs');
+const { _sessionLogIoForTest } = await import('./session-log-writer.mjs');
 const { resolveSessionRecordSync } = await import('./session-log-reader.mjs');
 const { loadLegacySession } = await import('./legacy-session.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
@@ -68,6 +71,54 @@ test('a barrier over a legacy json records it in a new log and leaves the json a
   assert.equal(outcome.kind, 'log');
   assert.equal(outcome.session.generation, 5);
   assert.deepEqual(texts(outcome.session), ['old']);
+});
+
+// A barrier whose batch reached the file but whose fsync failed: the caller is
+// told it did not land, so the log must not hold it either.
+async function failBarrier(run) {
+  const io = _sessionLogIoForTest();
+  const real = io.fsync;
+  io.fsync = (_fd, done) => done(Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' }));
+  try {
+    return await run();
+  } finally {
+    io.fsync = real;
+  }
+}
+
+test('a close barrier that failed leaves neither its tombstone in the log nor the live copy closed', async () => {
+  const id = 'sess_barrier_failed_close';
+  const copy = makeSession(id);
+  await saveSessionAsync(copy, { expectedGeneration: 1 });
+  assert.equal(await failBarrier(() => markSessionClosed(id, 'test')), null);
+  const record = stored(id).session;
+  assert.equal(record.closed, false, 'the log holds no tombstone');
+  assert.equal(record.generation, 1);
+  const live = loadSession(id);
+  assert.equal(live.closed, false);
+  assert.equal(live.generation, 1);
+  assert.equal(await markSessionClosed(id, 'test'), 2, 'closing again lands');
+  assert.equal(stored(id).session.closed, true);
+});
+
+test('a session whose barrier failed saves its later turns and closes on retry', async () => {
+  const id = 'sess_barrier_failed_then_saves';
+  await saveSessionAsync(makeSession(id), { expectedGeneration: 1 });
+  // A copy read from the record, as a resumed session is, bound to the log as it stood.
+  await releaseIdleSessionWriter(id);
+  forgetSessionLoadCache(id);
+  _liveSessions.delete(id);
+  const copy = loadSession(id);
+  copy.messages = [...copy.messages, { role: 'assistant', content: 'second' }];
+  await saveSessionAsync(copy, { expectedGeneration: 1 });
+  assert.equal(await failBarrier(() => markSessionClosed(id, 'test')), null);
+  assert.equal(loadSession(id), copy, 'the live copy keeps speaking for the session');
+  copy.messages = [...copy.messages, { role: 'user', content: 'third' }];
+  assert.equal(await saveSessionAsync(copy, { expectedGeneration: 1 }), SAVE_OUTCOME_SAVED);
+  assert.deepEqual(texts(stored(id).session), ['first', 'second', 'third']);
+  assert.equal(stored(id).session.closed, false);
+  assert.equal(await markSessionClosed(id, 'test'), 2);
+  assert.equal(stored(id).session.closed, true);
 });
 
 test('a save in flight when the detach bump lands is not lost and never lands after it', async () => {

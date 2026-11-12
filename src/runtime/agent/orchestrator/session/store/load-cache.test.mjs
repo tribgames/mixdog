@@ -34,6 +34,7 @@ import {
 } from '../store.mjs';
 import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
+import { attachmentRefForBuffer } from '../../../../attachments/store.mjs';
 import {
   releaseSessionWriter,
   sessionWriterHeldHere,
@@ -303,6 +304,8 @@ test('overlapping deletes run one after the other, a save made meanwhile lands a
   const during = saveSessionAsync(copy('during the deletes')).then((outcome) => (duringOutcome = outcome));
   await turns(20);
   assert.equal(duringOutcome, null, 'a save ran inside a delete accepted before it');
+  // The batch reaches its fsync after its check of the json, which is off the thread.
+  while (resume === null) await turns(1);
   resume();
   assert.deepEqual(await Promise.all([inFlight, first, second, during]), ['saved', true, true, 'saved']);
   // The save came after both deletes: it created the session, and nothing deleted it.
@@ -574,6 +577,117 @@ test('a live session this process is writing is never read back, however often i
   assert.equal(await releaseSessionWriter(session.id), true);
 });
 
+test('a live session with a batch being written is served from memory after a scan of what its log gained, never a replay of it', async (t) => {
+  const f = fixture(t);
+  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  const live = loadSession(f.id);
+  live.messages = [
+    ...live.messages,
+    ...Array.from({ length: 200 }, (_, index) => ({ role: 'user', content: `m${index} `.padEnd(4096, 'x') })),
+  ];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  const size = fs.statSync(logPath).size;
+  // The bytes read from the log, by any descriptor opened on it or by name.
+  const original = { openSync: fs.openSync, closeSync: fs.closeSync, readSync: fs.readSync, readFileSync: fs.readFileSync };
+  const fds = new Set();
+  let bytes = 0;
+  fs.openSync = function (file, ...rest) {
+    const fd = original.openSync.call(this, file, ...rest);
+    if (String(file) === logPath) fds.add(fd);
+    return fd;
+  };
+  fs.closeSync = function (fd) {
+    fds.delete(fd);
+    return original.closeSync.call(this, fd);
+  };
+  fs.readSync = function (fd, ...rest) {
+    const got = original.readSync.call(this, fd, ...rest);
+    if (fds.has(fd)) bytes += got;
+    return got;
+  };
+  fs.readFileSync = function (file, ...rest) {
+    const got = original.readFileSync.call(this, file, ...rest);
+    if (fds.has(file) || String(file) === logPath) bytes += got.length;
+    return got;
+  };
+  syncBuiltinESMExports();
+  const io = _sessionLogIoForTest();
+  const realFsync = io.fsync;
+  t.after(() => {
+    Object.assign(fs, original);
+    syncBuiltinESMExports();
+    io.fsync = realFsync;
+  });
+  const read = [];
+  for (const round of [1, 2]) {
+    let resume = null;
+    io.fsync = (fd, callback) => {
+      io.fsync = realFsync;
+      resume = () => realFsync(fd, callback);
+    };
+    live.messages = [...live.messages, { role: 'user', content: `in flight ${round}` }];
+    const saving = saveSessionAsync(live);
+    // The batch is in the file and its fsync pending: the log is not in a state its recorder acknowledged.
+    while (resume === null) await turns(1);
+    bytes = 0;
+    assert.equal(loadSession(f.id), live);
+    read.push(bytes);
+    resume();
+    assert.equal(await saving, 'saved');
+  }
+  // The first scan reads the log once; the next goes on from where that one stopped.
+  assert.ok(read[1] < 64 * 1024, `${read[1]} bytes of a ${size}-byte log were read to serve the copy held here (first: ${read[0]})`);
+  assert.equal(await releaseSessionWriter(f.id), true);
+});
+
+test('a live copy of a session whose claim is not held here is decided by a replay of its record, not by a scan that goes on', async (t) => {
+  const f = fixture(t);
+  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  const live = loadSession(f.id);
+  // The generation's record ends up far from both ends of the log, which are what a scan that goes on checks.
+  for (const step of ['before', 'generation', 'after']) {
+    if (step === 'generation') live.generation = 2;
+    else live.messages = [...live.messages, { role: 'user', content: `${step} `.padEnd(8192, 'x') }];
+    assert.equal(await saveSessionAsync(live), 'saved');
+  }
+  assert.equal(await releaseSessionWriter(f.id), true);
+  setLiveSession(live);
+  // A header scan leaves its place at the log's end.
+  assert.equal(loadSessionStatus(f.id), live.status ?? null);
+  // Another process owns the session now and rewrote a record in place, at the same length.
+  const bytes = readFileSync(logPath);
+  const rewritten = Buffer.from(bytes.toString('utf8').replace('"generation":2', '"generation":7'));
+  assert.equal(rewritten.length, bytes.length);
+  assert.notDeepEqual(rewritten, bytes);
+  const fd = openSync(logPath, 'r+');
+  writeSync(fd, rewritten, 0, rewritten.length, 0);
+  closeSync(fd);
+  const loaded = loadSession(f.id);
+  assert.notEqual(loaded, live, 'the live copy was served for a record another owner changed');
+  assert.equal(loaded.generation, 7);
+});
+
+test('a tenure in which the attachment store refused a part is not taken up from: the part is stored once the store takes it', async (t) => {
+  const f = fixture(t);
+  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  const bytes = Buffer.from('an image the store is asked to keep');
+  const ref = attachmentRefForBuffer(bytes);
+  // The store's directory cannot be made: a file has its name.
+  const blocked = join(f.root, 'prompt-attachments');
+  writeFileSync(blocked, '');
+  const live = loadSession(f.id);
+  const image = { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' };
+  live.messages = [...live.messages, { role: 'user', content: [image] }];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  assert.equal(readFileSync(logPath, 'utf8').includes(ref), false);
+  assert.equal(await releaseSessionWriter(f.id), true);
+  rmSync(blocked);
+  live.messages = [...live.messages, { role: 'user', content: 'after the store came back' }];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  assert.equal(await releaseSessionWriter(f.id), true);
+  assert.equal(readFileSync(logPath, 'utf8').includes(ref), true, 'the part stayed the placeholder it was first stored as');
+});
+
 test('loadSessionStatus reuses a settled file answer and never outranks a rewrite or a live copy', (t) => {
   const f = fixture(t);
   f.write({ ...f.saved, status: 'error' });
@@ -708,13 +822,14 @@ test("loadSession replays a log another writer rewrote at the same length while 
 test("loadSession replays the log after this process's own save when the real writer claim's file cannot be read", async (t) => {
   const f = fixture(t);
   const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  // A replay of the log opens it.
   let reads = 0;
   let unreadable = false;
-  const originalRead = fs.readFileSync;
+  const originalOpen = fs.openSync;
   const originalStat = fs.statSync;
-  fs.readFileSync = function (file, ...rest) {
+  fs.openSync = function (file, ...rest) {
     if (String(file) === logPath) reads++;
-    return originalRead.call(this, file, ...rest);
+    return originalOpen.call(this, file, ...rest);
   };
   fs.statSync = function (file, ...rest) {
     if (unreadable && String(file).endsWith(`${f.id}.lock`)) {
@@ -724,7 +839,7 @@ test("loadSession replays the log after this process's own save when the real wr
   };
   syncBuiltinESMExports();
   t.after(() => {
-    fs.readFileSync = originalRead;
+    fs.openSync = originalOpen;
     fs.statSync = originalStat;
     syncBuiltinESMExports();
   });

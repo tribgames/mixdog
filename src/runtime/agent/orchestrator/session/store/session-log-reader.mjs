@@ -500,29 +500,72 @@ async function scanSessionLog(path, { checkpoints = null, facts = null } = {}) {
   if (done.save) saveScanCheckpointSync(checkpoints, path, done.save, checkpointKind(facts));
   return done.result;
 }
+
+// A full replay, a block at a time like a scan, from the start: what is held
+// is the transcript as it stands, one block and the line being applied, never
+// the file. Read as one buffer, a 488 MB log (621 messages) took the daemon's
+// memory up by its size at every load and every open for writing (2026-11-12).
+const beginReplay = (facts) => ({ replay: newReplay(true, facts), offset: 0, end: 0, guard: NO_BYTES, first: NO_BYTES });
+const replayed = (scan, size) => replayResult(scan.replay, scan.replay.damage ? size : scan.end);
+
+/** Replay the log open as `fd` (parseSessionLog of its bytes, never held whole). */
+export function replaySessionLogFdSync(fd, { facts = null } = {}) {
+  const size = Number(fstatSync(fd, { bigint: true }).size);
+  const scan = beginReplay(facts);
+  while (scan.end < size) {
+    const block = readAtSync(fd, Math.min(SCAN_BLOCK_BYTES, size - scan.end), scan.end);
+    if (block.length === 0) break;
+    const whole = wholeLinesOf(block, scan.end + block.length >= size);
+    const bytes = joinedLines(scan, block, whole, (target, length, position) => readIntoSync(fd, target, 0, length, position));
+    if (!bytes || !applyBlock(scan, block, whole, bytes)) break;
+  }
+  return replayed(scan, size);
+}
+
+async function replaySessionLogHandle(handle, { facts = null } = {}) {
+  const size = Number((await handle.stat({ bigint: true })).size);
+  const scan = beginReplay(facts);
+  while (scan.end < size) {
+    const block = await readAt(handle, Math.min(SCAN_BLOCK_BYTES, size - scan.end), scan.end);
+    if (block.length === 0) break;
+    const whole = wholeLinesOf(block, scan.end + block.length >= size);
+    const bytes = await joinedLines(scan, block, whole, (target, length, position) => readInto(handle, target, 0, length, position));
+    if (!bytes || !applyBlock(scan, block, whole, bytes)) break;
+  }
+  return replayed(scan, size);
+}
+
 /** Replay `path`; null when the log does not exist. */
 export async function readSessionLog(path, options) {
   if (options?.messages === false) return scanSessionLog(path, options);
-  let bytes;
+  let handle;
   try {
-    bytes = await readFile(path);
+    handle = await open(path, 'r');
   } catch (err) {
     if (absent(err)) return null;
     throw err;
   }
-  return parseSessionLog(bytes, options);
+  try {
+    return await replaySessionLogHandle(handle, options);
+  } finally {
+    await handle.close();
+  }
 }
 
 export function readSessionLogSync(path, options) {
   if (options?.messages === false) return scanSessionLogSync(path, options);
-  let bytes;
+  let fd;
   try {
-    bytes = readFileSync(path);
+    fd = openSync(path, 'r');
   } catch (err) {
     if (absent(err)) return null;
     throw err;
   }
-  return parseSessionLog(bytes, options);
+  try {
+    return replaySessionLogFdSync(fd, options);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Header scan: the replayed header and message count, no transcript kept. */

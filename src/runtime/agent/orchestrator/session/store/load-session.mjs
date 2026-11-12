@@ -4,13 +4,14 @@
  * recorded, or the live snapshot. Nothing here writes; the precedence rules
  * are the whole responsibility.
  */
-import { _liveSessions, _droppedSaveIds, hasSessionSaveFailure } from './live-state.mjs';
+import { _liveSessions, _droppedSaveIds, hasSessionSaveFailure, _clearLiveSession } from './live-state.mjs';
 import { _readStoredSessionCached } from './load-cache.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
 import { pendingSessionCopy } from './pending-writes.mjs';
 import { sessionRecordStampSync } from './session-log-reader.mjs';
 import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
 import { isSettledRecordStamp } from './session-record.mjs';
+import { sessionWriterHeldStrictlyHere } from './session-writer-claim.mjs';
 
 /** This process's in-memory copies of `id`, as resolveSessionCopy weighs them. */
 export function sessionMemoryCopies(id) {
@@ -64,16 +65,29 @@ export function resolveSessionCopy(id, memory, record) {
 
 export function loadSession(id, { headerOnly = false } = {}) {
   const memory = sessionMemoryCopies(id);
+  const preferInMemory = (stored) => inMemorySessionCopy(id, memory, stored);
+  // A copy held here speaks for the id whenever the record's header lets it,
+  // and a header is a scan of the log that goes on from the last one, never a
+  // replay: the record's transcript is read only when the record itself is
+  // what is returned. Replayed for its header, the 515 MB log of a session in
+  // a turn was read whole by every caller that asked for the session while a
+  // batch of it was being written (the agent maintenance pass, a pending
+  // message's hydration): 85% of the daemon's thread, four seconds at a time
+  // (2026-11-12). Only for a session this process holds the writer claim of:
+  // a scan trusts the part of the log it has read before, which is the
+  // claim's promise that nobody else writes it.
+  const held = memory.pending?.id === id || memory.live?.id === id;
+  if (!headerOnly && held && sessionWriterHeldStrictlyHere(id)) {
+    const copy = resolveSessionCopy(id, memory, _readStoredSessionCached(id, { preferInMemory, headerOnly: true }));
+    if (copy.from === 'memory' || copy.from === 'failed-save') return _ensureLifecycleFields(copy.session);
+  }
   // An existing record owns this identity. It must read as this session's
   // before fresher in-memory state is allowed to shadow it; the cache keeps
   // only its header when that header proves the in-memory copy is served.
-  const disk = _readStoredSessionCached(id, {
-    preferInMemory: (stored) => inMemorySessionCopy(id, memory, stored),
-    headerOnly,
-  });
+  const disk = _readStoredSessionCached(id, { preferInMemory, headerOnly });
   const { session, from } = resolveSessionCopy(id, memory, disk);
   // The record (or its absence) outranks a live snapshot that no longer speaks for the id.
-  if ((from === 'record' || from === 'absent') && memory.live?.id === id) _liveSessions.delete(id);
+  if ((from === 'record' || from === 'absent') && memory.live?.id === id) _clearLiveSession(id);
   return session ? _ensureLifecycleFields(session) : null;
 }
 

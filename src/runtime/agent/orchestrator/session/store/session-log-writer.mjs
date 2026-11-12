@@ -57,6 +57,7 @@ import {
   newLogId,
   sameFingerprint,
   SESSION_LOG_SUFFIX,
+  SESSION_LOG_VERSION,
   sha1Hex,
 } from './session-log-format.mjs';
 import {
@@ -64,6 +65,8 @@ import {
   legacyStanding,
   parseSessionLog,
   recordStampPart,
+  replaySessionLogFdSync,
+  scanSessionLogHeaderSync,
   sessionFromLog,
 } from './session-log-reader.mjs';
 
@@ -279,11 +282,17 @@ function writeTempCopy(path, data) {
 // newline and is acknowledged after its fsync): its bytes are kept in
 // `<log>.torn-…` and cut from the log, so the state written next is exactly
 // the state replayed.
-function cutTornTail(fd, logPath, bytes, offset) {
+function cutTornTail(fd, logPath, { offset, length }) {
+  const tail = Buffer.alloc(length);
+  for (let got = 0; got < length; ) {
+    const read = readSync(fd, tail, got, length - got, offset + got);
+    if (read === 0) throw logError(SESSION_LOG_ERRORS.CHANGED, `log ${logPath} shrank while it was opened`);
+    got += read;
+  }
   const aside = asideName(logPath, 'torn');
   const out = openSync(aside, 'wx', 0o600);
   try {
-    writeAllSync(out, bytes.subarray(offset), 0);
+    writeAllSync(out, tail, 0);
     syncFdSync(out);
   } finally {
     closeSync(out);
@@ -408,8 +417,8 @@ export function publishLegacyBase(prepared, { claim, divergedLogId = null }) {
       publishNew(prepared.tmpPath, prepared.logPath, claim);
       return { logId: prepared.logId, legacy: prepared.legacy, aside: null };
     }
-    const current = parseSessionLog(readFileSync(prepared.logPath), { messages: false });
-    if (current.logId !== divergedLogId) {
+    const current = scanSessionLogHeaderSync(prepared.logPath);
+    if (current?.logId !== divergedLogId) {
       throw logError(SESSION_LOG_ERRORS.CHANGED, `log ${prepared.logPath} is not the diverged one`);
     }
     const aside = swapInProvenLog(prepared.tmpPath, prepared.logPath, claim, 'diverged');
@@ -572,6 +581,9 @@ function recorderOptions(options = {}) {
     immutableKeys: new Set(options.immutableKeys || []),
     projectHeader: options.projectHeader || ((session) => session),
     projectMessage: options.projectMessage || ((message) => message),
+    // What `projectMessage` depends on besides the message: while it returns
+    // the same value, a message is stored as it was before.
+    projectionKey: options.projectionKey || (() => null),
     // Test runs (node --test sets NODE_TEST_CONTEXT) freeze what is recorded.
     freezeRecorded: options.freezeRecorded ?? process.env.NODE_TEST_CONTEXT !== undefined,
   };
@@ -643,8 +655,7 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
   let known = null;
   try {
     const opened = fstatSync(fd, { bigint: true });
-    const bytes = readFileSync(fd);
-    log = parseSessionLog(bytes);
+    log = replaySessionLogFdSync(fd);
     if (!log.valid) throw logError(SESSION_LOG_ERRORS.INVALID, `log has no valid base: ${logPath}`);
     if (log.damage) {
       closeSync(fd);
@@ -652,7 +663,7 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
       log = repairDamagedLog(logPath, log, options.claim);
       fd = openSync(logPath, 'r+');
     } else if (log.tornTail) {
-      cutTornTail(fd, logPath, bytes, log.tornTail.offset);
+      cutTornTail(fd, logPath, log.tornTail);
       log.size = log.tornTail.offset;
       log.tornTail = null;
     } else {
@@ -670,6 +681,7 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
     refs: log.messages,
     options: recorderOptions(options),
     known,
+    replayed: true,
   });
   if (expect) {
     try {
@@ -680,6 +692,67 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
     }
   }
   return recorder;
+}
+
+// How a log's first record starts (encodeSessionRecord): its base names the log.
+const baseStart = (logId) => `{"t":"session","s":0,"v":${SESSION_LOG_VERSION},"logId":${JSON.stringify(logId)},`;
+
+function startsWith(fd, text) {
+  const expected = Buffer.from(text, 'utf8');
+  const found = Buffer.alloc(expected.length);
+  for (let got = 0; got < found.length; ) {
+    const read = readSync(fd, found, got, found.length - got, got);
+    if (read === 0) return false;
+    got += read;
+  }
+  return found.equals(expected);
+}
+
+/**
+ * A recorder on the log a recorder of this process closed (`left`: its `left`),
+ * without reading the log: a writer that wrote all of a log does not replay it
+ * to go on appending to it. Null when the log is not known to be exactly the
+ * one that recorder left — its path names another file, or one of another
+ * size or time, or one whose base names another log — or a message it
+ * recorded is no longer held by anyone, or would be stored differently now
+ * (`projectionKey`): the log is then opened by replaying it (openSessionLog).
+ * Opened by a replay at every tenure, a 488 MB log cost the daemon its size
+ * in memory and seconds of its thread each time (2026-11-12).
+ */
+export function resumeSessionLog({ logPath, left, ...options }) {
+  assertClaim(options.claim);
+  options.claim.assertHeld();
+  const opts = recorderOptions(options);
+  if (opts.projectionKey() !== left.projection) return null;
+  const refs = [];
+  for (const ref of left.refs) {
+    const message = ref.deref();
+    if (message === undefined) return null;
+    refs.push(message);
+  }
+  let fd;
+  try {
+    fd = openSync(logPath, 'r+');
+  } catch {
+    // The replay's open reports it.
+    return null;
+  }
+  let recorder = null;
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    if (recordStampPart(opened) !== left.stamp || !startsWith(fd, baseStart(left.logId))) return null;
+    recorder = new SessionLogRecorder({
+      logPath,
+      fd,
+      log: { sessionId: left.sessionId, legacy: left.legacy, logId: left.logId, seq: left.seq, size: left.end, header: {} },
+      refs,
+      options: opts,
+    });
+    recorder._resume(left, opened);
+    return recorder;
+  } finally {
+    if (!recorder) closeSync(fd);
+  }
 }
 
 // The replacement is written and proven before anything moves; then it is
@@ -700,7 +773,7 @@ function repairDamagedLog(logPath, log, claim) {
 }
 
 export class SessionLogRecorder {
-  constructor({ logPath, fd, log, refs, options, known = null }) {
+  constructor({ logPath, fd, log, refs, options, known = null, replayed = false }) {
     this.logPath = logPath;
     this._jsonPath = join(dirname(logPath), `${basename(logPath, SESSION_LOG_SUFFIX)}.json`);
     this.sessionId = log.sessionId;
@@ -724,7 +797,70 @@ export class SessionLogRecorder {
     this._closed = false;
     this._closedHard = false;
     this._reset(log.logId, log.seq, log.size, log.header, refs);
+    // The references are the replay's own objects, which no session holds
+    // (_takeLive).
+    this._replayed = replayed;
     if (known) this._know(known, this._generation());
+    // After close(): what the next recorder of this process may take the log
+    // for without reading it (resumeSessionLog), or null.
+    this.left = null;
+  }
+
+  // The header as the recorder that left the log held it, and the file known
+  // to be the one it left (resumeSessionLog proved `opened` is).
+  _resume(left, opened) {
+    this._strings = new Map(left.strings);
+    this._values = new Map(left.values);
+    this._jsonProven = left.jsonProven;
+    this._leftRefs = true;
+    this._know(opened, this._generation());
+  }
+
+  /** Whether everything this tenure recorded is stored as it would be now
+   *  (`projectionKey` has not moved since it began). */
+  get projectionHeld() {
+    return this._options.projectionKey() === this._projection;
+  }
+
+  // Closes the file. With everything recorded acknowledged and the file ending
+  // there, `left` is what this recorder knows of it: the path is asked after
+  // the close, since closing a file that was written may set its times, and
+  // must still name the file that was open. The caller holds the claim until
+  // then, so no other writer comes between. Messages are held weakly: a
+  // session nobody holds any more is not kept in memory for its log. Nothing
+  // is left when the projection changed during the tenure: a message recorded
+  // before the change is stored as it no longer would be, and only a replay
+  // finds that (_takeLive).
+  _closeLeaving() {
+    const fd = this._fd;
+    const settled =
+      !this._stale &&
+      !this._closedHard &&
+      fd !== null &&
+      !this.pending &&
+      this._ackedSeq === this._seq &&
+      this.projectionHeld;
+    const open = settled ? this._openStat() : null;
+    this._closed = true;
+    if (fd !== null) closeSync(fd);
+    this._fd = null;
+    if (!open || Number(open.size) !== this._end) return;
+    if (!this._refs.every((message) => message !== null && typeof message === 'object')) return;
+    const named = statSync(this.logPath, { bigint: true, throwIfNoEntry: false });
+    if (!named || named.ino !== open.ino || named.dev !== open.dev || named.size !== open.size) return;
+    this.left = {
+      stamp: recordStampPart(named),
+      sessionId: this.sessionId,
+      legacy: this.legacy,
+      logId: this.logId,
+      seq: this._seq,
+      end: this._end,
+      strings: this._strings,
+      values: this._values,
+      jsonProven: this._jsonProven,
+      projection: this._projection,
+      refs: this._refs.map((message) => new WeakRef(message)),
+    };
   }
 
   _reset(logId, seq, size, header, refs) {
@@ -738,6 +874,11 @@ export class SessionLogRecorder {
     this._values = new Map();
     for (const [key, json] of diskHeaderEntries(header, this._options.transientKeys)) this._strings.set(key, json);
     this._refs = refs.slice();
+    this._replayed = false;
+    // The references are the messages of the tenure that left the log (_resume).
+    this._leftRefs = false;
+    // The projection this tenure's messages are stored under (_closeLeaving).
+    this._projection = this._options.projectionKey();
     this._settle(this._refs);
     // The log's record-stamp part (recordStampPart) at which this recorder
     // knows exactly what the file holds, and the generation the log holds
@@ -770,7 +911,39 @@ export class SessionLogRecorder {
       });
     }
     this._refs = list.slice();
+    if (messages !== null) {
+      this._replayed = false;
+      this._leftRefs = false;
+    }
     this._settle(this._refs);
+  }
+
+  // The first record on a replayed log: a copy that was not loaded from the
+  // log holds none of the replay's objects, so by reference its whole
+  // transcript is new and would be recorded again — once per tenure, which
+  // made two thirds of a 488 MB log copies of its own history (2026-11-12).
+  // The messages `next` holds at the head and at the tail that are stored as
+  // the log already holds them are taken for the recorded ones. The same on
+  // a log taken up as a tenure left it (_resume), whose references are that
+  // tenure's messages: a copy that holds other objects for them is another
+  // transcript by reference too. Those are stored as their projection, the
+  // replay's objects as they are.
+  _takeLive(next) {
+    const recordedJson = this._leftRefs ? (recorded) => this._messageJson(recorded) : messageJson;
+    this._replayed = false;
+    this._leftRefs = false;
+    const refs = this._refs;
+    const m = refs.length;
+    const n = next.length;
+    const stored = (recorded, live) => recorded === live || recordedJson(recorded) === this._messageJson(live);
+    let p = 0;
+    while (p < m && p < n && stored(refs[p], next[p])) p += 1;
+    let q = 0;
+    while (q < m - p && q < n - p && stored(refs[m - 1 - q], next[n - 1 - q])) q += 1;
+    for (let i = 0; i < p; i += 1) refs[i] = next[i];
+    for (let i = 1; i <= q; i += 1) refs[m - i] = next[n - i];
+    this._settle(refs, 0, p);
+    this._settle(refs, m - q, m);
   }
 
   /** The message references the log holds as recorded, in order. */
@@ -785,6 +958,22 @@ export class SessionLogRecorder {
     this._goStale(
       this._stale ?? reason ?? logError(SESSION_LOG_ERRORS.DISCARDED, `recorder discarded: ${this.logPath}`)
     );
+  }
+
+  /**
+   * discard() for a recorder that holds the claim and is the log's only writer
+   * (a barrier that did not land). Bytes of a batch whose fsync failed are
+   * already in the file; they are cut back to the acknowledged end, so the log
+   * holds exactly what was acknowledged and nothing a caller was told failed.
+   */
+  discardToAcked(reason = null) {
+    const noneUnacked = this._unacked === null;
+    const end = this._end;
+    this.discard(reason);
+    if (noneUnacked || this._fd === null) return;
+    this._options.claim.assertHeld();
+    ftruncateSync(this._fd, end);
+    syncFdSync(this._fd);
   }
 
   /** Closes a recorder that recorded nothing (an open that is not used). */
@@ -1235,6 +1424,7 @@ export class SessionLogRecorder {
   }
 
   _applyRecord(messages, compacted, fields) {
+    if ((this._replayed || this._leftRefs) && !compacted) this._takeLive(messages);
     const message = this._messageRecord(messages, compacted, this._seq + 1);
     const patch = this._patchRecord(fields, this._seq + (message ? 2 : 1));
     // Every record of the batch is built (serialized included) before any
@@ -1662,7 +1852,7 @@ export class SessionLogRecorder {
     // recorder whose session is rebased: Windows refuses a rename over an
     // open file).
     if (!this._rewriting && !this._draining && (this._stale || this._closedHard || !this.pending)) {
-      this.closeUnused();
+      this._closeLeaving();
       return;
     }
     // A rewrite in flight swaps the file under the recorder: it (and any
@@ -1672,9 +1862,8 @@ export class SessionLogRecorder {
     let failure = null;
     if (!this._stale && !this._closedHard) await this.flush().catch((err) => (failure = err));
     await this._idle();
-    this._closed = true;
-    if (this._fd !== null) closeSync(this._fd);
-    this._fd = null;
+    if (failure) this.closeUnused();
+    else this._closeLeaving();
     if (failure) throw failure;
   }
 }
