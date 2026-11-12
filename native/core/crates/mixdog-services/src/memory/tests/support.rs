@@ -10,8 +10,19 @@ use crate::memory::pg::db::{Db, Schema};
 /// Where a test's cluster starts scanning for a port: one the OS just handed out, so parallel tests and other builds on this machine
 /// start apart, and never inside a range Windows reserves (Hyper-V / WinNAT keep 100-port blocks, 58284-58824 on 2026-11-12, that
 /// refuse every bind: a fixed range landed inside them and the scan of its 200 ports took 410 s and failed).
+///
+/// A start scans upward (`cluster::PORT_SPAN` ports): a port among the last `PORT_SPAN` of the range has fewer than that above it, so
+/// it is held and another is asked for. There are only `PORT_SPAN` such ports, so this ends.
 pub fn preferred_port() -> u16 {
-    std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the OS has a free port").local_addr().expect("a bound address").port()
+    let mut held = Vec::new();
+    loop {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the OS has a free port");
+        let port = listener.local_addr().expect("a bound address").port();
+        if port <= u16::MAX - crate::memory::pg::cluster::PORT_SPAN {
+            return port;
+        }
+        held.push(listener);
+    }
 }
 
 /// A throwaway cluster in a temp directory.
