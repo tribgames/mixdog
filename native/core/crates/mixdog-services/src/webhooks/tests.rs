@@ -298,6 +298,38 @@ async fn request_parsing_answers_as_node_answers_it() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap();
     assert_eq!(golden["maxBodyBytes"], MAX_BODY_BYTES);
     let f = fx(WebhookConfig::default());
+    // `destroyed` is observed, not supplied: what a peer sees of the real listener after its answer
+    // (a second request on the connection is not served) is compared with every recorded wire case,
+    // and the connection closing after an answer is what Node's `req.destroy()` is.
+    let listener = serve_on_loopback(&f).await;
+    for case in golden["wire"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let parts: Vec<&str> = case["parts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
+        let sequential = case["sequential"].as_bool().unwrap_or(false);
+        let fin = case["halfClose"].as_bool().unwrap_or(false) || case["server"] == "gate";
+        let seen = peer_sees(listener.port(), &parts, sequential, fin).await;
+        let recorded: Vec<Value> = case["responses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| json!({"status": r["status"], "contentType": r["headers"].get("content-type").cloned().unwrap_or(Value::Null), "body": r["body"]}))
+            .collect();
+        let seen: Vec<Value> = seen.into_iter().map(|(status, content_type, body)| json!({"status": status, "contentType": content_type, "body": body})).collect();
+        assert_eq!(seen, recorded, "{name}: what the peer sees");
+        assert!(case["closed"].as_bool().unwrap(), "{name}: Node closes the connection");
+        assert_eq!(case["settled"], 0, "{name}: nothing settles in Node");
+        assert!(f.dispatched.0.lock().unwrap().is_empty(), "{name}: nothing reached the dispatch");
+    }
+    let gate_closes = peer_sees(listener.port(), &["POST /webhook/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n"], false, true).await.len() == 1;
+    let overflow_closes = {
+        let head = post("/webhook/hook", &[JSON_CT], "Transfer-Encoding: chunked\r\n");
+        let head = String::from_utf8(head).unwrap();
+        let body = format!("{:x}\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", MAX_BODY_BYTES + 1, "a".repeat(MAX_BODY_BYTES + 1));
+        let seen = peer_sees(listener.port(), &[&head, &body], false, true).await;
+        assert_eq!(seen[0].0, 413);
+        seen.len() == 1
+    };
+    listener.stop().await;
     for case in golden["paths"].as_array().unwrap() {
         let url = case["url"].as_str().unwrap();
         assert_eq!(handler::raw_endpoint_name(url), case["parsed"]["rawName"].as_str().unwrap(), "rawName of {url}");
@@ -305,7 +337,7 @@ async fn request_parsing_answers_as_node_answers_it() {
         if let Some(gate) = case.get("gate") {
             let Err(Rejection(refusal)) = f.svc.precheck(url).await else { panic!("gate of {url}: not refused") };
             assert_eq!(f.svc.handle_post(url, &headers(&[]), b"{}").await, refusal, "gate of {url}: handle_post");
-            assert_answer(&format!("gate of {url}"), gate, Some((&refusal, true)));
+            assert_answer(&format!("gate of {url}"), gate, Some((&refusal, gate_closes)));
         }
     }
     for case in golden["bodies"].as_array().unwrap() {
@@ -331,7 +363,7 @@ async fn request_parsing_answers_as_node_answers_it() {
             }
             (got, recorded) => panic!("{name}: got {:?} bytes, recorded {recorded:?}", got.map(|b| b.len())),
         }
-        assert_answer(name, case, reply.as_ref().map(|r| (r, true)));
+        assert_answer(name, case, reply.as_ref().map(|r| (r, overflow_closes)));
     }
     for case in golden["cutBodies"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -346,11 +378,10 @@ async fn request_parsing_answers_as_node_answers_it() {
             assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
         }
         // The cut ends the read; a collector that had not overflowed settles nothing (Node's promise stays pending).
-        let settled = reply.is_some();
-        let cut = collector.cut_short();
-        assert_eq!(settled, case["settled"].as_bool().unwrap(), "{name}: settled");
-        assert_eq!(cut, None, "{name}: the cut itself answers nothing");
-        assert_answer(name, case, reply.as_ref().map(|r| (r, true)));
+        let outcome = collector.cut_short();
+        let ours = json!({"settled": outcome.is_some(), "received": outcome.flatten().map_or(Value::Null, |b| json!({"length": b.len()}))});
+        assert_eq!(ours, json!({"settled": case["settled"], "received": case["received"]}), "{name}: what the cut settled with");
+        assert_answer(name, case, reply.as_ref().map(|r| (r, overflow_closes)));
     }
 }
 
@@ -382,8 +413,35 @@ async fn serve_on_loopback(f: &Fx) -> WebhookListener {
     WebhookListener::start(service, 0).await.unwrap()
 }
 
-/// One response off the stream, framed by its `Content-Length`; None when the peer closed first.
 async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
+    read_response_typed(stream, pending).await.map(|(status, _, body)| (status, body))
+}
+
+/// Writes `parts` (a `sequential` second part only after the first reply came) and returns every reply
+/// the peer gets until the listener closes: (status, content type, body). `fin` half-closes the
+/// sending side after the writes, so a listener that kept the connection alive ends it too.
+async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Vec<(u16, Option<String>, String)> {
+    let (mut read, mut write) = TcpStream::connect(("127.0.0.1", port)).await.unwrap().into_split();
+    let (mut pending, mut seen) = (Vec::new(), Vec::new());
+    let first = if sequential { 1 } else { parts.len() };
+    for part in &parts[..first] {
+        let _ = write.write_all(part.as_bytes()).await;
+    }
+    if sequential {
+        seen.extend(read_response_typed(&mut read, &mut pending).await);
+        let _ = write.write_all(parts[1].as_bytes()).await;
+    }
+    if fin {
+        let _ = write.shutdown().await;
+    }
+    while let Some(reply) = read_response_typed(&mut read, &mut pending).await {
+        seen.push(reply);
+    }
+    seen
+}
+
+/// One response off the stream, framed by its `Content-Length`; None when the peer closed first.
+async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, Option<String>, String)> {
     let mut chunk = [0u8; 8192];
     let head_end = loop {
         if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
@@ -407,8 +465,9 @@ async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut V
         }
     }
     let body = String::from_utf8_lossy(&pending[head_end + 4..head_end + 4 + length]).into_owned();
+    let content_type = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-type:").map(|v| v.trim().to_owned()));
     pending.drain(..head_end + 4 + length);
-    Some((status, body))
+    Some((status, content_type, body))
 }
 
 /// Sends `parts` one after the other and returns the first reply, None when the server closed

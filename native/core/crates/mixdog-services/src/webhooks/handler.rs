@@ -64,9 +64,11 @@ impl BodyCollector {
 
     /// The request was aborted or its socket failed mid-body. Node's collector has no handler
     /// for either, so nothing more happens: no answer, no `destroy`, no processing of the
-    /// partial body. A 413 already sent stays the one answer.
-    pub fn cut_short(self) -> Option<Rejection> {
-        None
+    /// partial body. A 413 already sent stays the one answer. Returns what the read had settled
+    /// with: None while it is still pending (the partial body is dropped), `Some(None)` when the
+    /// overflow had already settled it with no body.
+    pub fn cut_short(self) -> Option<Option<Vec<u8>>> {
+        self.too_large.then_some(None)
     }
 
     /// The whole body at the end of the stream; None when it overflowed.

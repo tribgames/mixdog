@@ -14,7 +14,9 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import * as http from 'node:http';
 import { IncomingMessage } from 'node:http';
+import * as net from 'node:net';
 import { Socket } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -211,7 +213,115 @@ for (const c of cutCases) {
   });
 }
 
-const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults };
+// What a peer sees on the wire: real `http.createServer` servers, raw bytes over a socket. The gate server answers like the
+// listener (`handlePost` for `POST /webhook/*`, `GET /` 200 `OK`); the collect server runs `collectRawBody` alone (the cases
+// that pass the gate need PostgreSQL) and counts how many collections settled. A case records the responses the peer parsed
+// (status, headers without `date`, body), whether the server closed the connection, and the settled count. `sequential`
+// writes the second part only once the first response has arrived. One deadline guards a connection that stays open.
+const wireHandler = createWebhookRequestHandler({
+  getConfig: () => ({ endpoints: {} }),
+  verifyRequest: () => {
+    throw new Error('verify is not reached');
+  },
+  handleWebhook: () => {
+    throw new Error('dispatch is not reached');
+  },
+});
+let settledCollections = 0;
+const wireServers = {
+  gate: http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('OK');
+    } else {
+      void wireHandler.handlePost(req, res);
+    }
+  }),
+  collect: http.createServer((req, res) => {
+    void collectRawBody(req, res).then(() => {
+      settledCollections += 1;
+    });
+  }),
+};
+for (const server of Object.values(wireServers)) await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+function parseResponses(buffer) {
+  const responses = [];
+  let rest = buffer;
+  for (;;) {
+    const end = rest.indexOf('\r\n\r\n');
+    if (end < 0) return { responses, partial: rest.length > 0 };
+    const lines = rest.subarray(0, end).toString('latin1').split('\r\n');
+    const headers = {};
+    for (const line of lines.slice(1)) {
+      const at = line.indexOf(':');
+      headers[line.slice(0, at).toLowerCase()] = line.slice(at + 1).trim();
+    }
+    delete headers.date;
+    let at = end + 4;
+    let body = '';
+    if (headers['transfer-encoding'] === 'chunked') {
+      for (;;) {
+        const line = rest.indexOf('\r\n', at);
+        if (line < 0) return { responses, partial: true };
+        const size = parseInt(rest.subarray(at, line).toString('latin1'), 16);
+        if (rest.length < line + 2 + size + 2) return { responses, partial: true };
+        body += rest.subarray(line + 2, line + 2 + size).toString('latin1');
+        at = line + 2 + size + 2;
+        if (size === 0) break;
+      }
+    } else {
+      const length = headers['content-length'] === undefined ? rest.length - at : Number(headers['content-length']);
+      if (rest.length < at + length) return { responses, partial: true };
+      body = rest.subarray(at, at + length).toString('latin1');
+      at += length;
+    }
+    responses.push({ status: Number(lines[0].split(' ')[1]), headers, body });
+    rest = rest.subarray(at);
+  }
+}
+
+function runWire(server, c) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(server.address().port, '127.0.0.1');
+    let data = Buffer.alloc(0);
+    let closed = false;
+    let next = 1;
+    const deadline = setTimeout(() => reject(new Error(`wire case "${c.name}": the connection stayed open`)), 10000);
+    socket.on('error', () => {});
+    socket.on('data', (d) => {
+      data = Buffer.concat([data, d]);
+      if (c.sequential && next < c.parts.length && parseResponses(data).responses.length > 0) socket.write(c.parts[next++], 'latin1');
+    });
+    socket.on('close', () => {
+      closed = true;
+      clearTimeout(deadline);
+      resolve({ responses: parseResponses(data).responses, closed });
+    });
+    socket.write(c.parts[0], 'latin1');
+    if (!c.sequential) for (const part of c.parts.slice(1)) socket.write(part, 'latin1');
+    if (c.halfClose) socket.end();
+  });
+}
+
+const gateRequest = 'POST /webhook/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n';
+const secondRequest = 'GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n';
+const chunkedHead = 'POST /webhook/hook HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n';
+const wireCases = [
+  { name: 'a gate answer with a second request pipelined behind it', server: 'gate', parts: [gateRequest + secondRequest] },
+  { name: 'a gate answer, then a second request on the same connection', server: 'gate', sequential: true, parts: [gateRequest, secondRequest] },
+  { name: 'a truncated chunked body, the peer half-closed', server: 'collect', halfClose: true, parts: [chunkedHead + '2\r\n{}\r\n0\r\n'] },
+  { name: 'junk where a chunk ends', server: 'collect', parts: [chunkedHead + '2\r\n{}XX0\r\n\r\n'] },
+];
+const wireResults = [];
+for (const c of wireCases) {
+  const before = settledCollections;
+  const seen = await runWire(wireServers[c.server], c);
+  wireResults.push({ ...c, ...seen, settled: settledCollections - before });
+}
+for (const server of Object.values(wireServers)) server.close();
+
+const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults, wire: wireResults };
 const out = args.get('out');
 if (out) {
   writeFileSync(out, JSON.stringify(result, null, 1));

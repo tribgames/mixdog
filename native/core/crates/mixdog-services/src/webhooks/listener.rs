@@ -197,6 +197,14 @@ fn reply(status: u16, content_type: &str, body: Vec<u8>, close: bool) -> Reply {
     builder.body(Full::new(Bytes::from(body))).expect("a reply with a valid status and headers")
 }
 
+fn bare_bad_request() -> Reply {
+    Response::builder()
+        .status(400)
+        .header("connection", "close")
+        .body(Full::new(Bytes::new()))
+        .expect("a reply with a valid status and headers")
+}
+
 fn json_reply(reply_body: &HttpReply, close: bool) -> Reply {
     reply(reply_body.status, HttpReply::CONTENT_TYPE,serde_json::to_vec(&reply_body.body).unwrap_or_default(), close)
 }
@@ -236,7 +244,9 @@ async fn webhook(service: &WebhookService, target: &str, headers: Headers, body:
     };
     match mixdog_rt::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
         Err(_) => reply(408, "text/plain", b"Request Timeout".to_vec(), true),
-        Ok(Err(_)) => reply(400, "text/plain", b"Bad Request".to_vec(), true),
+        // Node's collection stays pending and its server layer answers a bare 400 (no body, no
+        // content type) and closes: a truncated half-closed body, broken chunk framing.
+        Ok(Err(_)) => bare_bad_request(),
         Ok(Ok(Collected::TooLarge(Rejection(refusal)))) => json_reply(&refusal, true),
         Ok(Ok(Collected::Done(bytes))) => json_reply(&service.process(&name, &headers, &bytes).await, false),
     }
