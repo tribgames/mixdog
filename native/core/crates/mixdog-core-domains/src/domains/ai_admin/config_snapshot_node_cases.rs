@@ -179,8 +179,79 @@ async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T 
     }
 }
 
+static LOG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static LOGGED: Notify = Notify::const_new();
+
+/// The process's warnings, kept as their messages: the log lines Node's recording compares against. Installed by the test
+/// that reads them (the reads run on the io lane's own threads, so a thread-local subscriber would not see them).
+struct Capture;
+
+struct Message(String);
+
+impl tracing::field::Visit for Message {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{value:?}");
+        }
+    }
+}
+
+impl tracing::Subscriber for Capture {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        *metadata.level() <= tracing::Level::WARN
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, event: &tracing::Event<'_>) {
+        let mut message = Message(String::new());
+        event.record(&mut message);
+        LOG.lock().unwrap().push(message.0);
+        LOGGED.notify_waiters();
+    }
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+/// A `[watch] re-read of <path> failed: <error>` line as its comparable head: the path, then (the error text is the
+/// operating system's own) nothing; a streak of equal lines is one.
+fn rewatched(lines: &[String]) -> Vec<String> {
+    let mut heads: Vec<String> = Vec::new();
+    for line in lines {
+        let head = line.trim_end().split(" failed: ").next().unwrap().replace('\\', "/");
+        if heads.last() != Some(&head) {
+            heads.push(head);
+        }
+    }
+    heads
+}
+
+/// The core's `[watch] re-read of` lines for files under `root`, once there is one: the credential folder is `accounts/` where
+/// Node's data dir holds the file itself, so the folder is written as the data dir.
+async fn logged_rereads(root: &str, accounts: &std::path::Path) -> Vec<String> {
+    let accounts = accounts.to_string_lossy().into_owned();
+    loop {
+        let logged = LOGGED.notified();
+        tokio::pin!(logged);
+        logged.as_mut().enable();
+        let lines: Vec<String> = LOG
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.starts_with("[watch] re-read of ") && line.contains(root))
+            .map(|line| line.replace(&accounts, "<data>"))
+            .collect();
+        if !lines.is_empty() {
+            return rewatched(&lines);
+        }
+        logged.await;
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_replayed_config_snapshot_read_is_nodes() {
+    let _ = tracing::subscriber::set_global_default(Capture);
     let golden = fixture("golden.json");
     let excluded = fixture("MANIFEST.json")["excluded"].as_object().unwrap().clone();
     let cases = golden["cases"].as_array().unwrap();
@@ -218,6 +289,8 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
         let mut during_build: Option<String> = None;
         // What the first build returned to the read that made it, when another process wrote during that build.
         let mut first_read: Option<Value> = None;
+        // The lines Node logged for the removal made while its stat was denied, compared at the observation that follows it.
+        let mut denied: Option<Vec<String>> = None;
         // A config-change listener, subscribed after each observation as the test subscribes its own.
         let mut listener = rig.config.changes();
         for (index, step) in steps.iter().enumerate() {
@@ -242,9 +315,20 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                 "writeDuringBuild" => during_build = Some(text.to_owned()),
                 "writeCredential" => {
                     let target = if step["at"] == "nested" { nested_file.clone().unwrap() } else { credentials.clone() };
+                    if target.is_dir() {
+                        std::fs::remove_dir(&target).unwrap();
+                    }
                     foreign_write(&target, text);
                 }
-                "removeCredential" => std::fs::remove_file(&credentials).unwrap(),
+                "removeCredential" => {
+                    std::fs::remove_file(&credentials).unwrap();
+                    // The recorded removal ran while Node's stat of the file was denied (`logged` is what its cache wrote). The
+                    // core keeps no stat, so its read of the file is what is denied: a folder where the file was.
+                    if let Some(lines) = step.get("logged") {
+                        std::fs::create_dir(&credentials).unwrap();
+                        denied = Some(lines.as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_owned()).collect());
+                    }
+                }
                 // Read when the rig was made (its environment names the file).
                 "credentialPath" => {}
                 "mkdir" => std::fs::create_dir_all(accounts_dir.join(step["at"].as_str().unwrap())).unwrap(),
@@ -304,8 +388,15 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                     let agent = rig.config.loaded_agent().await.unwrap();
                     assert_eq!(json!([agent.get("heartbeat")]), step["seen"], "{name}, step {index}: what the listener reads");
                 }
-                "observe" => {
-                    // The loaded config at Node's recorded moment: the step is held until the rebuilds it causes (each announced by
+                "observe" if denied.is_some() => {
+                    let want = rewatched(&denied.take().unwrap());
+                    let root = rig._dir.path().to_string_lossy().into_owned();
+                    let got = within(&format!("{name}, step {index}: the core's log of the read that failed"), logged_rereads(&root, &accounts_dir)).await;
+                    assert_eq!(got, want, "{name}, step {index}: what the failed re-read logged");
+                    applied_at = *started.as_ref().unwrap().applied.borrow();
+                    listener = rig.config.changes();
+                }
+                "observe" => {                    // The loaded config at Node's recorded moment: the step is held until the rebuilds it causes (each announced by
                     // the sync's own notification) have taken it in. One deadline for the whole wait; the states in between are
                     // not judged, and the last one read is named when the wait runs out.
                     let want = &step["stored"];

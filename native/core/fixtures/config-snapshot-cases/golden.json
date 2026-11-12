@@ -4241,7 +4241,10 @@
           ]
         },
         {
-          "op": "removeCredential"
+          "op": "removeCredential",
+          "logged": [
+            "[watch] re-read of <data>/openai-oauth.json failed: EACCES: permission denied, stat\n"
+          ]
         },
         {
           "op": "observe",
