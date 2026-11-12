@@ -2330,7 +2330,9 @@ async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue, JsonV
             })
         })
         .collect();
-    // What the turn's text-delta hook was handed, in order (compared when the scenario records it).
+    // What the turn's text-delta hook was handed, in order (compared when the scenario records it). The run's other events
+    // (stage, tool calls, usage, ...) have no Node recording: the recorder installs no hook for them (agent set manifest,
+    // exclusions "run events other than the text deltas").
     let deltas: Vec<JsonValue> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(chunk) = e { Some(json!(chunk)) } else { None }).collect();
     (JsonValue::Array(transcript), result, JsonValue::Array(requests), JsonValue::Array(deltas))
 }

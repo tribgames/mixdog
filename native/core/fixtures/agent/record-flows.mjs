@@ -157,6 +157,7 @@ const { _resetTurnSnapshotForTest } = await load('src/runtime/shared/turn-snapsh
 const { AgentStallAbortError } = await load('src/runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs');
 const { armTurnTimeout, reapTurnShellJobs, takeStoppedShellJobs } = await load('src/runtime/agent/orchestrator/session/manager/turn-reap.mjs');
 const { runtimeState } = await load('src/runtime/agent/orchestrator/session/manager/runtime-state.mjs');
+const { createAgentTree } = await load('src/standalone/session-service/agent-tree.mjs');
 
 /** The loader hook's report of the real review store's calls (see flow-hooks.mjs). */
 const reviewSpy = (calls) => (kind, args, result) => {
@@ -305,6 +306,15 @@ const spawnScenarios = [
   // A running turn is cancelled (agent close / agent-tree cancel): the owner hears once, as cancelled, with what the turn had said (job-task spawn-flow.test.mjs).
   { name: 'a_running_turn_cancelled_reports_its_partial_output_once', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'half of the review' }, { cancelTask: 'cancelled by agent close' }, { say: 'late words' }, { return: { content: 'late' } }] },
   { name: 'a_running_turn_cancelled_without_output_sends_the_header_only_notice', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ cancelTask: 'cancelled by agent close' }, { return: { content: '' } }] },
+  // The agent tree's own cancel (`cancelAgentTree`, real) of the worker's session while its turn runs: the session's running task is cancelled with the tree's reason first, so the owner hears once, as cancelled, with what the turn had said (spawn-flow.test.mjs).
+  { name: 'an_agent_tree_cancel_reports_the_partial_output_once', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'partial review' }, { cancelTree: 'agent session cancelled' }, { say: 'late words' }, { return: { content: 'late' } }] },
+  // The completion goes to the caller that started the job: a routing id or a notify callback on the context does not take it.
+  { name: 'a_completion_goes_to_the_immutable_caller_owner', args: { agent: 'worker', prompt: 'p', tag: 't' }, staleContext: true, steps: [{ return: { content: 'owner handoff' } }] },
+  // A host-set skill selection reaches the worker's turn on both runtimes, an empty one as an empty selection; none is invented.
+  { name: 'a_host_skill_selection_reaches_the_turn', args: { agent: 'worker', prompt: 'p $payload-skill', tag: 't', skillSelection: 'trusted $a' }, trackSelection: true, steps: [{ return: { content: 'ok' } }] },
+  { name: 'no_skill_selection_is_invented', args: { agent: 'worker', prompt: 'p', tag: 't' }, trackSelection: true, steps: [{ return: { content: 'ok' } }] },
+  { name: 'an_in_process_spawn_passes_an_empty_selection', surface: 'none', args: { agent: 'worker', prompt: 'p', tag: 't', skillSelection: '' }, trackSelection: true, steps: [{ return: { content: 'ok' } }] },
+  { name: 'an_in_process_spawn_invents_no_selection', surface: 'none', args: { agent: 'worker', prompt: 'p', tag: 't' }, trackSelection: true, steps: [{ return: { content: 'ok' } }] },
   { name: 'a_respawn_is_marked', args: { agent: 'worker', prompt: 'p', tag: 't' }, respawned: true, steps: [{ return: { content: 'ok' } }] },
   { name: 'an_abnormal_finish_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ return: { content: '', termination: 'empty' } }] },
   { name: 'a_throwing_turn_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ throw: { message: 'turn broke' } }] },
@@ -332,6 +342,12 @@ function newSpawnWorld(scenario) {
   const notices = [];
   const session = { id: 'sess_w1', cwd: '/work', parentSessionId: 'lead', ownerSessionId: 'lead', messages: [{ role: 'user', content: 'earlier' }] };
   let job = null;
+  const selections = [];
+  const staleNotify = { calls: 0 };
+  // The real agent tree: its cancel of a session starts with the session's own running tasks (agent-cancel.mjs).
+  const tree = (scenario.steps || []).some((step) => step.cancelTree !== undefined)
+    ? createAgentTree({ listSessions: async () => [], readStoredSession: async () => null, sessionOwner: () => null, stateBusy: () => false, entryForSession: async () => null, retainUnwatched() {}, createSession: async () => ({ sessionId: 'sess_w1' }) })
+    : null;
   let created = 0;
   const sessionsById = { [session.id]: session };
   const holds = {};
@@ -351,6 +367,8 @@ function newSpawnWorld(scenario) {
     closeSession: async (id, reason) => void calls.push(`close:${id}:${reason}`),
     askSession: async (id, prompt, context, _a, cwd, _b, hooks) => {
       calls.push(['ask', prompt, cwd]);
+      // Whether the turn was handed a skill selection, and which: an absent one is `{}`.
+      if (scenario.trackSelection) selections.push(Object.hasOwn(hooks, 'skillSelection') ? { skillSelection: hooks.skillSelection } : {});
       for (const step of scenario.steps || []) {
         if (step.tool) hooks.onToolResult({ uiDiff: step.tool });
         else if (step.terminal) hooks.onTerminalResult?.(turnResult(step.terminal));
@@ -358,6 +376,7 @@ function newSpawnWorld(scenario) {
         else if (step.throw) throw new Error(step.throw.message);
         else if (step.say !== undefined) session.messages.push({ role: 'assistant', content: step.say });
         else if (step.cancelTask !== undefined) bg.cancelBackgroundTask(job.taskId, step.cancelTask);
+        else if (step.cancelTree !== undefined) await tree.cancelAgentTree(id, step.cancelTree);
         else if (step.stall !== undefined) {
           if (scenario.shellJobs) reapStalledTurn();
           const error = new AgentStallAbortError(step.stall);
@@ -455,7 +474,7 @@ function newSpawnWorld(scenario) {
     prepareSpawn,
     runSpawn: runner.runSpawn,
   });
-  return { root, source, agents, config, calls, notices, session, shellIds, mgr, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
+  return { root, source, agents, config, calls, notices, session, shellIds, mgr, selections, staleNotify, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
 }
 
 /** What the real helpers answer about an agent, which the Rust side takes as its host's answers. */
@@ -483,7 +502,14 @@ for (const scenario of spawnScenarios) {
   clock = START;
   if (scenario.shellJobs) scenario.dry = await dryReap(scenario);
   const w = newSpawnWorld(scenario);
-  const context = { callerSessionId: 'lead', ownerSessionId: scenario.owner ?? 'lead', clientHostPid: 4242, cwd: scenario.callerCwd || '/work' };
+  const context = {
+    callerSessionId: 'lead',
+    ownerSessionId: scenario.owner ?? 'lead',
+    clientHostPid: 4242,
+    cwd: scenario.callerCwd || '/work',
+    // A stale routing id and notify callback: neither takes the completion.
+    ...(scenario.staleContext ? { routingSessionId: 'wrong-lead', notifyFn: () => { w.staleNotify.calls += 1; return true; } } : {}),
+  };
   const host = hostAnswers(w, scenario);
   if (scenario.shellJobs) host.stoppedShellJobs = scenario.dry;
   const lockOwner = scenario.lockOwner ?? 'lead';
@@ -555,6 +581,8 @@ for (const scenario of spawnScenarios) {
       notices: unprefixed(idOf(w.notices, task?.taskId)),
       final: unprefixed(final),
       ...(shellStatuses ? { shellTasks: shellStatuses } : {}),
+      ...(scenario.trackSelection ? { selections: w.selections } : {}),
+      ...(scenario.staleContext ? { staleNotifyCalls: w.staleNotify.calls } : {}),
     },
   });
 }

@@ -415,12 +415,17 @@ export function commitStage(stage, finalDir) {
 /**
  * Re-lists a set whose manifest another recorder owns (a recorder that adds one
  * file to a shared set): keeps recorder/command/extra, recomputes files and the
- * identity from `tree`.
+ * identity from `tree`. An export tree (no `.git`) cannot name its commit by itself once
+ * HEAD has moved on, so the commit the set was recorded from (its manifest's full id) is
+ * named the way the recorders that write a manifest do: `exactProductIdentity`, which
+ * refuses a tree that is not exactly that commit. A set with no such commit, and a git
+ * checkout, are identified as before.
  */
-export function refreshSetManifest(setDir, tree, ref = 'HEAD') {
+export function refreshSetManifest(setDir, tree, ref = 'HEAD', addExtra = {}) {
   const old = JSON.parse(readFileSync(join(setDir, 'MANIFEST.json'), 'utf8'));
-  const { set, recorder, command, product: _p, fileCount: _c, totalBytes: _t, files: _f, ...extra } = old;
-  return writeSetManifest(setDir, { set, recorder, command, extra, identityTree: tree, identityRef: ref });
+  const { set, recorder, command, product, fileCount: _c, totalBytes: _t, files: _f, ...extra } = old;
+  const named = !existsSync(join(tree, '.git')) && ref === 'HEAD' && /^[0-9a-f]{40}$/.test(product?.commit ?? '');
+  return writeSetManifest(setDir, { set, recorder, command, extra: { ...extra, ...addExtra },...(named ? { identity: exactProductIdentity(tree, product.commit) } : { identityTree: tree, identityRef: ref }) });
 }
 
 export const fileSize =(p) => statSync(p).size;

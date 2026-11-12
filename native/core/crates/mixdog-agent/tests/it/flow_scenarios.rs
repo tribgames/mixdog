@@ -135,6 +135,8 @@ struct Shared {
     messages: Mutex<Vec<Option<String>>>,
     /// The shells Node's reap left for the handoff (host.stoppedShellJobs), read once.
     stopped: Mutex<Option<StoppedShellJobs>>,
+    /// Per turn, the skill selection it was handed: `{ "skillSelection": text }`, or `{}` for none.
+    selections: Mutex<Vec<Value>>,
 }
 
 impl Shared {
@@ -167,6 +169,7 @@ impl TurnSessions for Sess {
     async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
         use std::sync::atomic::Ordering::SeqCst;
         log(&self.0.log, json!(["ask", handoff_content(&request.prompt, &request.attachments), request.cwd]));
+        lock(&self.0.selections).push(request.skill_selection.as_ref().map_or_else(|| json!({}), |text| json!({ "skillSelection": text })));
         let n = self.0.asks.fetch_add(1, SeqCst) + 1;
         self.0.in_flight.fetch_add(1, SeqCst);
         if self.0.hold_ask.contains(&n) {
@@ -195,7 +198,10 @@ impl Sess {
                 return Err(TurnError::new(s(error, "message")));
             } else if let Some(text) = step.get("say").and_then(Value::as_str) {
                 lock(&self.0.messages).push(Some(text.to_owned()));
-            } else if let Some(reason) = step.get("cancelTask").and_then(Value::as_str) {
+            } else if let Some(reason) = step.get("cancelTask").or_else(|| step.get("cancelTree")).and_then(Value::as_str) {
+                // Node's agent tree cancels the session's own running task with its reason before it closes the session; the core
+                // has no entry that cancels a bare session (only `agent close`, which cancels the task the same way), so the
+                // tree's cancel is this cancel of the job with the tree's reason.
                 let id = self.0.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).unwrap();
                 self.0.board.cancel(&id, reason, CancelNotice::Default);
             } else if let Some(message) = step.get("stall").and_then(Value::as_str) {
@@ -648,6 +654,7 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         hold_ask: numbers(&scenario["holdAsk"]),
         messages: Mutex::new(vec![None]),
         stopped: Mutex::new(stopped_shells(host)),
+        selections: Mutex::default(),
     };
     // The notifier needs the state (its notices); give it its own handle to the same lists.
     let notices = shared.notices.clone();
@@ -864,8 +871,17 @@ async fn a_spawn_equals_nodes() {
         settle().await;
         let (calls, notices) = drain(&rig, id.as_deref());
         let final_value = id.as_deref().map_or(Value::Null, |id| masked(final_state(&rig, id, true), Some(id)));
-        let got = json!({ "startError": start_error, "pending": pending, "calls": calls, "notices": notices, "final": final_value });
+        let mut got = json!({ "startError": start_error, "pending": pending, "calls": calls, "notices": notices, "final": final_value });
         let mut want = case["result"].clone();
+        // The turns' skill selections are compared where the scenario records them.
+        if want.get("selections").is_some() {
+            got["selections"] = Value::Array(lock(&rig.shared.selections).clone());
+        }
+        // A routing id or notify callback on Node's context is no input of the core's `SpawnContext`; what Node shows is that
+        // neither took the completion, which the notices (whole, above) compare.
+        if let Some(stale) = want.as_object_mut().unwrap().remove("staleNotifyCalls") {
+            assert_eq!(stale, 0, "{name}: Node's stale notify callback was called");
+        }
         for notice in want["notices"].as_array_mut().unwrap() {
             if notice.get("meta").is_some_and(Value::is_null) {
                 notice.as_object_mut().unwrap().remove("meta");
