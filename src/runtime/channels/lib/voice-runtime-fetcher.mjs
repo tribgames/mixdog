@@ -38,7 +38,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { spawnSync } from 'node:child_process';
@@ -484,20 +484,19 @@ async function downloadFile(url, destPath, { onProgress = null, timeoutMs = 180_
 // Ubuntu / dnf on Fedora). Platform decision is a single switch — no fallback
 // chain, no probing.
 export function extractZip(zipPath, destDir) {
-  // Windows: bundled tar.exe (libarchive) misreads `C:` drive letter as
-  // host:path and tries DNS resolution. Use PowerShell Expand-Archive,
-  // which is Windows-native and path-safe.
+  // Windows: the system bsdtar (libarchive) is spawned directly, no shell, so
+  // no part of a path is interpreted. It misreads a `C:` drive letter in -f as
+  // host:path, so the archive is named relative to its own folder (cwd).
   if (process.platform === 'win32') {
-    // Paths travel via env vars so `$` / backticks in them are never expanded.
-    const ps = 'Expand-Archive -LiteralPath $env:MIXDOG_ZIP_PATH -DestinationPath $env:MIXDOG_ZIP_DEST -Force';
-    const r = spawnSync('powershell', ['-NoProfile', '-Command', ps], {
+    const tar = join(windowsSystemRoot() || 'C:\\Windows', 'System32', 'tar.exe');
+    const r = spawnSync(tar, ['-xf', basename(zipPath), '-C', destDir], {
+      cwd: dirname(zipPath),
       stdio: 'pipe',
       windowsHide: true,
-      env: { ...process.env, MIXDOG_ZIP_PATH: zipPath, MIXDOG_ZIP_DEST: destDir },
     });
     if (r.status !== 0) {
       throw new Error(
-        `[voice-runtime] zip extract failed via Expand-Archive: ${r.stderr?.toString() || r.stdout?.toString() || 'unknown'}`
+        `[voice-runtime] zip extract failed via tar: ${r.stderr?.toString() || r.stdout?.toString() || r.error?.message || 'unknown'}`
       );
     }
     return;
