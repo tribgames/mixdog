@@ -121,6 +121,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           leafId={leaf.id}
           entry={entry}
           sessionId={sessionId}
+          terminalSessionId={surfaceSession('terminal')}
           sessionBound={Boolean(sessionId)}
           onOpenFiles={projectPath ? () => context.paneSideDocks.openFolder(leaf.id, projectPath, filesRel) : undefined}
           groups={groups}
