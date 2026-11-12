@@ -48,6 +48,7 @@ use serde_json::Value;
 use crate::connection::Connection;
 use crate::connection::Streamed;
 use crate::error::error_data;
+use crate::frame::abandoned_request_frame;
 use crate::frame::error_notification_frame;
 use crate::frame::notification_frame;
 use crate::frame::request_frame;
@@ -352,6 +353,7 @@ impl Outgoing {
             conn: Arc::clone(&claimant),
             id: id.clone(),
         };
+        let request_id = id.clone();
         claimant
             .sink
             .send_control(request_frame(id, method.as_str(), params))
@@ -360,8 +362,15 @@ impl Outgoing {
             Some(cancel) => Scope::new().cancel(cancel),
             None => Scope::new(),
         };
+        // A computer capture keeps running on the claimant until it is told its asker is gone.
+        let mut abandon = (capability == HostCapability::Computer).then(|| AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, answered: false });
         match scope.deadline(capability.deadline().map(|limit| Instant::now() + limit)).run(reply).await {
-            Scoped::Done(Ok(reply)) => reply,
+            Scoped::Done(Ok(reply)) => {
+                if let Some(abandon) = abandon.as_mut() {
+                    abandon.answered = true;
+                }
+                reply
+            }
             Scoped::Done(Err(_)) => Err(desktop_host_unavailable("claimantClosed").into()),
             Scoped::Cancelled => Err(desktop_host_unavailable("cancelled").into()),
             Scoped::DeadlineExceeded => Err(desktop_host_unavailable("timedOut").into()),
@@ -441,6 +450,21 @@ struct ForgetOnDrop {
 impl Drop for ForgetOnDrop {
     fn drop(&mut self) {
         self.conn.forget_host_request(&self.id);
+    }
+}
+
+/// Tells the claimant a `host/*` request ended without its answer (cancelled, past its deadline, dropped), so it stops the work.
+struct AbandonOnDrop {
+    conn: Arc<Connection>,
+    id: RequestId,
+    answered: bool,
+}
+
+impl Drop for AbandonOnDrop {
+    fn drop(&mut self) {
+        if !self.answered {
+            let _ = self.conn.sink.send_control(abandoned_request_frame(&self.id));
+        }
     }
 }
 

@@ -78,6 +78,19 @@ pub(crate) fn request_frame(id: RequestId, method: &str, params: Value) -> Bytes
     })
 }
 
+/// `serverRequest/resolved` for a `host/*` request its asker gave up (cancelled, timed out, dropped): the claimant ends the
+/// handler it is still running for `id`. A host request belongs to no thread.
+pub(crate) fn abandoned_request_frame(id: &RequestId) -> Bytes {
+    notification_frame(
+        "serverRequest/resolved",
+        serde_json::json!({
+            "threadId": "",
+            "requestId": id,
+            "resolution": { "kind": "cancelled", "at": now_ms() },
+        }),
+    )
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
