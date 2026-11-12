@@ -53,14 +53,17 @@ async function storedFavoriteSessionIds() {
  * `{ id → { lastActiveAt, title } }` for the given stored sessions (missing
  * ones are left out): the last conversation turn or heartbeat.
  */
-async function storedSessionActivity(ids) {
+export async function storedSessionActivity(ids) {
   const [{ loadSession }, { subAgentActivityAt }] = await Promise.all([
     import('../../agent/orchestrator/session/store/load-session.mjs'),
     import('../../agent/orchestrator/session/store/sweep/sub-agent-retention.mjs'),
   ]);
   const out = {};
   for (const id of new Set(ids)) {
-    const doc = loadSession(id);
+    // Both fields live in the record header: no transcript replay, and the
+    // loop is given back between sessions (a first header scan can be long).
+    await new Promise((resolve) => setImmediate(resolve));
+    const doc = loadSession(id, { headerOnly: true });
     if (doc) out[id] = { lastActiveAt: subAgentActivityAt(doc) || null, title: doc.title || doc.name || null };
   }
   return out;

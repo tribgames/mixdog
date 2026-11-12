@@ -562,6 +562,32 @@ async function automaticKeepPaths(record) {
   };
 }
 
+/** The keep reason of a checkoutVerdict, or null when it is clean and merged. */
+function verdictKeep(verdict) {
+  if (verdict.dirty.length) return { reason: 'dirty' };
+  if (verdict.unmerged > 0) return { reason: 'unmerged' };
+  // As assertRemovable: an operation in progress keeps the checkout.
+  if (verdict.operation) return { reason: 'dirty' };
+  if (verdict.ignored.length) return ignoredKeep(verdict.ignored);
+  return null;
+}
+
+/**
+ * The slow checks of `record`, always run afresh (a verdict is never reused:
+ * nested untracked files and unstaged edits change none of checkoutToken's
+ * inputs): automaticKeepPaths, checkoutUnmergedCount and, with nothing else
+ * found, operationInProgress.
+ */
+async function checkoutVerdict(record) {
+  const { dirty, ignored, artefacts } = await automaticKeepPaths(record);
+  const unmerged = await checkoutUnmergedCount(record);
+  const verdict = { dirty, ignored, artefacts, unmerged, operation: false };
+  if (!dirty.length && !(unmerged > 0)) {
+    verdict.operation = !!(await operationInProgress(gitStatusRunner, record.path));
+  }
+  return verdict;
+}
+
 /** How long the cleanup's last dirty check under the folder hold may take. */
 const FINAL_DIRTY_CHECK_TIMEOUT_MS = 1_500;
 /** How long a timed-out final status is given to exit after its kill. */
@@ -2518,19 +2544,36 @@ export async function removeManagedWorktree({
     (record.kind === expected.kind &&
       record.txId === expected.txId &&
       record.holderSessionId === expected.holderSessionId);
-  const record = await getRecord(entryId);
-  if (!record) {
+  const missing = () => {
     if (expected) return skipped;
     throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
-  }
-  return withRepoLock(record.repoCommonDir, async () => {
+  };
+  // This read only names the repository whose lock to take (a record never
+  // changes repository); the routing is decided from the locked read below.
+  const found = await getRecord(entryId);
+  if (!found) return missing();
+  // The one routing decision, made once under the repository lock. A deleted
+  // session's leftover (`automatic`, cleanupDeletedSessionWorktree) that is
+  // ready takes the verified automatic path, never a forced or recursive one:
+  // its record is handed out and removeAutomatically runs the slow checks
+  // after the lock is released, taking the lock again for the removal alone
+  // and keeping the worktree if the record changed meanwhile. Every other
+  // removal (force, snapshot, creating, recovery) finishes under this lock.
+  const decided = await withRepoLock(found.repoCommonDir, async () => {
     const current = await getRecord(entryId);
-    if (!current || !matches(current)) {
-      if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
-      return skipped;
+    if (!current) return { done: missing() };
+    if (!matches(current)) return { done: skipped };
+    if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
+      assertNotShared(current, sessionId);
+      return { automatic: current };
     }
-    return removeLocked(current, { force, sessionId, safeOnly, automatic, preserveBranch });
+    return { done: await removeLocked(current, { force, sessionId, safeOnly }) };
   });
+  if (!decided.automatic) return decided.done;
+  const outcome = await removeAutomatically(decided.automatic, { preserveBranch });
+  if (outcome.result) return outcome.result;
+  if (outcome.kept.reason === 'changed' && !(await getRecord(entryId))) return missing();
+  throw automaticRefusal(decided.automatic, outcome.kept);
 }
 
 /** Kept reasons of removeAutomatically as the typed refusals removeManagedWorktree raises. */
@@ -2552,15 +2595,8 @@ function automaticRefusal(record, kept) {
  * branch it was made on (what a rollback or the branch deletion names); the
  * refusals name the branch checked out now.
  */
-async function removeLocked(current, { force, sessionId, safeOnly = false, automatic = false, preserveBranch = false }) {
+async function removeLocked(current, { force, sessionId, safeOnly = false }) {
   assertNotShared(current, sessionId);
-  // A deleted session's leftover (cleanupDeletedSessionWorktree): the
-  // verified automatic path, never a forced or recursive one.
-  if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
-    const outcome = await removeAutomatically(current, { preserveBranch });
-    if (!outcome.result) throw automaticRefusal(current, outcome.kept);
-    return outcome.result;
-  }
   if (current.state === 'creating' || current.state === 'recovery') {
     const rollback = await rollbackCreation(current);
     return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
@@ -2728,12 +2764,15 @@ async function retentionOf(record, live, retained) {
 
 /**
  * One automatic removal of the ready worktree `record` (the cleanup's count,
- * age, archive and orphan removals, and a deleted session's leftover), under
- * its repository lock. The slow checks (full status with untracked and
- * ignored files and include copies, the commit walk and merge-tree) run before the folder is
- * held, so no turn waits through them. Then the folder's workspace admission
- * is held (a turn, worker, shell or git command already in it refuses the
- * hold; one starting now waits), and under it: the owner lease and
+ * age, archive and orphan removals, and a deleted session's leftover). The
+ * slow checks (checkoutVerdict: full status with untracked and ignored files
+ * and include copies, the commit walk and merge-tree) run first, outside the
+ * repository lock and the folder hold, so no claim, creation, git write or
+ * turn waits through them. Only a clean, merged worktree then takes the repository lock, and
+ * under it: the registry record exactly as checked (a claim, share, mark or
+ * any other write since keeps it) and the owner lease as it was; the
+ * folder's workspace admission is held (a turn, worker, shell or git command
+ * already in it refuses the hold; one starting now waits), and under it
  * `inUse(record)` (the caller's current live sessions and jobs), a cheap
  * token (HEAD, index, tips) against the one taken before the checks, and one
  * time-bounded full status (finalDirtyCheck). Only then is the deletion
@@ -2745,44 +2784,57 @@ async function removeAutomatically(
   record,
   { inUse = async () => false, preserveBranch = false, finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS } = {}
 ) {
-  const token = await checkoutToken(record);
-  const { dirty, ignored, artefacts } = await automaticKeepPaths(record);
-  const unmerged = await checkoutUnmergedCount(record);
-  if (dirty.length || unmerged > 0) return { kept: { reason: dirty.length ? 'dirty' : 'unmerged' } };
-  // As assertRemovable: an operation in progress keeps the checkout.
-  if (await operationInProgress(gitStatusRunner, record.path)) return { kept: { reason: 'dirty' } };
-  if (ignored.length) return { kept: ignoredKeep(ignored) };
-  let release;
+  const snapshot = JSON.stringify(record);
+  const unchanged = async () => JSON.stringify(await getRecord(record.id)) === snapshot;
+  const lease = JSON.stringify(await readOwnerLease(record));
+  let token;
+  let verdict;
   try {
-    release = await holdSnapshotFolder(record);
+    token = await checkoutToken(record);
+    verdict = await checkoutVerdict(record);
   } catch (error) {
-    if (!snapshotInUse(error)) throw error;
-    return { kept: { reason: 'in-use' } };
+    // Outside the lock a concurrent removal or claim can pull the folder away mid-check.
+    if (!(await unchanged())) return { kept: { reason: 'changed' } };
+    throw error;
   }
-  try {
-    if (leaseProcessAlive(await readOwnerLease(record)) || (await inUse(record))) return { kept: { reason: 'in-use' } };
-    if ((await checkoutToken(record)) !== token) return { kept: { reason: 'changed' } };
-    // The token misses nested untracked files and unstaged edits: one
-    // bounded full status decides. Dirty, slow or failed → kept.
-    const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs, artefacts);
-    if (finalCheck) return { kept: finalCheck };
-    await assertRecoveryStoresClear(record);
-    const headCommit = await checkoutHeadCommit(record);
-    record.state = 'deleting';
-    delete record.removalIncomplete;
-    record.deleting = {
-      force: false,
-      automatic: true,
-      ...(preserveBranch ? { preserveBranch: true } : {}),
-      headCommit,
-      startedAt: Date.now(),
-      remaining: [],
-    };
-    await putRecord(record);
-    return { result: await finishDeletion(record) };
-  } finally {
-    await release();
-  }
+  const keep = verdictKeep(verdict);
+  if (keep) return { kept: keep };
+  return withRepoLock(record.repoCommonDir, async () => {
+    if (!(await unchanged())) return { kept: { reason: 'changed' } };
+    const currentLease = await readOwnerLease(record);
+    if (JSON.stringify(currentLease) !== lease || leaseProcessAlive(currentLease)) return { kept: { reason: 'in-use' } };
+    let release;
+    try {
+      release = await holdSnapshotFolder(record);
+    } catch (error) {
+      if (!snapshotInUse(error)) throw error;
+      return { kept: { reason: 'in-use' } };
+    }
+    try {
+      if (await inUse(record)) return { kept: { reason: 'in-use' } };
+      if ((await checkoutToken(record)) !== token) return { kept: { reason: 'changed' } };
+      // The token misses nested untracked files and unstaged edits: one
+      // bounded full status decides. Dirty, slow or failed → kept.
+      const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs, verdict.artefacts);
+      if (finalCheck) return { kept: finalCheck };
+      await assertRecoveryStoresClear(record);
+      const headCommit = await checkoutHeadCommit(record);
+      record.state = 'deleting';
+      delete record.removalIncomplete;
+      record.deleting = {
+        force: false,
+        automatic: true,
+        ...(preserveBranch ? { preserveBranch: true } : {}),
+        headCommit,
+        startedAt: Date.now(),
+        remaining: [],
+      };
+      await putRecord(record);
+      return { result: await finishDeletion(record) };
+    } finally {
+      await release();
+    }
+  });
 }
 
 /**
@@ -2895,6 +2947,8 @@ export async function previewManagedWorktreeCleanup({
  *   finalCheckTimeoutMs?: number }} input
  *   `finalCheckTimeoutMs` bounds the last dirty check under the hold (FINAL_DIRTY_CHECK_TIMEOUT_MS);
  *   a check that does not finish in time keeps the worktree (`kept: busy`).
+ *   The repository lock covers the bookkeeping and each removal alone: the
+ *   removal checks run outside it (removeAutomatically).
  */
 export async function reconcileManagedWorktrees({
   liveSessionIds = [],
@@ -2938,6 +2992,7 @@ export async function reconcileManagedWorktrees({
       report.errors.push({ repoCommonDir, error: 'repository missing' });
       continue;
     }
+    const candidates = [];
     try {
       await withRepoLock(repoCommonDir, async () => {
         const records = Object.values((await readRegistry()).entries).filter(
@@ -3034,28 +3089,32 @@ export async function reconcileManagedWorktrees({
             if (removeOrphans === true && !ownerLive && wanted(record, isRetained)) {
               // Count, age and archive removals share one budget per pass.
               const budgeted = isRetained && (selected.has(record.id) || record.disposableReason === 'archived');
-              if (budgeted && budgetUsed >= maxRemovals) {
-                report.kept.push({ id: record.id, reason: 'budget' });
-                continue;
-              }
-              const outcome = await removeAutomatically(record, {
-                inUse,
-                preserveBranch,
-                finalCheckTimeoutMs,
-              });
-              if (!outcome.result) {
-                report.kept.push({ id: record.id, ...outcome.kept });
-                continue;
-              }
-              reportDeletion(record, outcome.result);
-              if (budgeted && outcome.result.removed) budgetUsed += 1;
+              candidates.push({ record, budgeted });
             }
           } catch (error) {
             report.errors.push({ id: record.id, error: String(error?.message || error) });
           }
         }
-        report.pruned.push(...(await pruneStaleRegistrations(repoCommonDir)));
       });
+      // Checked outside the lock, which each removal takes for itself (removeAutomatically).
+      for (const { record, budgeted } of candidates) {
+        try {
+          if (budgeted && budgetUsed >= maxRemovals) {
+            report.kept.push({ id: record.id, reason: 'budget' });
+            continue;
+          }
+          const outcome = await removeAutomatically(record, { inUse, preserveBranch, finalCheckTimeoutMs });
+          if (!outcome.result) {
+            report.kept.push({ id: record.id, ...outcome.kept });
+            continue;
+          }
+          reportDeletion(record, outcome.result);
+          if (budgeted && outcome.result.removed) budgetUsed += 1;
+        } catch (error) {
+          report.errors.push({ id: record.id, error: String(error?.message || error) });
+        }
+      }
+      report.pruned.push(...(await withRepoLock(repoCommonDir, () => pruneStaleRegistrations(repoCommonDir))));
     } catch (error) {
       report.errors.push({ repoCommonDir, error: String(error?.message || error) });
     }
