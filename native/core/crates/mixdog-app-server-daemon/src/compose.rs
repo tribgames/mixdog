@@ -15,7 +15,7 @@ use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
 use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::process::Processes;
@@ -277,20 +277,22 @@ pub struct Models {
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
+pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
+    let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
-            model_id: DEFAULT_MODEL_ID.into(),
+            model_id: embed_env.model_id(),
             cache_dir: data_dir.join("models"),
             ort_library: library.clone(),
-            dtype: None,
+            dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },
         tick.clone(),
-        ))),
+        )
+        .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
@@ -449,6 +451,10 @@ impl ComposedCore {
 
     pub fn open_memory_in_background(&self) {
         self.real.open_memory_in_background();
+    }
+
+    pub fn restore_remote_intent(&self) {
+        self.real.restore_remote_intent();
     }
 
     /// The memory database handle, for the readiness test that makes a first use.
@@ -611,6 +617,8 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
+    /// The runtime root (`discovery::runtime_root`): the channel remote intent lives there, as in Node.
+    pub runtime_root: PathBuf,
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
@@ -655,7 +663,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig { data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -684,7 +692,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
-    let models = build_models(tokens, data_dir, ort_library)?;
+    let models = build_models(tokens, data_dir, ort_library, &tidy_processes)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
@@ -732,6 +740,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
+        runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         #[cfg(test)]
@@ -860,6 +869,7 @@ mod tests {
         ComposeConfig {
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
+            runtime_root: dir.join("runtime"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),

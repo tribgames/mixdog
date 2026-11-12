@@ -33,12 +33,14 @@ pub mod seams;
 mod service;
 pub mod secret_changes;
 mod watch;
+mod channel_follow;
 
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub use watch::ConfigWatcher;
+pub use channel_follow::ChannelConfigFollow;
 pub use service::set_worktree_settings;
 pub use seams::ConfigLocalProviderSettings;
 pub use seams::ConfigVoiceEnabled;

@@ -74,7 +74,7 @@ mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-services = { workspace = true }
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
 serde_json = { workspace = true }

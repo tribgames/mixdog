@@ -524,7 +524,7 @@ async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds
 }
 
 /// The cycles' host seams, none of which a held run calls.
-fn idle_cycles() -> crate::memory::boot::CycleBoot {
+pub(super) fn idle_cycles() -> crate::memory::boot::CycleBoot {
     struct Off;
     impl crate::memory::cycles::CycleConfig for Off {
         fn memory_section(&self) -> serde_json::Value {

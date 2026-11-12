@@ -89,23 +89,31 @@ pub async fn list(db: &Db, options: ListOptions<'_>) -> Result<Page> {
     let public_order =
         if cases.is_empty() { "id".to_owned() } else { format!("CASE id {} ELSE id END", cases.join(" ")) };
     let scope_only = args.get("scope_only") == Some(&Value::Bool(true));
+    // Node's statement text (core-memory-management.mjs), byte for byte.
+    let sql = format!(
+        "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             \
+         COALESCE(c.status, 'active')::text AS status,\n             \
+         (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    \
+         WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        \
+         AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      \
+         AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, {public_order} ASC, id ASC\n    \
+         LIMIT $2 OFFSET $3\n  "
+    );
+    #[cfg(test)]
+    index::observe(
+        &sql,
+        Some(vec![
+            options.scope.into(),
+            (limit + 1).into(),
+            offset.into(),
+            include_inactive.into(),
+            scope_only.into(),
+            options.agent_id.into(),
+        ]),
+        false,
+    );
     let rows = db
-        .query(
-            &format!(
-                "SELECT * FROM (
-                   SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,
-                          COALESCE(c.status, 'active')::text AS status,
-                          (c.status IS NULL OR c.status = 'active') AS injection_enabled
-                   FROM core_entries c
-                 ) memories
-                 WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL
-                     AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))
-                   AND ($4::boolean OR injection_enabled)
-                 ORDER BY project_id NULLS FIRST, {public_order} ASC, id ASC
-                 LIMIT $2 OFFSET $3"
-            ),
-            &[&options.scope, &(limit + 1), &offset, &include_inactive, &scope_only, &options.agent_id],
-        )
+        .query(&sql, &[&options.scope, &(limit + 1), &offset, &include_inactive, &scope_only, &options.agent_id])
         .await?;
     let has_more = rows.len() as i64 > limit;
     let entries: Vec<ListEntry> =

@@ -583,6 +583,20 @@ impl SessionDirectory {
         self.inner.try_stored_header(id).await
     }
 
+    /// What is known of a stored session (`storedSessionPresence`): `Some(true)` present, `Some(false)` known to be gone
+    /// (`threadNotFound`), `None` when its record could not be read or the read never ran — never proof it is gone.
+    pub async fn stored_presence(&self, id: &ThreadId) -> Option<bool> {
+        if self.inner.loaded(id).is_some() {
+            return Some(true);
+        }
+        let (store, thread) = (self.inner.deps.store.clone(), id.clone());
+        match mixdog_core_base::support::on_lane(self.inner.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await {
+            Ok(Ok(_)) => Some(true),
+            Ok(Err(CoreError::ThreadNotFound { .. })) => Some(false),
+            _ => None,
+        }
+    }
+
     /// `deleteSession(id, { isSessionLive: treeChanged })` for a session not open in this
     /// process: `true` once it is gone. The thread's own admission rechecks, before it closes
     /// anything, that nobody opened or used the session since the pass read `activity`, that

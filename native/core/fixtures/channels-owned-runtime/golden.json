@@ -557,6 +557,92 @@
       "stderr": [
         "mixdog: automation runtime up\n"
       ]
+    },
+    {
+      "name": "an activation announced as acquired whose arming fails afterwards rolls the connection back and announces nothing more",
+      "steps": [
+        "startOwnedRuntime (webhook start throws)"
+      ],
+      "calls": [
+        [
+          [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ]
+        ]
+      ],
+      "state": {
+        "connected": false,
+        "webhookServer": "FakeWebhookServer",
+        "eventPipeline": "FakeEventPipeline"
+      },
+      "stderr": [
+        "mixdog: bridge start failed (non-fatal): webhook start failed\n"
+      ]
     }
   ]
 }

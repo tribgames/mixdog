@@ -21,7 +21,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -29,7 +32,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -37,7 +43,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -45,7 +54,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -53,7 +65,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -61,7 +76,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -69,7 +87,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -77,7 +98,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -85,7 +109,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -93,7 +120,10 @@
             "lastSeenAt": 34560000000,
             "nowMs": 34560000000
           },
-          "result": 1.6
+          "result": 1.6,
+          "stored": {
+            "score": 1.6
+          }
         }
       ]
     },
@@ -106,7 +136,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": 1.0305601
+          }
         },
         {
           "input": {
@@ -114,7 +147,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -122,7 +158,10 @@
             "lastSeenAt": 8640000000,
             "nowMs": 34560000000
           },
-          "result": 1.098751723588365
+          "result": 1.098751723588365,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -130,7 +169,10 @@
             "lastSeenAt": 34559999999,
             "nowMs": 34560000000
           },
-          "result": 1.599999999953704
+          "result": 1.599999999953704,
+          "stored": {
+            "score": 1.6
+          }
         },
         {
           "input": {
@@ -138,7 +180,10 @@
             "lastSeenAt": 34646400000,
             "nowMs": 34560000000
           },
-          "result": 1.6
+          "result": 1.6,
+          "stored": {
+            "score": 1.6
+          }
         },
         {
           "input": {
@@ -146,7 +191,10 @@
             "lastSeenAt": 0,
             "nowMs": 315360000000
           },
-          "result": 0.5688161930796437
+          "result": 0.5688161930796437,
+          "stored": {
+            "score": 0.5688162
+          }
         },
         {
           "input": {
@@ -170,7 +218,10 @@
             "lastSeenAt": null,
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299
+          "result": 1.030560169827299,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -180,7 +231,10 @@
             },
             "nowMs": 34560000000
           },
-          "result": 1.6
+          "result": 1.6,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -218,7 +272,10 @@
               "$exact": "undefined"
             }
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -234,7 +291,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -244,7 +304,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -252,7 +315,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         },
         {
           "input": {
@@ -260,7 +326,10 @@
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
-          "result": null
+          "result": null,
+          "stored": {
+            "score": null
+          }
         }
       ]
     }

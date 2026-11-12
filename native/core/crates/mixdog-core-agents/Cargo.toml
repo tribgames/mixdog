@@ -71,3 +71,4 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }
+mixdog-services = { workspace = true, features = ["test-support"] }

@@ -358,5 +358,5 @@ async fn a_failed_download_fails_the_awaited_paths_and_leaves_recall_on_its_text
     runtime.prewarm_recall();
     settle().await;
     assert!(!embedder.is_ready());
-    assert_eq!(embedder.query_vector("anything").await, None);
+    assert_eq!(crate::memory::recall::readiness::RecallEmbedder::new(embedder, false).query_vector("anything", &tokio_util::sync::CancellationToken::new()).await.expect("not aborted"), None);
 }

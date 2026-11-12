@@ -38,6 +38,8 @@ pub struct Built {
     pub tokens: mixdog_rt::LaneTokens,
     pub data_dir: std::path::PathBuf,
     pub user_data_dir: std::path::PathBuf,
+    /// `ComposeConfig::runtime_root`.
+    pub runtime_root: std::path::PathBuf,
     pub package_root: std::path::PathBuf,
     pub js_runtime: crate::compose::JsRuntime,
     #[cfg(test)]
@@ -138,6 +140,10 @@ pub struct Real {
     /// The core's entry in the room host registry; ending it detaches the room host (`unregisterAgentRoomHost`).
     pub room_host: mixdog_core_rooms::rooms::room_hosts::Registration,
     pub channels: Arc<mixdog_services::channels::runtime::ChannelRuntime>,
+    /// The `channel/call` dispatch: it holds the remote-control binding the boot restores.
+    pub channel_calls: Arc<mixdog_services::channels::CallDispatch>,
+    /// The channels' config hot reload, for the core's life.
+    pub channel_config_follow: mixdog_core_config::config::ChannelConfigFollow,
     pub memory: Arc<mixdog_services::memory::boot::MemoryStack>,
     pub log: crate::daemon_log::DaemonLog,
     /// What the exec event consumers publish into (`exec_events::consume`).
@@ -212,6 +218,19 @@ impl Real {
     /// After ready: a data directory that already holds a PostgreSQL cluster starts it off the request path (Node's `startPostgresInBackground`).
     pub fn open_memory_in_background(&self) {
         self.memory.open_in_background();
+    }
+
+    /// After ready (daemon.mjs:1284-1293): the session a manual Remote ON pinned before the last stop is bound again, off the boot path.
+    pub fn restore_remote_intent(&self) {
+        let (calls, log) = (self.channel_calls.clone(), self.log.clone());
+        if calls.pinned_session().is_none() {
+            return;
+        }
+        mixdog_rt::spawn("remote-intent-restore", mixdog_rt::TaskClass::Work, async move {
+            if !calls.restore_intent().await {
+                log.log("remote intent restore declined (session unavailable)");
+            }
+        });
     }
 
     /// Mixy's heartbeat on its timers (daemon.mjs:1212, `startMixyHeartbeat`: first check after `FIRST_TICK`, then every `TICK`). Idempotent: a second call starts nothing.
@@ -306,12 +325,8 @@ impl Real {
                 log.log(&format!("channels.stop failed: {error}"));
             }
         }));
-        let (memory, log) = (self.memory.clone(), self.log.clone());
-        let memory_step: StopStep = ("memory", Box::pin(async move {
-            if let Err(error) = memory.stop().await {
-                log.log(&format!("memory.stop failed: {error}"));
-            }
-        }));
+        let memory = self.memory.clone();
+        let memory_step: StopStep = ("memory", Box::pin(async move { memory.stop_for_quit().await }));
         let (lane, log) = (self.maintenance_io, self.log.clone());
         let voice: StopStep = ("voice installer locks", Box::pin(async move {
             // The release removes lock files: a blocking call, so a lane job.
@@ -1195,9 +1210,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::domain_seams::channel_stack::ServerListener::new(webhook_service.clone(), tunnels)),
     ));
     let channel_runtime = mixdog_services::channels::runtime::ChannelRuntime::new(scheduler, schedules.clone(), webhook_automation, channel_agent_runtime);
+    // The channels' config hot reload (Node's worker `configReloadWatch`): an edit of `channels` or `voice`, from any process, reloads the runtime.
+    let channel_config_follow = mixdog_core_config::config::ChannelConfigFollow::start(config.clone(), channel_runtime.clone());
     let channel_admin = mixdog_services::channels::ChannelAdmin::new(mixdog_services::channels::AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
+        owned: Arc::new(mixdog_services::channels::routines_db::OwnedRoutines::new(b.core_state.clone())),
         routines: routines.clone(),
         runtime: channel_runtime.clone(),
         settings: channel_settings,
@@ -1563,12 +1581,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
     b.acquired.on_release("memory", {
-        let (memory, log) = (memory.clone(), b.log.clone());
-        async move {
-            if let Err(error) = memory.stop().await {
-                log.log(&format!("memory.stop failed: {error}"));
-            }
-        }
+        let memory = memory.clone();
+        async move { memory.stop_for_quit().await }
     });
     // The one session-search writer of the memory service: `SessionDeps.search` and the import sessions ingest through it.
     let session_search = Arc::new(mixdog_core_session::session::SessionSearchTurns::new(memory.search()));
@@ -2939,10 +2953,21 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
         channel_work.clone(),
     );
+    channel_calls.hear_bridge(&channel_runtime);
     // `hostState.remoteSession`: the session the bridge is pinned to, published now and at each change of the binding.
     let session_publisher = state.publisher.clone();
-    channel_calls.observe_binding(Arc::new(move |enabled, session| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), enabled, session)));
-    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls)))?;
+    channel_calls.observe_binding(Arc::new(move |remote| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), remote.acquired, remote.pinned_session_id, remote.cwd)));
+    // The pin a manual Remote ON saved (`channel-remote-intent.json` in the runtime root, where Node keeps it); `restore_remote_intent` activates it after ready.
+    channel_calls
+        .load_intent(mixdog_services::channels::intent::IntentFile::new(&b.runtime_root, b.tokens.maintenance_io, b.log.line_log()))
+        .await;
+    // The restore drops a pin only to a session known to be deleted (`storedSessionPresence`); an unreadable record keeps it.
+    let restore_directory = directory.clone();
+    channel_calls.bind_session_presence(Arc::new(move |id: String| {
+        let directory = restore_directory.clone();
+        Box::pin(async move { directory.stored_presence(&mixdog_core_api::ids::ThreadId::from(id.as_str())).await })
+    }));
+    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls.clone())))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
     // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
     // sessions the retire pass reads, and the room ports a deleted agent leaves (`home_rooms`, above).
@@ -3093,7 +3118,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

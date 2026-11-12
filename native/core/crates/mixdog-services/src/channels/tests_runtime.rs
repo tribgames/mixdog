@@ -158,6 +158,9 @@ pub(super) struct Env {
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
     work: RunningWork,
+    owned: Arc<super::routines_db::OwnedRoutines>,
+    /// The state both stores keep their rows in.
+    state: CoreState,
     /// `isCloseRequested()` of the admin.
     closing: CancellationToken,
     _dir: tempfile::TempDir,
@@ -171,7 +174,8 @@ async fn env_with(channel_start_disabled: bool) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let (state, _) = CoreState::open(tokens().sqlite_writer_thread, tokens().interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state.clone(), Arc::new(SystemClock)));
-    let webhooks = Arc::new(StateWebhookStore::new(state, Arc::new(SystemClock)));
+    let webhooks = Arc::new(StateWebhookStore::new(state.clone(), Arc::new(SystemClock)));
+    let owned = Arc::new(super::routines_db::OwnedRoutines::new(state.clone()));
     let host = Arc::new(FakeHost::default());
     let records = Arc::new(StoreRoutineRecords::new(schedules.clone(), webhooks.clone()));
     let routines = RoutineRuntime::new(host.clone(), records, Arc::new(SystemClock), Tz::UTC);
@@ -196,6 +200,7 @@ async fn env_with(channel_start_disabled: bool) -> Env {
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
+        owned: owned.clone(),
         routines: routines.clone(),
         runtime: runtime.clone(),
         settings: settings.clone(),
@@ -206,7 +211,7 @@ async fn env_with(channel_start_disabled: bool) -> Env {
         channel_start_disabled,
         close_requested: closing.clone(),
     });
-    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, closing, _dir: dir }
+    Env { host, admin, runtime, routines, schedules, webhooks, owned, state, settings, services, agent, probe, base, work, closing, _dir: dir }
 }
 
 fn recurring(name: &str) -> Value {
@@ -572,6 +577,45 @@ async fn reload_config_rearms_the_scheduler_and_leaves_the_agent_runtime_alone()
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
+/// `config-reload.mjs`: a reload is gated only until its load completed. A second edit arriving while the first
+/// reload's service sync is still running re-arms the scheduler with its rows at once and syncs, not after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_edit_during_a_reloads_service_sync_applies_without_waiting_for_it() {
+    let e = env().await;
+    e.runtime.start_automation().await.unwrap();
+    let held = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.services.sync_gate.lock().unwrap() = Some(held.clone());
+    e.schedules.upsert(&sched("first")).await.unwrap();
+    // The start's sync left its notification stored: take it.
+    let _ = tokio::time::timeout(Duration::ZERO, e.services.entered.notified()).await;
+    let entered = e.services.entered.notified();
+    let first = tokio::spawn({
+        let runtime = e.runtime.clone();
+        async move { runtime.reload_runtime().await }
+    });
+    signal_from(entered, "the first reload syncs").await;
+    e.schedules.upsert(&sched("second")).await.unwrap();
+    let entered = e.services.entered.notified();
+    let second = tokio::spawn({
+        let runtime = e.runtime.clone();
+        async move { runtime.reload_runtime().await }
+    });
+    signal_from(entered, "the second edit's reload syncs while the first sync is still running").await;
+    let mut armed: Vec<String> = e.runtime.scheduler().status().into_iter().map(|r| r.name).collect();
+    armed.sort();
+    assert_eq!(armed, ["first", "second"], "the second edit's rows are armed while the first sync runs");
+    assert!(!first.is_finished(), "the first reload is still in its service sync");
+    held.add_permits(2);
+    first.await.unwrap().unwrap();
+    second.await.unwrap().unwrap();
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// Waits for a notification registered before the action that gives it.
+async fn signal_from(notified: tokio::sync::futures::Notified<'_>, what: &str) {
+    tokio::time::timeout(Duration::from_secs(15), notified).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_webhook_settings_patch_and_the_setup_view() {
     let e = env().await;
@@ -596,15 +640,31 @@ async fn automation_is_present_while_something_enabled_exists() {
     assert!(e.admin.has_active_automation().await);
 }
 
+/// All or nothing (routines-db.mjs: one statement): a purge that fails partway leaves every
+/// routine of the bot, its webhook's delivery log included; names come back sorted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn deleting_a_bots_routines_removes_only_its_own() {
+async fn a_purge_that_fails_partway_deletes_nothing() {
+    use crate::webhooks::records::{DELIVERY_PREFIX, ENDPOINT_PREFIX};
     let e = env().await;
-    e.schedules.upsert(&sched("mine")).await.unwrap();
-    e.schedules.upsert(&Schedule { owner_agent_id: "other".into(), ..sched("theirs") }).await.unwrap();
+    for name in ["zeta", "alpha"] {
+        e.schedules.upsert(&sched(name)).await.unwrap();
+    }
     e.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "gh-bot".into(), ..Default::default() }).await.unwrap();
-    assert_eq!(e.admin.delete_owned_routines("gh-bot").await.unwrap(), json!({"schedules": ["mine"], "webhooks": ["hook"]}));
-    assert_eq!(e.schedules.list().await.unwrap().len(), 1);
-    assert_eq!(message(e.admin.delete_owned_routines("lead").await.unwrap_err()), "the routines of \"lead\" cannot be deleted with a bot");
+    let delivery = format!("{DELIVERY_PREFIX}hook:d1");
+    let bad = format!("{ENDPOINT_PREFIX}broken");
+    let (put_delivery, put_bad) = (delivery.clone(), bad.clone());
+    e.state.write(move |tx| {
+        tx.put_meta(&put_delivery, "{}")?;
+        tx.put_meta(&put_bad, "not json")
+    }).await.unwrap();
+    assert!(e.admin.delete_owned_routines("gh-bot").await.is_err(), "an unreadable row fails the purge");
+    assert_eq!(e.schedules.list().await.unwrap().len(), 2, "the schedules read before the failure are kept");
+    assert!(e.webhooks.load("hook").await.unwrap().is_some());
+    assert!(e.state.meta(&delivery).await.unwrap().is_some(), "the delivery log is kept");
+    let restore = bad.clone();
+    e.state.write(move |tx| tx.delete_meta(&restore)).await.unwrap();
+    assert_eq!(e.owned.delete_owned_by("gh-bot").await.unwrap(), super::routines_db::Removed { schedules: vec!["alpha".into(), "zeta".into()], webhooks: vec!["hook".into()] });
+    assert!(e.state.meta(&delivery).await.unwrap().is_none(), "the delivery log goes with its endpoint");
 }
 
 fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest {
@@ -614,7 +674,73 @@ fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest
 pub(super) fn service(e: &Env) -> ChannelService {
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
+    calls.hear_bridge(&e.runtime);
     ChannelService::new(e.admin.clone(), calls)
+}
+
+/// The real `channel/call` handler, with each call and its answer kept for the comparison.
+struct Observed {
+    inner: BridgeCalls,
+    calls: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl super::call::ChannelCallHandler for Observed {
+    async fn call(&self, name: &str, args: &Value, client: &super::call::ChannelClient) -> Result<Value, String> {
+        let answer = self.inner.call(name, args, client).await;
+        self.calls.lock().unwrap().push(json!({"name": name, "args": args, "answer": answer.clone().unwrap_or_else(|e| json!({"error": e}))}));
+        answer
+    }
+}
+
+/// record-channel-remote-restore.mjs (b6f10295a with node-fix-restore-deleted-session.patch): the boot restore of a
+/// pinned session through the daemon's real dispatch (`BridgeCalls` over `ToolDispatch` over the runtime, as compose
+/// wires `channel/call`), for a stored session that exists, one that was deleted and one whose record cannot be read
+/// (kept and restored); then the Remote binding as a client reads it back. Node has no inbound delivery to a session
+/// and no bot send to replay (the recording's manifest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
+    let gold: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/channel-remote-restore/golden.json")).unwrap();
+    let frozen = gold["frozenNow"].as_f64().unwrap();
+    for case in gold["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let e = env().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(super::intent::INTENT_FILE);
+        std::fs::write(&path, case["checkpoints"][0]["file"]["text"].as_str().unwrap()).unwrap();
+        let handler = Arc::new(Observed { inner: BridgeCalls::new(ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false))), calls: Mutex::new(Vec::new()) });
+        let calls = CallDispatch::new(handler.clone(), e.work.clone());
+        calls.hear_bridge(&e.runtime);
+        // The record the recorder left for the pinned session, as the store's lookup reads it: there, removed, or torn.
+        let known = match case["record"].as_str().unwrap() {
+            "live" => Some(true),
+            "deleted" => Some(false),
+            "unreadable" => None,
+            other => panic!("{name}: record {other}"),
+        };
+        calls.bind_session_presence(Arc::new(move |_| Box::pin(async move { known })));
+        let shown = Arc::new(Mutex::new(Value::Null));
+        let sink = shown.clone();
+        calls.observe_binding(Arc::new(move |remote| *sink.lock().unwrap() = remote.to_value()));
+        let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = logs.clone();
+        let file = super::intent::IntentFile::with_clock(dir.path(), tokens().maintenance_io, Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())), Arc::new(move || frozen));
+        calls.load_intent(file).await;
+        let checkpoint = |at: &str| {
+            let file = std::fs::read_to_string(&path).map_or(json!({"kind": "absent"}), |text| json!({"kind": "file", "text": text}));
+            json!({"at": at, "pinnedSession": calls.pinned_session(), "remoteSession": calls.remote_session(), "file": file})
+        };
+        let boot = checkpoint("boot");
+        let restored = calls.restore_intent().await;
+        let after = checkpoint("restored");
+        assert_eq!(json!(restored), case["restored"], "{name}: restored");
+        assert_eq!(Value::Array(handler.calls.lock().unwrap().clone()), case["calls"], "{name}: calls");
+        assert_eq!(json!(logs.lock().unwrap().clone()), case["logs"], "{name}: logs");
+        assert_eq!(json!([boot, after]), case["checkpoints"], "{name}: checkpoints");
+        // The Remote state a client is shown (Node's session.list `remoteSession`; the core's hostState.remoteSession).
+        assert_eq!(*shown.lock().unwrap(), case["list"]["remoteSession"], "{name}: remote session shown");
+        e.runtime.stop_owned_runtime("test").await.unwrap();
+    }
 }
 
 pub(super) async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
@@ -675,7 +801,15 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(first, retried);
     assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     let conflict = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {"x": 1}})).await.unwrap_err();
-    assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), message: None, detail: None });
+    assert_eq!(
+        conflict,
+        CoreError::DomainError {
+            domain: "channel".into(),
+            code: Some("ECALLIDCONFLICT".into()),
+            message: Some("callId 'op-1' was reused with a different payload".into()),
+            detail: None
+        }
+    );
     // A tool the core does not host answers as the worker's dispatch does for any unknown name.
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };
@@ -703,7 +837,10 @@ async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
     let published = Arc::new(Mutex::new(Vec::<Value>::new()));
     let sink = published.clone();
-    calls.observe_binding(Arc::new(move |enabled, session| sink.lock().unwrap().push(json!({ "enabled": enabled, "sessionId": session }))));
+    calls.observe_binding(Arc::new(move |remote| {
+        let shown = remote.to_value();
+        sink.lock().unwrap().push(json!({ "enabled": shown["enabled"], "sessionId": shown["sessionId"] }));
+    }));
     let svc = ChannelService::new(e.admin.clone(), calls);
     let node = |states: &Value| -> Vec<Value> {
         let mut seen: Vec<Value> = Vec::new();
@@ -876,41 +1013,59 @@ struct LoopbackServer {
     stopped: tokio::sync::Notify,
     /// The save's reload held as [`LateReloads`] holds it, when the test holds it.
     reloads: Option<Arc<LateReloads>>,
-    /// The bind let a held reload go: that reload's restart is the next start.
-    restarting: std::sync::atomic::AtomicBool,
+    /// Set by the test: the next start is announced on `at_relisten` and waits for a `relisten_go` permit.
+    hold_relisten: std::sync::atomic::AtomicBool,
+    at_relisten: tokio::sync::Notify,
+    relisten_go: tokio::sync::Semaphore,
+    /// Set by the test: the receiver binds the settings' port (walking up as Node does) instead of an ephemeral one.
+    settings_port: std::sync::atomic::AtomicBool,
 }
 
 impl LoopbackServer {
     fn new(service: Arc<WebhookService>, tunnels: Arc<dyn TunnelStarter>, reloads: Option<Arc<LateReloads>>) -> Self {
-        Self { service, tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default(), stopped: Default::default(), reloads, restarting: Default::default() }
+        Self {
+            service,
+            tunnels,
+            server: tokio::sync::Mutex::new(None),
+            bound: Default::default(),
+            stopped: Default::default(),
+            reloads,
+            hold_relisten: Default::default(),
+            at_relisten: Default::default(),
+            relisten_go: tokio::sync::Semaphore::new(0),
+            settings_port: Default::default(),
+        }
     }
 
     async fn listening(&self) -> bool {
         self.server.lock().await.is_some()
     }
+
+    async fn port(&self) -> Option<u16> {
+        self.server.lock().await.as_ref().and_then(WebhookServer::port)
+    }
 }
 
 #[async_trait]
 impl WebhookListener for LoopbackServer {
-    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
-        if self.restarting.load(Ordering::SeqCst) {
-            // The late reload's restart (`syncWebhookAndEventRuntime({ reload: true })`) has stopped
-            // the receiver the start bound; the bind is announced now, with the receiver down, and
-            // the restart binds no more: the readback falls inside the restart.
-            self.bound.notify_one();
-            return std::future::pending().await;
+    async fn start(&self, settings: &WebhookSettings) -> Result<(), String> {
+        if self.hold_relisten.swap(false, Ordering::SeqCst) {
+            self.at_relisten.notify_one();
+            self.relisten_go.acquire().await.expect("the gate stays open").forget();
         }
-        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
+        let port = if self.settings_port.load(Ordering::SeqCst) { settings.port.as_u64().expect("a numeric port") as u16 } else { 0 };
+        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), port);
         server.start().await?;
         let replaced = self.server.lock().await.replace(server);
         if let Some(mut old) = replaced {
             old.stop().await;
         }
-        if self.reloads.as_ref().is_some_and(|reloads| reloads.release_late()) {
-            self.restarting.store(true, Ordering::SeqCst);
-        } else {
-            self.bound.notify_one();
+        if let Some(reloads) = &self.reloads {
+            // A reload still held goes on now; it finds the runtime up and the port kept, so the
+            // receiver goes on listening.
+            reloads.release_late();
         }
+        self.bound.notify_one();
         Ok(())
     }
     async fn stop(&self) -> Result<(), String> {
@@ -927,7 +1082,7 @@ impl WebhookListener for LoopbackServer {
 /// a busy machine may run it: a read made before the provider init is released is the reload's
 /// (the start reads after the init), and it goes on only once the test waits for that reload, as
 /// Node's recorder awaits `lastReload` (`record-schedule-save-start.mjs:176`, `:203`), or else once
-/// the start's receiver has bound, where the reload finds the runtime up and restarts the receiver.
+/// the start's receiver has bound, where the reload finds the runtime up and its receiver listening.
 struct LateReloads {
     inner: Arc<StateScheduleStore>,
     init_released: std::sync::atomic::AtomicBool,
@@ -942,9 +1097,9 @@ impl LateReloads {
         Arc::new(Self { inner, init_released: Default::default(), arrived: Default::default(), open: tokio::sync::watch::Sender::new(false) })
     }
 
-    /// Lets the held reload go at the start's bind; true when it was still held there.
-    fn release_late(&self) -> bool {
-        self.open.send_if_modified(|open| !std::mem::replace(open, true))
+    /// Lets the held reload go at the start's bind.
+    fn release_late(&self) {
+        self.open.send_replace(true);
     }
 }
 
@@ -1051,6 +1206,7 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
         webhooks: e.webhooks.clone(),
+        owned: e.owned.clone(),
         routines: e.routines.clone(),
         runtime: runtime.clone(),
         settings: e.settings.clone(),
@@ -1169,6 +1325,8 @@ struct Rig {
     clock: Arc<FixedClock>,
     /// The save's reload, held until awaited ([`LateReloads`]), when the rig holds it.
     reloads: Option<Arc<LateReloads>>,
+    /// How many reload syncs of the webhook automation have finished.
+    reloaded: tokio::sync::watch::Sender<usize>,
 }
 
 async fn rig() -> Rig {
@@ -1196,7 +1354,8 @@ async fn rig_with(hold_reload: bool) -> Rig {
     let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
     let reloads = hold_reload.then(|| LateReloads::new(e.schedules.clone()));
     let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, reloads.clone()));
-    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener.clone()));
+    let reloaded = tokio::sync::watch::Sender::new(0);
+    let automation = Arc::new(CountedReloads { inner: WebhookAutomation::new(e.settings.clone(), service, listener.clone()), reloaded: reloaded.clone() });
     let stamps = Arc::new(tokio::sync::Semaphore::new(0));
     let stamped = Arc::new(tokio::sync::Notify::new());
     let store = Arc::new(GatedStamps { inner: e.schedules.clone(), gate: stamps.clone(), persisted: stamped.clone() });
@@ -1210,6 +1369,7 @@ async fn rig_with(hold_reload: bool) -> Rig {
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
         webhooks: e.webhooks.clone(),
+        owned: e.owned.clone(),
         routines: e.routines.clone(),
         runtime: runtime.clone(),
         settings: e.settings.clone(),
@@ -1222,7 +1382,27 @@ async fn rig_with(hold_reload: bool) -> Rig {
     });
     let init = Arc::new(tokio::sync::Semaphore::new(0));
     *e.agent.init_gate.lock().unwrap() = Some(init.clone());
-    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock, reloads }
+    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock, reloads, reloaded }
+}
+
+/// The rig's webhook automation, counting the reload syncs it has finished.
+struct CountedReloads {
+    inner: WebhookAutomation,
+    reloaded: tokio::sync::watch::Sender<usize>,
+}
+
+#[async_trait]
+impl AutomationServices for CountedReloads {
+    async fn sync(&self, reload: bool) -> Result<(), String> {
+        let synced = self.inner.sync(reload).await;
+        if reload {
+            self.reloaded.send_modify(|count| *count += 1);
+        }
+        synced
+    }
+    async fn stop(&self) {
+        self.inner.stop().await;
+    }
 }
 
 impl Rig {
@@ -1303,8 +1483,7 @@ async fn assert_step(rig: &Rig, setup: Value, rec: &Value, label: &str) {
 /// listener bound with the identity persisted while the next-fire write is pending; the write
 /// done). Rust gets to each boundary through the real mechanisms: the provider init gate, the
 /// real receiver and relay starter, and the gated store. The save's background reload is held
-/// until the test awaits it before the init is released, as Node's recorder does: a reload that
-/// lands after the start is up restarts the receiver, Node's as Rust's.
+/// until the test awaits it before the init is released, as Node's recorder does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_schedule_save_reads_back_as_node_does_at_each_boundary_of_the_start() {
     let rec = recorded("start-after-save");
@@ -1446,6 +1625,118 @@ async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle()
     autostart.runtime.scheduled_start_settled().await;
     assert_eq!(autostart.agent.inits.load(Ordering::SeqCst), 1, "the boot autostart ignores the busy state");
     autostart.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// One delivery of the recording on a fresh connection: `{status, body}`, or the error the
+/// connection ended with under Node's code.
+async fn deliver(port: u16, rec: &Value) -> Value {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+        Ok(stream) => stream,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return json!({"error": "ECONNREFUSED"}),
+        Err(error) => return json!({"error": error.to_string()}),
+    };
+    let body = rec["body"].as_str().unwrap();
+    let mut request = format!(
+        "POST /webhook/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
+        rec["entry"]["name"].as_str().unwrap(),
+        body.len()
+    );
+    for (name, value) in rec["headers"].as_object().unwrap() {
+        request += &format!("{name}: {}\r\n", value.as_str().unwrap());
+    }
+    request += "\r\n";
+    request += body;
+    if let Err(error) = stream.write_all(request.as_bytes()).await {
+        return json!({"error": error.to_string()});
+    }
+    let mut reply = String::new();
+    if let Err(error) = stream.read_to_string(&mut reply).await {
+        return json!({"error": error.to_string()});
+    }
+    let status: u16 = reply[9..12].parse().unwrap();
+    let (_, text) = reply.split_once("\r\n\r\n").unwrap();
+    json!({"status": status, "body": serde_json::from_str::<Value>(text).unwrap()})
+}
+
+/// The recording of Node b6f10295a with `node-patches/node-fix-webhook-late-reload.patch`
+/// (`native/core/fixtures/webhook-late-reload/golden.json`, `record-webhook-late-reload.mjs`): the
+/// runtime is up and listening, a webhook edit reloads it, and a delivery lands once the reload's
+/// webhook sync has decided (at its re-listen, or at its end). The port is kept, so the receiver
+/// goes on listening and the delivery is answered; stock Node and the former Rust closed it and bound
+/// it again, and the delivery was refused (with the relay tunnel, which the listener's stop closes).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
+    let rec: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-late-reload/golden.json")).unwrap();
+    let rig = rig_holding_the_reload().await;
+    // The recording's port, bound for real: the later steps move it.
+    rig.e.settings.webhook.lock().unwrap().port = rec["port"].clone();
+    rig.listener.settings_port.store(true, Ordering::SeqCst);
+    assert_eq!(rig.admin.save_webhook(&rec["entry"]).await.unwrap(), rec["saveReply"]);
+    rig.wait_for_init_entered().await;
+    rig.wait_for_reload().await;
+    rig.release_init().await;
+    rig.wait_for_bound().await;
+    rig.runtime.scheduled_start_settled().await;
+    assert_eq!(rig.listener.listening().await, rec["listeningBefore"]);
+    let port = rig.listener.port().await.expect("bound");
+
+    let mut reloads = rig.reloaded.subscribe();
+    let before = *reloads.borrow_and_update();
+    rig.listener.hold_relisten.store(true, Ordering::SeqCst);
+    assert_eq!(rig.admin.save_webhook(&rec["edit"]).await.unwrap(), rec["editReply"]);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::select! {
+            () = rig.listener.at_relisten.notified() => {}
+            changed = reloads.wait_for(|count| *count > before) => { changed.unwrap(); }
+        }
+    })
+    .await
+    .expect("the edit's reload syncs the receiver");
+    let delivery = deliver(port, &rec).await;
+    rig.listener.hold_relisten.store(false, Ordering::SeqCst);
+    rig.listener.relisten_go.add_permits(1);
+    assert_eq!(delivery, rec["delivery"]);
+    reloads.wait_for(|count| *count > before).await.unwrap();
+    assert_eq!(rig.listener.listening().await, rec["listeningAfter"]);
+    rig.runtime.scheduled_start_settled().await;
+
+    // The settings route keeps the port: a delivery sent as its reload syncs the receiver is answered.
+    let step = &rec["settingsUpdate"];
+    let before = *reloads.borrow_and_update();
+    rig.listener.hold_relisten.store(true, Ordering::SeqCst);
+    assert_eq!(rig.admin.set_webhook_config(&step["patch"]).await.unwrap(), step["reply"]);
+    tokio::select! {
+        () = rig.listener.at_relisten.notified() => {}
+        changed = reloads.wait_for(|count| *count > before) => { changed.unwrap(); }
+    }
+    let delivery = deliver(port, &rec).await;
+    rig.listener.hold_relisten.store(false, Ordering::SeqCst);
+    rig.listener.relisten_go.add_permits(1);
+    assert_eq!(delivery, step["delivery"]);
+    reloads.wait_for(|count| *count > before).await.unwrap();
+    assert_eq!(*reloads.borrow() - before, step["reloads"].as_u64().unwrap() as usize);
+    assert_eq!(rig.listener.listening().await, step["listeningAfter"]);
+
+    // A move to a port whose whole range is taken fails; the move back listens again on the first port.
+    let bounce = &rec["portBounce"];
+    let other = bounce["otherPort"].as_u64().unwrap() as u16;
+    let mut blockers = Vec::new();
+    for i in 0..bounce["blocked"].as_u64().unwrap() as u16 {
+        blockers.push(tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, other + i)).await.unwrap());
+    }
+    for step in bounce["steps"].as_array().unwrap() {
+        let before = *reloads.borrow_and_update();
+        assert_eq!(rig.admin.set_webhook_config(&step["patch"]).await.unwrap(), step["reply"]);
+        reloads.wait_for(|count| *count > before).await.unwrap();
+        assert_eq!(deliver(port, &rec).await, step["afterReload"], "{}", step["patch"]);
+        let listening = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await.is_ok();
+        assert_eq!(json!(listening), step["listeningOnFirst"], "{}", step["patch"]);
+    }
+    drop(blockers);
+    // The external config edit (`configEdit`) is replayed under the real file watch by the daemon's composition test,
+    // `domain_seams::channel_stack::tests::a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_node`.
+    rig.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
 /// `automation-start.mjs:30-42`: the runtime counts as running as soon as the webhook sync is launched
