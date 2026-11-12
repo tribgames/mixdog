@@ -128,10 +128,10 @@ fn minted(outcome: Value, copies: &mut Vec<String>) -> Value {
     json!({ "ok": serde_json::to_string_pretty(&answer).expect("json") })
 }
 
-/// `[source, compacted]` of each copy the forks made: the copy's own header names its source, and the compaction engine ran
-/// (on the copy: the tool compacts nothing else) once the fork answered.
+/// `[source, compacted]` of each copy the forks made: the copy's own header names its source, and the compactor was asked for
+/// the heir's conversation (`inheritFrom`'s `fitConversationForHeir`, summarizing as `compact` says) once the fork answered.
 async fn forks_made(threads: &SessionThreads, rig: &Rig, copies: &[String]) -> Vec<Value> {
-    let compacted = mixdog_core_session::session::testing::lock(&rig.compaction.calls).first().map(String::as_str) == Some("compact manual false");
+    let compacted = mixdog_core_session::session::testing::lock(&rig.compaction.heir_asked).first().is_some_and(|(_, summarize)| *summarize);
     let mut forks = Vec::new();
     for copy in copies {
         let header = threads.header(&ThreadId::from(copy.as_str())).await.expect("the copy");
@@ -205,6 +205,8 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
         *mixdog_core_session::session::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
         // A fork that compacts measures the conversation against the heir's route first (`inheritFrom`).
         *mixdog_core_session::session::testing::lock(&rig.inherit.basis) = Some((100_000, 10, false));
+        *mixdog_core_session::session::testing::lock(&rig.inherit.budget) = Some(50_000);
+        *mixdog_core_session::session::testing::lock(&rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "summary of the conversation" })]);
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         for id in ["sess-1", "worker-1", "w"] {
