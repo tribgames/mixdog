@@ -1,0 +1,905 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "only the built-in Gmail connector's read_email records a mail's links, for the session that read it",
+      "observed": {
+        "servers": {
+          "gmail": {
+            "type": "http",
+            "url": "https://gmail-imap.mixdog.invalid/mcp",
+            "headers": {
+              "X-Mixdog-Gmail-Account": "dev@tribgames.com"
+            },
+            "connector": "gmail"
+          },
+          "webmail": {
+            "type": "http",
+            "url": "https://mail.example.test/mcp",
+            "connector": "gmail"
+          }
+        },
+        "ops": [
+          {
+            "op": "dispatch",
+            "name": "mcp__webmail__read_email",
+            "session": "sess-webmail",
+            "result": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-webmail",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "after the call",
+            "link": null
+          },
+          {
+            "op": "dispatch",
+            "name": "mcp__gmail__search_emails",
+            "session": "sess-search",
+            "result": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-search",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "after the call",
+            "link": null
+          },
+          {
+            "op": "dispatch",
+            "name": "mcp__gmail__read_email",
+            "session": "sess-reader",
+            "result": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-reader",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "after the call",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "probe",
+            "session": "sess-other",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "another session never has it",
+            "link": null
+          },
+          {
+            "op": "probe",
+            "session": "sess-reader",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&next=%2Fadmin",
+            "at": 1800000000000,
+            "why": "only the exact link",
+            "link": null
+          },
+          {
+            "op": "probe",
+            "session": "sess-reader",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net",
+            "at": 1800000000000,
+            "why": "nor a shortened one",
+            "link": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "the links are the exact targets the mail writes: HTML hyperlinks and RFC 3986 URIs in text",
+      "observed": {
+        "connectorLinks": [
+          [
+            "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F"
+          ],
+          [
+            "http://alternativeto.net/x",
+            "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+            "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=2",
+            "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=3"
+          ],
+          []
+        ],
+        "ops": [
+          {
+            "op": "record",
+            "session": "sess-exact",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"http://alternativeto.net/x\",\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.\",\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=2\",\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=3\"],\"attachments\":[]}\n\nConfirm here: https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.\nOr <https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=2> or \"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=3\"",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "the text wrote it with the period",
+            "link": null
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+            "at": 1800000000000,
+            "why": "with the period",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=2",
+            "at": 1800000000000,
+            "why": "angle brackets end a URI",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F&step=2",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "http://alternativeto.net/x",
+            "at": 1800000000000,
+            "why": "http is never offered",
+            "link": null
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "  https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.\n",
+            "at": 1800000000000,
+            "why": "the URL is trimmed",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "probe",
+            "session": "sess-exact",
+            "url": "HTTPS://AlternativeTo.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+            "at": 1800000000000,
+            "why": "the URL is normalized",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F.",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-cut",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[],\"attachments\":[]}\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n[truncated]",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-cut",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a cut-off URI is not the mail's link",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-again",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1799999999000
+          },
+          {
+            "op": "record",
+            "session": "sess-again",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-again",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "read again",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a link is offered only while recent and over https",
+      "observed": {
+        "ops": [
+          {
+            "op": "record",
+            "session": "sess-old",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1799998199000
+          },
+          {
+            "op": "probe",
+            "session": "sess-old",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "past the window",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-edge",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1799998200000
+          },
+          {
+            "op": "probe",
+            "session": "sess-edge",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "at the edge of the window",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "from_domain": "alternativeto.net",
+              "read_at": 1799998200000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-http",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"http://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nOpen http://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-http",
+            "url": "http://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "http",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-credentials",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://user:pw@alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nOpen https://user:pw@alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-credentials",
+            "url": "https://user:pw@alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "a link with credentials",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-bare",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"support@alternativeto.net\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm here:\nhttps://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-bare",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "a bare address",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "from_domain": "alternativeto.net",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"AlternativeTo <support@alternativeto.net>\",\"fromAddresses\":[{\"name\":\"AlternativeTo\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\",\"https://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\"],\"attachments\":[]}\n\nConfirm your e-mail:\nhttps://alternativeto.net/api/auth/verify-email?token&#x3D;dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&amp;callbackURL&#x3D;https%3A%2F%2Falternativeto.net%2F\n\nThanks.",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "no session",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-nomail",
+            "mail": "not a mail",
+            "at": 1800000000000
+          },
+          {
+            "op": "record",
+            "session": "sess-nohead",
+            "mail": "{\"links\": [\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"]}\n\nbody",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-nohead",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "a head with no sender",
+            "link": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "only a single From mailbox that Gmail authenticated counts, however the header is written",
+      "observed": {
+        "ops": [
+          {
+            "op": "record",
+            "session": "sess-dmarc",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-dmarc",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DMARC pass for the From domain",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-dkim",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-dkim",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM d= on its Organizational Domain (relaxed alignment)",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "victim.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-disguised",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"support@victim.example <attacker@evil.example>\",\"fromAddresses\":[{\"name\":\"support@victim.example\",\"address\":\"attacker@evil.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"evil.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-disguised",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "the address, not the name",
+            "link": {
+              "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "evil.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-0",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"attacker@evil.example, Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"attacker@evil.example\"},{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-0",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a bare then a named address",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-1",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>, attacker@evil.example\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"},{\"name\":\"\",\"address\":\"attacker@evil.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-1",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a named then a bare address",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-2",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <>, support@victim.example\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"\"},{\"name\":\"\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-2",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a group",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-3",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"support@victim.example <attacker@evil.example>\",\"fromAddresses\":[{\"name\":\"support@victim.example\",\"address\":\"attacker@evil.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-3",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "an encoded name with a verdict for the name",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-4",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"fail\",\"from\":\"victim.example\"},\"dkim\":[{\"result\":\"fail\",\"domain\":\"victim.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-4",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DMARC fail",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-5",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"none\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-5",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DMARC none",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-6",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"evil.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-6",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM d= on another domain",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-7",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-7",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM with only an i= identity",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-8",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"victim.example.evil.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-8",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM on a lookalike suffix",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-9",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":null,\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-9",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "no Authentication-Results",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-10",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":null,\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-10",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a verdict from another server",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-refused-11",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"Victim <support@victim.example>\",\"fromAddresses\":[{\"name\":\"Victim\",\"address\":\"support@victim.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"fail\",\"from\":\"victim.example\"},\"dkim\":[]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-refused-11",
+            "url": "https://victim.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "a pass below Gmail’s own fail",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-0",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.github.io\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.github.io\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.github.io\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-0",
+            "url": "https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM across two github.io users",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-1",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.github.io\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.github.io\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"www.a.github.io\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-1",
+            "url": "https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM on the same github.io user",
+            "link": {
+              "url": "https://a.github.io/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.github.io",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-site-2",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.co.uk\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.co.uk\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.co.uk\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-2",
+            "url": "https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM across co.uk registrants",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-3",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.co.uk\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.co.uk\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.a.co.uk\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-3",
+            "url": "https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM inside one co.uk registrant",
+            "link": {
+              "url": "https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.co.uk",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-site-4",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.co.uk\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.co.uk\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"co.uk\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-4",
+            "url": "https://a.co.uk/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM from a bare public suffix",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-5",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.kobe.jp\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.kobe.jp\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"b.kobe.jp\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-5",
+            "url": "https://a.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM across wildcard-suffix registrants",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-6",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@city.kobe.jp\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@city.kobe.jp\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"www.city.kobe.jp\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://city.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://city.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-6",
+            "url": "https://city.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM under a wildcard-suffix exception",
+            "link": {
+              "url": "https://city.kobe.jp/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "city.kobe.jp",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-site-7",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@a.zzzz\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@a.zzzz\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.a.zzzz\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://a.zzzz/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://a.zzzz/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-7",
+            "url": "https://a.zzzz/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM under an unlisted suffix",
+            "link": {
+              "url": "https://a.zzzz/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+              "from_domain": "a.zzzz",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "record",
+            "session": "sess-site-8",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@bücher.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@bücher.example\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"mail.xn--bcher-kva.example\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://b\"],\"attachments\":[]}\n\nVerify: https://bücher.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-8",
+            "url": "https://bücher.example/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM on an IDN",
+            "link": null
+          },
+          {
+            "op": "record",
+            "session": "sess-site-9",
+            "mail": "{\"id\":\"9001\",\"threadId\":\"t1\",\"messageId\":\"<m1@alternativeto.net>\",\"from\":\"x@192.0.2.1\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"x@192.0.2.1\"}],\"authentication\":{\"dmarc\":null,\"dkim\":[{\"result\":\"pass\",\"domain\":\"192.0.2.1\"}]},\"to\":\"dev@tribgames.com\",\"date\":\"2026-10-25T18:00:00.000Z\",\"subject\":\"Confirm your e-mail\",\"links\":[\"https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789\"],\"attachments\":[]}\n\nVerify: https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000
+          },
+          {
+            "op": "probe",
+            "session": "sess-site-9",
+            "url": "https://192.0.2.1/verify?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789",
+            "at": 1800000000000,
+            "why": "DKIM on an IP address host",
+            "link": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "a link the runtime read in a mail opens; the same URL anywhere else stays refused (the runtime leg)",
+      "observed": {
+        "ops": [
+          {
+            "op": "record",
+            "session": "sess-signup",
+            "mail": "{\"id\":\"9001\",\"from\":\"support@alternativeto.net\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"support@alternativeto.net\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"alternativeto.net\"},\"dkim\":[]},\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"]}\n\nConfirm: https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000
+          },
+          {
+            "op": "navigate",
+            "session": "sess-signup",
+            "input": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+            },
+            "why": "the link the runtime read",
+            "command": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "action": "navigate",
+              "session_id": "sess-signup",
+              "turn_id": {
+                "$exact": "undefined"
+              },
+              "mail_link": {
+                "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+                "from_domain": "alternativeto.net",
+                "read_at": 1800000000000
+              }
+            },
+            "text": "Navigated to https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "isError": false
+          },
+          {
+            "op": "navigate",
+            "session": "sess-other",
+            "input": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+            },
+            "why": "a link read in another session",
+            "command": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "action": "navigate",
+              "session_id": "sess-other",
+              "turn_id": {
+                "$exact": "undefined"
+              }
+            },
+            "text": "Error: navigation URLs may not contain credential-like query values or secret tokens",
+            "isError": true
+          },
+          {
+            "op": "navigate",
+            "session": "sess-signup",
+            "input": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789x&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+            },
+            "why": "a token URL the model typed without a mail read",
+            "command": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789x&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "action": "navigate",
+              "session_id": "sess-signup",
+              "turn_id": {
+                "$exact": "undefined"
+              }
+            },
+            "text": "Error: navigation URLs may not contain credential-like query values or secret tokens",
+            "isError": true
+          },
+          {
+            "op": "navigate",
+            "session": "sess-other",
+            "input": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "mail_link": {
+                "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+                "from_domain": "alternativeto.net",
+                "read_at": 1800000000000
+              }
+            },
+            "why": "the model cannot claim provenance",
+            "command": null,
+            "text": "Error: browser action \"navigate\" does not accept input field(s): mail_link",
+            "isError": true
+          },
+          {
+            "op": "record",
+            "session": "sess-phish",
+            "mail": "{\"id\":\"9001\",\"from\":\"support@evil.example\",\"fromAddresses\":[{\"name\":\"\",\"address\":\"support@evil.example\"}],\"authentication\":{\"dmarc\":{\"result\":\"pass\",\"from\":\"evil.example\"},\"dkim\":[]},\"subject\":\"Confirm your e-mail\",\"links\":[\"https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F\"]}\n\nConfirm: https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000
+          },
+          {
+            "op": "navigate",
+            "session": "sess-phish",
+            "input": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+            },
+            "why": "the runtime offers it, the desktop refuses it",
+            "command": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "action": "navigate",
+              "session_id": "sess-phish",
+              "turn_id": {
+                "$exact": "undefined"
+              },
+              "mail_link": {
+                "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+                "from_domain": "evil.example",
+                "read_at": 1800000000000
+              }
+            },
+            "text": "Error: navigation URLs may not contain credential-like query values or secret tokens",
+            "isError": true
+          },
+          {
+            "op": "probe",
+            "session": "sess-phish",
+            "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "at": 1800000000000,
+            "why": "the link the runtime holds for the other domain",
+            "link": {
+              "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+              "from_domain": "evil.example",
+              "read_at": 1800000000000
+            }
+          },
+          {
+            "op": "navigate",
+            "session": "sess-signup",
+            "input": {
+              "url": "  https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F  "
+            },
+            "why": "the URL is trimmed",
+            "command": {
+              "url": "  https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F  ",
+              "action": "navigate",
+              "session_id": "sess-signup",
+              "turn_id": {
+                "$exact": "undefined"
+              },
+              "mail_link": {
+                "url": "https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+                "from_domain": "alternativeto.net",
+                "read_at": 1800000000000
+              }
+            },
+            "text": "Navigated to https://alternativeto.net/api/auth/verify-email?token=dG9rZW4tdmFsdWUtZm9yLXRoZS1yZWNvcmRpbmc-0123456789&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+            "isError": false
+          },
+          {
+            "op": "navigate",
+            "session": "sess-signup",
+            "input": {
+              "url": "https://alternativeto.net/"
+            },
+            "why": "a URL no mail names",
+            "command": {
+              "url": "https://alternativeto.net/",
+              "action": "navigate",
+              "session_id": "sess-signup",
+              "turn_id": {
+                "$exact": "undefined"
+              }
+            },
+            "text": "Navigated to https://alternativeto.net/",
+            "isError": false
+          }
+        ]
+      }
+    }
+  ]
+}

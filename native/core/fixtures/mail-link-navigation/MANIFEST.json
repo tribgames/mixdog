@@ -1,0 +1,110 @@
+{
+  "cases": 5,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-mail-link-navigation.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "mail_links::record / link_for (the mails read for a session and the link offered for a URL), mail_reads::record (which tool results are a built-in mail read), the browser tool's navigate (the mail_link it hands the host command)",
+  "exclusions": {
+    "connectorLinks": "the `links` the Node connector extracted from each scripted message (HTML hyperlinks and text URIs) are recorded as an observation and not replayed: the core has no Gmail IMAP reader, so the recorded read_email results are the inputs of the replay",
+    "navigateText": "the text and isError of a navigate the desktop answered (Navigated to / refused by the secret-token rule) belong to the desktop host, which stays (apps/desktop/src/main/browser/url-policy.ts mailLinkAdmits, covered by url-policy.test.mjs); the replay compares them only where the runtime itself refused (a claimed mail_link) and where nothing reached the host",
+    "the desktop checks the runtime-set link against the URL and the sender itself": "the second test of mail-link-navigation.test.mjs forges a bridge command with a mail_link naming another URL: only the desktop receives such a command, the core never builds one; not recorded"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 113754,
+      "path": "golden.json",
+      "sha256": "c548d8ffa787e9bd462ca1253166ba199276b8621f034f28258e564400cc51e2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mail-link-scenarios.mjs",
+      "sha256": "37ae6556059085275e0e604a5ef4e6f624d39d71e7bc7f9cc693acea4edeac31"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "74af62ceb5c73a3580067ed9e4c597a519bb7e64fc2cc81f33a4f82bfbd4cd8c"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mail-link-navigation.mjs",
+  "recorderSha256": "a5276ceb56962d06b3dfef08f1725697268c7db9149704400c40f5ff97653679",
+  "replay": {
+    "compare": "each case's operations in recorded order: record / dispatch / probe / navigate, every answer compared whole (a link is {url, from_domain, read_at}; a navigate hands the host exactly the recorded command's fields beside action and session_id)",
+    "entry": "Drive these public items on o1: mixdog-tools/src/desktop/mail_links.rs:168 mail_links::record; mixdog-tools/src/desktop/mail_links.rs:189 mail_links::link_for; mixdog-mcp/src/mail_reads.rs:30 mail_reads::record; mixdog-tools/src/desktop/browser.rs:639 BrowserTool (Tool::call, action navigate).",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 168,
+        "name": "mail_links::record",
+        "path": "native/core/crates/mixdog-tools/src/desktop/mail_links.rs"
+      },
+      {
+        "line": 189,
+        "name": "mail_links::link_for",
+        "path": "native/core/crates/mixdog-tools/src/desktop/mail_links.rs"
+      },
+      {
+        "line": 30,
+        "name": "mail_reads::record",
+        "path": "native/core/crates/mixdog-mcp/src/mail_reads.rs"
+      },
+      {
+        "line": 639,
+        "name": "BrowserTool (Tool::call, action navigate)",
+        "path": "native/core/crates/mixdog-tools/src/desktop/browser.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "mail-link-navigation",
+  "totalBytes": 113754,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
