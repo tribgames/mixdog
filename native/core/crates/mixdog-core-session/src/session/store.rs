@@ -1671,6 +1671,15 @@ impl ThreadStore for StoreThreads {
         }
     }
 
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        // The read must see every row acked so far, as a context read does.
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        let opened = self.open(lane, id)?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        self.index.context_len_on_lane(lane, &lineage, opened.fold.base_cut).map_err(|e| internal("context", &e))
+    }
+
     /// RL §9.2 rule 1: the session is marked dirty before the activation's first append.
     fn open_log(
         &self,

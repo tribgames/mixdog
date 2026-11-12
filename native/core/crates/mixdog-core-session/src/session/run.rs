@@ -61,6 +61,21 @@ impl ModelContext {
         Ok(rows)
     }
 
+    /// How many rows [`read`](Self::read) returns for a context with no input row, answered from the store's index: a caller
+    /// that wants `session.messages.length` never reads the conversation.
+    pub async fn len(&self) -> Result<usize, CoreError> {
+        let token = CancellationToken::new();
+        self.store.unheld().await;
+        let (store, thread) = (self.store.clone(), self.thread.clone());
+        self.lanes
+            .io
+            .submit_wait(&token, move |lane| store.context_len(lane, &thread))
+            .await
+            .map_err(context_refused)?
+            .await
+            .map_err(|_| context_dropped())?
+    }
+
     /// `rememberSensitiveValues(sessionId, executionCalls)` for this thread (`loop/tool-phase.mjs:49`).
     pub fn remember_sensitive(&self, calls: &[Value]) -> bool {
         self.sensitive.remember(&self.thread, calls)
@@ -79,6 +94,21 @@ impl ModelContext {
     }
 }
 
+fn context_dropped() -> CoreError {
+    CoreError::Internal { incident_id: "session-context-job-dropped".into() }
+}
+
+/// A turn's read waits for room on a full lane (a burst of reads let go by a rewrite fills it) rather than being refused:
+/// only a lane with no healthy worker fails it.
+fn context_refused(error: mixdog_rt::SubmitWaitError) -> CoreError {
+    match error {
+        mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
+        mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
+        mixdog_rt::SubmitWaitError::Cancelled => context_dropped(),
+        mixdog_rt::SubmitWaitError::ShutDown(_) => CoreError::Internal { incident_id: "session-context-lane-shut-down".into() },
+    }
+}
+
 /// The model context of `thread`: its lineage's model rows since the last compaction, oldest
 /// first, as of the rows acked so far.
 pub(crate) async fn read_context(
@@ -87,17 +117,7 @@ pub(crate) async fn read_context(
     thread: &ThreadId,
 ) -> Result<Vec<(ItemId, Value)>, CoreError> {
     let token = CancellationToken::new();
-    let dropped = || CoreError::Internal {
-        incident_id: "session-context-job-dropped".into(),
-    };
-    // A turn's read waits for room on a full lane (a burst of reads let go by a rewrite fills it) rather than being refused:
-    // only a lane with no healthy worker fails it.
-    let refused = |error: mixdog_rt::SubmitWaitError| match error {
-        mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
-        mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
-        mixdog_rt::SubmitWaitError::Cancelled => dropped(),
-        mixdog_rt::SubmitWaitError::ShutDown(_) => CoreError::Internal { incident_id: "session-context-lane-shut-down".into() },
-    };
+    let (dropped, refused) = (context_dropped, context_refused);
     let mut read = None;
     loop {
         store.unheld().await;

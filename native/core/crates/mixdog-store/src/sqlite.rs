@@ -2184,6 +2184,34 @@ impl SqliteStore {
         crate::context::read_frames(lane, sessions, rows, next)
     }
 
+    /// How many messages the model context of `lineage` holds: the rows of [`Self::context_page_on_lane`], counted
+    /// from the index alone (no frame is read or parsed), so asking for the length of a context costs one index scan
+    /// instead of the context's bytes. A history that changes under the scan starts it again.
+    pub fn context_len_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+    ) -> Result<usize, crate::context::ContextError> {
+        const PAGE_ROWS: usize = 4096;
+        'restart: loop {
+            let (mut cursor, mut len) = (None, 0);
+            loop {
+                match self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                    Ok((rows, next)) => {
+                        len += rows.len();
+                        match next {
+                            Some(next) => cursor = Some(next),
+                            None => return Ok(len),
+                        }
+                    }
+                    Err(DbError::CursorStale) => continue 'restart,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+    }
+
     /// `history_page` inside a job already on the read lane (the open's J2 window read).
     pub fn history_page_on_lane(
         &self,

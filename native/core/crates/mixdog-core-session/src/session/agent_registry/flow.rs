@@ -357,7 +357,14 @@ impl TurnSessions for SessionTurns {
     }
 
     async fn message_count(&self, session_id: &str) -> usize {
-        self.messages(session_id).await.len()
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        match self.directory.model_context(&thread).len().await {
+            Ok(count) => count,
+            Err(error) => {
+                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
+                0
+            }
+        }
     }
 
     /// The rows a stopped turn's handoff is read from, with the worker's sensitive values as the marker: the handoff leaves
@@ -557,6 +564,47 @@ mod tests {
             let result = outcome.result.map(|r| format!("{}/{}", r.content, r.iterations)).unwrap_or_default();
             self.0.lock().unwrap().push(format!("settled {} {result}", outcome.done));
         }
+    }
+
+    /// `session.messages.length` of a worker with a long conversation: counted from the store's index. The rows are not read: a
+    /// turn start and a status read would otherwise read the whole context to return one number.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_workers_message_count_reads_no_row() {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::bounded::Id;
+        use mixdog_store::schema::bounded::Name;
+        use mixdog_store::schema::record::Form;
+        use mixdog_store::schema::record::ItemRecord;
+        use mixdog_store::schema::record::Record;
+
+        const ROWS: usize = 3000;
+        let rig = crate::session::testing::Rig::new();
+        let store = crate::session::testing::CallCounted::new(rig.store.clone());
+        let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+        let handle = crate::session::tests::start_thread(&directory).await;
+        let rows = (0..ROWS).map(|n| {
+            Record::Item(ItemRecord {
+                iid: Id::try_from(format!("m{n}").as_str()).expect("item id"),
+                turn: None,
+                role: Name::try_from("user").ok(),
+                form: Form::Message,
+                model: true,
+                visible: true,
+                archive: None,
+                op: None,
+                prompt: None,
+                refs: Vec::new().try_into().expect("empty list fits"),
+                body: Slot::Inline(json!({ "role": "user", "content": "x".repeat(1024) })),
+            })
+        });
+        rig.store.seed(&handle.id, rows.collect());
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
+        let before = store.calls().len();
+        let count = turns.message_count(handle.id.as_str()).await;
+        let calls = store.calls()[before..].to_vec();
+        assert!(!calls.iter().any(|call| call.starts_with("context_io") || call.starts_with("context_cpu")), "no row was read: {calls:?}");
+        assert_eq!(count, directory.model_context(&handle.id).read().await.expect("the context").len(), "the length of what a read returns");
+        assert!(count >= ROWS);
     }
 
     struct Released(Mutex<Vec<String>>);

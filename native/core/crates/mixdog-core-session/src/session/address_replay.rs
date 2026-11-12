@@ -194,6 +194,9 @@ impl super::ThreadStore for HeldStore {
     fn context_io(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, read: Option<super::seams::ContextRead>) -> Result<super::seams::ContextRead, CoreError> {
         self.store.context_io(lane, id, read)
     }
+    fn context_len(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        self.store.context_len(lane, id)
+    }
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         let read = self.store.session_meta(id);
         let held = lock(&self.meta).take();

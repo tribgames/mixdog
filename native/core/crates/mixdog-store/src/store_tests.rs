@@ -3570,3 +3570,38 @@ async fn the_listed_message_count_is_the_user_and_assistant_messages() {
     let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
     assert_eq!(swept[0].message_count, 3);
 }
+
+/// `context_len_on_lane` is the length of the context read, counted from the index alone: through a compaction, a rewind, a
+/// fork's lineage and a context longer than one index page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_context_length_is_the_length_of_the_context_read() {
+    let env = Env::new();
+    async fn same(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>) -> usize {
+        let (store, lv) = (env.store.clone(), levels.clone());
+        let len = tokens()
+            .interactive_io
+            .submit(&CancellationToken::new(), move |l| store.context_len_on_lane(l, &lv, cut).unwrap())
+            .unwrap()
+            .await
+            .unwrap();
+        assert_eq!(len, context_bodies(env, levels, cut, 500).await.len());
+        len
+    }
+    let own = || lineage(&[("s1", None)]);
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two"), answer("c")]).await;
+    assert_eq!(same(&env, own(), None).await, 3);
+    let compacted = rec(json!({"k":"compacted","cid":"k1","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},
+        {"iid":"c","body":{"role":"assistant","content":"c kept"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted, user("d", "three")]).await;
+    assert_eq!(same(&env, own(), None).await, 3, "from the compaction");
+    let (w, _) = env.commit(w, (0..4500).map(|n| user(&format!("p{n}"), "x")).collect()).await;
+    assert_eq!(same(&env, own(), None).await, 4503, "past one index page");
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}))]).await;
+    assert_eq!(same(&env, own(), None).await, 3, "rewound");
+    let fork = env.create("f1", Some(("s1", 6))).await;
+    let (_fork, _) = env.commit(fork, vec![user("f", "own")]).await;
+    assert_eq!(same(&env, lineage(&[("f1", None), ("s1", Some(6))]), None).await, 4, "a fork's lineage");
+    drop(w);
+}
