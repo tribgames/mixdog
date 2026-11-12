@@ -68,6 +68,11 @@ fn the_hold_and_the_run_limit_are_planned_as_node_plans_them() {
             if got != call["holdEnd"].as_str().unwrap() {
                 failures.push(format!("end of the hold for {} {}: Node {}, here {got}", call["env"], call["args"], call["holdEnd"]));
             }
+            // A promotion by the hold's own timer comes at the hold on Node's clock (the foreground timeout of the limit's timer
+            // is not compared, see the manifest).
+            if matches!(got, "background" | "threshold") && call["holdEndAt"].as_u64() != Some(hold) {
+                failures.push(format!("when the hold ends for {} {}: Node {}, here {hold}", call["env"], call["args"], call["holdEndAt"]));
+            }
         }
         compared += 1;
     }

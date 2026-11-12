@@ -2,9 +2,10 @@
   "command": "node benchmarks/rust-core/recorders/record-tools-untested.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "exclusions": {
     "agent-tool-call-ids": "a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values",
-    "exec-deadline": "holdEnd (what the end of the hold does) is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it; Node's timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job",
+    "exec-deadline": "holdEnd and holdEndAt come from Node's own armDeadlines (its text is taken from shell-command.mjs of the tree, which does not export it) run on timers and a clock the recorder owns and advances to each due timer; they are compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it;Node's timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job",
     "exec-env": "the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>",
     "exec-hoist-long": "the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given",
+    "fs-list-page": "NaN and Infinity are not recorded as head_limit: JSON carries neither (a client's request cannot hold them) and the recording would store null, a different input",
     "fs-markers": "capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them",
     "scm-locks": "the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core's `/` separators for the recorded `\\`; the \"rejected\" outcome of an aborted wait is a list apart from the events, because the order of a promise's rejection handler against another task's start is a tick of Node's promise queue, not a behaviour"
   },
@@ -26,9 +27,9 @@
       "sha256": "f1ec1a836302757dbd232a1d6b6512041918598edfbf4a9607c88dbe67a53961"
     },
     {
-      "bytes": 90897,
+      "bytes": 118059,
       "path": "exec-deadline.json",
-      "sha256": "16236a909761d52439dcd48111bce77f173aeb000d1bd13eaa9aa4114937ceff"
+      "sha256": "ff0a72472d955b3233ee05f82717b3c295c00e50917601725193fe85d7250f8a"
     },
     {
       "bytes": 2127,
@@ -41,9 +42,9 @@
       "sha256": "a8dc38e3b8412f063897a9b8d4e3461a7de2fa64285baf3e9a967680390ab334"
     },
     {
-      "bytes": 49887,
+      "bytes": 60341,
       "path": "fs-list-page.json",
-      "sha256": "a5bcee375b0c18eb3b0128bc643a522445ed688b38aa286867af3f9056a790a1"
+      "sha256": "30a5426722c25e174619f5a02ac9c84151eec49df144b770a16243f7cf57bf50"
     },
     {
       "bytes": 2838,
@@ -126,7 +127,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-untested.mjs",
-  "recorderSha256": "f9ad2db8e95c1eae5e97acb6b8e9eb1e4544ab7b3f56deb7851910a3ccd5b474",
+  "recorderSha256": "cb07b36c7aaaadca65595a3beb805d5d85724c7f693c3607174e53aa1159708c",
   "set": "tools-untested",
-  "totalBytes": 1503724
+  "totalBytes": 1541340
 }
