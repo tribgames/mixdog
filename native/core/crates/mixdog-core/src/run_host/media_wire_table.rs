@@ -118,6 +118,8 @@ struct Family {
     keepalive: KeepaliveSchedule,
     codec: MockCodec,
     support: MediaSupport,
+    /// The model takes images (`modelRow?.supportsVision` of the Devin row, the local runtime's `takesImages`).
+    vision: bool,
     encode: Encode,
     bodies: Mutex<Vec<Value>>,
 }
@@ -141,6 +143,9 @@ impl ProviderAdapter for Family {
     }
     fn native_documents(&self) -> Option<bool> {
         self.support.native_documents
+    }
+    async fn takes_vision(&self, _: &ModelRequest) -> bool {
+        self.vision
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.bodies.lock().unwrap().push((self.encode)(&request));
@@ -184,41 +189,40 @@ impl mixdog_ai::providers::openai::config::WireContext for WireCtx {
     }
 }
 
-/// The family's body builder: its real codec (or, for the Responses wire and the Cursor run, the builder the codec
-/// and the adapter call), and the part of the body the table records (`wire`).
-fn encoder(family: &str, wire: String) -> Encode {
+/// The family's request body builder: its real codec (or, for the Responses wire, the builder the codec calls; for the
+/// Cursor run, the builder the adapter calls), whole.
+fn encoder(family: &str) -> Encode {
     use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor};
     use mixdog_ai::providers::compat::chat::{CompatChatCodec, CompatConfig};
     use mixdog_ai::providers::compat::responses::CompatResponsesCodec;
     use mixdog_ai::providers::compat::CompatProfile;
-    let part = move |body: Value| body[wire.as_str()].clone();
     match family {
         "anthropic-messages" => {
             let codec = AnthropicCodec::new(Flavor::ApiKey, AnthropicConfig::new(Arc::new(|_| None)));
-            Box::new(move |r| part(wire_body(&codec, r)))
+            Box::new(move |r| wire_body(&codec, r))
         }
         "openai-chat" => {
             let profile = CompatProfile::deepseek();
             let codec = CompatChatCodec::new(profile.clone(), CompatConfig::for_profile(&profile));
-            Box::new(move |r| part(wire_body(&codec, r)))
+            Box::new(move |r| wire_body(&codec, r))
         }
         "openai-chat-text-only" => {
-            let profile = CompatProfile::plain("mixdog-local", "http://127.0.0.1/v1", mixdog_ai::providers::compat::profile::CredentialKind::Keyless);
+            let profile = CompatProfile::plain(mixdog_services::local_provider::catalog::LOCAL_PROVIDER_ID, "http://127.0.0.1/v1", mixdog_ai::providers::compat::profile::CredentialKind::Keyless);
             let codec = CompatChatCodec::new(profile.clone(), CompatConfig::for_profile(&profile));
-            Box::new(move |r| part(wire_body(&codec, r)))
+            Box::new(move |r| wire_body(&codec, r))
         }
         "openai-responses-compat" => {
             let profile = CompatProfile::xai();
             let codec = CompatResponsesCodec::new(profile.clone(), CompatConfig::for_profile(&profile), mixdog_core_api::domain::keepalive::TransportKind::Http1);
-            Box::new(move |r| part(wire_body(&codec, r)))
+            Box::new(move |r| wire_body(&codec, r))
         }
         "openai-responses" => {
             let config = mixdog_ai::providers::openai::config::OpenAiConfig::api_key(false, Arc::new(mixdog_ai::providers::openai::config::NoFacts), Arc::new(WireCtx));
-            Box::new(move |r| part(Value::Object(mixdog_ai::providers::openai::body::build(&config, r).map)))
+            Box::new(move |r| Value::Object(mixdog_ai::providers::openai::body::build(&config, r).map))
         }
         "gemini" => {
             let codec = mixdog_ai::providers::google::codec::GoogleCodec::gemini("http://127.0.0.1", Arc::new(Gemini));
-            Box::new(move |r| part(wire_body(&codec, r)))
+            Box::new(move |r| wire_body(&codec, r))
         }
         "cursor" => Box::new(|r| {
             let parsed = mixdog_ai::providers::cursor::request::parse_messages(&r.messages).expect("the Cursor request parses");
@@ -229,12 +233,28 @@ fn encoder(family: &str, wire: String) -> Encode {
                 "userImages": parsed.user_images.iter().map(|i| json!({ "mimeType": i.mime_type, "data": base64::engine::general_purpose::STANDARD.encode(&i.data) })).collect::<Vec<_>>(),
             })
         }),
+        // The chat request `DevinCodec::encode` frames: `build_chat_request` and its protobuf encoding. The recorder
+        // writes the host's OS name as `<os>` (the `metadata.os` field), so the test does the same.
         "devin" => Box::new(|r| {
-            let prompt = mixdog_ai::providers::devin::request::router_prompt(&r.messages, false).expect("a user turn");
-            json!({
-                "prompt": prompt.prompt,
-                "images": prompt.images.iter().map(|i| json!({ "base64Data": i.base64_data, "mimeType": i.mime_type })).collect::<Vec<_>>(),
-            })
+            use mixdog_ai::providers::devin::request::{build_chat_request, ChatParams};
+            use mixdog_ai::providers::devin::session::{request_metadata, Client};
+            let provider = ProviderId::from("devin-oauth");
+            let mut metadata = request_metadata("k", "j", Client::Cli);
+            metadata.os = "<os>".to_owned();
+            let chat = build_chat_request(
+                r,
+                &ChatParams {
+                    provider: &provider,
+                    model: &r.model,
+                    chat_model_uid: &r.model,
+                    assignment_jwt: None,
+                    row: None,
+                    metadata,
+                    cascade_id: "cascade",
+                    execution_id: "execution",
+                },
+            );
+            json!({ "chatRequest": base64::engine::general_purpose::STANDARD.encode(chat.encode()) })
         }),
         other => panic!("a family of the table: {other}"),
     }
@@ -251,19 +271,6 @@ fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
         }
         _ => (core != node).then(|| format!("{at}: core {core} node {node}")),
     }
-}
-
-/// The one row the manifest declares a difference for: Devin's text-only model, whose Node lowering leaves a stored image out
-/// without reading its blob, so a blob that is gone reads "omitted"; the core's host reads every stored image for the
-/// request before the builder knows the model takes none, so there the blob that is gone reads as the stand-in every other
-/// route says for it (the text of the same stored image on the Chat row of the table).
-fn declared_instead(table: &Value, row: &Value) -> Option<Value> {
-    if (row["provider"].as_str(), row["kind"].as_str()) != (Some("devin-oauth"), Some("gone-image")) {
-        return None;
-    }
-    let chat = table["rows"].as_array().unwrap().iter().find(|r| r["provider"] == "deepseek-chat" && r["kind"] == "gone-image").unwrap();
-    let stand_in = chat["body"][0]["content"][1]["text"].as_str().unwrap();
-    Some(json!({ "prompt": format!("look at this{stand_in}"), "images": [] }))
 }
 
 /// Every row of the table through the run loop: the request body the core sends equals the one Node's family builds.
@@ -298,7 +305,8 @@ async fn every_row_of_nodes_media_table_replays_equal() {
             codec: MockCodec,
             // `providerTakesNativePdf`: only an explicit `false` lowers a PDF to text.
             support: MediaSupport { native_pdf: capabilities["nativePdf"] != json!(false), native_documents: capabilities["nativeDocuments"].as_bool() },
-            encode: encoder(family, row["wire"].as_str().unwrap().to_owned()),
+            vision: capabilities["vision"] != json!(false),
+            encode: encoder(family),
             bodies: Mutex::new(Vec::new()),
         });
         let lowering = Arc::new(MediaLowering::new(thread.clone(), extracted.clone(), store.clone(), Arc::new(NoFacts), false, provider.id.clone()));
@@ -341,7 +349,7 @@ async fn every_row_of_nodes_media_table_replays_equal() {
             notify: None,
             review: None,
         };
-        let mut config = RunConfig::new(thread.clone(), TurnId::from("r"), "model-under-test");
+        let mut config = RunConfig::new(thread.clone(), TurnId::from("r"), row["model"].as_str().unwrap());
         config.compact = None;
         config.attachments = Some(store.clone());
         if family == "openai-chat-text-only" {
@@ -359,14 +367,7 @@ async fn every_row_of_nodes_media_table_replays_equal() {
                 let sent = provider.bodies.lock().unwrap().clone();
                 match sent.as_slice() {
                     [body] => {
-                        let expected = declared_instead(&table, row).unwrap_or_else(|| node.clone());
-                        // The Messages body carries the message-tier cache breakpoint on its last message (Node marks
-                        // it after the lowering the table records): that message is not compared.
-                        let without_tail = |value: &Value| match (family, value) {
-                            ("anthropic-messages", Value::Array(messages)) => Value::Array(messages[..messages.len() - 1].to_vec()),
-                            _ => value.clone(),
-                        };
-                        differences.extend(first_difference(&without_tail(body), &without_tail(&expected), String::new()).map(|d| format!("{name}: {d}")));
+                        differences.extend(first_difference(body, node, String::new()).map(|d| format!("{name}: {d}")));
                     }
                     other => differences.push(format!("{name}: {} requests", other.len())),
                 }
