@@ -13,10 +13,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use mixdog_store::fsio::{Access, IoError, publish_file_with};
 use serde::{Deserialize, Serialize};
 
-const SETTINGS_FILE: &str = "remote-access-settings.json";
+// The names the migration gives 1.4.5's files in `<data>/remote` (`desktop_profile/plan.rs` FILE_KINDS): 1.4.5's
+// `remote-access-settings.json` is `settings.json` there, and so on for every file of this crate.
+const SETTINGS_FILE: &str = "settings.json";
 const ACTIVATION_FILE: &str = "remote-activated.json";
 /// Evidence of an earlier install: such an install counts as activated.
-const LEGACY_EVIDENCE_FILES: [&str; 2] = ["relay-device.json", "remote-client-trust.json"];
+const LEGACY_EVIDENCE_FILES: [&str; 2] = ["device.json", "remote-client-trust.json"];
 pub const MAX_REMOTE_PC_NAME_LENGTH: usize = 64;
 pub const MAX_DEVICE_ALIAS_LENGTH: usize = 80;
 
@@ -190,13 +192,14 @@ mod tests {
         let (case, files) = recorded("remote-access-settings");
         let dir = tempfile::tempdir().unwrap();
         let file = case["file"].as_str().unwrap();
-        std::fs::copy(files.join("before").join(file), dir.path().join(file)).unwrap();
+        // Node's file under the name it has in `<data>/remote`.
+        std::fs::copy(files.join("before").join(file), dir.path().join(SETTINGS_FILE)).unwrap();
         let settings = AccessSettings::new(dir.path(), Arc::new(|| "HOST".to_owned()));
         assert_eq!(serde_json::to_value(settings.read()).unwrap(), case["nodeRead"]["settings"]);
         assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["nodeRead"]["deviceAliases"]);
         let op = &case["op"]["setDeviceAlias"];
         settings.set_device_alias(op[0].as_str().unwrap(), op[1].as_str().unwrap()).unwrap();
-        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(file)).unwrap()).unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(SETTINGS_FILE)).unwrap()).unwrap();
         // As text: key order counts too.
         assert_eq!(written.to_string(), case["after"][file].to_string());
     }

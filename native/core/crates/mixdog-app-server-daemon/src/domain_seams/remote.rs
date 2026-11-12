@@ -198,7 +198,7 @@ pub fn resolve_relay_url(raw: Option<&str>) -> Result<Option<String>, String> {
     validated_relay_url(raw).map(|url| Some(url.to_string())).map_err(|error| error.to_string())
 }
 pub struct RemoteInputs {
-    /// The remote-access files directory (the data directory).
+    /// The remote-access files directory (`<data>/remote`, where the migration puts 1.4.5's).
     pub dir: PathBuf,
     /// `MIXDOG_RELAY_URL` as read from the environment.
     pub relay_env: Option<String>,
@@ -434,6 +434,17 @@ mod tests {
         AccessSettings::new(dir, Arc::new(|| "HOST-FIXED".to_owned()))
     }
 
+    /// The recording names Node's files; in `<data>/remote` two of them have the migration's names.
+    const RENAMED: [(&str, &str); 2] = [("remote-access-settings.json", "settings.json"), ("relay-device.json", "device.json")];
+
+    fn in_remote_folder(node: &str) -> &str {
+        RENAMED.iter().find(|(from, _)| *from == node).map_or(node, |(_, to)| to)
+    }
+
+    fn as_node_named(ours: &str) -> String {
+        RENAMED.iter().find(|(_, to)| *to == ours).map_or(ours, |(from, _)| from).to_owned()
+    }
+
     /// Node's settings store over the recorded folders: the switch follows the activation files,
     /// the name falls back to the default, and what is not the right type is ignored.
     #[test]
@@ -441,14 +452,14 @@ mod tests {
         for case in crate::domain_seams::golden()["remote"]["settings"]["reads"].as_array().unwrap() {
             let dir = tempfile::tempdir().unwrap();
             for (rel, text) in case["files"].as_object().unwrap() {
-                std::fs::write(dir.path().join(rel), text.as_str().unwrap()).unwrap();
+                std::fs::write(dir.path().join(in_remote_folder(rel)), text.as_str().unwrap()).unwrap();
             }
             let settings = fixed_name_settings(dir.path());
             let name = &case["name"];
             assert_eq!(settings_view(&settings.read()), case["view"], "{name}");
             assert_eq!(settings.disabled(), case["disabled"].as_bool().unwrap(), "{name}");
             assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["aliases"], "{name}");
-            let mut listed: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            let mut listed: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|entry| as_node_named(&entry.unwrap().file_name().to_string_lossy())).collect();
             listed.sort();
             assert_eq!(serde_json::to_value(listed).unwrap(), case["after"], "{name}");
         }
@@ -466,7 +477,7 @@ mod tests {
                 _ => serde_json::to_value(settings.set_device_alias(args[0].as_str().unwrap(), args[1].as_str().unwrap()).unwrap()).unwrap(),
             };
             assert_eq!(shown, step["result"], "{} {}", step["op"], step["args"]);
-            let file: Value = serde_json::from_slice(&std::fs::read(dir.path().join("remote-access-settings.json")).unwrap()).unwrap();
+            let file: Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
             assert_eq!(file, step["file"], "{} {}", step["op"], step["args"]);
         }
     }

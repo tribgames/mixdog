@@ -39,7 +39,7 @@ async fn identity_files_are_owner_only_and_rotation_changes_them() {
         let first = load_or_create_e2ee_identity(lane, &path).unwrap();
         let again = load_or_create_e2ee_identity(lane, &path).unwrap();
         assert_eq!(first.server_public_key, again.server_public_key);
-        let owner_only = is_owner_only(&path.join("relay-e2ee.json")).unwrap();
+        let owner_only = is_owner_only(&path.join("e2ee.json")).unwrap();
         // A readable-by-others copy is tightened on the next read, never served as is.
         assert!(load_or_create_e2ee_identity(lane, &path).is_ok());
         let second = rotate_e2ee_identity(lane, &path).unwrap();

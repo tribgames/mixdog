@@ -185,6 +185,9 @@ pub fn config_signature(cfg: &Value) -> String {
     sort_keys_deep(cfg).to_string()
 }
 
+/// How a build that found no account words its reason (`AntigravityAuth::current`).
+const NOT_SIGNED_IN: &str = "not signed in";
+
 fn is_custom(name: &str, cfg: &Value) -> bool {
     cfg.get("type").and_then(Value::as_str) == Some("custom") && name.starts_with("custom-")
 }
@@ -396,8 +399,12 @@ impl ProviderRegistry {
                 Err(msg) => {
                     let error = format!("[provider] Failed to init \"{name}\": {msg}");
                     // One invalid custom provider is isolated: skipped and
-                    // reported, the rest of the registry builds.
-                    if is_custom(&name, &cfg) {
+                    // reported, the rest of the registry builds. So is an account
+                    // provider nobody signed in to: Node builds that one without its
+                    // account (`antigravity-oauth.mjs` reads the tokens per request),
+                    // while this adapter is bound to the account's project and has
+                    // nothing to be built from. A later plan builds it once signed in.
+                    if is_custom(&name, &cfg) || msg.starts_with(NOT_SIGNED_IN) {
                         built.push((name, Err(error)));
                     } else {
                         return Err(RegistryError::plain(error));
@@ -675,6 +682,39 @@ mod tests {
         let err = r.init_providers(cfg.as_object().unwrap()).await.unwrap_err();
         assert_eq!(err.message, "[provider] Failed to init \"anthropic\": no adapter for anthropic in this test");
         assert_eq!(err.code, None);
+    }
+
+    /// An account provider nobody signed in to is left out and the others build (Node builds it without its account).
+    struct OneUnsigned;
+
+    #[async_trait]
+    impl ProviderBuilder for OneUnsigned {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            if name == "antigravity-oauth" {
+                return Err("not signed in — run /login".into());
+            }
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn an_account_provider_nobody_signed_in_to_is_left_out() {
+        let r = ProviderRegistry::new(Arc::new(OneUnsigned));
+        let cfg = json!({"anthropic": {"enabled": true}, "antigravity-oauth": {"enabled": true}});
+        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
+        let state = r.state();
+        assert!(state.providers.contains_key("anthropic"));
+        assert!(!state.providers.contains_key("antigravity-oauth"));
+        assert_eq!(state.init_errors["antigravity-oauth"], "[provider] Failed to init \"antigravity-oauth\": not signed in — run /login");
     }
 
     #[tokio::test]
