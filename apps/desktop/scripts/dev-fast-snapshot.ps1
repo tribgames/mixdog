@@ -322,7 +322,7 @@ try {
                 '.npmignore', 'package.json', 'package-lock.json', 'README.md', 'NOTICE.md',
                 'LICENSE', 'LICENSES', 'scripts', 'src', 'changelog',
                 'native/mixdog-browser-import', 'native/mixdog-secure-desktop', 'native/mixdog-window', 'apps/desktop', 'apps/relay',
-                'native/core', 'rust-toolchain.toml'
+                'native/core', 'rust-toolchain.toml', 'packages'
             )
             # Optional package roots are not present in every checkout. Keep a path
             # when it exists now or was tracked in HEAD (so deletions still enter the
@@ -350,7 +350,7 @@ try {
         & git worktree add --detach --no-checkout $snapshotRoot $snapshot | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "git worktree add exited with $LASTEXITCODE" }
         & git -C $snapshotRoot sparse-checkout set --cone `
-            apps/desktop apps/relay src scripts native/mixdog-browser-import native/mixdog-secure-desktop native/mixdog-window native/core LICENSES changelog | Out-Null
+            apps/desktop apps/relay src scripts native/mixdog-browser-import native/mixdog-secure-desktop native/mixdog-window native/core packages LICENSES changelog | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout exited with $LASTEXITCODE" }
         # `worktree add --no-checkout` leaves the directory empty. Defining the
         # sparse paths configures the index but does not materialize HEAD on every
