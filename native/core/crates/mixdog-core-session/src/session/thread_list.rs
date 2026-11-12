@@ -1303,6 +1303,12 @@ mod tests {
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<crate::session::seams::ContextRead>) -> Result<crate::session::seams::ContextRead, CoreError> {
             self.inner.context_io(lane, id, read)
         }
+        fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+            self.inner.context_len(lane, id)
+        }
+        fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<crate::session::seams::ContextRead, CoreError> {
+            self.inner.context_from_io(lane, id, skip)
+        }
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<crate::session::seams::SessionMeta>, CoreError>> {
             self.inner.session_meta(id)
         }

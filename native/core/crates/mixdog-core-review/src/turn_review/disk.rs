@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use super::nodepath;
 use super::patch::change_path_key;
 use super::ports::CurrentText;
+use super::ports::Appended;
 use super::ports::BlockingFs;
 use super::ports::BlockingJob;
 use super::ports::CurrentFile;
@@ -30,13 +31,41 @@ use super::ports::ReviewDisk;
 /// Largest recorded file the legacy measure reads (`NET_TEXT_MAX_BYTES`).
 const NET_TEXT_MAX_BYTES: u64 = 1024 * 1024;
 
+/// Faults and pauses a test puts in the disk's writes; compiled out of the product.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct Faults {
+    /// Runs before every write of a change-record file (`changeWriteHookForTest`), under the file lock.
+    pub before_write: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
+    /// Appends write one byte less than they are given and report success, as a full disk or a crash does.
+    pub short_append: std::sync::atomic::AtomicBool,
+    /// The longest a file lock is waited for, whatever the caller asks.
+    pub lock_wait_cap: std::sync::Mutex<Option<std::time::Duration>>,
+}
+
+#[cfg(test)]
+impl Faults {
+    fn before_write(&self) {
+        let hook = self.before_write.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
+
 pub struct LaneDisk {
     tokens: LaneTokens,
+    #[cfg(test)]
+    pub(crate) faults: std::sync::Arc<Faults>,
 }
 
 impl LaneDisk {
     pub fn new(tokens: LaneTokens) -> Self {
-        Self { tokens }
+        Self {
+            tokens,
+            #[cfg(test)]
+            faults: Default::default(),
+        }
     }
 
     async fn interactive<R: Send + 'static>(&self, job: impl FnOnce(&InLane<InteractiveIo>) -> R + Send + 'static) -> std::io::Result<R> {
@@ -150,6 +179,8 @@ fn bounded_read(file: &Path, max_bytes: u64) -> std::io::Result<Option<Vec<u8>>>
 
 struct LaneFs<'a> {
     lane: &'a InLane<mixdog_rt::DurabilityIo>,
+    #[cfg(test)]
+    faults: std::sync::Arc<Faults>,
 }
 
 /// `rm(path, { recursive: true, force: true })`: a folder goes with what it holds, a file goes
@@ -225,6 +256,8 @@ impl ReadFs for LaneFs<'_> {
 
 impl BlockingFs for LaneFs<'_> {
     fn write_atomic(&self, path: &Path, bytes: &[u8], create_only: bool, fsync: bool) -> std::io::Result<()> {
+        #[cfg(test)]
+        self.faults.before_write();
         let opts = Opts { create_only, fsync, ..Opts::default() };
         mixdog_statefile::write_file(self.lane, path, bytes, &opts).map(|_| ()).map_err(|e| std::io::Error::other(e.to_string()))
     }
@@ -243,6 +276,43 @@ impl BlockingFs for LaneFs<'_> {
 
     fn create_private_dir_all(&self, path: &Path) -> std::io::Result<()> {
         mixdog_statefile::create_private_dir_all(self.lane, path)
+    }
+
+    fn append_verified(&self, path: &Path, bytes: &[u8]) -> std::io::Result<Appended> {
+        use std::io::Seek;
+        use std::io::Write;
+        #[cfg(test)]
+        self.faults.before_write();
+        let mut handle = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+        let prior = handle.metadata()?.len();
+        let landed = (|| -> std::io::Result<()> {
+            #[cfg(test)]
+            let bytes_written = if self.faults.short_append.load(std::sync::atomic::Ordering::SeqCst) { &bytes[..bytes.len() - 1] } else { bytes };
+            #[cfg(not(test))]
+            let bytes_written = bytes;
+            handle.write_all(bytes_written)?;
+            let mut held = vec![0u8; bytes.len()];
+            let mut reader = std::fs::File::open(path)?;
+            reader.seek(std::io::SeekFrom::Start(prior))?;
+            // A read-back that ends early is the line not whole, as Node's `bytesRead !== held.length`.
+            if let Err(e) = reader.read_exact(&mut held) {
+                return Err(if e.kind() == std::io::ErrorKind::UnexpectedEof { std::io::Error::other("turn change record was not written whole") } else { e });
+            }
+            if held != bytes {
+                return Err(std::io::Error::other("turn change record was not written whole"));
+            }
+            Ok(())
+        })();
+        drop(handle);
+        if let Err(error) = landed {
+            // By the path: Windows refuses to truncate through a handle opened to append.
+            let cut = std::fs::OpenOptions::new().write(true).open(path).and_then(|file| file.set_len(prior));
+            return Err(match cut {
+                Ok(()) => error,
+                Err(cut) => std::io::Error::new(error.kind(), format!("{error} (the file was not cut back: {cut})")),
+            });
+        }
+        Ok(Appended { prior_size: prior, stamp: stamp(&std::fs::metadata(path)?) })
     }
 }
 
@@ -357,17 +427,25 @@ impl ReviewDisk for LaneDisk {
         self.interactive(move |_| job(&ReadOnlyFs)).await
     }
 
-    async fn blocking(&self, lock: Option<&Path>, job: BlockingJob) -> std::io::Result<()> {
-        let lock = lock.map(Path::to_owned);
+    async fn blocking(&self, lock: Option<(&Path, std::time::Duration)>, job: BlockingJob) -> std::io::Result<()> {
+        let lock = lock.map(|(path, wait)| (path.to_owned(), wait));
+        #[cfg(test)]
+        let faults = self.faults.clone();
         self.durable(move |lane| {
-            let fs = LaneFs { lane };
+            #[cfg(test)]
+            let lock = lock.map(|(path, wait)| (path, faults.lock_wait_cap.lock().unwrap_or_else(|e| e.into_inner()).map_or(wait, |cap| cap.min(wait))));
+            let fs = LaneFs {
+                lane,
+                #[cfg(test)]
+                faults,
+            };
             match lock {
                 None => {
                     job(&fs);
                     Ok(())
                 }
-                Some(path) => {
-                    let opts = mixdog_statefile::LockOpts { timeout: Some(std::time::Duration::from_secs(10)), ..Default::default() };
+                Some((path, wait)) => {
+                    let opts = mixdog_statefile::LockOpts { timeout: Some(wait), ..Default::default() };
                     mixdog_statefile::with_lock(lane, &path, &opts, || job(&fs)).map_err(|e| std::io::Error::other(e.to_string()))
                 }
             }

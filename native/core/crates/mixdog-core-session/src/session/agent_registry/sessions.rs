@@ -53,20 +53,25 @@ impl AgentSessions {
     }
 }
 
+/// An assistant message with content: what `lastStoredAgentHandoff` takes as the handoff.
+fn is_handoff(message: &Value) -> bool {
+    message.get("role").and_then(Value::as_str) == Some("assistant")
+        && match message.get("content") {
+            Some(Value::String(text)) => !mixdog_js::js_trim(text).is_empty(),
+            other => super::rows::truthy(other),
+        }
+}
+
 /// `lastStoredAgentHandoff`: the header's `lastHandoff`, else the last assistant message
 /// with content (a string as is, anything else as its JSON), else empty.
 fn last_handoff(header: &Map<String, Value>, messages: &[Value]) -> String {
     if let Some(Value::String(handoff)) = header.get("lastHandoff") {
         return handoff.clone();
     }
-    let has_content = |content: Option<&Value>| match content {
-        Some(Value::String(text)) => !mixdog_js::js_trim(text).is_empty(),
-        other => super::rows::truthy(other),
-    };
     messages
         .iter()
         .rev()
-        .find(|m| m.get("role").and_then(Value::as_str) == Some("assistant") && has_content(m.get("content")))
+        .find(|m| is_handoff(m))
         .map(|m| match &m["content"] {
             Value::String(text) => text.clone(),
             other => mixdog_js::json_stringify(other),
@@ -196,8 +201,7 @@ impl Sessions for AgentSessions {
         if header.get("lastHandoff").is_some_and(Value::is_string) {
             return Some(last_handoff(&header, &[]));
         }
-        let rows = self.directory.model_context(&thread).read().await.ok()?;
-        let messages: Vec<Value> = rows.into_iter().map(|(_, body)| body).collect();
+        let messages = self.directory.model_context(&thread).read_tail_until(is_handoff).await.ok()?;
         Some(last_handoff(&header, &messages))
     }
 

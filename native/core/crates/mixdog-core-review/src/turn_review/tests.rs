@@ -241,6 +241,11 @@ fn persisted_text(data: &Path, sub: &str, session: &str, ws: &str, data_text: &s
     let digest: String = sha2::Sha256::digest(session.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
     let file = data.join("turn-snapshots").join(sub).join(format!("{}.json", &digest[..24]));
     let Ok(text) = std::fs::read_to_string(&file) else { return Value::Null };
+    tokenized(text, ws, data_text)
+}
+
+/// [`persisted_text`]'s normalisation of one file's text.
+fn tokenized(text: String, ws: &str, data_text: &str) -> Value {
     let clocks = regex::Regex::new(r#""(at|touched|createdAt|updatedAt|clearedAt|incompleteAt|foldedAt)":[0-9.e+-]+"#).unwrap();
     let mut text = clocks.replace_all(&text, r#""$1":0"#).into_owned();
     text = regex::Regex::new(r"\[[0-9.e+-]+,").unwrap().replace_all(&text, "[0,").into_owned();
@@ -460,8 +465,11 @@ async fn run_scenario(name: &str, scenario: &Value) {
             "baselineIndex" => actual.push((index, json!({"text": persisted_text(&data, "baselines", session, &ws_text, &data_text)}))),
             "records" => {
                 let records = review.store().load_turn_change_records(session).await;
-                let records: Vec<Value> = records.iter().cloned().map(Value::Object).collect();
-                actual.push((index, json!({"records": records, "file": persisted_text(&data, "changes", session, &ws_text, &data_text)})));
+                let records: Vec<Value> = records.iter().map(|r| Value::Object((**r).clone())).collect();
+                // The recording is of the single-document file an older Node wrote; the appendable file's own lines are
+                // recorded by `store_tests`. What both hold is the records in file order.
+                let file = review.store().changes_document(session).await.map_or(Value::Null, |text| tokenized(text, &ws_text, &data_text));
+                actual.push((index, json!({"records": records, "file": file})));
             }
             "snapshotRecord" => {
                 let mut o = serde_json::Map::new();
