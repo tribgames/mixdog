@@ -2040,9 +2040,9 @@ impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
 }
 
 /// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`,
-/// `offload-prune-blocked:<session>`.
+/// `offload-prune-blocked:<session>`; and each loss of records told, with its session, in order.
 #[derive(Default)]
-pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify, pub Mutex<Vec<(String, Vec<Record>)>>);
 
 impl super::notices::SessionNotices for TestNotices {
     fn turn_completed(&self, provider: &str) {
@@ -2062,6 +2062,11 @@ impl super::notices::SessionNotices for TestNotices {
 
     fn offload_prune_blocked(&self, session: &str) {
         lock(&self.0).push(format!("offload-prune-blocked:{session}"));
+        self.1.notify_waiters();
+    }
+
+    fn records_lost(&self, session: &str, records: &[Arc<Record>]) {
+        lock(&self.2).push((session.to_owned(), records.iter().map(|record| (**record).clone()).collect()));
         self.1.notify_waiters();
     }
 }

@@ -144,6 +144,8 @@ mod turn_gate;
 pub mod turn_draft;
 #[cfg(test)]
 mod turn_durability_tests;
+#[cfg(test)]
+mod durability_invariant_tests;
 pub mod transcript;
 pub mod transcript_export;
 pub mod turn_snapshot;
