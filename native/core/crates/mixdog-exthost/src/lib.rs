@@ -40,6 +40,8 @@ pub use domain_visualize::VisualizeService;
 pub use domain_visualize::required_tab_command;
 pub use exits::ExtHostError;
 pub use document_text::ExtDocumentText;
+pub use document_text::PDF_INTAKE_TIMEOUT_MS;
+pub use document_text::PDF_UNREADABLE_TEXT;
 pub use image_codec::ExtImageCodec;
 pub use image_codec::ReadResize;
 pub use image_codec::ReadResizeError;

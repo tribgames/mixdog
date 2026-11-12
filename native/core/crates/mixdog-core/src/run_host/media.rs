@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -23,6 +24,8 @@ use mixdog_agent::compact::triggers::ToolMediaMeter;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
 use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake};
+use mixdog_exthost::{PDF_INTAKE_TIMEOUT_MS, PDF_UNREADABLE_TEXT};
+use mixdog_rt::scoped::{Scope, Scoped};
 use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, MediaSupport, Message, ProviderError, Role,
 };
@@ -299,17 +302,23 @@ impl MediaLowering {
         Ok(text)
     }
 
-    async fn pdf(&self, file: &FileInfo) -> Result<String, Box<ProviderError>> {
+    /// `budget` is the one bound of the pass's PDF extractions, set when the first is asked for. Node's extraction has
+    /// no deadline and waits; here a PDF not read by the bound is the fixed unreadable text, what Node's own
+    /// `extractPdfText` gives a PDF it cannot read, so the turn goes on and the model is told the document could not be
+    /// read. The bound is Node's PDF intake deadline (`PDF_INTAKE_TIMEOUT_MS`), which Node's intake of a submission ends
+    /// the submission at for the first PDF that reaches it: all the turn's PDFs share it, so none adds its own, and the
+    /// text is kept (memo) so every attempt sends the same words.
+    async fn pdf(&self, file: &FileInfo, budget: &mut Option<Scope<'static>>) -> Result<String, Box<ProviderError>> {
         // An inline part and the reference stored for it share one entry in Node (the bytes'
         // hash); here the key is the reference or the payload's own hash.
         if let Some(hit) = self.memo().pdf.get(&file.key) {
             return Ok(hit.clone());
         }
-        let text = self
-            .docs
-            .pdf_text(&self.thread, &file.data)
-            .await
-            .map_err(|e| failure(format!("pdf text extraction failed: {e:?}")))?;
+        let scope = *budget.get_or_insert_with(|| Scope::new().within(Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)));
+        let text = match scope.run(self.docs.pdf_text(&self.thread, &file.data)).await {
+            Scoped::Done(extracted) => extracted.map_err(|e| failure(format!("pdf text extraction failed: {e:?}")))?,
+            _ => PDF_UNREADABLE_TEXT.to_owned(),
+        };
         let mut memo = self.memo();
         if memo.pdf.len() > OFFICE_CACHE_CAP {
             memo.pdf.clear();
@@ -407,13 +416,14 @@ impl MediaLowering {
     /// `preparePdfTextForProvider`: the messages with each file part that has a text form replaced by it.
     async fn lower(&self, messages: Vec<Message>, how: Lowered) -> Result<Vec<Message>, Box<ProviderError>> {
         self.warm(&messages).await?;
+        let mut budget = None;
         let mut out = Vec::with_capacity(messages.len());
         for mut message in messages {
             if let Content::Parts(parts) = &mut message.content {
                 for part in parts.iter_mut() {
                     let replacement = match self.lookup(part) {
                         Lookup::Info(file) => match inline_file_kind(&file.mime, &file.data, &file.filename) {
-                            FileKind::Pdf if how.pdf => Some(format!("--- {} ---\n{}", file_label(&file), self.pdf(&file).await?)),
+                            FileKind::Pdf if how.pdf => Some(format!("--- {} ---\n{}", file_label(&file), self.pdf(&file, &mut budget).await?)),
                             FileKind::Pdf => None,
                             kind if how.no_documents || (how.route_files && kind == FileKind::Office) => self.text_form(part)?,
                             _ => None,
@@ -813,6 +823,66 @@ mod tests {
         assert_eq!(parts[1], office, "an Office file keeps its part unless the route takes no documents");
         assert_eq!(l.text_form(&office).unwrap().unwrap(), "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED");
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
+    }
+
+    /// A worker whose extraction of a PDF takes as long as the file says: `one` 40 s, `hang` for ever.
+    struct SlowDocs;
+    #[async_trait]
+    impl DocumentText for SlowDocs {
+        async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
+            unreachable!("no Office file")
+        }
+        async fn pdf_text(&self, _: &ThreadId, data: &str) -> Result<String, ExtError> {
+            match String::from_utf8(STANDARD.decode(data).unwrap()).unwrap().as_str() {
+                "%PDF one" => {
+                    tokio::time::sleep(Duration::from_secs(40)).await;
+                    Ok("ONE".to_owned())
+                }
+                _ => std::future::pending().await,
+            }
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+            unreachable!("a request lowering counts no PDF pages")
+        }
+    }
+
+    /// The prompt's PDFs, lowered on the test's clock: the texts the model gets and the virtual time it took.
+    async fn lowered_pdfs(files: &[&'static str]) -> (Vec<String>, Duration) {
+        let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
+        let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(SlowDocs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
+        let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
+        let started = tokio::time::Instant::now();
+        let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
+        let took = started.elapsed();
+        let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
+        let texts = parts
+            .iter()
+            .map(|p| match p {
+                ContentPart::Text(text, _) => text.rsplit('\n').next().unwrap().to_owned(),
+                other => panic!("a PDF stayed a part: {other:?}"),
+            })
+            .collect();
+        (texts, took)
+    }
+
+    /// A PDF the worker never reads is, at the bound, the text Node gives a PDF it cannot read (the recorded `not-a-pdf`
+    /// case): Node waits, so a user sees the model told the document could not be read, never an error. The bound is
+    /// one for the turn's PDFs: two that never answer end together at 60 s, not one after the other at 120 s.
+    #[tokio::test(start_paused = true)]
+    async fn a_turns_pdfs_share_one_bound() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/media-text/pdf.json");
+        let recorded: Vec<Value> = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap();
+        let unreadable = recorded.iter().find(|c| c["name"] == "not-a-pdf").unwrap()["text"].as_str().unwrap().to_owned();
+        assert_eq!(unreadable, PDF_UNREADABLE_TEXT);
+
+        let (texts, took) = lowered_pdfs(&["hang", "hang2"]).await;
+        assert_eq!(texts, [unreadable.clone(), unreadable.clone()]);
+        assert_eq!(took, Duration::from_millis(PDF_INTAKE_TIMEOUT_MS), "two PDFs that never answer took the bound once");
+
+        // The first PDF's 40 s are spent from the same bound: the one after it has the 20 s that are left.
+        let (texts, took) = lowered_pdfs(&["one", "hang"]).await;
+        assert_eq!(texts, ["ONE".to_owned(), unreadable]);
+        assert_eq!(took, Duration::from_millis(PDF_INTAKE_TIMEOUT_MS));
     }
 
     #[tokio::test]
