@@ -69,8 +69,33 @@ function validate(raw) {
 // Every OAuth provider's init reads the roster, so a damaged one (crash
 // leftovers, truncation, a shape this build rejects) must never throw: it is
 // kept aside and the last good copy, which every write keeps, is restored.
+//
+// Every request resolves its account here, so a read is a synchronous
+// open/read/close on the main thread each time; on a slow disk a burst of
+// requests (a restart resuming every agent) stalled the loop for seconds. The
+// parsed roster is therefore shared by the reads of one synchronous run. No
+// event from another process (a message, a timer, an I/O completion) can be
+// observed before the run ends, so such a read never answers older than a
+// change the caller could know of; the next run reads the file again. Dropped
+// at the run's end by a microtask, never by a clock; this process's own writes
+// drop it at once.
+const readReuse = new Map();
+
 function read(dataDir) {
-  return readJsonStateSync(file(dataDir), { validate, fallback: validate(null), secret: true });
+  const path = file(dataDir);
+  const reused = readReuse.get(path);
+  if (reused) return reused;
+  const state = readJsonStateSync(path, { validate, fallback: validate(null), secret: true });
+  readReuse.set(path, state);
+  queueMicrotask(() => {
+    if (readReuse.get(path) === state) readReuse.delete(path);
+  });
+  return state;
+}
+
+/** Drops the shared roster (a write of this process). */
+export function forgetProviderAccountsRead() {
+  readReuse.clear();
 }
 
 // Labels an earlier build assigned automatically. They read as a different
@@ -140,6 +165,7 @@ async function update(provider, mutate) {
   requireAccountProvider(provider);
   // A roster that parses yet fails validation is recovered here first; the
   // mutator's validate would otherwise refuse every write. I/O failures throw.
+  forgetProviderAccountsRead();
   const selectedBefore = read().providers[provider]?.selectedId ?? null;
   const result = await updateJsonAtomic(
     file(),
@@ -152,6 +178,7 @@ async function update(provider, mutate) {
     },
     { mode: 0o600, secret: true, fsyncDir: true, backup: true }
   );
+  forgetProviderAccountsRead();
   // The selected account decides which credential file the agent config's
   // OAuth probe reads; usage and block writes leave it and stay silent.
   if ((result.providers[provider]?.selectedId ?? null) !== selectedBefore) bumpConfigInputEpoch();
@@ -315,6 +342,7 @@ export async function setCustomProviderKeyIds(provider, ids) {
     throw new TypeError(`At most ${MAX_ACCOUNTS} API keys can be used.`);
   }
   for (const id of ids) if (requireAccountId(id) === 'default') throw new TypeError('Invalid provider account id.');
+  forgetProviderAccountsRead();
   read();
   await updateJsonAtomic(
     file(),
@@ -333,6 +361,7 @@ export async function setCustomProviderKeyIds(provider, ids) {
     },
     { mode: 0o600, secret: true, fsyncDir: true, backup: true }
   );
+  forgetProviderAccountsRead();
   return customProviderKeyIds(provider);
 }
 

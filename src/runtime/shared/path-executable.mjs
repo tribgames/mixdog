@@ -114,7 +114,22 @@ const GIT_PRESENCE_TTL_MS = 30_000;
 let _gitPresence = null;
 export function gitExecutablePresent({ pathValue = process.env.PATH || '', platform = process.platform } = {}) {
   const now = Date.now();
-  if (_gitPresence && _gitPresence.pathValue === pathValue && now - _gitPresence.at < GIT_PRESENCE_TTL_MS) {
+  if (_gitPresence && _gitPresence.pathValue === pathValue) {
+    if (now - _gitPresence.at < GIT_PRESENCE_TTL_MS) return _gitPresence.present;
+    // Past the window the walk (a stat per PATH directory and extension) is
+    // redone off the event loop; the answer served meanwhile is the one this
+    // window already accepted as current, so it is at most one refresh old.
+    if (!_gitPresence.refreshing) {
+      const entry = _gitPresence;
+      entry.refreshing = findPathExecutablesAsync(['git'], { pathValue, platform })
+        .then((found) => {
+          if (_gitPresence === entry) _gitPresence = { pathValue, at: Date.now(), present: Boolean(found.get('git')) };
+        })
+        .catch(() => {})
+        .finally(() => {
+          entry.refreshing = null;
+        });
+    }
     return _gitPresence.present;
   }
   const present = Boolean(findPathExecutable('git', { pathValue, platform }));

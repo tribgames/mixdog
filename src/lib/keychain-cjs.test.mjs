@@ -90,6 +90,80 @@ test('win32 deleteSecret is idempotent for a missing secret but surfaces real fa
   }
 });
 
+test('win32 hasSecret stats the secret file once per run, sees an outside change in the next run and an own delete at once', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-has-'));
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const realExists = fs.existsSync;
+  const oldData = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dir;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    const keychain = require('./keychain-cjs.cjs');
+    const file = path.join(dir, 'secrets', 'acct.dpapi');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'x');
+    let checks = 0;
+    fs.existsSync = (target) => {
+      if (String(target) === file) checks += 1;
+      return realExists(target);
+    };
+    for (let n = 0; n < 50; n += 1) assert.equal(keychain.hasSecret('acct'), true);
+    assert.equal(checks, 1);
+    keychain.deleteSecret('acct');
+    assert.equal(keychain.hasSecret('acct'), false, 'an own delete is seen in the same run');
+    await new Promise((resolve) => setImmediate(resolve));
+    fs.writeFileSync(file, 'x'); // another process stores it
+    assert.equal(keychain.hasSecret('acct'), true);
+  } finally {
+    fs.existsSync = realExists;
+    Object.defineProperty(process, 'platform', realPlatform);
+    if (oldData === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = oldData;
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('win32 getSecret remembers an absent secret for one run: one disk access for many asks, and a file another program writes is seen by the next run', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-miss-'));
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const realRead = fs.readFileSync;
+  const oldData = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dir;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    const keychain = require('./keychain-cjs.cjs');
+    const file = path.join(dir, 'secrets', 'acct.dpapi');
+    let accesses = 0;
+    fs.readFileSync = (target, ...rest) => {
+      if (String(target) === file) accesses += 1;
+      return realRead(target, ...rest);
+    };
+    for (let n = 0; n < 20; n += 1) assert.equal(keychain.getSecret('acct'), null);
+    assert.equal(accesses, 1);
+    keychain.invalidateSecretCache('acct'); // what another process's change does, via the secrets marker
+    assert.equal(keychain.getSecret('acct'), null);
+    assert.equal(accesses, 2);
+    await new Promise((resolve) => setImmediate(resolve));
+    // The next run asks the disk again: nothing about the absence was kept.
+    assert.equal(keychain.getSecret('acct'), null);
+    assert.equal(accesses, 3);
+    await new Promise((resolve) => setImmediate(resolve));
+    // Another program stores the entry and publishes no secrets marker.
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'x');
+    assert.equal(keychain.hasSecret('acct'), true, 'an entry created outside this process is seen without an invalidation');
+  } finally {
+    fs.readFileSync = realRead;
+    Object.defineProperty(process, 'platform', realPlatform);
+    if (oldData === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = oldData;
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 test('linux setSecretAsync without secret-tool stores into the private file, without blocking', async () => {
   const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
   const oldPath = process.env.PATH;

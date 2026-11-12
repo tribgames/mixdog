@@ -303,6 +303,54 @@ test('the composition right after an awaited prewarm starts no git probe; the ne
   }
 });
 
+test('a cold root composed after the awaited prewarm states what the former synchronous probes stated', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-equal-'));
+  try {
+    const git = (...args) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', windowsHide: true });
+    assert.equal(git('init', '-q').status, 0);
+    writeFileSync(join(root, '.gitignore'), 'node_modules/\ndist/\n*.log\n');
+    // More ignored entries than the listing cap: they must not push src/ out.
+    for (const name of ['node_modules', 'dist']) mkdirSync(join(root, name));
+    for (let index = 0; index < 45; index += 1) writeFileSync(join(root, `a${index}.log`), '');
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'tracked.txt'), 'one\n');
+    assert.equal(git('add', 'tracked.txt').status, 0);
+    writeFileSync(join(root, 'dirty.txt'), 'dirty\n');
+    // What the removed synchronous probes computed, from the same git commands.
+    const names = ['.gitignore', 'dirty.txt', 'dist', 'node_modules', 'src', 'tracked.txt', ...Array.from({ length: 45 }, (_, i) => `a${i}.log`)];
+    const status = git('--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=normal').stdout.trim();
+    const ignoredResult = spawnSync('git', ['--no-optional-locks', '-C', root, 'check-ignore', '--stdin', '-z'], {
+      encoding: 'utf8',
+      input: `${names.join('\0')}\0`,
+      windowsHide: true,
+    });
+    const ignored = new Set(ignoredResult.stdout.split('\0').filter(Boolean));
+    assert.ok(status && ignored.has('node_modules') && ignored.has('a0.log'));
+    const kept = names.filter((name) => !ignored.has(name)).sort();
+    assert.deepEqual(kept, ['.gitignore', 'dirty.txt', 'src', 'tracked.txt']);
+    const expectedCwd = '- Cwd entries at startup: src/ .gitignore dirty.txt tracked.txt';
+
+    const spawns = countMainThreadSpawns(t);
+    let gitLine;
+    let cwdLine;
+    try {
+      await prewarmGitStartupProbes([root]);
+      gitLine = describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } });
+      cwdLine = describeCwdStartupEntries({ cwd: root });
+    } finally {
+      spawns.restore();
+    }
+    assert.deepEqual(spawns.calls, [], 'composition spawned git on the event loop thread');
+    assert.match(gitLine, /; changes present\.$/);
+    assert.equal(cwdLine, expectedCwd);
+  } finally {
+    await settleGitStartupProbes();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Git startup state preserves the non-repository message', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-nonrepo-startup-'));
   try {
