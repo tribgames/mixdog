@@ -228,19 +228,20 @@ const wireHandler = createWebhookRequestHandler({
   },
 });
 let settledCollections = 0;
+// webhook.mjs routing: GET / is the liveness answer, POST /webhook/* the endpoint, everything else a text 404.
+const gateRoute = (req, res) => {
+  if (req.method === 'GET' && req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
+  } else if (req.method === 'POST' && req.url?.startsWith('/webhook/')) {
+    void wireHandler.handlePost(req, res);
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  }
+};
 const wireServers = {
-  gate: http.createServer((req, res) => {
-    // webhook.mjs routing: GET / is the liveness answer, POST /webhook/* the endpoint, everything else a text 404.
-    if (req.method === 'GET' && req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('OK');
-    } else if (req.method === 'POST' && req.url?.startsWith('/webhook/')) {
-      void wireHandler.handlePost(req, res);
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
-    }
-  }),
+  gate: http.createServer(gateRoute),
   collect: http.createServer((req, res) => {
     void collectRawBody(req, res).then(() => {
       settledCollections += 1;
@@ -440,9 +441,47 @@ const silent = await new Promise((resolve, reject) => {
 if (!(silent.openJustBeforeHeadersTimeout && silent.closedNotBeforeHeadersTimeout && silent.closedByHeadersTimeoutPlusCheck)) throw new Error(`silent connection probe: ${JSON.stringify(silent)}`);
 timeoutResults.push(silent);
 shortServer.close();
+
+// A whole request that arrives after headersTimeout while Node's connection check has not come yet: the connection is not
+// expired before the check, so the request is answered like any other. The check interval of this server is long, and its
+// first check comes one interval after the server was made, so a request sent just after headersTimeout is sure to be
+// before it.
+const lateServer = http.createServer({ headersTimeout: 500, connectionsCheckingInterval: 5000 }, gateRoute);
+await new Promise((resolve) => lateServer.listen(0, '127.0.0.1', resolve));
+const lateRequest = await new Promise((resolve, reject) => {
+  const socket = net.connect(lateServer.address().port, '127.0.0.1');
+  let data = Buffer.alloc(0);
+  let closed = false;
+  let openWhenSent = null;
+  const deadline = setTimeout(() => reject(new Error('late request: the connection stayed open')), 10000);
+  socket.on('error', () => {});
+  socket.on('data', (d) => {
+    data = Buffer.concat([data, d]);
+  });
+  socket.on('close', () => {
+    closed = true;
+    clearTimeout(deadline);
+    resolve({
+      name: 'a whole request sent after headersTimeout, before the connection check',
+      sentAfter: 'headersTimeoutMs',
+      parts: [secondRequest],
+      openWhenSent,
+      responses: parseResponses(data).responses,
+      closed,
+    });
+  });
+  socket.on('connect', () => {
+    setTimeout(() => {
+      openWhenSent = !closed && data.length === 0;
+      socket.write(secondRequest, 'latin1');
+    }, lateServer.headersTimeout + 200);
+  });
+});
+if (!(lateRequest.openWhenSent && lateRequest.responses.length === 1)) throw new Error(`late request probe: ${JSON.stringify(lateRequest)}`);
+lateServer.close();
 for (const server of Object.values(wireServers)) server.close();
 
-const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults, wire: wireResults, timing: { defaults, keepAlive, timeouts: timeoutResults } };
+const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults, wire: wireResults, timing: { defaults, keepAlive, timeouts: timeoutResults, lateRequest } };
 const out = args.get('out');
 if (out) {
   writeFileSync(out, JSON.stringify(result, null, 1));
@@ -462,6 +501,7 @@ if (out) {
         { what: 'the value of the Date header in wire[].responses[].{raw,head} and timing.timeouts[].responses[].{raw,head}', reason: 'a clock reading of the recording run: the recorder replaces it by the token <date> and the replay replaces the listener\'s Date value by the same token; the header name, its place and its case are compared' },
         { what: 'timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server', reason: 'Node\'s own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server\'s own settings, read from a default server) on its virtual clock' },
         { what: 'timing.timeouts[] "a connection that sends no byte": the instant of the close (not recorded) and the 1000/500/100 ms timers', reason: 'Node closes it somewhere in [headersTimeout, headersTimeout + connectionsCheckingInterval] by where the check tick falls; the recorder records only that it was open just before headersTimeout and closed inside that window, and the replay closes at the end of the window (headersTimeoutMs + connectionsCheckingIntervalMs of timing.defaults, read from a default server)' },
+        { what: 'timing.lateRequest: the 500 ms headers timeout and 5000 ms check interval of the recording server, and the instant the request is sent (200 ms after headersTimeout)', reason: 'Node\'s own timers are real in the recording; the long check interval puts the request before the first connection check whatever the machine\'s pace. The replay sends the request just after headersTimeoutMs of timing.defaults on its virtual clock, inside the window in which Node has not expired the connection yet' },
       ],
     },
   });

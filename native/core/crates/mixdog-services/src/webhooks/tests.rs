@@ -743,6 +743,31 @@ async fn a_request_that_does_not_arrive_in_time_gets_the_recorded_bare_408() {
     listener.stop().await;
 }
 
+/// Node expires a connection only when its connection check comes: a whole request that arrives after `headersTimeout`
+/// and before the check is answered as any other (the recorded reply).
+#[tokio::test(start_paused = true)]
+async fn a_request_after_headers_timeout_and_before_the_connection_check_is_served_as_recorded() {
+    let timing = golden()["timing"].clone();
+    let case = &timing["lateRequest"];
+    assert!(case["openWhenSent"].as_bool().unwrap() && case["closed"].as_bool().unwrap(), "recorded");
+    let headers = timing["defaults"][case["sentAfter"].as_str().unwrap()].as_u64().unwrap();
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+
+    let (mut read, mut write) = connect(listener.port()).await.into_split();
+    advance(headers + 1).await;
+    for part in case["parts"].as_array().unwrap() {
+        send(&mut write, part.as_str().unwrap().as_bytes(), "the late request").await;
+    }
+    let (mut pending, mut seen) = (Vec::new(), Vec::new());
+    while let Some((_, _, _, raw)) = read_response_typed(&mut read, &mut pending, "the reply to the late request, then the close").await {
+        seen.push(raw);
+    }
+    let recorded: Vec<&str> = case["responses"].as_array().unwrap().iter().map(|r| r["raw"].as_str().unwrap()).collect();
+    assert_eq!(seen, recorded);
+    listener.stop().await;
+}
+
 /// Node closes a connection that sits idle between requests, after `keepAliveTimeout` plus `keepAliveTimeoutBuffer`
 /// (the recorded server settings), though it announces only the first. One connection is asked again just before the
 /// timeout and answers; the other, left alone, is closed at it.

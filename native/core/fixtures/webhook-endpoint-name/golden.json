@@ -1052,6 +1052,23 @@
         ],
         "closed": true
       }
-    ]
+    ],
+    "lateRequest": {
+      "name": "a whole request sent after headersTimeout, before the connection check",
+      "sentAfter": "headersTimeoutMs",
+      "parts": [
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "openWhenSent": true,
+      "responses": [
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
+        }
+      ],
+      "closed": true
+    }
   }
 }
