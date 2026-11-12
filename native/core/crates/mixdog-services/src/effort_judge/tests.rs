@@ -35,6 +35,13 @@ fn lane() -> crate::effort_judge::JudgeLanes {
     crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())
 }
 
+/// The real model with the waits of a cold, busy machine: the product's 3 s cold wait and 500 ms answer deadline answer `warming` /
+/// `timeout` while the 150 MB graph loads beside other work, and these tests check the answers, not the waits.
+fn real_model() -> Arc<EffortJudgeModel> {
+    let timing = crate::effort_judge::JudgeTiming { cold: Duration::from_secs(90), warm: Duration::from_secs(60), queue: Duration::from_secs(60), ..Default::default() };
+    EffortJudgeModel::with_options(config(), lane(), crate::effort_judge::judge::JudgeOptions { timing, ..Default::default() }).expect("model")
+}
+
 /// The input as the loop hands it over: raw results, not yet windowed.
 fn input_of(case: &Value) -> StepInput {
     let i = &case["input"];
@@ -131,7 +138,7 @@ fn token_ids_match_recorded_ids() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn probabilities_and_efforts_match_the_node_judge() {
-    let model = EffortJudgeModel::new(config(), lane()).expect("model");
+    let model = real_model();
     let g = golden();
     let ladders = g["ladders"].as_array().expect("ladders");
     for case in g["cases"].as_array().expect("cases") {
@@ -207,7 +214,7 @@ async fn a_corrupt_model_answers_none() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs the installed judge model (MIXDOG_EFFORT_JUDGE_DIR) and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_rest() {
-    let model = EffortJudgeModel::new(config(), lane()).expect("model");
+    let model = real_model();
     let g = golden();
     let cases = g["cases"].as_array().expect("cases");
     let mut tasks = Vec::new();
