@@ -7,6 +7,7 @@
 //
 // Output: native/core/fixtures/request-tools/golden.json.
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -130,6 +131,6 @@ for (const [name, before, changes, only] of SCENARIOS) {
 }
 
 await writeJsonCompact(tree, join(stage, 'golden.json'), { cases: CASES });
-writeSetManifest(stage, { set: 'request-tools', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
+writeSetManifest(stage, { set: 'request-tools', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }), extra: { ...recorderProvenance(import.meta.url) } });
 commitStage(stage, finalDir);
 console.log(`request tools: ${CASES.length} cases`);

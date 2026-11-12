@@ -13,6 +13,7 @@
 //
 // Output: native/core/fixtures/skill-session/golden.json.
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -148,6 +149,6 @@ const TRANSCRIPT = [
 }));
 
 await writeJsonCompact(tree, join(stage, 'golden.json'), { arm: ARM, transcript: TRANSCRIPT });
-writeSetManifest(stage, { set: 'skill-session', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }) });
+writeSetManifest(stage, { set: 'skill-session', recorder, command: `node ${recorder} --tree <tree>` + (patched ? ` --patch ${patched}` : ''), ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : { identityTree: tree }), extra: { ...recorderProvenance(import.meta.url) } });
 commitStage(stage, finalDir);
 console.log(`skill session: ${ARM.length} arm cases, ${TRANSCRIPT.length} transcript cases`);
