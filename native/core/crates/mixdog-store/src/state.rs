@@ -360,20 +360,6 @@ impl CoreState {
         self.shared.commit_fault.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Test support: the stored form of the registry is made unreadable, through the writer, while the store stays open: the
-    /// next read of a Project's row fails, as a registry found corrupt after the work began does.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn corrupt_registry_rows(&self) {
-        let (done, finished) = mpsc::channel::<()>();
-        let job: Job = Box::new(move |conn| {
-            conn.execute("UPDATE projects SET last_used_at = 'not a number'", []).expect("the rows are damaged");
-            let _ = done.send(());
-        });
-        if self.sender.send(job).is_ok() {
-            let _ = finished.recv();
-        }
-    }
-
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it
     /// returns `Ok`, rolls back otherwise.
     pub async fn write<R, F>(&self, f: F) -> Result<R, DbError>
