@@ -421,6 +421,12 @@ impl Shared {
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.
         let params = request.params.clone();
+        // A relay client is told the failure without the call's own secrets and without params it may not read.
+        let answer = crate::relay_answer::RelayAnswer::of(origin, spec.method, params.as_ref());
+        let cleaned = move |outcome: Result<Reply, CoreError>| match &answer {
+            Some(answer) => answer.outcome(outcome),
+            None => outcome,
+        };
         let lone_surrogates = std::mem::take(&mut request.lone_surrogates);
         let typed = match ClientRequest::from_jsonrpc(request) {
             Ok(typed) => typed,
@@ -441,14 +447,14 @@ impl Shared {
         match self.dispatch(conn, &id, origin, typed, (params, lone_surrogates), spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
-                self.finish(conn, &id, outcome);
+                self.finish(conn, &id, cleaned(outcome));
                 after.release();
             }
             Dispatch::Later(class, work) => {
                 let shared = Arc::clone(self);
                 let owner = Arc::clone(conn);
                 let run = async move {
-                    let outcome = work.await;
+                    let outcome = cleaned(work.await);
                     drop(slot);
                     shared.finish(&owner, &id, outcome);
                     after.release();
