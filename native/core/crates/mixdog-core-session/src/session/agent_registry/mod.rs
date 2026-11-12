@@ -31,7 +31,6 @@ mod world_rows;
 pub mod restart;
 pub mod signals;
 pub mod status_rows;
-mod views;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -49,7 +48,7 @@ pub use self::workers::AgentWorkers;
 pub use self::world_rows::CancelScope;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::cell::RefMut;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -75,53 +74,15 @@ use mixdog_store::worker::WorkerScope;
 use serde_json::Map;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 
 pub use self::rows::Row;
-pub use self::views::Place;
 use self::rows::*;
-use self::views::Maps;
-use self::views::Tags;
-use self::views::Views;
 use super::Clock;
 use mixdog_core_ports::ports::threads::ThreadState;
-
-/// What a load of the stored index hands over, relative to the revision the registry holds.
-pub enum Index {
-    /// Nothing was written since the revision asked about.
-    Unchanged,
-    /// What was written since it: each session whose `worker` map changed, with its place in the index order and its map
-    /// now (`None`: the index lists none), and each agent-only session that changed, with its place among them and its list
-    /// row now (`None`: no longer listed).
-    Delta { revision: Revision, maps: Vec<(String, Option<(Place, Row)>)>, sessions: Vec<(String, Option<(Place, Row)>)> },
-    /// Every map and every agent-only session, each at its place; `revision` is what a later load asks the changes since of
-    /// (`None`: the store keeps none).
-    Full { revision: Option<Revision>, maps: Vec<(String, Place, Row)>, sessions: Vec<(Place, Row)> },
-}
-
-/// A store's revision of what it hands over: of the index, and of the kept maps.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Revision {
-    pub index: u64,
-    /// The index's generation: `index` names a state only within one.
-    pub generation: u64,
-    pub kept: u64,
-}
 
 /// The stored side of the worker index.
 #[async_trait]
 pub trait WorkerStore: Send + Sync {
-    /// The index as it is now, in the least the store can tell from the revision the caller holds. A store that keeps no
-    /// revision hands over everything, each map and session at its place in the listing.
-    async fn index_since(&self, _since: Option<Revision>) -> Result<Index, String> {
-        let maps = self.worker_maps().await?.into_iter().enumerate().map(|(at, (id, map))| (id, Place::At(at as i64), map)).collect();
-        let sessions = self.agent_sessions().await?.into_iter().enumerate().map(|(at, session)| (Place::At(at as i64), session)).collect();
-        Ok(Index::Full { revision: None, maps, sessions })
-    }
-    /// The sessions whose map is a kept one.
-    fn kept_sessions(&self) -> Vec<String> {
-        Vec::new()
-    }
     /// Every session's `worker` map, newest session first.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String>;
     /// The agent-only sessions' list rows, closed ones included.
@@ -152,25 +113,6 @@ pub trait LiveSessions: Send + Sync {
     fn has_live_work(&self, session: &str) -> bool;
     /// `runtime.stage`.
     fn runtime_stage(&self, session: &str) -> Option<String>;
-    /// What every read of a loaded session depends on, taken without copying it; `None`: the session is read again by every
-    /// read that needs it.
-    fn stamp(&self, _session: &str) -> Option<LiveStamp> {
-        None
-    }
-}
-
-/// A loaded session's stamp: its published header (compared by identity, and held, so its address is not reused while the
-/// stamp lives), whether a turn runs, and its stage. Two equal stamps of a session mean its reads answer the same.
-pub struct LiveStamp {
-    pub header: Arc<dyn std::any::Any + Send + Sync>,
-    pub running: bool,
-    pub stage: Option<String>,
-}
-
-impl PartialEq for LiveStamp {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(Arc::as_ptr(&self.header).cast::<()>(), Arc::as_ptr(&other.header).cast::<()>()) && self.running == other.running && self.stage == other.stage
-    }
 }
 
 /// `resolveAgentTerminalReapMs(config, provider)`.
@@ -186,59 +128,20 @@ pub struct AgentRegistry {
     state: Mutex<State>,
     /// Woken by every refresh and row write: the deadline timer ([`keep_deadlines`]) arms again.
     rearm: Arc<tokio::sync::Notify>,
-    loads: Mutex<Loads>,
-}
-
-/// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
-/// the lock is never held across a load.
-#[derive(Default)]
-struct Loads {
-    running: bool,
-    /// The loads begun, and the number of the latest one that completed (a failed or cancelled one never reached the index).
-    started: u64,
-    completed: u64,
-    /// Told, or dropped, when the running load ends.
-    waiting: Vec<oneshot::Sender<()>>,
-}
-
-/// The running load's turn: whatever becomes of the load (done, failed, its caller gone), the next caller may load.
-struct LoadTurn<'a> {
-    loads: &'a Mutex<Loads>,
-    number: u64,
-    completed: bool,
-}
-
-impl Drop for LoadTurn<'_> {
-    fn drop(&mut self) {
-        let mut loads = self.loads.lock().unwrap_or_else(|p| p.into_inner());
-        loads.running = false;
-        if self.completed {
-            loads.completed = loads.completed.max(self.number);
-        }
-        for waiter in loads.waiting.drain(..) {
-            let _ = waiter.send(());
-        }
-    }
 }
 
 #[derive(Default)]
 struct State {
     /// `tags` (insertion order), `tagAgents`, `tagCwds`.
-    tags: Tags,
+    tags: Vec<(String, String)>,
     tag_agents: HashMap<String, String>,
     tag_cwds: HashMap<String, String>,
-    /// Bumped whenever `tags`, `tag_agents` or `tag_cwds` change.
-    tag_generation: u64,
     /// Every session's worker map: the index as last loaded, with this process's writes.
-    maps: Maps,
-    /// The store's revision of the last load.
-    revision: Option<Revision>,
+    maps: Vec<(String, Row)>,
     /// Writes the loaded index did not show yet.
     pending: HashMap<String, Option<Row>>,
-    /// The agent-only sessions as last loaded, in their order.
-    sessions: BTreeMap<Place, Row>,
-    /// The first of `sessions` with each id.
-    session_at: HashMap<String, Place>,
+    /// The agent-only sessions as last loaded.
+    sessions: Vec<Row>,
     /// A legacy tombstone's resolved owner fields, by its identity (`row-reads.mjs` `owners`).
     owners: HashMap<String, Option<Row>>,
     /// A Lead pool row's worker map as this process last wrote it, until the stored header shows
@@ -251,10 +154,9 @@ struct State {
     cancelling: HashMap<String, usize>,
     /// `cancellationEpochs`: how many cancellations have covered a session.
     epochs: HashMap<String, u64>,
-    /// Bumped when the views must start over (the maps replaced, a legacy owner recovered).
-    epoch: u64,
-    /// The reads of the index as shared views, following each write (views.rs).
-    views: RefCell<Views>,
+    /// Bumped whenever `maps` or `owners` change; the reads kept in `kept` belong to one value of it.
+    version: u64,
+    kept: RefCell<Kept>,
 }
 
 /// The `now` values over which every read of the index answers the same: a read of an unchanged index at a
@@ -277,57 +179,94 @@ impl Window {
     }
 }
 
+#[derive(Default)]
+struct Kept {
+    window: Option<(u64, Window)>,
+    all_rows: Option<Vec<Row>>,
+    stored_tombstones: Option<Vec<Row>>,
+    tombstones: Option<Vec<Row>>,
+    unblocked_rows: Option<Vec<Row>>,
+    index: Option<HashMap<String, Row>>,
+    /// Every legacy tombstone of the index has its owner looked up (`resolve_owners`).
+    owners_resolved: bool,
+}
+
 impl State {
     /// The window `now` is in for the index as it is.
     fn window_at(&self, now: f64) -> Window {
         let mut w = Window { from: f64::NEG_INFINITY, after: f64::NEG_INFINITY, upto: f64::INFINITY };
-        for (_, map) in self.maps.iter() {
-            views::constrain(&mut w, map, now);
+        let ends = |end: f64, w: &mut Window, from: Option<f64>| {
+            if now <= end {
+                w.upto = w.upto.min(end);
+                if let Some(from) = from {
+                    w.from = w.from.max(from);
+                }
+            } else {
+                w.after = w.after.max(end);
+            }
+        };
+        for (_, map) in &self.maps {
+            let released = stamp_ms(map.get("releasedAt"));
+            if released > 0.0 {
+                ends(released + TAG_TOMBSTONE_TTL_MS, &mut w, None);
+            }
+            let Some(tombstone) = map.get("tombstone").and_then(Value::as_object) else { continue };
+            let reaped = mixdog_js::time::date_parse(&clean(tombstone.get("reapedAt")));
+            if reaped.is_nan() || reaped == 0.0 || clean(tombstone.get("tag")).is_empty() {
+                continue;
+            }
+            if reaped > now {
+                (w.from, w.upto) = (now, now);
+            } else {
+                ends(reaped + TAG_TOMBSTONE_TTL_MS, &mut w, Some(reaped));
+            }
         }
         w
     }
 
-    /// A change the views cannot follow one session at a time: they start over.
+    /// Any change of what the reads are built from.
     fn changed(&mut self) {
-        self.epoch += 1;
+        self.version += 1;
+    }
+
+    /// The reads kept for `now`, emptied first when the index changed or `now` left their window.
+    fn kept(&self, now: f64) -> RefMut<'_, Kept> {
+        let mut kept = self.kept.borrow_mut();
+        if !kept.window.is_some_and(|(version, window)| version == self.version && window.holds(now)) {
+            *kept = Kept { window: Some((self.version, self.window_at(now))), ..Kept::default() };
+        }
+        kept
     }
 }
 
 impl State {
     fn tag(&self, tag: &str) -> Option<&String> {
-        self.tags.get(tag)
+        self.tags.iter().find(|(t, _)| t == tag).map(|(_, id)| id)
+    }
+
+    fn set_tag(&mut self, tag: &str, session: &str) {
+        match self.tags.iter_mut().find(|(t, _)| t == tag) {
+            Some(entry) => entry.1 = session.to_owned(),
+            None => self.tags.push((tag.to_owned(), session.to_owned())),
+        }
     }
 
     /// `tagMaps.bind`.
     fn bind(&mut self, tag: &str, session: &str, agent: &str, cwd: &str) {
-        let mut changed = self.tags.set(tag, session);
-        if changed {
-            self.views.get_mut().facts.touch(tag);
-        }
-        if !agent.is_empty() && self.tag_agents.get(tag).map(String::as_str) != Some(agent) {
+        self.set_tag(tag, session);
+        if !agent.is_empty() {
             self.tag_agents.insert(tag.to_owned(), agent.to_owned());
-            changed = true;
         }
-        if !cwd.is_empty() && self.tag_cwds.get(tag).map(String::as_str) != Some(cwd) {
+        if !cwd.is_empty() {
             self.tag_cwds.insert(tag.to_owned(), cwd.to_owned());
-            changed = true;
-        }
-        if changed {
-            self.tag_generation += 1;
         }
     }
 
     /// `tagMaps.unbind`.
     fn unbind(&mut self, tag: &str) {
-        let bound = self.tags.remove(tag).is_some();
-        if bound {
-            self.views.get_mut().facts.drop_tag(tag);
-        }
-        let agent = self.tag_agents.remove(tag).is_some();
-        let cwd = self.tag_cwds.remove(tag).is_some();
-        if bound || agent || cwd {
-            self.tag_generation += 1;
-        }
+        self.tags.retain(|(t, _)| t != tag);
+        self.tag_agents.remove(tag);
+        self.tag_cwds.remove(tag);
     }
 
     /// `tagMaps.unbindIfOwned`.
@@ -338,13 +277,21 @@ impl State {
     }
 
     fn map(&self, session: &str) -> Option<&Row> {
-        self.maps.get(session)
+        self.maps.iter().find(|(id, _)| id == session).map(|(_, m)| m)
     }
 
     fn put(&mut self, session: &str, map: Option<Row>) {
-        self.maps.set(session, map.clone());
+        let at = self.maps.iter().position(|(id, _)| id == session);
+        match (at, map.clone()) {
+            (Some(i), Some(m)) => self.maps[i].1 = m,
+            (Some(i), None) => {
+                self.maps.remove(i);
+            }
+            (None, Some(m)) => self.maps.insert(0, (session.to_owned(), m)),
+            (None, None) => {}
+        }
         self.pending.insert(session.to_owned(), map);
-        self.views.get_mut().touched(session);
+        self.changed();
     }
 
     /// The session's row as readers see it.
@@ -360,15 +307,86 @@ impl State {
         }
         Some(row)
     }
-}
 
-/// The first stored session of each id (`sessions.find(s => clean(s.id) === id)`).
-fn sessions_by_id(sessions: &BTreeMap<Place, Row>) -> HashMap<String, Place> {
-    let mut at = HashMap::new();
-    for (place, session) in sessions {
-        at.entry(clean(session.get("id"))).or_insert_with(|| place.clone());
+    /// `readAllWorkerRows`.
+    fn all_rows(&self, now: f64) -> Vec<Row> {
+        let mut kept = self.kept(now);
+        kept.all_rows.get_or_insert_with(|| self.maps.iter().filter_map(|(id, map)| self.row(id, map, now)).collect()).clone()
     }
-    at
+
+    /// The stored tombstones, newest first and capped (`store.readTombstones`).
+    fn stored_tombstones(&self, now: f64) -> Vec<Row> {
+        let mut kept = self.kept(now);
+        kept.stored_tombstones
+            .get_or_insert_with(|| {
+                let rows = self
+                    .maps
+                    .iter()
+                    .filter_map(|(id, map)| normalize_tombstone(map.get("tombstone")?.as_object()?, id, now))
+                    .collect();
+                order_tombstones(rows)
+            })
+            .clone()
+    }
+
+    /// `readAllTagTombstones`: legacy tombstones with the owner resolved so far.
+    fn tombstones(&self, now: f64) -> Vec<Row> {
+        let stored = self.stored_tombstones(now);
+        let mut kept = self.kept(now);
+        kept.tombstones
+            .get_or_insert_with(|| {
+                stored
+                    .into_iter()
+                    .map(|row| match self.owners.get(&identity(&row)) {
+                        Some(Some(fields)) if is_legacy(&row) => {
+                            let mut out = row;
+                            out.extend(fields.clone());
+                            out
+                        }
+                        _ => row,
+                    })
+                    .collect()
+            })
+            .clone()
+    }
+
+    /// `tagTombstoneIndex`: the newest tombstone of each key.
+    fn tombstone_index(&self, now: f64) -> HashMap<String, Row> {
+        let have = self.kept(now).index.clone();
+        if let Some(index) = have {
+            return index;
+        }
+        let mut by_key = HashMap::new();
+        for row in self.tombstones(now) {
+            by_key.entry(tombstone_key(&row)).or_insert(row);
+        }
+        self.kept(now).index = Some(by_key.clone());
+        by_key
+    }
+
+    /// `readWorkerRows(context)`: a row a tombstone still blocks never reads as work.
+    fn rows(&self, scope: &Scope, now: f64) -> Vec<Row> {
+        let unblocked = {
+            let have = self.kept(now).unblocked_rows.clone();
+            match have {
+                Some(rows) => rows,
+                None => {
+                    let by_key = self.tombstone_index(now);
+                    let rows: Vec<Row> = self
+                        .all_rows(now)
+                        .into_iter()
+                        .filter(|row| {
+                            let tag = clean(either(row, "tag", "agentTag"));
+                            !blocks_work(row, find_tombstone(row, &by_key, &tag))
+                        })
+                        .collect();
+                    self.kept(now).unblocked_rows = Some(rows.clone());
+                    rows
+                }
+            }
+        };
+        unblocked.into_iter().filter(|row| matches_scope(row, scope)).collect()
+    }
 }
 
 fn released_at(map: &Row, now: f64) -> bool {
@@ -416,7 +434,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -500,192 +518,31 @@ impl AgentRegistry {
         |provider| self.reap.terminal_reap_ms(provider)
     }
 
-    /// Reloads the index; this process's writes it does not show yet stay applied. A caller that arrives while a load is
-    /// under way waits for the next one and shares it with the others that wait, when that load read the store after the
-    /// caller arrived and completed, so the threads one status signal wakes load the index once or twice, not once each.
+    /// Reloads the index; this process's writes it does not show yet stay applied.
     async fn reload(&self) {
-        let arrived = self.loads().started;
-        let number = loop {
-            let ended = {
-                let mut loads = self.loads();
-                if loads.completed > arrived {
-                    return;
-                }
-                if !loads.running {
-                    loads.running = true;
-                    loads.started += 1;
-                    break loads.started;
-                }
-                let (told, ended) = oneshot::channel();
-                loads.waiting.push(told);
-                ended
-            };
-            // Told or dropped when the running load ends, however it ends.
-            let _ = ended.await;
-        };
-        let mut turn = LoadTurn { loads: &self.loads, number, completed: false };
-        turn.completed = self.load().await;
-    }
-
-    fn loads(&self) -> MutexGuard<'_, Loads> {
-        self.loads.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// Whether the index was read and applied.
-    async fn load(&self) -> bool {
-        let since = self.lock().revision;
-        let Ok(index) = self.store.index_since(since).await else {
-            return false;
-        };
-        #[cfg(test)]
-        work::note(|c| c.reloads += 1);
-        let mut guard = self.lock();
-        let st = &mut *guard;
-        match index {
-            Index::Unchanged => {}
-            Index::Delta { revision, maps, sessions } => {
-                self.apply_delta(st, maps);
-                Self::apply_sessions(st, sessions);
-                st.revision = Some(revision);
-            }
-            Index::Full { revision, maps, sessions } => {
-                self.load_maps(st, maps);
-                Self::load_sessions(st, sessions);
-                st.revision = revision;
-            }
-        }
-        true
-    }
-
-    /// Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every listing
-    /// shows them with no header; the core's index drops them with the session, so a map it stops listing that this
-    /// registry did not remove is kept by the store, durably, and lives on as Node's does.
-    fn keep_gone(&self, st: &mut State, id: &str, map: Row) {
-        self.store.keep(id, Some(map.clone()));
-        st.put(id, Some(map));
-    }
-
-    /// The maps the store wrote since the held revision, each compared with the one held; a map this process wrote that the
-    /// store does not show yet stays as written.
-    fn apply_delta(&self, st: &mut State, maps: Vec<(String, Option<(Place, Row)>)>) {
-        for (id, entry) in maps {
-            #[cfg(test)]
-            work::note(|c| c.maps_compared += 1);
-            if let Some(held) = st.pending.get(&id) {
-                if held.as_ref() != entry.as_ref().map(|(_, map)| map) {
-                    continue;
-                }
-                st.pending.remove(&id);
-            }
-            match entry {
-                Some((place, map)) => {
-                    if st.maps.entry(&id) != Some((&place, &map)) {
-                        st.maps.place(&id, place, map);
-                        st.views.get_mut().touched(&id);
-                    }
-                }
-                None => {
-                    if let Some(map) = st.maps.get(&id).cloned() {
-                        self.keep_gone(st, &id, map);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Every map the store lists, with this process's writes it does not show yet applied on top.
-    fn load_maps(&self, st: &mut State, maps: Vec<(String, Place, Row)>) {
-        let mut next = Maps::from_entries(maps, st.maps.front());
-        // A map the store does not list stays where it is held, when that place is free.
-        let held_place = |next: &mut Maps, id: &str, map: Option<Row>| match (st.maps.key(id).filter(|place| !next.holds(place)), map) {
-            (Some(place), Some(map)) if next.get(id).is_none() => next.place(id, place.clone(), map),
-            (_, map) => next.set(id, map),
-        };
-        let pending: Vec<(String, Option<Row>)> = st.pending.drain().collect();
-        let mut still = Vec::new();
-        for (session, map) in pending {
-            if next.get(&session) == map.as_ref() {
-                continue;
-            }
-            held_place(&mut next, &session, map.clone());
-            still.push((session, map));
-        }
-        let gone: Vec<(String, Row)> = st.maps.iter().filter(|(id, _)| next.get(id).is_none()).map(|(id, map)| (id.clone(), map.clone())).collect();
-        for (id, map) in gone {
-            self.store.keep(&id, Some(map.clone()));
-            held_place(&mut next, &id, Some(map.clone()));
-            still.push((id, Some(map)));
-        }
-        st.pending.extend(still);
-        if st.maps.same_as(&next) {
+        let (Ok(maps), Ok(sessions)) = (self.store.worker_maps().await, self.store.agent_sessions().await) else {
             return;
-        }
-        if st.maps.same_order(&next) {
-            // The same sessions at the same places: only the maps that differ are read again.
-            let differ: Vec<(String, Place, Row)> = next
-                .iter()
-                .filter(|(id, map)| st.maps.get(id) != Some(*map))
-                .map(|(id, map)| (id.clone(), next.key(id).cloned().expect("listed"), map.clone()))
-                .collect();
-            for (id, place, map) in differ {
-                st.maps.place(&id, place, map);
-                st.views.get_mut().touched(&id);
+        };
+        let mut st = self.lock();
+        if st.maps != maps {
+            // Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every
+            // listing shows them with no header; the core's index drops them at the purge, so a row it stops listing is kept
+            // by the store, durably, and lives on as Node's does (a row this registry removed is no longer in `st.maps`).
+            let gone: Vec<(String, Row)> = st.maps.iter().filter(|(id, _)| !maps.iter().any(|(m, _)| m == id)).cloned().collect();
+            st.maps = maps;
+            for (id, map) in gone {
+                self.store.keep(&id, Some(map.clone()));
+                st.put(&id, Some(map));
             }
-        } else {
-            st.maps = next;
             st.changed();
         }
-    }
-
-    /// Every agent-only session the store lists, compared with those held.
-    fn load_sessions(st: &mut State, sessions: Vec<(Place, Row)>) {
-        let mut next: BTreeMap<Place, Row> = BTreeMap::new();
-        for (place, session) in sessions {
-            next.entry(place).or_insert(session);
-        }
-        let same_sessions = st.sessions.len() == next.len()
-            && st.sessions.iter().zip(&next).all(|(a, b)| {
-                #[cfg(test)]
-                work::note(|c| c.sessions_compared += 1);
-                a == b
-            });
-        if !same_sessions {
-            let before = std::mem::take(&mut st.session_at);
-            let old = std::mem::replace(&mut st.sessions, next);
-            st.session_at = sessions_by_id(&st.sessions);
-            // A tag's session read from the stored rows is read again when its row changed.
-            let mut changed: HashSet<&String> = st.session_at.iter().filter(|(id, at)| before.get(*id).map(|was| &old[was]) != Some(&st.sessions[*at])).map(|(id, _)| id).collect();
-            changed.extend(before.keys().filter(|id| !st.session_at.contains_key(*id)));
-            let views = st.views.get_mut();
-            for id in changed {
-                for tag in st.tags.of_session(id) {
-                    views.facts.touch(&tag);
-                }
-            }
-        }
-    }
-
-    /// The agent-only sessions the store wrote since the held revision.
-    fn apply_sessions(st: &mut State, sessions: Vec<(String, Option<(Place, Row)>)>) {
-        for (id, entry) in sessions {
-            #[cfg(test)]
-            work::note(|c| c.sessions_compared += 1);
-            let held = st.session_at.get(&id).map(|at| (at, &st.sessions[at]));
-            if held == entry.as_ref().map(|(place, row)| (place, row)) {
+        st.sessions = sessions;
+        let pending: Vec<(String, Option<Row>)> = st.pending.drain().collect();
+        for (session, map) in pending {
+            if st.map(&session) == map.as_ref() {
                 continue;
             }
-            if let Some(at) = st.session_at.remove(&id) {
-                st.sessions.remove(&at);
-            }
-            if let Some((place, row)) = entry {
-                st.session_at.insert(id.clone(), place.clone());
-                st.sessions.insert(place, row);
-            }
-            // A tag's session read from the stored rows is read again.
-            let views = st.views.get_mut();
-            for tag in st.tags.of_session(&id) {
-                views.facts.touch(&tag);
-            }
+            st.put(&session, map);
         }
     }
 
@@ -711,7 +568,7 @@ impl AgentRegistry {
                 out.push(header);
             }
         }
-        for session in st.sessions.values() {
+        for session in &st.sessions {
             if !seen.contains(&clean(session.get("id"))) {
                 out.push(session.clone());
             }
@@ -733,14 +590,7 @@ impl AgentRegistry {
         if id.is_empty() {
             return None;
         }
-        #[cfg(test)]
-        work::note(|c| c.sessions_visited += 1);
-        self.loaded_session(id).or_else(|| {
-            let at = st.session_at.get(id)?;
-            #[cfg(test)]
-            work::note(|c| c.sessions_visited += 1);
-            Some(st.sessions[at].clone())
-        })
+        self.loaded_session(id).or_else(|| st.sessions.iter().find(|s| clean(s.get("id")) == id).cloned())
     }
 
     /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
@@ -871,13 +721,13 @@ impl AgentRegistry {
     /// `resolveTombstoneOwners`.
     fn resolve_owners(&self, st: &mut State) {
         let now = self.now();
-        if st.views(now).owners_resolved {
+        if st.kept(now).owners_resolved {
             return;
         }
-        let legacy: Vec<Row> = st.stored_tombstones(now).iter().filter(|row| is_legacy(row)).cloned().collect();
+        let legacy: Vec<Row> = st.stored_tombstones(now).into_iter().filter(is_legacy).collect();
         let unresolved: Vec<&Row> = legacy.iter().filter(|row| !st.owners.contains_key(&identity(row))).collect();
         if unresolved.is_empty() {
-            st.views(now).owners_resolved = true;
+            st.kept(now).owners_resolved = true;
             return;
         }
         let sessions = self.list_sessions(st, true);
@@ -894,7 +744,7 @@ impl AgentRegistry {
         st.owners.retain(|id, _| current.contains(id));
         st.owners.extend(found);
         st.changed();
-        st.views(now).owners_resolved = true;
+        st.kept(now).owners_resolved = true;
     }
 
     /// `scanSessionIsTerminal`.
@@ -922,7 +772,7 @@ impl AgentRegistry {
             return false;
         }
         let now = self.now();
-        !st.indexed_row(&id, now).is_some_and(|row| clean(row.get("sessionId")) == id && clean(row.get("tag")) == tag)
+        !st.rows(&Scope::default(), now).iter().any(|row| clean(row.get("sessionId")) == id && clean(row.get("tag")) == tag)
     }
 
     /// `terminal-reaper.mjs` `tombstoneBlocksScan`: aged out, or a tombstone blocks it.
@@ -952,7 +802,7 @@ impl AgentRegistry {
         }
         let stamp = iso(at);
         let id = clean(session.get("id"));
-        let existing = st.indexed_row(&id, self.now()).filter(|row| clean(row.get("sessionId")) == id);
+        let existing = st.rows(&Scope::default(), self.now()).into_iter().find(|row| clean(row.get("sessionId")) == id);
         let mut finished = stamp_ms(session.get("finishedAt"));
         if finished == 0.0 {
             finished = stamp_ms(existing.as_ref().and_then(|r| r.get("finishedAt")));
@@ -966,22 +816,12 @@ impl AgentRegistry {
 
     /// `transitionStaleNonterminalRows`.
     fn transition_stale(&self, st: &mut State, scope: &Scope) {
-        let stale = self.stale_rows(st, scope);
-        let gone = self.gone_rows(st, &stale);
-        self.tombstone_rows(st, &[stale, gone].concat());
-    }
-
-    /// The scope's rows `transitionStaleNonterminalRows` turns into tombstones now.
-    fn stale_rows(&self, st: &State, scope: &Scope) -> Vec<Row> {
         let now = self.now();
         let reap = self.reap_ms();
-        // Only a row not settled, or settled a day ago, can be stale (`pastSettledRetention`).
-        st
-            .stale_candidates(scope, now)
+        let stale: Vec<Row> = st
+            .rows(scope, now)
             .into_iter()
             .filter(|row| {
-                #[cfg(test)]
-                work::note(|c| c.rows_visited += 1);
                 if is_lead_pool_agent(row.get("agent")) {
                     return false;
                 }
@@ -996,26 +836,15 @@ impl AgentRegistry {
                 }
                 now >= nonterminal_reap_deadline(&reap, row)
             })
-            .map(|row| (*row).clone())
-            .collect()
-    }
-
-    /// The kept maps (deleted sessions'), in index order, with their maps.
-    fn kept_maps(&self, st: &State) -> Vec<(String, Row)> {
-        let mut kept: Vec<(&Place, String)> = self.store.kept_sessions().into_iter().filter_map(|id| Some((st.maps.key(&id)?, id))).collect();
-        kept.sort();
-        kept.into_iter().filter_map(|(_, id)| Some((id.clone(), st.map(&id)?.clone()))).collect()
-    }
-
-    /// `sweepGoneRows` (`gone-rows.mjs:107-115`, `:162-200`, a maintenance step of `agent-tool.mjs:207`): a kept row of a
-    /// deleted session, whoever owns it, leaves once settled: terminal, no restart failure still owed, past the settled
-    /// retention, no live work.
-    fn gone_rows(&self, st: &State, stale: &[Row]) -> Vec<Row> {
-        let now = self.now();
-        let reap = self.reap_ms();
-        self.kept_maps(st)
-            .into_iter()
-            .filter_map(|(id, map)| st.row(&id, &map, now))
+            .collect();
+        // `sweepGoneRows` (`gone-rows.mjs:107-115`, `:162-200`, a maintenance step of `agent-tool.mjs:207`): a kept row of a
+        // deleted session, whoever owns it, leaves once settled: terminal, no restart failure still owed, past the settled
+        // retention, no live work.
+        let gone: Vec<Row> = st
+            .maps
+            .iter()
+            .filter(|(id, _)| self.store.kept(id))
+            .filter_map(|(id, map)| st.row(id, map, now))
             .filter(|row| {
                 !is_lead_pool_agent(row.get("agent"))
                     && is_terminal_row(row)
@@ -1024,7 +853,8 @@ impl AgentRegistry {
                     && !self.live.has_live_work(&clean(row.get("sessionId")))
                     && !stale.iter().any(|kept| kept.get("sessionId") == row.get("sessionId"))
             })
-            .collect()
+            .collect();
+        self.tombstone_rows(st, &[stale, gone].concat());
     }
 
     /// A kept map (a deleted session's) that holds no row and no live release any more, only a tombstone past the TTL or beyond
@@ -1032,17 +862,14 @@ impl AgentRegistry {
     /// (`worker-rows.mjs:7`, `:96-102`).
     fn drop_expired_kept(&self, st: &mut State) {
         let now = self.now();
-        let candidates: Vec<String> = self
-            .kept_maps(st)
-            .into_iter()
-            .filter(|(_, map)| clean(map.get("sessionId")).is_empty() && !released_at(map, now))
-            .map(|(id, _)| id)
-            .collect();
-        if candidates.is_empty() {
-            return;
-        }
         let live: HashSet<String> = st.stored_tombstones(now).iter().map(|t| clean(t.get("sessionId"))).collect();
-        for id in candidates.into_iter().filter(|id| !live.contains(id)) {
+        let gone: Vec<String> = st
+            .maps
+            .iter()
+            .filter(|(id, map)| self.store.kept(id) && clean(map.get("sessionId")).is_empty() && !released_at(map, now) && !live.contains(id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in gone {
             self.persist(st, &id, None);
         }
     }
@@ -1054,29 +881,24 @@ impl AgentRegistry {
         self.transition_stale(st, scope);
         self.drop_expired_kept(st);
         let now = self.now();
-        for row in st.rows_to_bind(scope, now) {
-            #[cfg(test)]
-            work::note(|c| c.rows_visited += 1);
+        let indexed = st.rows(scope, now);
+        for row in &indexed {
             st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
-        st.bound(scope, now);
-        // The unbinding pass: a tag the scope's rows do not hold goes when its session is gone or
-        // the scan guard blocks it. Only a tag whose kept facts say so, or whose session is
-        // loaded, can.
-        let pass = self.tag_pass(st, now);
-        for tag in self.unbind_candidates(st, &pass, scope, now) {
-            let Some(id) = st.tag(&tag).cloned() else { continue };
-            if st.holds_key(scope, &tag, &id, now) {
+        let keys: HashSet<String> = indexed.iter().map(|r| format!("{}\0{}", clean(r.get("tag")), clean(r.get("sessionId")))).collect();
+        let by_key = st.tombstone_index(now);
+        for (tag, id) in st.tags.clone() {
+            if keys.contains(&format!("{tag}\0{id}")) {
                 continue;
             }
-            if self.facts_of(st, &pass, &tag, &id, now).unbinds() {
+            let session = self.live_session_row(st, &id);
+            if session.as_ref().is_none_or(|s| self.blocks_scan(st, s, &tag, &by_key)) {
                 st.unbind(&tag);
             }
         }
         if !scan_sessions {
             return;
         }
-        let by_key = st.tombstone_index(now);
         for session in self.list_sessions(st, false) {
             if is_lead_pool_agent(session.get("agent")) {
                 continue;
@@ -1103,51 +925,18 @@ impl AgentRegistry {
 
     /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
     /// index as last refreshed.
-    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Arc<Row>)> {
+    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Row)> {
         let mut st = self.lock();
         self.entries(&mut st, scan_sessions, scope, false)
     }
 
-    /// What the agent status lists for `scope` (`agentSessionEntries` as `statusFor` reads it, after
-    /// `refresh_tags_from_sessions`): the entries of [`Self::session_entries`] in their order, less
-    /// the rows whose own state is not active (`isActiveWorkerRow`, which the status applies to
-    /// every entry). A caller scope reads only the rows a write changed and the tags that can list
-    /// a session for it.
-    pub fn status_entries(&self, scope: &Scope) -> Vec<(String, Arc<Row>)> {
-        let Some(caller) = scope.caller_session_id.clone() else {
-            return self.session_entries(false, scope);
-        };
-        let st = self.lock();
-        let now = self.now();
-        let mut out: Vec<(String, Arc<Row>)> = st.active_listed(scope, now).into_iter().map(|listed| (listed.tag, listed.session)).collect();
-        let pass = self.tag_pass(&st, now);
-        let mut added: HashSet<String> = HashSet::new();
-        for tag in self.listing_candidates(&st, &pass, &caller, now) {
-            let Some(id) = st.tag(&tag).cloned() else { continue };
-            if added.contains(&id) || st.lists_row(scope, &id, now) {
-                continue;
-            }
-            let Some(session) = self.listing_session(&st, &pass, &tag, &id, scope, now) else { continue };
-            let listed_tag = Some(agent_tag_of(&session)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_str(&tag));
-            let sid = clean(session.get("id"));
-            if listed_tag.is_empty() || sid.is_empty() || session.get("closed") == Some(&Value::Bool(true)) {
-                continue;
-            }
-            if is_lead_pool_agent(session.get("agent")) || !matches_scope(&session, scope) || st.lists_row(scope, &sid, now) || !added.insert(sid) {
-                continue;
-            }
-            out.push((listed_tag, session));
-        }
-        out
-    }
-
     /// `agentSessionEntries`: the tag-bound sessions visible in `scope`, as `(tag, session)`.
-    fn entries(&self, st: &mut State, scan_sessions: bool, scope: &Scope, exclude_terminal_traces: bool) -> Vec<(String, Arc<Row>)> {
+    fn entries(&self, st: &mut State, scan_sessions: bool, scope: &Scope, exclude_terminal_traces: bool) -> Vec<(String, Row)> {
         let now = self.now();
         let by_key = st.tombstone_index(now);
-        let mut out: Vec<(String, Arc<Row>)> = Vec::new();
+        let mut out: Vec<(String, Row)> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
-        let add = |out: &mut Vec<(String, Arc<Row>)>, seen: &mut HashSet<String>, session: &Arc<Row>, fallback: &str| {
+        let add = |out: &mut Vec<(String, Row)>, seen: &mut HashSet<String>, session: &Row, fallback: &str| {
             let tag = Some(agent_tag_of(session)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_str(fallback));
             let id = clean(session.get("id"));
             if tag.is_empty() || id.is_empty() || session.get("closed") == Some(&Value::Bool(true)) {
@@ -1158,18 +947,17 @@ impl AgentRegistry {
             }
             out.push((tag, session.clone()));
         };
-        let rows = st.rows(scope, now);
-        for listed in rows.listed() {
-            let row = &listed.row;
+        for row in st.rows(scope, now) {
+            let tag = clean(row.get("tag"));
             let id = clean(row.get("sessionId"));
-            if listed.tag.is_empty() || id.is_empty() || is_lead_pool_agent(row.get("agent")) || seen.contains(&id) {
+            if tag.is_empty() || id.is_empty() || is_lead_pool_agent(row.get("agent")) || seen.contains(&id) {
                 continue;
             }
-            if exclude_terminal_traces && is_terminal_row(row) && self.live_session_row(st, &id).is_none() {
+            if exclude_terminal_traces && is_terminal_row(&row) && self.live_session_row(st, &id).is_none() {
                 continue;
             }
             seen.insert(id);
-            out.push((listed.tag.clone(), listed.session.clone()));
+            out.push((tag, row_to_session(&row)));
         }
         if scan_sessions {
             for session in self.list_sessions(st, false) {
@@ -1177,41 +965,21 @@ impl AgentRegistry {
                 if !tag.is_empty() && self.blocks_scan(st, &session, &tag, &by_key) {
                     continue;
                 }
-                add(&mut out, &mut seen, &Arc::new(session.clone()), &tag);
+                add(&mut out, &mut seen, &session, &tag);
                 if !tag.is_empty() {
                     self.scan_upsert(st, &session, &tag, &by_key);
                 }
             }
         }
-        match scope.caller_session_id.as_deref().filter(|_| !scan_sessions) {
-            // Only a tag whose kept facts list a session for the caller, or whose session is
-            // loaded, can add one.
-            Some(caller) => {
-                let pass = self.tag_pass(st, now);
-                for tag in self.listing_candidates(st, &pass, caller, now) {
-                    let Some(id) = st.tag(&tag).cloned() else { continue };
-                    if seen.contains(&id) {
-                        continue;
-                    }
-                    let Some(session) = self.listing_session(st, &pass, &tag, &id, scope, now) else { continue };
-                    add(&mut out, &mut seen, &session, &tag);
-                }
+        for (tag, id) in st.tags.clone() {
+            if seen.contains(&id) {
+                continue;
             }
-            None => {
-                let tags: Vec<(String, String)> = st.tags.iter().map(|(tag, id)| (tag.clone(), id.clone())).collect();
-                for (tag, id) in tags {
-                    #[cfg(test)]
-                    work::note(|c| c.tags_visited += 1);
-                    if seen.contains(&id) {
-                        continue;
-                    }
-                    let Some(session) = self.live_session_row(st, &id) else { continue };
-                    if self.blocks_scan(st, &session, &tag, &by_key) {
-                        continue;
-                    }
-                    add(&mut out, &mut seen, &Arc::new(session), &tag);
-                }
+            let Some(session) = self.live_session_row(st, &id) else { continue };
+            if self.blocks_scan(st, &session, &tag, &by_key) {
+                continue;
             }
+            add(&mut out, &mut seen, &session, &tag);
         }
         out
     }
@@ -1284,10 +1052,9 @@ impl AgentRegistry {
         if value.is_empty() {
             return None;
         }
-        st.rows(scope, self.now())
-            .iter()
-            .find(|row| clean(row.get("tag")) == value && is_terminal_row(row) && self.live_session_row(st, &clean(row.get("sessionId"))).is_none())
-            .cloned()
+        st.rows(scope, self.now()).into_iter().find(|row| {
+            clean(row.get("tag")) == value && is_terminal_row(row) && self.live_session_row(st, &clean(row.get("sessionId"))).is_none()
+        })
     }
 }
 
@@ -1331,7 +1098,7 @@ impl Registry for AgentRegistry {
         if !persisted.is_empty() {
             return Some(persisted);
         }
-        st.tags.first_of(session_id).cloned()
+        st.tags.iter().find(|(_, id)| id == session_id).map(|(tag, _)| tag.clone())
     }
 
     fn unbind_tag(&self, tag: &str) {
@@ -1431,7 +1198,7 @@ impl Registry for AgentRegistry {
         let now = self.now();
         let reaped_at = st
             .tombstones(now)
-            .iter()
+            .into_iter()
             .find(|t| tombstone_key(t) == key && clean(t.get("sessionId")) == tombstone.session_id)
             .and_then(|t| t.get("reapedAt").cloned());
         let mut legacy = Row::new();
@@ -1581,44 +1348,7 @@ pub struct KeptRows {
     /// The kept maps, read from the table once and kept current by every [`Self::put`]: a listing reads memory. The lock
     /// is held for memory alone, never across the table's read or write: the puts come one at a time (`StoreWorkers`'
     /// one writer task), so memory follows the table in the table's order.
-    rows: Mutex<Option<KeptMemory>>,
-}
-
-/// The kept maps in memory, each with the revision of its last put (its keep order), and the revision of each session's
-/// last change, so a load asks only for what changed since the revision it holds.
-#[derive(Default)]
-struct KeptMemory {
-    maps: HashMap<String, (u64, Row)>,
-    revision: u64,
-    changed: BTreeMap<u64, String>,
-    changed_at: HashMap<String, u64>,
-}
-
-impl KeptMemory {
-    fn set(&mut self, session: &str, worker: Option<Row>) {
-        self.revision += 1;
-        if let Some(at) = self.changed_at.insert(session.to_owned(), self.revision) {
-            self.changed.remove(&at);
-        }
-        self.changed.insert(self.revision, session.to_owned());
-        match worker {
-            Some(map) => self.maps.insert(session.to_owned(), (self.revision, map)),
-            None => self.maps.remove(session),
-        };
-    }
-
-    fn all(&self) -> Vec<(String, u64, Row)> {
-        let mut all: Vec<(String, u64, Row)> = self.maps.iter().map(|(id, (at, map))| (id.clone(), *at, map.clone())).collect();
-        all.sort_by_key(|(_, at, _)| *at);
-        all
-    }
-}
-
-/// What a load of the kept maps hands over: every one, or each session changed since the revision asked about with its map
-/// and keep order now (`None`: kept no more).
-pub enum KeptSince {
-    All(Vec<(String, u64, Row)>),
-    Changed(Vec<(String, Option<(u64, Row)>)>),
+    rows: Mutex<Option<Vec<(String, Row)>>>,
 }
 
 const KEPT_PREFIX: &str = "agent-kept-worker:";
@@ -1632,7 +1362,7 @@ impl KeptRows {
         self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn rows(&self) -> MutexGuard<'_, Option<KeptMemory>> {
+    fn rows(&self) -> MutexGuard<'_, Option<Vec<(String, Row)>>> {
         self.rows.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -1654,44 +1384,15 @@ impl KeptRows {
         let mut rows = self.rows();
         if rows.is_none() {
             self.ids().extend(out.iter().map(|(session, _)| session.clone()));
-            let mut memory = KeptMemory::default();
-            for (session, map) in out {
-                memory.set(&session, Some(map));
-            }
-            *rows = Some(memory);
+            *rows = Some(out);
         }
         Ok(())
     }
 
-    /// Every kept map, by session, in keep order.
+    /// Every kept map, by session.
     pub async fn load(&self) -> Result<Vec<(String, Row)>, String> {
         self.loaded().await?;
-        Ok(self.rows().as_ref().map(KeptMemory::all).unwrap_or_default().into_iter().map(|(id, _, map)| (id, map)).collect())
-    }
-
-    /// The kept maps from the revision the caller holds (`None`: none yet): the revision now and what changed since, or
-    /// every one when it holds none, or one memory never reached.
-    pub async fn since(&self, since: Option<u64>) -> Result<(u64, KeptSince), String> {
-        self.loaded().await?;
-        let rows = self.rows();
-        let memory = rows.as_ref().expect("loaded above");
-        let answer = match since {
-            Some(since) if since <= memory.revision => KeptSince::Changed(
-                memory.changed.range(since + 1..).map(|(_, id)| (id.clone(), memory.maps.get(id).cloned())).collect(),
-            ),
-            _ => KeptSince::All(memory.all()),
-        };
-        Ok((memory.revision, answer))
-    }
-
-    /// Every kept map with its keep order, in that order (once loaded).
-    fn all(&self) -> Vec<(String, u64, Row)> {
-        self.rows().as_ref().map(KeptMemory::all).unwrap_or_default()
-    }
-
-    /// The session's kept map now, with its keep order.
-    fn get(&self, session: &str) -> Option<(u64, Row)> {
-        self.rows().as_ref()?.maps.get(session).cloned()
+        Ok(self.rows().clone().unwrap_or_default())
     }
 
     pub fn holds(&self, session: &str) -> bool {
@@ -1713,12 +1414,17 @@ impl KeptRows {
         };
         written.map_err(|e| format!("kept worker row {session}: {e}"))?;
         let mut rows = self.rows();
-        if worker.is_some() {
-            self.ids().insert(session.to_owned());
-        } else {
-            self.ids().remove(session);
+        let kept = rows.get_or_insert_with(Vec::new);
+        kept.retain(|(id, _)| id != session);
+        match worker {
+            Some(map) => {
+                self.ids().insert(session.to_owned());
+                kept.push((session.to_owned(), map));
+            }
+            None => {
+                self.ids().remove(session);
+            }
         }
-        rows.get_or_insert_with(KeptMemory::default).set(session, worker);
         Ok(())
     }
 }
@@ -1826,57 +1532,6 @@ impl StoreWorkers {
 
 #[async_trait]
 impl WorkerStore for StoreWorkers {
-    /// The index's revision (FORMAT.md §8.2 worker index revision) tells what any connection committed since the one held,
-    /// read in one transaction with the rows; the kept maps' revision tells what this process kept since. A session's map is
-    /// the index's while the index lists it, else its kept one.
-    async fn index_since(&self, since: Option<Revision>) -> Result<Index, String> {
-        let (kept_revision, kept) = self.kept.since(since.map(|r| r.kept)).await?;
-        let also: Vec<String> = match &kept {
-            KeptSince::Changed(changed) => changed.iter().map(|(id, _)| id.clone()).collect(),
-            KeptSince::All(_) => Vec::new(),
-        };
-        let read = self.index.worker_index_since(since.map(|r| (r.generation, r.index)), also).await.map_err(|e| format!("{e:?}"))?;
-        let revision = Revision { index: read.revision, generation: read.generation, kept: kept_revision };
-        let session_of = |s: &mixdog_store::worker::IndexedSession| {
-            let (activity, summary) = s.agent.as_ref()?;
-            Some((Place::stamped(Some(*activity), &s.session), serde_json::from_str::<Row>(summary).ok()?))
-        };
-        let kept = match kept {
-            KeptSince::Changed(changed) if !read.full => changed,
-            _ => {
-                let kept = self.kept.all();
-                let listed: HashSet<&str> = read.sessions.iter().filter(|s| s.worker.is_some()).map(|s| s.session.as_str()).collect();
-                let mut maps: Vec<(String, Place, Row)> = Vec::new();
-                for s in &read.sessions {
-                    if let Some(map) = &s.worker {
-                        maps.push((s.session.clone(), Place::stamped(s.created_at, &s.session), map.clone()));
-                    }
-                }
-                maps.extend(kept.into_iter().filter(|(id, _, _)| !listed.contains(id.as_str())).map(|(id, at, map)| (id, Place::Kept(at), map)));
-                let sessions = read.sessions.iter().filter_map(session_of).collect();
-                return Ok(Index::Full { revision: Some(revision), maps, sessions });
-            }
-        };
-        if since == Some(revision) && read.sessions.is_empty() && kept.is_empty() {
-            return Ok(Index::Unchanged);
-        }
-        let mut maps: Vec<(String, Option<(Place, Row)>)> = Vec::new();
-        let mut sessions: Vec<(String, Option<(Place, Row)>)> = Vec::new();
-        for s in &read.sessions {
-            let map = match &s.worker {
-                Some(map) => Some((Place::stamped(s.created_at, &s.session), map.clone())),
-                None => self.kept.get(&s.session).map(|(at, map)| (Place::Kept(at), map)),
-            };
-            maps.push((s.session.clone(), map));
-            sessions.push((s.session.clone(), session_of(s)));
-        }
-        Ok(Index::Delta { revision, maps, sessions })
-    }
-
-    fn kept_sessions(&self) -> Vec<String> {
-        self.kept.ids().iter().cloned().collect()
-    }
-
     /// The index's maps, then the kept maps of sessions the index no longer lists.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
         let rows = self.index.worker_rows(None, WorkerScope::All).await.map_err(|e| format!("{e:?}"))?;
@@ -1975,13 +1630,5 @@ impl LiveSessions for super::SessionDirectory {
 
     fn runtime_stage(&self, session: &str) -> Option<String> {
         self.handle(&ThreadId::from(session))?.cell.progress.borrow().stage()
-    }
-
-    /// The registry reads a loaded session through `header`, `running` and `runtime_stage` alone; the header is published
-    /// as a new `Arc` whenever it changes.
-    fn stamp(&self, session: &str) -> Option<LiveStamp> {
-        let handle = self.handle(&ThreadId::from(session))?;
-        let header: Arc<dyn std::any::Any + Send + Sync> = handle.cell.header.load_full();
-        Some(LiveStamp { header, running: self.running(session), stage: self.runtime_stage(session) })
     }
 }
