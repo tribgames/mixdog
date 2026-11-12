@@ -10,7 +10,7 @@
     {
       "bytes": 35679,
       "path": "harness-request.json",
-      "sha256": "68bfaee279d6384473dae441252e0b2634412629fe65aa53225a3e7369131659"
+      "sha256": "1562eeec081b9b79410b0a68490eb94d87b2c793167367b0060f67d7395838b1"
     }
   ],
   "harnessRequest": {
@@ -25,7 +25,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
     }
   },
   "inputs": [
@@ -55,7 +55,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
     },
     "patches": [
       {
@@ -67,7 +67,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
       }
     ],
     "refComparison": {
@@ -76,7 +76,7 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
+    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

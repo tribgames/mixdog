@@ -61,14 +61,15 @@ index e6e5d2a6f..5d385783f 100644
      throw new Error(`agent spawn: model "${model}"${scope} is ambiguous: ${candidates(hits)}; pass the exact one`);
 diff --git a/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs b/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs
 new file mode 100644
-index 000000000..dbbd30fd0
+index 000000000..eed357041
 --- /dev/null
 +++ b/src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,168 @@
 +import assert from 'node:assert/strict';
 +import test from 'node:test';
 +
 +import { resolveRequestedModel } from './model-select.mjs';
++import { createSendFlow } from './send-flow.mjs';
 +import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
 +
 +const opts = (...values) => values.map((value) => ({ value, label: value, description: '' }));
@@ -192,6 +193,32 @@ index 000000000..dbbd30fd0
 +  assert.deepEqual(await preset({}).then((own) => own.fallbackSource), { agent: 'worker' });
 +});
 +
++test('a worker spawned on a named model keeps it across sends, the agents own model included', async () => {
++  const opus = [{ ...ROWS[0], provider: 'anthropic', id: 'opus', effortOptions: opts('low', 'high') }];
++  for (const [rows, model] of [[opus, 'opus'], [ROWS, 'gpt-fast']]) {
++    const resolved = await resolveRequestedModel({ type: 'spawn', agent: 'worker', model }, async () => rows);
++    const spawned = resolveAgentSpawnPreset(CONFIG, resolved);
++    const session = { id: 'sess_k', agent: 'worker', presetName: spawned.presetName, provider: spawned.preset.provider, model: spawned.preset.model };
++    const routes = [];
++    const moved = { agents: { worker: { provider: 'openai', model: 'gpt-new' } } };
++    const sendFlow = createSendFlow({
++      mgr: { getSession: () => session },
++      cfgMod: { loadConfig: () => moved },
++      defaultCwd: process.cwd(),
++      sessionSurface: { setRoute: async ({ route }) => routes.push(route), enqueueTurn: async () => ({ queueDepth: 1 }) },
++      canUseSessionSurface: () => true,
++      registry: { tagForSession: () => 'w-1' },
++      views: { isSessionBusy: () => true },
++      spawnFlow: { workerTurns: { observe() {} } },
++    });
++    await sendFlow.dispatchToExistingSession({ args: {}, session, sessionId: session.id, prompt: 'more' }, null);
++    assert.deepEqual(routes, [], model);
++  }
++  // Without a named model the worker follows the configuration.
++  const followed = resolveAgentSpawnPreset(CONFIG, { agent: 'worker' });
++  assert.equal(followed.presetName, 'AGENT WORKER');
++});
++
 +test('an effort the model does not offer never reaches the route, a stored one included', async () => {
 +  const stale = { agents: { stale: { provider: 'openai', model: 'gpt-fast', effort: 'xhigh' }, bare: { provider: 'xai', model: 'grok-plain', effort: 'high' } } };
 +  const run = async (agent, args) =>
@@ -207,7 +234,7 @@ index 000000000..dbbd30fd0
 +  await assert.rejects(preset({ model: 'twin' }), /ambiguous: openai\/twin-a, openai\/twin-b/);
 +});
 diff --git a/src/session-runtime/services/agent-tool/spawn-preset.mjs b/src/session-runtime/services/agent-tool/spawn-preset.mjs
-index 13ff0acda..b6f6dd0d1 100644
+index 13ff0acda..d8e7243a9 100644
 --- a/src/session-runtime/services/agent-tool/spawn-preset.mjs
 +++ b/src/session-runtime/services/agent-tool/spawn-preset.mjs
 @@ -9,24 +9,13 @@ import {
@@ -241,17 +268,19 @@ index 13ff0acda..b6f6dd0d1 100644
    const agentName = normalizeAgentName(args.agent);
    // The agent's stored route: config.agents, or a store bot's own folder.
    const candidates = !clean(args.preset) ? configuredAgentRouteCandidates(config, agentName) : [];
-@@ -38,28 +27,57 @@ export function resolveAgentSpawnPreset(config, args = {}) {
+@@ -38,28 +27,59 @@ export function resolveAgentSpawnPreset(config, args = {}) {
    // Where the spawned session reads its fallback chain at each hop
    // (route-fallback-chain.mjs): this agent's route, else Main's.
    const fallbackSource = { agent: agentName };
 -  if (agentRoute) {
 +  // `strict`: the spawn named its model, so no other model may answer it (no chain, no source).
++  // A strict preset is a direct one by identity: the send flow follows the agent's configured route
++  // only for a worker on the agent's own preset identity, and a named model is kept for the worker's life.
 +  const agentPreset = (effort, fast, strict) => ({
-+    presetName: agentPresetName(agentName),
++    presetName: strict ? args.preset || '__direct__' : agentPresetName(agentName),
 +    preset: {
-+      id: `agent-${agentName}`,
-+      name: agentPresetName(agentName),
++      id: strict ? '__direct__' : `agent-${agentName}`,
++      name: strict ? '__DIRECT__' : agentPresetName(agentName),
 +      type: 'agent',
 +      provider: agentRoute.provider,
 +      model: agentRoute.model,

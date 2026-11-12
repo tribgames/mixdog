@@ -932,6 +932,32 @@ async fn a_pinned_model_spawn_equals_nodes() {
             })
             .collect();
         assert_eq!(Value::Array(created), case["result"]["created"], "{name}: the session spec");
+        // The configuration moved after the spawn, then a send (or a resume) to the worker it created.
+        if let Some(follow) = recorded_scenario.get("followUp") {
+            let want = &case["result"]["send"];
+            let moved = json!({
+                "config": follow["config"],
+                "session": want["session"],
+                "surface": "canonical",
+                "busy": true,
+                "enqueueReturns": { "queueDepth": 1 },
+            });
+            let later = self::rig(&moved, None);
+            let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+            let prepared = Prepared {
+                args: json!({ "tag": "scout", "prompt": "follow up" }),
+                session: SessionFacts { id: "sess_w1".into(), agent: s(&want["session"], "agent"), cwd: s(&want["session"], "cwd"), ..SessionFacts::default() },
+                session_id: "sess_w1".into(),
+                prompt: Some("follow up".into()),
+                route: None,
+            };
+            let options = DispatchOptions { reused: false, resumed: follow["resumed"] == true };
+            let reply = later.send.dispatch_to_existing_session(&prepared, &context, options).await.expect("send");
+            settle().await;
+            let (calls, _) = drain(&later, None);
+            assert_eq!(json!(render(&reply, "")), want["reply"], "{name}: the send's answer");
+            same(&name, "send calls", &calls, &want["calls"]);
+        }
     }
 }
 

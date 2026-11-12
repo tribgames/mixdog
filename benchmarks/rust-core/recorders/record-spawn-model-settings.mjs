@@ -27,6 +27,7 @@ if (!identity.patch) throw new Error('record from the export with --patch benchm
 const dataDir = mkdtempSync(join(tmpdir(), 'spawn-model-settings-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 const { createAgentExecute } = await importFrom(tree, 'src/session-runtime/services/agent-tool/execute.mjs');
+const { createSendFlow } = await importFrom(tree, 'src/session-runtime/services/agent-tool/send-flow.mjs');
 const { createSpawnPreparer } = await importFrom(tree, 'src/session-runtime/services/agent-tool/spawn-flow/spawn-prep.mjs');
 const helpers = await importFrom(tree, 'src/session-runtime/services/agent-tool/helpers.mjs');
 const routeConfig = await importFrom(tree, 'src/runtime/shared/agent-route-config.mjs');
@@ -67,6 +68,9 @@ const CONFIG = {
   },
 };
 
+// The agent's configured model, changed after the spawn.
+const MOVED = { ...CONFIG, agents: { ...CONFIG.agents, worker: { provider: 'openai', model: 'gpt-new', effort: 'low' } } };
+
 const spawn = (extra, agent = 'worker') => ({ type: 'spawn', agent, prompt: 'do it', tag: undefined, ...extra });
 const SCENARIOS = [
   { name: 'the_preset_route', args: spawn({}) },
@@ -92,6 +96,11 @@ const SCENARIOS = [
   { name: 'an_ambiguous_name', args: spawn({ model: 'twin' }) },
   { name: 'a_provider_without_models', args: spawn({ model: 'gpt-fast', provider: 'ghost' }) },
   { name: 'a_provider_without_a_model', args: spawn({ provider: 'openai' }) },
+  // The worker the spawn created, then the agent's configured model moved to another one, then a send (or a resume).
+  { name: 'a_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves', args: spawn({ model: 'opus' }), followUp: { config: MOVED } },
+  { name: 'a_resumed_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves', args: spawn({ model: 'opus' }), followUp: { config: MOVED, resumed: true } },
+  { name: 'a_worker_spawned_on_another_named_model_keeps_it_when_the_configuration_moves', args: spawn({ model: 'gpt-fast' }), followUp: { config: MOVED } },
+  { name: 'a_worker_spawned_without_a_model_follows_the_moved_configuration', args: spawn({}), followUp: { config: MOVED } },
   { name: 'no_catalog_takes_the_route_as_asked', args: spawn({ provider: 'openai', model: 'gpt-fast', effort: 'high', fast: true }), catalog: null },
   { name: 'no_catalog_and_no_provider', args: spawn({ model: 'gpt-fast' }), catalog: null },
 ];
@@ -100,6 +109,36 @@ function writeAgent(root, name) {
   const dir = join(root, 'agents', name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'AGENT.md'), ['---', `name: ${name}`, '---', 'role text', ''].join('\n'));
+}
+
+// The send (or resume) to the worker a spawn created, after the configuration changed, through the real send flow of a
+// canonical surface whose worker is busy (the prompt queues; a route the flow applies shows as `setRoute`).
+async function followUp(spec, { config, resumed }) {
+  const { preset } = spec;
+  const session = JSON.parse(
+    JSON.stringify({ id: 'sess_w1', agent: spec.agent, cwd: '/work', presetName: spec.presetName, provider: preset.provider, model: preset.model, effort: preset.effort, fast: preset.fast, autoEffort: preset.autoEffort }),
+  );
+  const calls = [];
+  const flow = createSendFlow({
+    mgr: { getSession: () => session },
+    cfgMod: { loadConfig: () => config },
+    defaultCwd: '/default',
+    sessionSurface: {
+      canonical: true,
+      setRoute: async ({ route }) => void calls.push(['setRoute', route]),
+      enqueueTurn: async ({ prompt, context }) => {
+        calls.push(['enqueueTurn', prompt, context]);
+        return { queueDepth: 1 };
+      },
+    },
+    canUseSessionSurface: () => true,
+    registry: { tagForSession: () => 'scout' },
+    views: { isSessionBusy: () => true },
+    spawnFlow: { workerTurns: { observe: (s) => void calls.push(['observe', s.id]) } },
+  });
+  const prepared = { args: { tag: 'scout', prompt: 'follow up' }, session, sessionId: session.id, prompt: 'follow up' };
+  const reply = await flow.dispatchToExistingSession(prepared, { callerSessionId: 'lead', ownerSessionId: 'lead', clientHostPid: 4242 }, resumed ? { resumed: true } : {});
+  return { session, reply, calls: JSON.parse(JSON.stringify(calls)) };
 }
 
 async function record(scenario) {
@@ -169,12 +208,17 @@ async function record(scenario) {
   };
   rmSync(root, { recursive: true, force: true });
   rmSync(source, { recursive: true, force: true });
-  return {
+  const recorded = {
     name: scenario.name,
     scenario: { args: request, config: CONFIG, catalog, context },
     host,
     result: { answer: result, error: failed ? failed.reason.message : null, created },
   };
+  if (scenario.followUp) {
+    recorded.scenario.followUp = scenario.followUp;
+    recorded.result.send = await followUp(created[0], scenario.followUp);
+  }
+  return recorded;
 }
 
 const ONLY = args.get('only') ?? null;
@@ -202,7 +246,8 @@ writeSetManifest(out, {
     scenarios: cases.map((entry) => ({ name: entry.name, answer: entry.result.answer.slice(0, 80), created: entry.result.created.length })),
     exclusions: [
       'the job id in the answer of a spawn that started: the recorder\'s stand-in task is `job-1`, the Rust board generates its own id, so the replay reads the board\'s id as `job-1` (the rest of every answer is compared whole)',
-      'of the session spec the real spawn preparer hands to session creation only the agent, the preset name and the preset are compared: the rest (directory, runtime spec, owner ids, prompt) is the spawn flow\'s own recording (fixtures/agent/flows)',
+      'the session spec the real spawn preparer hands to session creation is a projection, not the whole spec: compared are agent, presetName, preset, prompt and the tag; left out are runtimeSpec (the recorder\'s `resolveRuntimeSpec` is a stand-in, not the runtime registry), cwd (the recorder resolves it against the host\'s working directory), and owner, parentSessionId, ownerSessionId, visibility, clientHostPid, sourceType, sourceName, agentTag, taskType, permission, cacheKeyOverride and mcpScopeId (fixed by the caller context and the agent\'s definition, the same in every scenario here; the whole spec of a spawn is compared in fixtures/agent/flows/spawn.json)',
+      'the follow-up send of a scenario with `followUp` runs the real send flow on a canonical surface with a busy worker whose session is the one the spawn created (agent, presetName, provider, model, effort, fast, autoEffort and cwd `/work`); its answer and the calls it made (setRoute, observe, enqueueTurn) are compared whole, the session store and the turn queue are stand-ins',
       'the session itself, the tag binding and the model catalog behind the listing are stand-ins on both sides (the catalog rows are the recorded input, as the model picker hydrates them)',
     ],
   },

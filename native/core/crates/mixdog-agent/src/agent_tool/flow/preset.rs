@@ -101,7 +101,8 @@ pub struct SpawnPreset {
 /// selects for it (`args.modelDefaults`: its effort and fast), the effort and fast the caller asked
 /// for over that. It has no fallback chain: the named model answers or the failure is the answer.
 /// When the agent's route is already on that model, the agent's own settings are the ones that
-/// apply, an effort the model does not offer replaced by the model's default.
+/// apply, an effort the model does not offer replaced by the model's default; the worker still
+/// carries the direct preset identity, so it never follows the agent's configured route later.
 pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Value]) -> Result<SpawnPreset, String> {
     let arg = |key: &str| args.get(key);
     let agent = normalize_agent_name(&clean(arg("agent")));
@@ -130,10 +131,19 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
     };
     // `strict`: the spawn named its model, so no other model may answer it (no chain, no source).
     let agent_preset = |route: &Obj, fallbacks: &[Value], effort: Option<String>, fast: Option<bool>, strict: bool| {
-        let name = agent_preset_name(&agent);
+        // A strict preset is a direct one by identity: the send flow follows the agent's configured
+        // route only for a worker on the agent's own preset identity, and a named model is kept for
+        // the worker's life, whether or not it is the agent's own.
+        let (id, name, preset_name): (String, String, Value) = if strict {
+            let named = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
+            ("__direct__".into(), "__DIRECT__".into(), named)
+        } else {
+            let name = agent_preset_name(&agent);
+            (format!("agent-{agent}"), name.clone(), name.into())
+        };
         let mut preset = Obj::new();
-        preset.insert("id".into(), format!("agent-{agent}").into());
-        preset.insert("name".into(), name.clone().into());
+        preset.insert("id".into(), id.into());
+        preset.insert("name".into(), name.into());
         preset.insert("type".into(), "agent".into());
         preset.insert("provider".into(), route["provider"].clone());
         preset.insert("model".into(), route["model"].clone());
@@ -153,7 +163,7 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
             }
         }
         preset.insert("tools".into(), "full".into());
-        SpawnPreset { preset_name: name.into(), preset: Value::Object(preset) }
+        SpawnPreset { preset_name, preset: Value::Object(preset) }
     };
 
     if truthy(arg("provider")) && truthy(arg("model")) {
