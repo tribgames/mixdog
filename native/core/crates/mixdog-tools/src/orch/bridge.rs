@@ -133,6 +133,12 @@ pub trait CatalogView: Send + Sync {
     async fn load_native(&self, _thread: &ThreadId, _args: &Value) -> Option<Result<String, String>> {
         None
     }
+    /// `catalogLacks`: whether a requested name is not in the deferred catalog.
+    fn lacks(&self, _thread: &ThreadId, _names: &[String]) -> bool {
+        false
+    }
+    /// `awaitMcpConnect`: returns once the thread's initial MCP connect settled or its startup budget passed.
+    async fn await_connect(&self, _thread: &ThreadId) {}
 }
 
 /// The ordinary execution pipeline (policy, hooks, approval, deadline) for a named tool.
@@ -278,6 +284,12 @@ fn fits(page: &Page<'_>) -> bool {
 /// servers of the entries that made the page).
 pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
     catalog.refresh(thread).await;
+    // A name the catalog does not hold yet may belong to a server still in its handshake: wait for that connect before
+    // reporting it missing (`toolSearch`).
+    if args.get("names").and_then(describe_names).is_some_and(|names| catalog.lacks(thread, &names)) {
+        catalog.await_connect(thread).await;
+        catalog.refresh(thread).await;
+    }
     if let Some(loaded) = catalog.load_native(thread, args).await {
         return loaded.map_err(|reason| ToolError::new(ToolErrorCode::Unavailable { capability: "session".to_owned(), reason: reason.clone() }, reason));
     }
@@ -708,6 +720,57 @@ mod tests {
         }
         let doc: Value = serde_json::from_str(&text).expect("chunks reassemble");
         assert_eq!(doc["name"], "huge");
+    }
+
+    /// A catalog whose MCP server is still connecting: the tool joins it when the wait for the connect ends.
+    struct Connecting {
+        tools: std::sync::Mutex<Vec<ToolDoc>>,
+        waits: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl CatalogView for Connecting {
+        async fn announce(&self, _: &ThreadId, _: &[String]) {}
+        fn available(&self, _: &ThreadId) -> Vec<ToolDoc> {
+            self.tools.lock().unwrap().clone()
+        }
+        fn is_eager(&self, _: &ThreadId, _: &str) -> bool {
+            false
+        }
+        fn block_reason(&self, _: &ThreadId, _: &str) -> Option<String> {
+            None
+        }
+        fn alias_members(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn mcp_server_members(&self, _: &ThreadId, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn instructions_for(&self, _: &ThreadId, _: &[String]) -> String {
+            String::new()
+        }
+        fn resolve_call(&self, _: &ThreadId, _: &str) -> CallResolution {
+            CallResolution::NotFound
+        }
+        fn lacks(&self, _: &ThreadId, names: &[String]) -> bool {
+            let tools = self.tools.lock().unwrap();
+            names.iter().any(|name| !tools.iter().any(|t| &t.name == name))
+        }
+        async fn await_connect(&self, _: &ThreadId) {
+            self.waits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.tools.lock().unwrap().push(doc("mcp__stub__echo", "echoes", 0));
+        }
+    }
+
+    /// A name the catalog lacks waits for the connect in flight before it is reported missing (`toolSearch`); a name it holds never waits.
+    #[tokio::test]
+    async fn a_missing_name_waits_for_the_connect_in_flight() {
+        let c = Connecting { tools: std::sync::Mutex::new(vec![doc("read", "reads", 0)]), waits: Default::default() };
+        let page: Value = serde_json::from_str(&load(&c, &thread(), &json!({"names": ["mcp__stub__echo"]})).await.unwrap()).unwrap();
+        assert_eq!(page["missing"], json!([]));
+        assert_eq!(page["entries"][0]["name"], "mcp__stub__echo");
+        load(&c, &thread(), &json!({"names": ["read", "mcp__stub__echo"]})).await.unwrap();
+        assert_eq!(c.waits.load(std::sync::atomic::Ordering::SeqCst), 1, "a catalog that holds every name never waits");
     }
 
     #[tokio::test]

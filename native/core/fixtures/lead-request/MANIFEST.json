@@ -1,0 +1,87 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-fix-deferred-listing-trigger.patch",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2271335,
+      "path": "golden.json",
+      "sha256": "1551390de415a3c662d0adb981d48dba189eb456c39efce00de13134b52781cb"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lead-request-scenarios.mjs",
+      "sha256": "1a11c02370e70929e8b7ef3570f8cb3474f394a83e29a6e52eff699ab9798144"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/offline-network.mjs",
+      "sha256": "43ca3dfef8dfaff942a2b0ee522c7773bae8da5829d9ddc7cc463014c8277c09"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "mappings": {
+    "s.{SCRATCH}": "the name of the session scratch folder, a digest of the thread id (session-scratch.mjs scratchName), so it differs with the id",
+    "{DATA}": "the profile's data directory (the recorder's throwaway folder, the replay's own), in its backslash and forward-slash spellings",
+    "{HOME}": "the profile's home folder (HOME, USERPROFILE, APPDATA, LOCALAPPDATA live in it), in both spellings; the data folder is inside it, so it is replaced after {DATA}",
+    "{SESSION}": "the id of the thread: each side creates its own (Node a session id, the core a thread id)",
+    "{WS}": "the workspace folder of the thread, in both spellings"
+  },
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9141,
+    "patches": [
+      {
+        "file": "node-fix-spawn-model-settings.patch",
+        "paths": [
+          "src/session-runtime/services/agent-tool/model-select.mjs",
+          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+          "src/session-runtime/services/agent-tool/tool-def.mjs",
+          "src/tui/app/model-picker/route-selection/effort.mjs"
+        ],
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+      },
+      {
+        "file": "node-fix-deferred-listing-trigger.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs",
+          "src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs"
+        ],
+        "sha256": "f51d56c5d9536b802fb86cccbcc6dcfe10e29542002e4ea0cfc547471d52d963"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 7
+    },
+    "srcSha256": "c280aef53a643c7f77a8a1049e86e6e2415ae66434e87e7b0e2f7498f1274db0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-lead-request.mjs",
+  "recorderSha256": "19fbb967cb00b5864fc7b14727c81b0ca1d7e0a729b4f961e3d238428ca6e63d",
+  "scope": {
+    "covered": "the desktop lead thread (session.create with a desktopSession, then submit)",
+    "notCovered": [
+      "agent-mode threads (a separate task)",
+      "phone threads (out of scope)"
+    ]
+  },
+  "set": "lead-request",
+  "totalBytes": 2271335
+}
