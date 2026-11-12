@@ -187,6 +187,8 @@ pub struct AgentRegistry {
     /// Woken by every refresh and row write: the deadline timer ([`keep_deadlines`]) arms again.
     rearm: Arc<tokio::sync::Notify>,
     loads: Mutex<Loads>,
+    /// The restart notices this process has begun to queue and not yet stamped (`restart::notify_restart_failures`).
+    restart_notices: Mutex<HashMap<String, restart::NoticeStage>>,
 }
 
 /// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
@@ -416,7 +418,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone

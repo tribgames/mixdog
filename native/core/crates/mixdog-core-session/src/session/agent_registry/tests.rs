@@ -2478,3 +2478,104 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     registry.flush_active_worker_rows(&live);
     assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
 }
+
+/// The owner's queue as the actor keeps it, for the restart notices: an id already queued is one entry, the owner takes entries,
+/// and the write is acknowledged when the test lets it (`gate`), or fails once with its entry rolled back.
+struct OwnerQueue {
+    queue: Mutex<Vec<String>>,
+    taken: Mutex<Vec<String>>,
+    queued: std::sync::atomic::AtomicUsize,
+    gate: tokio::sync::Semaphore,
+    fail_next: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl restart::RestartNotices for OwnerQueue {
+    async fn queue_durably(&self, _: &ThreadId, execution: &str, _: String) -> Result<(), String> {
+        self.queued.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut queue = self.queue.lock().unwrap();
+            if !queue.iter().any(|queued| queued == execution) {
+                queue.push(execution.to_owned());
+            }
+        }
+        self.gate.acquire().await.expect("the gate stays open").forget();
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            self.queue.lock().unwrap().retain(|queued| queued != execution);
+            return Err("the write failed".into());
+        }
+        Ok(())
+    }
+
+    async fn show(&self, _: &ThreadId, _: &str, _: String) {}
+}
+
+impl OwnerQueue {
+    fn new() -> Self {
+        Self {
+            queue: Mutex::default(),
+            taken: Mutex::default(),
+            queued: std::sync::atomic::AtomicUsize::new(0),
+            gate: tokio::sync::Semaphore::new(0),
+            fail_next: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// The owner's turn takes what is queued for it.
+    fn take(&self) {
+        let mut queue = self.queue.lock().unwrap();
+        self.taken.lock().unwrap().extend(queue.drain(..));
+    }
+}
+
+fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::JobBoard) {
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    let rig = Rig::new();
+    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
+    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
+    let registry = rig.registry();
+    (rig, registry, mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None))
+}
+
+/// An owner is told a restart notice once when its write is slow: the owner takes the entry before the write is acknowledged, and
+/// a second pass (a compaction's `recoverAgentWorkers` starts one) finds the row still owed. The owner's queue knows an id only
+/// while it holds the entry, so queued again the notice would be delivered again (Node told 19 owners every five seconds).
+#[tokio::test]
+async fn a_slow_write_does_not_tell_the_owner_again_when_it_took_the_entry() {
+    let (_rig, registry, board) = lost_task_world();
+    let owner = OwnerQueue::new();
+    let stamp = at(NOW);
+    let mut first = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
+    assert!(futures::poll!(first.as_mut()).is_pending(), "the first pass waits for its write to be acknowledged");
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
+    owner.take();
+    let mut second = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
+    assert_eq!(futures::poll!(second.as_mut()), std::task::Poll::Ready(Ok(0)), "the notice is the first pass's");
+    owner.gate.add_permits(1);
+    assert_eq!(first.await, Ok(1));
+    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
+    assert!(owner.queue.lock().unwrap().is_empty(), "no second entry for the owner to take");
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
+}
+
+/// A write that fails once leaves the row owed and nothing queued: the next pass queues the notice again, and the owner is told once.
+#[tokio::test]
+async fn a_failed_write_is_queued_again_and_told_once() {
+    let (_rig, registry, board) = lost_task_world();
+    let owner = OwnerQueue::new();
+    owner.gate.add_permits(2);
+    owner.fail_next.store(true, Ordering::SeqCst);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "the write failed");
+    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1, "the row is still owed");
+    assert!(owner.queue.lock().unwrap().is_empty(), "the failed write left no entry");
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(1));
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "told");
+    owner.take();
+    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 2);
+}
