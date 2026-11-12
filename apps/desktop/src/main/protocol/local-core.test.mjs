@@ -109,6 +109,46 @@ test('the desktop waits for a core that takes 20 s to serve, as a large profile 
   assert.equal(asked.readyTimeoutMs, DESKTOP_CORE_READY_TIMEOUT_MS);
 });
 
+test('a discovery file left by a process that no longer runs names no core: one is started, whatever the file says', async () => {
+  // What a killed 1.4.5 daemon leaves (no `core` section, so its state reads `unknown`), and what a killed core leaves.
+  const leftBehind = [
+    { state: 'unknown', rpcPort: null, blocked: null, pid: 4242 },
+    { state: 'serving', rpcPort: 5151, blocked: null, pid: 4242 },
+    { state: 'booting', rpcPort: null, blocked: null, pid: 4242 },
+  ];
+  const started = { state: 'serving', rpcPort: 6060, blocked: null, pid: 99 };
+  for (const stale of leftBehind) {
+    let clock = 0;
+    let launches = 0;
+    const served = await ensureCore({
+      // The started core replaces the file once it is up.
+      readDiscovery: async () => (launches && clock >= 300 ? started : stale),
+      launch: async () => void (launches += 1),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
+      runs: (pid) => pid === 99,
+    });
+    assert.deepEqual(served, started, `left behind as ${stale.state}`);
+    assert.equal(launches, 1, `left behind as ${stale.state}`);
+  }
+  // The same file while its process runs is that core's: none is started beside it.
+  let clock = 0;
+  let launches = 0;
+  await assert.rejects(
+    ensureCore({
+      readDiscovery: async () => leftBehind[0],
+      launch: async () => void (launches += 1),
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: 1_000,
+      runs: () => true,
+    }),
+    /core is not ready: the core is unknown/
+  );
+  assert.equal(launches, 0);
+});
+
 test('a core that ends abnormally before serving fails the start at once with its exit, not after the whole wait', async () => {
   const absent = () => Object.assign(new Error('absent'), { name: 'CoreDiscoveryError', code: 'absent' });
   // The launched core (pid 77) is seen ended at `exitAt` on the test's clock; `discovery` is what the file says then.
@@ -128,6 +168,8 @@ test('a core that ends abnormally before serving fails the start at once with it
       sleep: async (ms) => void (clock += ms),
       now: () => clock,
       readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
+      // The other core (88) runs; the launched one (77) until its exit is seen.
+      runs: (pid) => pid === 88 || (pid === 77 && clock < exitAt),
     }).then(
       (value) => ({ value }),
       (error) => ({ error })

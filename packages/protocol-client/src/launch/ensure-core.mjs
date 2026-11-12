@@ -63,10 +63,23 @@ function endedBeforeServing(capture, last) {
   });
 }
 
+/** Whether the process `pid` still runs (a process this user may not signal runs too). */
+export function processRuns(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
 /**
  * Resolves the serving core's discovery. A `blocked` core is the user's decision, so it fails at once instead of
  * waiting; `booting`, `migrating` and `draining` end by themselves, so they are waited out. A core this call started
  * that ends abnormally before serving fails at once too, with its exit and what it last said.
+ *
+ * A discovery file outlives a process that was killed (and the 1.4.5 daemon wrote the same file): one that names a
+ * process no longer running names no core, so a core is started as when there is no file. Waiting for it never ends.
  */
 export async function ensureCore({
   readDiscovery,
@@ -75,6 +88,7 @@ export async function ensureCore({
   readyTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DEFAULT_READY_TIMEOUT_MS,
   now = Date.now,
   log = () => {},
+  runs = processRuns,
 } = {}) {
   const deadline = now() + Math.max(1, readyTimeoutMs);
   let launched = false;
@@ -87,6 +101,7 @@ export async function ensureCore({
       if (error?.name !== 'CoreDiscoveryError' || error.code !== 'absent') throw error;
       last = null;
     }
+    if (last && Number.isInteger(last.pid) && !runs(last.pid)) last = null;
     if (last?.state === 'serving' && last.rpcPort) {
       capture?.noteReady?.();
       return last;
