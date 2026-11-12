@@ -1,479 +1,123 @@
 {
-  "determinism": {
-    "cryptoRandom": {
-      "algorithm": "mulberry32 bytes",
-      "note": "only calls with a product frame on the stack",
-      "samples": [
-        {
-          "bytes": 16,
-          "hex": "9150ff8f3ddcf51a1f0b1e5918fbd34f",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "a69c22aa7b6b2e5cfb9a9ab457552759",
-          "kind": "randomUUID",
-          "n": 2,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "0f07713ee65322ae356f80bb20707e2f",
-          "kind": "randomUUID",
-          "n": 3,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "14574d95ba976f7ff62c4b1209a33914",
-          "kind": "randomUUID",
-          "n": 4,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "a1cdb5ff2efa023235197f149b68618e",
-          "kind": "randomUUID",
-          "n": 5,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "8937bd192f81af995a2e363f7fd37a06",
-          "kind": "randomUUID",
-          "n": 6,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders"
-        },
-        {
-          "bytes": 16,
-          "hex": "33b08f16bdc48b9e9948aae50d8050a2",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#newCompletionId"
-        },
-        {
-          "bytes": 16,
-          "hex": "d96ae24ddaf21c02d4f4ff03707ec840",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#runAction"
-        },
-        {
-          "bytes": 16,
-          "hex": "74fd257b822429c512b25a9639ecdd4a",
-          "kind": "randomUUID",
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/cursor.mjs#CursorApiProvider.send"
-        }
-      ],
-      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
-    },
-    "notRecorded": "delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
-    "otherProductTimerSites": [
-      "src/runtime/agent/orchestrator/providers/cursor-wire-guards.mjs#arm",
-      "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#<anonymous>",
-      "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#openCursorStream",
-      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
-    ],
-    "retrySleeps": [],
-    "rng": {
-      "algorithm": "mulberry32",
-      "samples": [
-        {
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.33538682851940393
-        },
-        {
-          "n": 2,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.8318615518510342
-        },
-        {
-          "n": 3,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.7939890865236521
-        },
-        {
-          "n": 4,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.8465767309535295
-        },
-        {
-          "n": 5,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.9132315323222429
-        },
-        {
-          "n": 6,
-          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs",
-          "value": 0.8896005698479712
-        }
-      ],
-      "scenarioId": "cursor-api/bidi-end-stream-invalid-argument",
-      "seed": 3518370934,
-      "seedDerivation": "fnv1a32(scenarioId)"
-    }
-  },
-  "records": [
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "clientEnded": true,
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    },
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "clientEnded": true,
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    },
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "clientEnded": true,
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    },
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "clientEnded": true,
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    },
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "clientEnded": true,
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    },
-    {
-      "bodyBase64": "e30=",
-      "bodyText": "{}",
-      "headers": {
-        "accept": "*/*",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "2",
-        "content-type": "application/json",
-        "host": "api2.cursor.sh",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/auth/exchange_user_api_key",
-      "served": {
-        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0=",
-        "contentType": "application/json",
-        "status": 200
-      },
-      "transport": "http"
-    },
-    {
-      "frames": [
-        {
-          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA",
-          "dir": "in",
-          "flags": 0
-        },
-        {
-          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19",
-          "dir": "out",
-          "flags": 2
-        }
-      ],
-      "headers": {
-        ":authority": "api2.cursor.sh",
-        ":method": "POST",
-        ":path": "/agent.v1.AgentService/Run",
-        ":scheme": "http",
-        "authorization": "Bearer <redacted>",
-        "connect-protocol-version": "1",
-        "content-type": "application/connect+proto",
-        "te": "trailers",
-        "x-cursor-client-type": "cli",
-        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
-        "x-ghost-mode": "true",
-        "x-request-id": "<random:uuid>"
-      },
-      "method": "POST",
-      "origin": "https://api2.cursor.sh",
-      "path": "/agent.v1.AgentService/Run",
-      "status": 200,
-      "transport": "h2"
-    }
-  ],
   "transports": [
     "http",
     "h2"
-  ]
+  ],
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://api2.cursor.sh",
+      "method": "POST",
+      "path": "/auth/exchange_user_api_key",
+      "headers": {
+        "host": "api2.cursor.sh",
+        "connection": "keep-alive",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "2"
+      },
+      "bodyBase64": "e30=",
+      "bodyText": "{}",
+      "served": {
+        "status": 200,
+        "contentType": "application/json",
+        "bodyBase64": "eyJhY2Nlc3NUb2tlbiI6ImZpeHR1cmUtYWNjZXNzLXRva2VuIiwicmVmcmVzaFRva2VuIjoiZml4dHVyZS1yZWZyZXNoLXRva2VuIn0="
+      }
+    },
+    {
+      "transport": "h2",
+      "origin": "https://api2.cursor.sh",
+      "method": "POST",
+      "path": "/agent.v1.AgentService/Run",
+      "headers": {
+        ":method": "POST",
+        ":path": "/agent.v1.AgentService/Run",
+        ":authority": "api2.cursor.sh",
+        ":scheme": "http",
+        "content-type": "application/connect+proto",
+        "te": "trailers",
+        "authorization": "Bearer <redacted>",
+        "x-ghost-mode": "true",
+        "x-cursor-client-version": "cli-2026.10.22-27dcf5f",
+        "x-cursor-client-type": "cli",
+        "x-request-id": "<random:uuid>",
+        "connect-protocol-version": "1"
+      },
+      "frames": [
+        {
+          "dir": "in",
+          "flags": 0,
+          "base64": "CvwECgASvQQKugQKPQoTTG9vayB1cCB0aGUgYW5zd2VyLhIkZDk2YWUyNGQtZGFmMi00YzAyLTk0ZjQtZmYwMzcwN2VjODQwGgAS+AM6zwEKBmxvb2t1cBIMUmVhZCBhIHZhbHVlGloqWAoQCgR0eXBlEggaBm9iamVjdAotCgpwcm9wZXJ0aWVzEh8qHQobCgNrZXkSFCoSChAKBHR5cGUSCBoGc3RyaW5nChUKCHJlcXVpcmVkEgkyBwoFGgNrZXkiBm1peGRvZyoGbG9va3VwMkt7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiXX1yhAIKBm1peGRvZxL5AURvIG5vdCB1c2UgQ3Vyc29yIG5hdGl2ZSB0b29sczsgdXNlIG9ubHkgdGhlIHRvb2xzIHByb3ZpZGVkIGJ5IHRoZSBtaXhkb2cgTUNQIHNlcnZlciwgZm9sbG93aW5nIHRoZWlyIGRlc2NyaXB0aW9ucyBhbmQgZGVjbGFyZWQgaW5wdXQgc2NoZW1hcy4gSWYgYSBuZWVkZWQgdG9vbCBpcyBub3QgYXZhaWxhYmxlLCB1c2UgdGhlIHByb3ZpZGVkIHRvb2wgZGlzY292ZXJ5IG1lY2hhbmlzbSByYXRoZXIgdGhhbiBpbnZlbnRpbmcgYSB0b29sLoIBHFlvdSBhcmUgYSBmaXh0dXJlIGFzc2lzdGFudC4qJGNiMTBiYjZjLTZjYmMtNDdkMC1hZjhjLTAxMWZjMWFlOTI3N0oSCg5jdXJzb3ItZml4dHVyZRAA"
+        },
+        {
+          "dir": "out",
+          "flags": 2,
+          "base64": "eyJlcnJvciI6eyJjb2RlIjoiaW52YWxpZF9hcmd1bWVudCIsIm1lc3NhZ2UiOiJmaXh0dXJlIGJhZCByZXF1ZXN0In19"
+        }
+      ],
+      "status": 200
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "cursor-api/bidi-end-stream-invalid-argument",
+      "seed": 3518370934,
+      "samples": [
+        {
+          "n": 1,
+          "value": 0.33538682851940393,
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs#backoffMs"
+        }
+      ]
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "9150ff8f3ddcf51a1f0b1e5918fbd34f",
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#rpcHeaders",
+          "n": 1
+        },
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "33b08f16bdc48b9e9948aae50d8050a2",
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#newCompletionId",
+          "n": 1
+        },
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "d96ae24ddaf21c02d4f4ff03707ec840",
+          "site": "src/runtime/agent/orchestrator/providers/cursor-wire.mjs#runAction",
+          "n": 1
+        },
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "74fd257b822429c512b25a9639ecdd4a",
+          "site": "src/runtime/agent/orchestrator/providers/cursor.mjs#CursorApiProvider.send",
+          "n": 1
+        }
+      ]
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/cursor-wire-guards.mjs#arm",
+      "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs#openCursorStream",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
 }
