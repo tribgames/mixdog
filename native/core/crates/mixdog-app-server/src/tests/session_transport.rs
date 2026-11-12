@@ -246,15 +246,14 @@ fn turn_start(thread: &ThreadId, seq: u64, turn: &str, prompt: (&str, &str)) -> 
     ]
 }
 
-/// A turn's end, the feed from `seq`: `reply`, the answer item, the turn's end, the idle runtime, the frame the turn's end
-/// flushed (`flushEmit`) and the one its timer flushed for the idle runtime after it.
+/// A turn's end, the feed from `seq`: `reply`, the answer item, the turn's end, the idle runtime and the one frame the turn's
+/// end flushed with all of it (`settleTurn`'s `flushEmit`, after `publishTurnClose` set the runtime idle).
 fn turn_end(thread: &ThreadId, seq: u64, turn: &str, reply: (&str, &str)) -> Vec<Value> {
     vec![
         event(thread, seq, "item/completed", json!({ "threadId": thread, "turnId": turn, "item": agent_item(reply.0, turn, reply.1) })),
         event(thread, seq + 1, "turn/completed", json!({ "threadId": thread, "turn": { "id": turn, "status": "completed", "completedAt": 0 } })),
         event(thread, seq + 2, "thread/runtime/updated", json!({ "threadId": thread, "value": runtime(false) })),
         frame(thread, seq + 3, true),
-        frame(thread, seq + 4, false),
     ]
 }
 
@@ -386,11 +385,11 @@ fn runs_ended(frames: &[Value]) -> usize {
     frames.iter().filter(|frame| frame["method"] == "thread/runtime/updated" && frame["params"]["value"]["busy"] == false).count()
 }
 
-/// `runs` runs have ended and the thread is quiet: its last publication is the frame its timer flushed after the last change
-/// (the idle runtime, published after the turn's own frame, `settleTurn`'s `flushEmit`), so nothing more is on its way.
+/// `runs` runs have ended: the last publication is the frame the last turn's end flushed (`settleTurn`'s `flushEmit`), which
+/// carries the idle runtime, so nothing of the turn is still on its way.
 fn ran(frames: &[Value], runs: usize) -> bool {
     let last = frames.iter().rev().find(|frame| frame.get("method").is_some());
-    runs_ended(frames) == runs && last.is_some_and(|frame| frame["method"] == "thread/frame" && frame["params"]["structureChanged"] == false)
+    runs_ended(frames) == runs && last.is_some_and(|frame| frame["method"] == "thread/frame")
 }
 
 fn submitted_prompt(node: &Value) -> String {
@@ -560,10 +559,7 @@ async fn every_attached_client_folds_the_same_items() {
         if connection == 2 {
             expected.push(answer(2, json!({ "kind": "queued", "queuedId": queued })));
         }
-        let mut first_end = turn_end(&world.id, 8, &t1, (&format!("a-{t1}"), &format!("re: {from_terminal}")));
-        // The queue's change is published before the idle runtime's timer flushes: the queue's frame carries that change.
-        first_end.pop();
-        expected.extend(first_end);
+        expected.extend(turn_end(&world.id, 8, &t1, (&format!("a-{t1}"), &format!("re: {from_terminal}"))));
         expected.extend(queue_changed(&world.id, 12, json!([])));
         expected.extend(turn_frames(&world.id, 14, &t2, (&uuid(12), from_desktop), (&format!("a-{t2}"), &format!("re: {from_desktop}")), None));
         whole(&format!("state-lanes-365-{name}"), &client.frames, &[world.id.as_str()], expected);
@@ -788,7 +784,7 @@ async fn a_client_attaching_after_a_large_state_receives_it_once() {
     late.until("the snapshot", |frames| frames.iter().any(|frame| frame["method"] == "thread/snapshot")).await;
     let (t, reply) = (uuid(1), format!("re: {large}"));
     let items = vec![user_item(&uuid(2), &t, &large), agent_item(&format!("a-{t}"), &t, &reply)];
-    let expected = resumed(2, 1, &world.id, 10, state(false, &[&large]), items).to_vec();
+    let expected = resumed(2, 1, &world.id, 9, state(false, &[&large]), items).to_vec();
     whole("state-lanes-275", &late.frames, &[world.id.as_str()], expected);
 }
 
@@ -858,7 +854,6 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         event(&world.id, 10, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
         event(&world.id, 11, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
         frame(&world.id, 12, true),
-        frame(&world.id, 13, false),
     ]);
     whole("state-lanes-48", &client.frames, &[world.id.as_str()], expected);
 }
