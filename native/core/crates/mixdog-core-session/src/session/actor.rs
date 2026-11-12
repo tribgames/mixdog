@@ -3556,7 +3556,8 @@ impl SessionActor {
                 let refused =
                     super::approval_notification::refuses_remote_allow(decision.origin, shown.as_deref(), &decision.request, &decision.result);
                 let outcome = match (!refused).then(|| self.book.validate(&decision.request, &decision.result, device, at)) {
-                    Some(Ok(Some(accepted))) => {
+                    Some(Ok(Some(mut accepted))) => {
+                        mixdog_core_base::approvals::word_as_the_persons(&mut accepted.resolution);
                         self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
                         Ok(true)
                     }

@@ -32,11 +32,11 @@ pub(crate) struct Reclaim {
 pub(crate) struct PromptState {
     facts: Mutex<Facts>,
     /// A test's stop stands here, between its reads and its decision, until the test lets it go.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) pause: Mutex<Option<(std::sync::Arc<tokio::sync::Notify>, std::sync::Arc<tokio::sync::Notify>)>>,
     /// Whether the facts could be taken (so an output commit could land) between a stop's decision and its record: `Some(false)` when the
     /// stop holds them across both, as Node's `abort` has no await between (`abort.mjs:131-205`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) between: Mutex<Option<bool>>,
 }
 
@@ -76,15 +76,15 @@ impl PromptState {
     pub fn new(facts: Facts) -> Self {
         Self {
             facts: Mutex::new(facts),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             pause: Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             between: Mutex::new(None),
         }
     }
 
     /// `(reached, go)`: the stop signals `reached` when it stands between its reads and its decision, and waits for `go`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) async fn paused(&self) {
         let held = self.pause.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some((reached, go)) = held {
@@ -121,7 +121,7 @@ impl PromptState {
     pub fn decide_and_record(&self, restore_prompt: Option<bool>, canceller: &str, steering: bool, unreadable: bool) -> Decision {
         let mut facts = self.facts();
         let decision = decide(&facts, restore_prompt, canceller, steering, unreadable);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.between.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace(self.facts.try_lock().is_ok());
         // Node hands back at once and empties what it handed (`restorable = false`, `requeueEntries = []`, `abort.mjs:200-201`), so a
         // second Stop before the turn ended finds nothing; the core hands back at the turn's end, so the first's record stays.
