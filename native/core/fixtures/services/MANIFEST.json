@@ -133,9 +133,9 @@
       "sha256": "3eb053ab7c6f68635c75ba38a72b2a8597a4949089e76d0d1523545d7206f7a1"
     },
     {
-      "bytes": 62549,
+      "bytes": 62241,
       "path": "voice-installer-twin.json",
-      "sha256": "46f1493de2671be6dde821bd6c603c287d4b67a298628ed0df2662c999bd1d29"
+      "sha256": "53e1eedbab7e659680ea02698578204b537284df51f6c455af5bc0c37d9e6ddc"
     },
     {
       "bytes": 2876,
@@ -154,22 +154,22 @@
     }
   ],
   "product": {
-    "appsSha256": "1facc8bfdb98c5a49136a8474c0f9bd6b10874f9a9f8f8147afe15e60f7d0fcd",
-    "commit": null,
+    "appsSha256": "1884823d69e6c73aaa60755f503c938850a0ad5eac8580f3f3a62a7edf720eef",
+    "commit": "f79c66a2334d0361e55035d6084726e9cb8f488c",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9248,
+    "files": 9413,
     "refComparison": {
-      "closestCommit": "642b397e5d8d2e25ad197956f6b5ca11cc28ed72",
+      "closestCommit": "f79c66a2334d0361e55035d6084726e9cb8f488c",
       "commitFilesMissingFromTree": 0,
-      "exact": false,
-      "filesDifferingFromCommit": 3
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "srcSha256": "266d3148c67a9ed3ac4a88e0470cf533b9ea37b80bc67388dc4ebb0cf2d8ee3f",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 3319656
+  "totalBytes": 3319348
 }

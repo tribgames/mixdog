@@ -19,11 +19,11 @@ const SRC = 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.m
 const AUTH = { type: 'openai-oauth', access_token: 'fixture-access-token', account_id: 'acct-fixture' };
 // The provider's real client dials a server that refuses the upgrade with a non-101 response (status, headers, body chunks as the server writes them);
 // attachHandshakeFailureHandlers (through acquireWebSocket) settles the connect with the error, recorded whole.
-const handshake = async (refusal) => {
+const handshake = async (refusal, auth = AUTH) => {
   world.reset({ refuse: () => refusal });
   let outcome;
   try {
-    outcome = { value: await acquireWebSocket({ auth: AUTH, poolKey: '', cacheKey: 'ws-handshake-test', forceFresh: true }) };
+    outcome = { value: await acquireWebSocket({ auth, poolKey: '', cacheKey: 'ws-handshake-test', forceFresh: true }) };
   } catch (error) {
     outcome = { error };
   }
@@ -35,4 +35,28 @@ const refusal429 = { status: 429, headers: [['retry-after', '30'], ['x-request-i
 await rec.run('unexpected-response-preserves-status-headers-body', `${SRC}:28`, { refusal: refusal429 }, () => handshake(refusal429));
 const refusal403 = { status: 403, headers: [['server', 'cloudflare']], bodyChunks: ['<html>blocked</html>'] };
 await rec.run('non-json-body-keeps-status-and-headers', `${SRC}:46`, { refusal: refusal403 }, () => handshake(refusal403));
+// A rejection that echoes the credential the upgrade carried inside ordinary message text: the error text and the kept body carry it redacted
+// (node-patches/node-fix-scrub-echoed-credential.patch).
+const refusalEcho = { status: 400, headers: [['x-request-id', 'req_2']], bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: 'the credential fixture-access-token was refused for this account' } })] };
+await rec.run('unexpected-response-redacts-the-credential-it-echoes', `${SRC}:28`, { refusal: refusalEcho }, () => handshake(refusalEcho));
+// The same rejection for a token with characters an encoder rewrites, repeated in the spellings a server uses (percent-encoded as in a query
+// string, URL-safe base64, as sent), in the body and in a header: the error text, the kept body and the kept headers carry each redacted
+// (node-patches/node-fix-scrub-echoed-credential.patch).
+const ODD_TOKEN = 'fixture/odd+token&1';
+const spellings = `${encodeURIComponent(ODD_TOKEN)}, ${Buffer.from(ODD_TOKEN).toString('base64url')} and ${ODD_TOKEN}`;
+const refusalForms = {
+  status: 400,
+  headers: [['x-request-id', 'req_3'], ['x-echo', `token ${spellings}`]],
+  bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: `the credential ${spellings} was refused for this account` } })],
+};
+await rec.run('unexpected-response-redacts-the-credential-in-each-spelling-it-echoes', `${SRC}:28`, { refusal: refusalForms, accessToken: ODD_TOKEN }, () => handshake(refusalForms, { ...AUTH, access_token: ODD_TOKEN }));
+// A token shorter than eight bytes (review 1122y, item 2), echoed in the refusal's headers and body: redacted as a whole token, never as a part
+// of a longer word (node-patches/node-fix-scrub-canonical-credential.patch).
+const SHORT_TOKEN = 'abc1234';
+const refusalShort = {
+  status: 401,
+  headers: [['x-request-id', 'req_4'], ['www-authenticate', `Bearer ${SHORT_TOKEN}`], ['x-echo', `token ${SHORT_TOKEN} for my-${SHORT_TOKEN}x`]],
+  bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: `the credential ${SHORT_TOKEN} was refused (${SHORT_TOKEN}5 is another)` } })],
+};
+await rec.run('unexpected-response-redacts-a-short-credential-as-a-whole-token', `${SRC}:28`, { refusal: refusalShort, accessToken: SHORT_TOKEN }, () => handshake(refusalShort, { ...AUTH, access_token: SHORT_TOKEN }));
 await rec.finish();

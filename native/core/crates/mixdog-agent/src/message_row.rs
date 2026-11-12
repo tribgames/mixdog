@@ -215,7 +215,7 @@ fn content_of(content: Option<&Value>) -> Result<Content, String> {
     }
 }
 
-fn part_row(part: &ContentPart) -> Value {
+pub fn part_row(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, reference) => {
             let mut row = json!({ "type": "text", "text": text });
@@ -574,6 +574,17 @@ mod tests {
         let session: Value = serde_json::from_str(&text).ok()?;
         let rows = session.get("messages")?.as_array()?.clone();
         Some((text, rows))
+    }
+
+    /// The restart recovery's stored mark (`meta.restartRecovery`, FORMAT.md §5.2) comes back byte for byte, and no field of the
+    /// provider's message carries it.
+    #[test]
+    fn the_recovery_mark_round_trips_and_stays_off_the_wire() {
+        let row = json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "sentRequestTail": true, "restartRecovery": true } });
+        let message = message_of(&row).unwrap();
+        assert_eq!(row_of(&message), row);
+        let sent = format!("{:?}", message.wire());
+        assert!(!sent.contains("restartRecovery"), "{sent}");
     }
 
     #[test]

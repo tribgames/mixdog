@@ -96,7 +96,8 @@ pub struct McpServerConfig {
     pub max_queue: usize,
     pub min_owner_queue: usize,
     pub wait_timeout: Duration,
-    pub startup_timeout: Duration,
+    /// Bound of the connect and the first tool listing. `None`: disabled, the connect may never settle.
+    pub startup_timeout: Option<Duration>,
     /// Idle bound of one call, reset by each progress notification. `None`: disabled.
     pub call_timeout: Option<Duration>,
     /// Hard ceiling of a call that keeps reporting progress. `None`: disabled.
@@ -412,6 +413,48 @@ fn duration_ms(entry: &Value, keys: &[&str], seconds_keys: &[&str]) -> Option<Op
     None
 }
 
+/// Node's largest timer (`MCP_MAX_TIMER_MS`).
+const MAX_TIMER_MS: f64 = 2_147_483_647.0;
+
+/// `resolveMcpStartupTimeoutMs`: the entry's milliseconds, else its seconds, else the environment's
+/// `MIXDOG_MCP_STARTUP_TIMEOUT_MS`, else the default. The first of them that is set decides alone: `0`, `off`,
+/// `none` or `false` in it disables the budget (`None`), and anything unusable in it is the default.
+fn startup_timeout(entry: &Value, env: &Env) -> Option<Duration> {
+    // `a ?? b`, then `!= null && !== ''`.
+    let set = |a: &str, b: &str| {
+        entry.get(a).filter(|v| !v.is_null()).or_else(|| entry.get(b)).filter(|v| !v.is_null() && v.as_str() != Some("")).cloned()
+    };
+    let (raw, scale) = if let Some(ms) = set("startupTimeoutMs", "startup_timeout_ms") {
+        (ms, 1.0)
+    } else if let Some(seconds) = set("startupTimeoutSec", "startup_timeout_sec") {
+        (seconds, 1000.0)
+    } else if let Some(text) = env.get("MIXDOG_MCP_STARTUP_TIMEOUT_MS").filter(|text| !text.is_empty()) {
+        (Value::String(text.clone()), 1.0)
+    } else {
+        return Some(DEFAULT_STARTUP_TIMEOUT);
+    };
+    let number = match &raw {
+        Value::Number(n) if n.as_f64() == Some(0.0) => return None,
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => {
+            let text = js_trim(s);
+            if matches!(text.to_ascii_lowercase().as_str(), "0" | "off" | "none" | "false") {
+                return None;
+            }
+            string_to_number(text)
+        }
+        // `Number(true)` is 1 and `Number(false)` 0, which is not the literal 0 that disables.
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        _ => f64::NAN,
+    };
+    let ms = number * scale;
+    if !ms.is_finite() || ms <= 0.0 {
+        return Some(DEFAULT_STARTUP_TIMEOUT);
+    }
+    // A positive value that rounds to no millisecond is Node's 0: disabled.
+    Some(ms.round().min(MAX_TIMER_MS) as u64).filter(|ms| *ms > 0).map(Duration::from_millis)
+}
+
 /// `Some(None)`: explicitly disabled (`0`, `off`, `none`, `false`); `Some(Some(n))`: a positive
 /// number; `None`: absent or unusable.
 fn number_or_off(value: &Value) -> Option<Option<u64>> {
@@ -521,13 +564,7 @@ impl McpServerConfig {
                 .map(|p| p.map(Duration::from_millis))
         })
         .unwrap_or(Some(DEFAULT_CALL_TIMEOUT));
-        let startup_timeout = duration_ms(
-            entry,
-            &["startupTimeoutMs", "startup_timeout_ms"],
-            &["startupTimeoutSec", "startup_timeout_sec"],
-        )
-        .flatten()
-        .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
+        let startup_timeout = startup_timeout(entry, env);
         let max_concurrency = positive(entry.get("maxConcurrency").or_else(|| entry.get("max_concurrency")))
             .or_else(|| {
                 env.get("MIXDOG_MCP_MAX_INFLIGHT")
@@ -638,7 +675,33 @@ mod tests {
         let cfg = McpServerConfig::from_entry("s", &json!({"command": "c", "timeoutMs": 0}), &Env::new()).unwrap();
         assert_eq!(cfg.call_timeout, None);
         let cfg = McpServerConfig::from_entry("s", &json!({"command": "c", "startup_timeout_sec": 5}), &Env::new()).unwrap();
-        assert_eq!(cfg.startup_timeout, Duration::from_secs(5));
+        assert_eq!(cfg.startup_timeout, Some(Duration::from_secs(5)));
+    }
+
+    /// `resolveMcpStartupTimeoutMs` (`client-config.mjs`), source by source.
+    #[test]
+    fn the_startup_budget_is_the_first_source_that_is_set_and_zero_or_off_in_it_disables_it() {
+        let of = |entry: Value, env: &[(&str, &str)]| {
+            let env: Env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+            let mut entry = entry;
+            entry["command"] = json!("c");
+            McpServerConfig::from_entry("s", &entry, &env).unwrap().startup_timeout
+        };
+        let global = [("MIXDOG_MCP_STARTUP_TIMEOUT_MS", "1500")];
+        assert_eq!(of(json!({}), &[]), Some(DEFAULT_STARTUP_TIMEOUT));
+        assert_eq!(of(json!({}), &global), Some(Duration::from_millis(1500)));
+        assert_eq!(of(json!({}), &[("MIXDOG_MCP_STARTUP_TIMEOUT_MS", "off")]), None);
+        assert_eq!(of(json!({"startupTimeoutMs": 0}), &global), None);
+        assert_eq!(of(json!({"startup_timeout_sec": "off"}), &global), None);
+        assert_eq!(of(json!({"startupTimeoutSec": 0.5}), &global), Some(Duration::from_millis(500)));
+        assert_eq!(of(json!({"startupTimeoutMs": 0.4}), &global), None, "it rounds to no millisecond, which disables it");
+        assert_eq!(of(json!({"startupTimeoutMs": 0.5}), &global), Some(Duration::from_millis(1)));
+        assert_eq!(of(json!({"startupTimeoutMs": 250, "startupTimeoutSec": 9}), &global), Some(Duration::from_millis(250)));
+        assert_eq!(of(json!({"startupTimeoutMs": "", "startupTimeoutSec": 2}), &global), Some(Duration::from_secs(2)));
+        // The source that is set decides alone: an unusable value in it is the default, not the next source.
+        assert_eq!(of(json!({"startupTimeoutMs": "soon", "startupTimeoutSec": 2}), &global), Some(DEFAULT_STARTUP_TIMEOUT));
+        assert_eq!(of(json!({"startupTimeoutMs": -5}), &global), Some(DEFAULT_STARTUP_TIMEOUT));
+        assert_eq!(of(json!({"startupTimeoutMs": false}), &global), Some(DEFAULT_STARTUP_TIMEOUT));
     }
 
     #[test]

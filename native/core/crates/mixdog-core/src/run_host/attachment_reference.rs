@@ -10,7 +10,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
-use mixdog_agent::compact::fresh::AttachmentSeam;
+use mixdog_agent::compact::fresh::{AttachmentSeam, Preflight};
+use mixdog_agent::compact::text_utils::StoredText;
+use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
+use mixdog_protocol::message_class::user_text::attachment_text;
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource, Role};
 
@@ -151,22 +154,77 @@ pub fn is_referencable(part: &ContentPart) -> bool {
     }
 }
 
+/// `ATTACHMENT_INLINE_SHARE`: inline attachments may take at most this share of the model window,
+/// summed over the transcript.
+const ATTACHMENT_INLINE_SHARE: f64 = 0.25;
+/// `PDF_TEXT_MAX_BYTES / 4`: what a PDF costs at most when it lowers to text.
+const PDF_TEXT_MAX_TOKENS: u64 = 256 * 1024 / 4;
+
+fn is_image_part(part: &ContentPart) -> bool {
+    match part {
+        ContentPart::Image(_) => true,
+        ContentPart::File { mime_type, .. } => is_image_mime(mime_type),
+        _ => false,
+    }
+}
+
 /// The compaction seam over the attachment store.
 pub struct ReferencedMedia {
     files: Arc<dyn AttachmentFiles>,
     facts: Arc<dyn AttachmentFacts>,
     meter: Arc<dyn MediaMeter>,
+    /// The store's bytes, for the summarizer's stored text attachments.
+    reader: Option<Arc<dyn AttachmentReader>>,
 }
 
 impl ReferencedMedia {
     pub fn new(files: Arc<dyn AttachmentFiles>, facts: Arc<dyn AttachmentFacts>, meter: Arc<dyn MediaMeter>) -> Self {
-        Self { files, facts, meter }
+        Self { files, facts, meter, reader: None }
+    }
+
+    pub fn with_reader(self, reader: Arc<dyn AttachmentReader>) -> Self {
+        Self { reader: Some(reader), ..self }
     }
 
     /// `mediaPartToReference`: the reference text part standing for one media part, or `None` when
     /// the part cannot travel by reference (a URL image, a non-PDF file, a store failure).
     pub async fn reference_part(&self, part: &ContentPart) -> Option<ContentPart> {
         self.reference_part_with(part, None).await
+    }
+
+    /// `messageAttachmentTokens`: what a user message's own referencable media cost inline.
+    fn inline_tokens(&self, message: &AgentMessage, native_pdf: bool) -> u64 {
+        let Content::Parts(parts) = &message.message.content else { return 0 };
+        if message.role() != Role::User {
+            return 0;
+        }
+        parts
+            .iter()
+            .filter(|p| is_referencable(p))
+            .map(|p| {
+                let tokens = self.meter.part(p).tokens;
+                if native_pdf || is_image_part(p) { tokens } else { tokens.min(PDF_TEXT_MAX_TOKENS) }
+            })
+            .sum()
+    }
+
+    /// `carriesTextlessScan`: a stored PDF with no text layer lowers to empty text for a provider
+    /// that reads PDFs as text, so inline it says nothing.
+    async fn carries_textless_scan(&self, message: &AgentMessage, native_pdf: bool) -> bool {
+        let Content::Parts(parts) = &message.message.content else { return false };
+        if native_pdf || message.role() != Role::User {
+            return false;
+        }
+        for part in parts.iter().filter(|p| is_referencable(p) && !is_image_part(p)) {
+            if let ContentPart::File { source: BinarySource::AttachmentRef(r), .. } = part
+                && let Some(facts) = self.facts.facts(r).await
+                && facts.page_count.unwrap_or(0) > 0
+                && facts.text_pages == Some(0)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// [`Self::reference_part`] with the message's own attachment record of the part (its name as
@@ -237,6 +295,18 @@ impl ReferencedMedia {
 
 #[async_trait]
 impl AttachmentSeam for ReferencedMedia {
+    async fn stored_text(&self, part: &ContentPart) -> Result<Option<StoredText>, String> {
+        let ContentPart::File { source: BinarySource::AttachmentRef(reference), filename, text: Some(text), .. } = part else {
+            return Ok(None);
+        };
+        let Some(reader) = &self.reader else { return Ok(None) };
+        match reader.read(reference).await {
+            Ok(bytes) => Ok(Some(StoredText::Text(attachment_text(&String::from_utf8_lossy(&bytes), text.kind.as_deref(), filename.as_deref())))),
+            Err(ReadError::Permanent) => Ok(Some(StoredText::Gone)),
+            Err(ReadError::Other(message)) => Err(message),
+        }
+    }
+
     /// `referenceMessageMedia`: a user message with every referencable media part of its own
     /// content replaced by its reference text (other roles and tool results stay as they are).
     async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
@@ -269,6 +339,44 @@ impl AttachmentSeam for ReferencedMedia {
     /// `messageHasReferencableMedia`.
     fn has_referencable_media(&self, message: &AgentMessage) -> bool {
         matches!(&message.message.content, Content::Parts(parts) if parts.iter().any(is_referencable))
+    }
+
+    async fn preflight(&self, messages: &[AgentMessage], context_window: u64, native_pdf: bool) -> Option<Preflight> {
+        let budget = (context_window as f64 * ATTACHMENT_INLINE_SHARE).floor() as u64;
+        if budget == 0 {
+            return None;
+        }
+        let mut next = messages.to_vec();
+        // (index, inline tokens) of each message carrying attachments, oldest first.
+        let mut carriers: Vec<(usize, u64)> =
+            next.iter().enumerate().map(|(i, m)| (i, self.inline_tokens(m, native_pdf))).filter(|c| c.1 > 0).collect();
+        let before: u64 = carriers.iter().map(|c| c.1).sum();
+        let mut inline = before;
+        let mut referenced = 0;
+        for pass in [true, false] {
+            for carrier in &mut carriers {
+                let take = if pass {
+                    carrier.1 > budget || self.carries_textless_scan(&next[carrier.0], native_pdf).await
+                } else {
+                    if inline <= budget {
+                        break;
+                    }
+                    carrier.1 > 0
+                };
+                if !take {
+                    continue;
+                }
+                let rewritten = self.reference_media(&next[carrier.0]).await;
+                if rewritten == next[carrier.0] {
+                    continue;
+                }
+                inline = inline.saturating_sub(carrier.1.saturating_sub(self.inline_tokens(&rewritten, native_pdf)));
+                next[carrier.0] = rewritten;
+                carrier.1 = 0;
+                referenced += 1;
+            }
+        }
+        (referenced > 0).then_some(Preflight { messages: next, referenced_messages: referenced, inline_tokens_before: before, budget_tokens: budget })
     }
 
     /// `messageAttachmentBreakdown(message).tokens`: the image and document allowances.
@@ -470,6 +578,36 @@ mod tests {
         let s = seam(&golden);
         let part = ContentPart::File { source: BinarySource::AttachmentRef("bad".into()), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None };
         assert_eq!(s.reference_part(&part).await, None);
+    }
+
+    /// The summarizer's stored text comes from the store's bytes, worded as a request words it.
+    #[tokio::test]
+    async fn stored_text_reads_the_blob_and_tells_gone_from_transient() {
+        struct Reader;
+        #[async_trait]
+        impl AttachmentReader for Reader {
+            async fn read(&self, reference: &str) -> Result<Vec<u8>, ReadError> {
+                match reference {
+                    "pasted" => Ok(b"the pasted words".to_vec()),
+                    "gone" => Err(ReadError::Permanent),
+                    _ => Err(ReadError::Other("EBUSY".into())),
+                }
+            }
+        }
+        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        let s = seam(&golden).with_reader(Arc::new(Reader));
+        let part = |r: &str| ContentPart::File {
+            source: BinarySource::AttachmentRef(r.into()),
+            mime_type: "text/plain".into(),
+            filename: None,
+            text: Some(mixdog_core_api::domain::provider::TextAttachment { kind: None }),
+        };
+        let Ok(Some(StoredText::Text(text))) = s.stored_text(&part("pasted")).await else { panic!("text") };
+        assert_eq!(text, attachment_text("the pasted words", None, None));
+        assert!(matches!(s.stored_text(&part("gone")).await, Ok(Some(StoredText::Gone))));
+        assert_eq!(s.stored_text(&part("busy")).await.err().as_deref(), Some("EBUSY"));
+        let pdf = ContentPart::File { source: BinarySource::AttachmentRef("pasted".into()), mime_type: "application/pdf".into(), filename: None, text: None };
+        assert!(matches!(s.stored_text(&pdf).await, Ok(None)));
     }
 
     #[tokio::test]

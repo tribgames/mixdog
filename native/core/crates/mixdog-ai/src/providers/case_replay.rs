@@ -116,7 +116,7 @@ pub(crate) fn request_record(request: &WireRequest, writer: Writer) -> Value {
     let headers: Vec<Value> = lines
         .map(|line| {
             let (name, value) = line.split_once(": ").unwrap();
-            json!([name, host_header(name, value.to_owned())])
+            json!([name.to_ascii_lowercase(), host_header(name, value.to_owned())])
         })
         .collect();
     json!({"method": method, "origin": product.origin().ascii_serialization(), "path": path, "headers": headers,
@@ -130,7 +130,7 @@ pub(crate) fn recorded_requests(case: &Value) -> Vec<Value> {
         .into_iter()
         .flatten()
         .map(|r| {
-            // The SDK writes its names capitalised (`User-Agent`); the product's client writes them in lower case, as every
+            // The SDK writes its names capitalised (`User-Agent`); the product's client writes the SDK's spelling too (as the Anthropic head does), so both are compared in lower case, as every
             // other wire replay compares them (a header name is case-insensitive, its place and value are compared).
             let headers: Vec<Value> = r["headers"].as_array().unwrap().iter().map(|h| json!([h[0].as_str().unwrap().to_ascii_lowercase(), h[1]])).collect();
             json!({"method": r["method"], "origin": r["origin"], "path": r["path"], "headers": headers, "body": r["body"]})

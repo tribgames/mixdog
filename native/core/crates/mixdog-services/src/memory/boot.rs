@@ -192,7 +192,7 @@ pub enum PgRuntimeSource {
 }
 
 /// What an opening produced: the running cluster and the two schemas' open handles.
-struct Opened {
+pub(crate) struct Opened {
     cluster: PgCluster,
     memory_db: Db,
     search_db: Db,
@@ -214,6 +214,12 @@ struct Opening {
     flight: Option<(u64, Flight)>,
     /// Openings launched so far: the number of the next one.
     launched: u64,
+    /// Uses of the opening in flight that are still waiting for it, and whether one joined that cannot withdraw (`createSharedAbortable`'s `waiting` and
+    /// `pinned`, `abort-race.mjs:79-80`). Reset when an opening launches.
+    waiters: usize,
+    pinned: bool,
+    /// Ends the opening in flight: cancelled when its last waiter withdraws and none is pinned (`abort-race.mjs:115-123`), or with the stack.
+    token: Option<CancellationToken>,
     /// When the latest opening was launched: a request's wait for the runtime is bounded from it (Node's from its spawn of the memory child).
     since: Option<tokio::time::Instant>,
 }
@@ -242,6 +248,28 @@ impl Drop for Settled {
         let mut opening = self.stack.opening.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if opening.flight.as_ref().is_some_and(|(number, _)| *number == self.number) {
             opening.flight = None;
+        }
+    }
+}
+
+/// One use waiting for the opening in flight. Dropped before the opening ends, the use has withdrawn: the opening is cancelled when no use is left
+/// waiting and none cannot withdraw (`createSharedAbortable`'s `onAbort`, `abort-race.mjs:111-123`). Dropped after the opening ended, it does nothing.
+struct Waiting<'a> {
+    stack: &'a MemoryStack,
+    number: u64,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let mut opening = self.stack.opening.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !opening.flight.as_ref().is_some_and(|(number, _)| *number == self.number) {
+            return;
+        }
+        opening.waiters = opening.waiters.saturating_sub(1);
+        if opening.waiters == 0 && !opening.pinned {
+            if let Some(token) = &opening.token {
+                token.cancel();
+            }
         }
     }
 }
@@ -443,7 +471,12 @@ impl MemoryStack {
     /// The opened database, opening it first when nobody has: the first use pays for the runtime install, `initdb`
     /// and the postmaster. A failed opening is retried by the next use (Node's lazy singleton).
     async fn opened(&self) -> Result<&Opened> {
-        let flight = {
+        self.opened_as(false).await
+    }
+
+    /// [`Self::opened`] for a caller that cannot withdraw: while it waits, the opening goes on whoever else leaves (`join` without a signal).
+    pub(crate) async fn opened_as(&self, pinned: bool) -> Result<&Opened> {
+        let (flight, _waiting) = {
             let mut opening = self.opening.lock().expect("opening");
             // Node refuses before its fast path and before joining the shared ensure (`ensurePgInstance`, `supervisor.mjs:647-665`).
             if opening.stopped {
@@ -452,17 +485,24 @@ impl MemoryStack {
             if let Some(opened) = self.opened.get() {
                 return Ok(opened);
             }
-            match &opening.flight {
-                Some((_, flight)) => flight.clone(),
+            let (number, flight) = match &opening.flight {
+                Some((number, flight)) => (*number, flight.clone()),
                 None => {
                     opening.launched += 1;
                     let number = opening.launched;
-                    let flight = self.launch(number)?;
+                    let token = self.cancel.child_token();
+                    let flight = self.launch(number, token.clone())?;
                     opening.since = Some(tokio::time::Instant::now());
                     opening.flight = Some((number, flight.clone()));
-                    flight
+                    opening.waiters = 0;
+                    opening.pinned = false;
+                    opening.token = Some(token);
+                    (number, flight)
                 }
-            }
+            };
+            opening.pinned |= pinned;
+            opening.waiters += 1;
+            (flight, Waiting { stack: self, number })
         };
         // A failed opening's text is every waiting use's error.
         flight.await.map_err(MemoryError::Rejected)?;
@@ -485,13 +525,21 @@ impl MemoryStack {
         self.opening.lock().expect("opening").stop_running
     }
 
+    /// The opening in flight, as a wait for its end (a test waits for the opening to settle before the next use).
+    #[cfg(test)]
+    pub(crate) fn settled(&self) -> Option<BoxFuture<'static, ()>> {
+        use futures::FutureExt as _;
+        let flight = self.opening.lock().expect("opening").flight.as_ref().map(|(_, flight)| flight.clone())?;
+        Some(async move { let _ = flight.await; }.boxed())
+    }
+
     /// Starts the opening as a task of its own: it runs to its end whatever its callers do (Node's shared promise does), and `stop` cancels and joins it.
-    fn launch(&self, number: u64) -> Result<Flight> {
+    fn launch(&self, number: u64, cancel: CancellationToken) -> Result<Flight> {
         use futures::FutureExt as _;
         let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
         let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move {
             let _settled = Settled { stack: me.clone(), number };
-            me.run_opening().await
+            me.run_opening(&cancel).await
         });
         Ok(async move { task.await.unwrap_or_else(|error| Err(format!("the memory opening ended: {error}"))) }.boxed().shared())
     }
@@ -503,8 +551,8 @@ impl MemoryStack {
 
     /// The opening task: opens, then publishes the result and starts the background work, unless a stop began meanwhile; then it releases what it opened
     /// itself, so a cluster an abandoned opening started is never left without an owner.
-    async fn run_opening(self: Arc<Self>) -> std::result::Result<(), String> {
-        let outcome = self.open().await;
+    async fn run_opening(self: Arc<Self>, cancel: &CancellationToken) -> std::result::Result<(), String> {
+        let outcome = self.open(cancel).await;
         let late = {
             let opening = self.opening.lock().expect("opening");
             match outcome {
@@ -544,22 +592,22 @@ impl MemoryStack {
         assert!(self.opened.set(Opened { cluster, memory_db, search_db }).is_ok(), "one opening");
     }
 
-    async fn open(&self) -> Result<Opened> {
+    async fn open(&self, cancel: &CancellationToken) -> Result<Opened> {
         // A stop in the same turn as the use cancels the acquisition before it starts (Node's queued `initialize` sees the aborted signal first,
         // `memory-service-lifecycle.mjs:30`).
-        if self.cancel.is_cancelled() {
+        if cancel.is_cancelled() {
             return Err(MemoryError::Rejected(self.refusal().to_owned()));
         }
         let runtime_dir = match &self.source {
             PgRuntimeSource::Dir(dir) => dir.clone(),
-            PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
+            PgRuntimeSource::Install(install) => install(cancel.clone()).await?,
         };
-        let dims = self.until_stopped(resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
-        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel, &self.start, &|| self.admit_start()).await?;
+        let dims = self.until_cancelled(cancel, resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
+        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), cancel, &self.start, &|| self.admit_start()).await?;
         // The postmaster is up: a failure from here to the end of the opening stops it (Node's boot error goes through `shutdown`, whose memory stop ends
         // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
         let (memory_db, search_db) = release_on_failure(
-            self.until_stopped(async {
+            self.until_cancelled(cancel, async {
                 let memory_db = Db::open(&cluster, Schema::Memory).await?;
                 ensure_memory_schema(&memory_db, dims, &self.identity).await?;
                 // Root vectors made under the older root text are replaced by the paced sweep;
@@ -581,11 +629,12 @@ impl MemoryStack {
         Ok(Opened { cluster, memory_db, search_db })
     }
 
-    /// `work` unless a stop comes first: the schema steps and the dimension lookup have no time limit of their own, so a stop must be able to end them.
-    async fn until_stopped<T>(&self, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+    /// `work` unless its opening is cancelled first (a stop, or the last waiter's withdrawal): the schema steps and the dimension lookup have no time
+    /// limit of their own, so a cancellation must be able to end them.
+    async fn until_cancelled<T>(&self, cancel: &CancellationToken, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
         tokio::select! {
             biased;
-            () = self.cancel.cancelled() => Err(MemoryError::Rejected(self.refusal().to_owned())),
+            () = cancel.cancelled() => Err(MemoryError::Rejected(self.refusal().to_owned())),
             done = work => done,
         }
     }
@@ -632,7 +681,7 @@ impl MemoryStack {
         let stack = self.clone();
         mixdog_rt::spawn("services.memory.open-existing", TaskClass::Work, async move {
             if matches!(fsio::exists(stack.lane, &stack.data_dir.join("pgdata").join("PG_VERSION")).await, Ok(true))
-                && let Err(error) = stack.opened().await
+                && let Err(error) = stack.opened_as(true).await
             {
                 tracing::warn!(error = %error.message(), "postgres background start failed");
             }

@@ -3,6 +3,7 @@
 // is recorded; the first-chunk window runs the product timer on the virtual clock (the 25 ms step is an input and the clock trace is recorded). The input of every case is the scripted Response itself (status, headers, body bytes as delivered). The recorded `response`,
 // `error` (code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, ...) and callbacks are what a Rust decoder must equal.
 //   node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a>
+import net from 'node:net';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -10,6 +11,10 @@ const rec = await startRecording({
   set: 'provider-gemini-stream',
   entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test\'s silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.',
   compare: 'Serve each case\'s `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.',
+  exclusions: [
+    '`response.candidates[].index` is not compared: the aggregation\'s own sort key (gemini-stream.mjs:159, :196); no reader of the aggregated response reads it (`[.?]index\\b` over gemini.mjs, gemini-response.mjs, antigravity-response.mjs, antigravity-stream.mjs, gemini-sdk-request.mjs finds none)',
+    '`response.candidates[].content.role` is not compared: the aggregation writes it (gemini-stream.mjs:176) and the readers of the aggregated response read only `content.parts` (gemini-response.mjs:23, antigravity-response.mjs:53); mergeGeminiHops (gemini.mjs:133) copies it into a merged response read the same way',
+  ],
   replay: "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
 });
 const { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } = await rec.P('agent/orchestrator/providers/gemini-stream.mjs');
@@ -87,4 +92,44 @@ await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:197`,
   await clock.advance(25, { what: 'first-chunk window (25 ms)' });
   return pending;
 });
+// The idle phase of the same watchdogs (gemini-rest-stream/watchdogs.mjs:55-61, no test of its own): one payload with visible text, then the
+// endpoint holds the response open and writes nothing more; the idle timer, re-armed by the payload, runs on the virtual clock and the
+// recorder advances it by exactly PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS (300000 ms with the scrubbed environment) once it is re-armed.
+const idleServed = { status: 200, contentType: 'text/event-stream', chunks: [frames([cand([{ text: 'partial' }])])], hold: true };
+await rec.run('idle-window-after-a-payload-names-phase', 'src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs:55', { served: idleServed, options: { label: 'fixture' }, advanceMs: 300000 }, async ({ net, clock }) => {
+  net.reply = () => idleServed;
+  const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const seen = { progress: [], text: [] };
+  const pending = consumeGeminiRestStreamResponse(response, { label: 'fixture', onStreamDelta: (kind) => seen.progress.push(kind), onTextDelta: (delta) => seen.text.push(delta) }).then((value) => ({ response: value }), (error) => ({ error }));
+  await clock.advance(0, { until: () => seen.progress.length === 1, what: 'the payload decoded and the idle window re-armed' });
+  await clock.advance(300000, { what: 'idle window (300000 ms)' });
+  return { ...(await pending), ...seen };
+});
+// What re-arms the idle window (gemini-stream.mjs:586-591): a read that decoded a payload, never bytes that decode none. One payload, then
+// the endpoint holds the response open; after a first recorded step the endpoint writes a second chunk on the held response (`later`): a
+// payload re-arms the window (it fires a full window after that payload), a keep-alive comment line does not (it fires a full window after
+// the first). Each later chunk is written once the step before it was taken and the product has consumed it before the next step.
+const serverSocket = (record) => process._getActiveHandles().find((h) => h instanceof net.Socket && h.remotePort === record.connectionPort && h._httpMessage);
+const writeLater = (record, chunk) => new Promise((resolve, reject) => serverSocket(record)._httpMessage.write(chunk, (error) => (error ? reject(error) : resolve())));
+for (const [id, second, rest, decoded] of [
+  ['idle-window-rearmed-by-each-payload', frames([cand([{ text: 'two' }])]), 300000, 2],
+  ['idle-window-not-rearmed-by-a-keepalive', ': keepalive\n\n', 100000, 1],
+]) {
+  const served = { status: 200, contentType: 'text/event-stream', chunks: [frames([cand([{ text: 'one' }])])], hold: true, later: [{ afterStep: 0, chunk: second }] };
+  await rec.run(id, 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs:591', { served, options: { label: 'fixture' } }, async ({ net, clock }) => {
+    net.reply = () => served;
+    const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const seen = { progress: [], text: [] };
+    const pending = consumeGeminiRestStreamResponse(response, { label: 'fixture', onStreamDelta: (kind) => seen.progress.push(kind), onTextDelta: (delta) => seen.text.push(delta) }).then((value) => ({ response: value }), (error) => ({ error }));
+    await clock.until(() => seen.progress.length === 1, 'the first payload decoded and the idle window re-armed');
+    await clock.advance(200000, { what: 'part of the idle window (200000 ms)' });
+    await writeLater(net.records[0], second);
+    // The product reads the written chunk: a payload is observed decoded; bytes that decode none are not observable, so two turns of the
+    // event loop let the client take them up.
+    if (decoded === 2) await clock.until(() => seen.progress.length === 2, 'the second payload decoded');
+    else for (let i = 0; i < 2; i++) await new Promise((resolve) => setImmediate(resolve));
+    await clock.advance(rest, { what: `the rest of the idle window (${rest} ms)` });
+    return { ...(await pending), ...seen };
+  });
+}
 await rec.finish();

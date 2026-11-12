@@ -20,6 +20,9 @@
 //! directory's sharded map, whose shard locks guard O(1) work only.
 
 mod actor;
+mod archived_read;
+#[cfg(test)]
+mod archived_read_tests;
 mod restore_hydrate;
 mod agent_host;
 pub mod agent_registry;
@@ -51,7 +54,7 @@ pub mod thread_context;
 pub mod tool_events;
 pub mod workspace_sight;
 pub mod gateway_routes;
-pub mod effort_prewarm;
+pub mod auto_effort_mode;
 mod directory;
 pub mod goal_lane;
 pub mod goal_reminder;
@@ -113,6 +116,8 @@ pub mod turn_warm;
 mod pending_read_tests;
 mod reads;
 mod routine_turn;
+pub use routine_turn::SendSettle;
+pub mod report_runtime;
 pub mod room_member;
 pub mod room_approval;
 pub mod approval_notification;
@@ -141,8 +146,14 @@ mod mark_journal;
 mod surface;
 pub mod terminal_host;
 mod turn_gate;
+pub mod turn_draft;
+#[cfg(test)]
+mod turn_durability_tests;
+#[cfg(test)]
+mod durability_invariant_tests;
 pub mod transcript;
 pub mod transcript_export;
+pub mod transcript_writer;
 pub mod turn_snapshot;
 pub mod turn_snapshots;
 #[cfg(test)]
@@ -172,7 +183,11 @@ mod agent_control_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 #[cfg(any(test, feature = "test-support"))]
+pub mod thread_settings_rig;
+#[cfg(any(test, feature = "test-support"))]
 pub mod tests;
+#[cfg(test)]
+mod recovery_kill_tests;
 #[cfg(test)]
 mod sensitive_record_tests;
 #[cfg(test)]
@@ -231,6 +246,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+pub use self::reads::transcript_row;
+pub use self::transcript::live_end;
 #[cfg(any(test, feature = "test-support"))]
 pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;
@@ -253,8 +270,9 @@ pub use self::seams::SessionMeta;
 pub use self::user_cwd::UserCwd;
 pub use self::store::MemoryCloseIngest;
 pub use self::seams::CommitRecord;
+pub use self::seams::CrashedRows;
+pub use self::seams::CrashedRun;
 pub use self::seams::EncodedRecord;
-pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
 pub use self::seams::EmptyToolSurface;
 pub use self::seams::DraftSettings;
@@ -294,6 +312,24 @@ pub use self::surface::RouteExclusions;
 use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::Devices;
 
+/// What a turn submission's attachments meet before the message is accepted (`session-turns.mjs` `submitAdmitted`:
+/// `preparePromptSubmissionForProvider`): `Err` is the text the submit is refused with (a PDF over 20 MiB, one the
+/// parser rejects, one over 100 pages for a route that sends PDFs natively). `provider` is the thread's route.
+#[async_trait::async_trait]
+pub trait PromptIntake: Send + Sync {
+    async fn admit(&self, thread: &mixdog_core_api::ids::ThreadId, provider: &str, params: &serde_json::Value) -> Result<(), String>;
+}
+
+/// An intake that takes every message (a composition without a document inspector).
+pub struct AdmitAll;
+
+#[async_trait::async_trait]
+impl PromptIntake for AdmitAll {
+    async fn admit(&self, _: &mixdog_core_api::ids::ThreadId, _: &str, _: &serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Everything a session needs from the rest of the core. Built once by the composition root;
 /// every thread shares the same `Arc`.
 pub struct SessionDeps {
@@ -324,13 +360,13 @@ pub struct SessionDeps {
     /// Released on user input or a deliverable notification, ending a passive `task wait` or
     /// shell hold of the thread as today.
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
-    /// Called on create and open, where today's `session-lifecycle.mjs` calls
-    /// `prewarmSessionAutoEffort`.
-    pub effort: Arc<dyn EffortPrewarm>,
     /// The session-search copy, written once per completed turn.
     pub search: Arc<dyn TurnIngest>,
     /// The memory ingest when a thread unloads or the core shuts down.
     pub memory: Arc<dyn CloseIngest>,
+    /// The conversation transcripts the memory watcher tails, which each turn appends to;
+    /// `None` writes none.
+    pub transcripts: Option<Arc<transcript_writer::TranscriptFiles>>,
     /// The sensitive values a running turn's session gains (its search rows are replaced).
     pub sensitive: Arc<dyn SensitiveMarks>,
     /// The cwd files under the data dir (`user-cwd.mjs`).
@@ -342,6 +378,8 @@ pub struct SessionDeps {
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
+    /// The turn intake of a message's attachments (`preparePromptSubmissionForProvider`), before anything is claimed.
+    pub prompt_intake: Arc<dyn PromptIntake>,
     pub feeds: Arc<dyn FeedFactory>,
     /// Every turn's workspace admission (`admitTurnWorkspace`), held until the turn settles.
     pub turn_admission: Arc<dyn worktree::TurnAdmission>,
@@ -449,12 +487,17 @@ pub struct SessionLanes {
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
 pub trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
-
     /// Resolves once this clock reads `at_ms` or later. The process clock waits on the core ticker; a virtual clock
     /// resolves when it is advanced past `at_ms`.
     fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
         let wait = std::time::Duration::from_millis(u64::try_from(at_ms.saturating_sub(self.now_ms())).unwrap_or(0));
         Box::pin(mixdog_rt::ticker::ticker().wait_until(std::time::Instant::now() + wait))
+    }
+
+    /// Resolves `after` from now: the session's debounce of its usage writes waits on it (Node's `setTimeout`), so a replay
+    /// holds it to the recording's timing.
+    fn sleep(&self, after: std::time::Duration) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(mixdog_rt::time::sleep(after))
     }
 }
 

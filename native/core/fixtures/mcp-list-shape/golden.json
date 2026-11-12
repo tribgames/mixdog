@@ -1,0 +1,2228 @@
+{
+  "domain": "mcp-list-shape",
+  "recorder": "benchmarks/rust-core/recorders/record-mcp-list-shape.mjs",
+  "cases": [
+    {
+      "name": "good shape, one page",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ]
+    },
+    {
+      "name": "good shape, two pages",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": [
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 3,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            },
+            {
+              "name": "mcp__srv__b",
+              "description": "b tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__b",
+          "description": "b tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 3 tools — mcp__srv__poke, mcp__srv__a, mcp__srv__b\n"
+      ]
+    },
+    {
+      "name": "good shape, refresh",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 3,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              },
+              {
+                "name": "mcp__srv__b",
+                "description": "b tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__b",
+            "description": "b tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": []
+      }
+    },
+    {
+      "name": "good shape, refresh over two pages",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": [
+              {
+                "name": "c",
+                "description": "c tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 3,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__b",
+                "description": "b tool"
+              },
+              {
+                "name": "mcp__srv__c",
+                "description": "c tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__b",
+            "description": "b tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__c",
+            "description": "c tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": []
+      }
+    },
+    {
+      "name": "first page, tools missing",
+      "phases": [
+        {
+          "": {}
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools missing",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {}
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools missing",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {}
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools missing",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {}
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "first page, tools an object",
+      "phases": [
+        {
+          "": {
+            "tools": {}
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools an object",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": {}
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools an object",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": {}
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools an object",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": {}
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received object\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "first page, tools a string",
+      "phases": [
+        {
+          "": {
+            "tools": "x"
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools a string",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": "x"
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools a string",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": "x"
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools a string",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": "x"
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received string\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "first page, tools null",
+      "phases": [
+        {
+          "": {
+            "tools": null
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools null",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": null
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools null",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": null
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools null",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": null
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received null\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "first page, tools a number",
+      "phases": [
+        {
+          "": {
+            "tools": 5
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools a number",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": 5
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools a number",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": 5
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools a number",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": 5
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received number\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "first page, tools a boolean",
+      "phases": [
+        {
+          "": {
+            "tools": true
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "second page, tools a boolean",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": true
+          }
+        }
+      ],
+      "connect": "[\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]",
+      "status": [],
+      "tools": [],
+      "log": [
+        "[mcp-client] Failed to connect \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]\n"
+      ]
+    },
+    {
+      "name": "refresh first page, tools a boolean",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": true
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]\n"
+        ]
+      }
+    },
+    {
+      "name": "refresh second page, tools a boolean",
+      "phases": [
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "a",
+                "description": "a tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "": {
+            "tools": [
+              {
+                "name": "poke",
+                "description": "poke tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "b",
+                "description": "b tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "nextCursor": "c1"
+          },
+          "c1": {
+            "tools": true
+          }
+        }
+      ],
+      "connect": null,
+      "status": [
+        {
+          "name": "srv",
+          "connected": true,
+          "toolCount": 2,
+          "tools": [
+            {
+              "name": "mcp__srv__poke",
+              "description": "poke tool"
+            },
+            {
+              "name": "mcp__srv__a",
+              "description": "a tool"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "mcp__srv__poke",
+          "description": "poke tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "mcp__srv__a",
+          "description": "a tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "log": [
+        "[mcp] connected: 2 tools — mcp__srv__poke, mcp__srv__a\n"
+      ],
+      "refresh": {
+        "status": [
+          {
+            "name": "srv",
+            "connected": true,
+            "toolCount": 2,
+            "tools": [
+              {
+                "name": "mcp__srv__poke",
+                "description": "poke tool"
+              },
+              {
+                "name": "mcp__srv__a",
+                "description": "a tool"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "mcp__srv__poke",
+            "description": "poke tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "mcp__srv__a",
+            "description": "a tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "log": [
+          "[mcp-client] Failed to refresh tools for \"srv\": [\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received boolean\"\n  }\n]\n"
+        ]
+      }
+    }
+  ]
+}

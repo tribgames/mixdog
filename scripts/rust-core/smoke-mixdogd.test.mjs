@@ -23,6 +23,8 @@ test('another set of rows, or another call\'s row, fails', () => {
     () => judgeToolFailureRows([mine({ tool_args: { path: 'x' }, error_first_line: 'Error: read requires "path" and more' })], RUN),
     /tool_args \{"path":"x"\}.*error_first_line/,
   );
+  // A Lead's own call is the Lead's (`agent: "lead"`, the session's agent, finalize.mjs:236), not null.
+  assert.throws(() => judgeToolFailureRows([mine({ agent: null })], RUN), /agent null \(Node: "lead"\)/);
   // Other workspace, a time outside the run, a field missing from Node's schema, a field added.
   assert.throws(() => judgeToolFailureRows([mine({ cwd: 'C:\\other' })], RUN), /cwd/);
   assert.throws(() => judgeToolFailureRows([mine({ ts: 5 })], RUN), /ts 5/);

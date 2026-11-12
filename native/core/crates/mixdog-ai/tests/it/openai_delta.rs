@@ -38,7 +38,7 @@ fn every_scripted_exchange_frames_as_node_frames_it() {
                 "{name}: anchor"
             );
         }
-        let framed = compute(&chain, &object(&case["body"]));
+        let framed = compute(true, &chain, &object(&case["body"]));
         let expected = &case["expected"];
         let mode = if framed.mode == Mode::Delta { "delta" } else { "full" };
         assert_eq!(mode, expected["mode"].as_str().unwrap(), "{name}: mode");

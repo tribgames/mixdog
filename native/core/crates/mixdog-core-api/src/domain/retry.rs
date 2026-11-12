@@ -10,6 +10,9 @@ use super::provider::{DeliveryState, ErrorKind, ProviderError};
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum JitterMode {
     Symmetric,
+    /// [`JitterMode::Symmetric`] cut to whole milliseconds downwards, not rounded: Cursor's in-place backoff
+    /// (`Math.floor(ceiling * (0.8 + Math.random() * 0.4))`, cursor-wire-stream-bridge.mjs `backoffMs`).
+    SymmetricFloored,
     Positive,
     Negative,
 }
@@ -33,6 +36,14 @@ impl Jitter {
         }
     }
 
+    /// [`Jitter::symmetric`] with the wait cut down to whole milliseconds.
+    pub const fn symmetric_floored(ratio: f64) -> Self {
+        Self {
+            ratio,
+            mode: JitterMode::SymmetricFloored,
+        }
+    }
+
     /// `wait` jittered by one draw `sample` in `0.0..=1.0`, exactly as
     /// `jitterDelayMs`: offset `(2·sample − 1)·r·wait` (symmetric),
     /// `sample·r·wait` (positive) or `−sample·r·wait` (negative), rounded to
@@ -43,12 +54,14 @@ impl Jitter {
             return wait;
         }
         let factor = match self.mode {
-            JitterMode::Symmetric => sample * 2.0 - 1.0,
+            JitterMode::Symmetric | JitterMode::SymmetricFloored => sample * 2.0 - 1.0,
             JitterMode::Positive => sample,
             JitterMode::Negative => -sample,
         };
         let base_ms = wait.as_secs_f64() * 1000.0;
-        Duration::from_millis((base_ms + factor * ratio * base_ms).round().max(0.0) as u64)
+        let jittered = base_ms + factor * ratio * base_ms;
+        let whole = if self.mode == JitterMode::SymmetricFloored { jittered.floor() } else { jittered.round() };
+        Duration::from_millis(whole.max(0.0) as u64)
     }
 }
 

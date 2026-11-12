@@ -11,7 +11,7 @@ use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::host::{HostClient, HostLaunch, START_LIMIT, serve_resident};
 use crate::effort_judge::worker_tests::Clock;
 use crate::effort_judge::input::TurnInput;
-use crate::effort_judge::judge::Resident;
+use crate::effort_judge::judge::{KEEP_WARM, Resident};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::effort_judge::worker::Stopper;
 use crate::effort_judge::{EffortJudgeModel, JudgeLanes, JudgeTiming, TurnVerdict};
@@ -212,4 +212,148 @@ async fn a_host_that_dies_under_a_request_leaves_the_core_alive_and_the_next_req
     let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("next"), PATIENT)).await.expect("the next request");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == [0.1, 0.2, 0.3, 0.4]), "{next:?}");
     assert_eq!(judge.worker().threads().0, Some(2), "a fresh host on a new thread");
+}
+
+/// A judge whose host is a real process that reports to the test and lives until its judge lets it
+/// go; every wait is on the test's clock.
+struct Live {
+    judge: Arc<EffortJudgeModel>,
+    clock: Arc<Clock>,
+    listener: tokio::net::TcpListener,
+    _dir: tempfile::TempDir,
+}
+
+const MS: Duration = Duration::from_millis(1);
+
+async fn live(keep_warm: Duration) -> Option<Live> {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_in(dir.path())?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // The marker exists: the host's load ends.
+    let marker = dir.path().join("loads");
+    std::fs::write(&marker, b"").unwrap();
+    let env = vec![(REPORT_ENV.to_owned(), listener.local_addr().unwrap().to_string()), (STALL_ENV.to_owned(), marker.display().to_string())];
+    let clock = Arc::new(Clock::default());
+    let judge = EffortJudgeModel::hosted_for(config, JudgeLanes::of(&mixdog_rt::testing::tokens()), host_launch(env), clock.clone(), keep_warm);
+    Some(Live { judge, clock, listener, _dir: dir })
+}
+
+impl Live {
+    /// The next host that started: it connects and says its pid.
+    async fn next_host(&self) -> tokio::net::TcpStream {
+        use tokio::io::AsyncReadExt;
+        let (mut host, _) = mixdog_rt::time::timeout(HANG, self.listener.accept()).await.expect("a host starts and reports").unwrap();
+        assert!(host.read(&mut [0u8; 16]).await.unwrap() > 0, "the host says its pid");
+        host
+    }
+
+    /// No host has started that the test has not taken.
+    fn no_host_pending(&self) -> bool {
+        crate::effort_judge::worker_tests::poll_once(&mut Box::pin(self.listener.accept())).is_none()
+    }
+
+    /// A turn of a session with auto effort on.
+    async fn auto_turn(&self) -> TurnVerdict {
+        mixdog_rt::time::timeout(HANG, self.judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn")
+    }
+}
+
+const DECISION: [f64; 4] = [0.1, 0.2, 0.3, 0.4];
+
+fn open(host: &tokio::net::TcpStream) -> bool {
+    matches!(host.try_read(&mut [0u8; 1]), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+}
+
+async fn ends(host: &mut tokio::net::TcpStream) {
+    use tokio::io::AsyncReadExt;
+    let ended = mixdog_rt::time::timeout(HANG, host.read(&mut [0u8; 16])).await.expect("the host ended and its memory went back");
+    assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+}
+
+fn decided(verdict: &TurnVerdict) -> bool {
+    matches!(verdict, TurnVerdict::Probs { probs, .. } if probs.as_slice() == DECISION)
+}
+
+/// No host exists until a turn of a session with auto effort on needs one (building the judge,
+/// reading its status and info are no use of it), and none after it has been idle for the period.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_host_exists_before_the_first_auto_turn_nor_after_the_idle_period() {
+    let Some(live) = live(KEEP_WARM).await else { return };
+    drop((live.judge.status(), live.judge.info(), live.judge.is_ready(), live.judge.supports_steps().await));
+    assert_eq!(live.judge.worker().threads(), (None, 0));
+    assert!(live.no_host_pending(), "no host before the first turn");
+
+    assert!(decided(&live.auto_turn().await));
+    let mut host = live.next_host().await;
+    assert_eq!(live.judge.worker().threads(), (Some(1), 0));
+    live.clock.advance(KEEP_WARM - MS);
+    assert!(live.judge.is_ready() && open(&host), "a millisecond before the period ends the host lives");
+    live.clock.advance(MS);
+    ends(&mut host).await;
+    assert_eq!(live.judge.worker().threads(), (None, 0));
+    assert!(!live.judge.is_ready());
+    assert!(live.no_host_pending(), "an idle judge starts nothing");
+}
+
+/// A turn one tick before the limit renews the period: the host that answered it lives a whole period more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_one_tick_before_the_idle_limit_keeps_the_host() {
+    let Some(live) = live(KEEP_WARM).await else { return };
+    assert!(decided(&live.auto_turn().await));
+    let mut host = live.next_host().await;
+    live.clock.advance(KEEP_WARM - MS);
+    assert!(decided(&live.auto_turn().await));
+    live.clock.advance(KEEP_WARM - MS);
+    assert!(live.judge.is_ready() && open(&host), "a period less a tick after the last turn");
+    assert!(live.no_host_pending(), "the same host answered both turns");
+    live.clock.advance(MS);
+    ends(&mut host).await;
+}
+
+/// The one setting decides the period.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_idle_period_is_the_judges_setting() {
+    let minute = Duration::from_secs(60);
+    let Some(live) = live(minute).await else { return };
+    assert!(decided(&live.auto_turn().await));
+    let mut host = live.next_host().await;
+    live.clock.advance(minute - MS);
+    assert!(live.judge.is_ready());
+    live.clock.advance(MS);
+    ends(&mut host).await;
+}
+
+/// A turn after the unload waits for a fresh host and is decided as the first one was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_after_the_unload_starts_a_host_and_decides_as_before() {
+    let Some(live) = live(KEEP_WARM).await else { return };
+    let first = live.auto_turn().await;
+    let mut old = live.next_host().await;
+    live.clock.advance(KEEP_WARM);
+    ends(&mut old).await;
+    let again = live.auto_turn().await;
+    assert!(decided(&first) && decided(&again), "{first:?} {again:?}");
+    let new = live.next_host().await;
+    assert!(open(&new));
+    assert_eq!(live.judge.worker().threads(), (Some(2), 0));
+}
+
+/// A turn that has found the host ready when the unload happens is answered by a fresh host, and
+/// no more than one host lives afterwards.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_arriving_while_the_unload_is_in_progress_keeps_its_decision_and_leaves_one_host() {
+    let Some(live) = live(KEEP_WARM).await else { return };
+    assert!(decided(&live.auto_turn().await));
+    let mut old = live.next_host().await;
+    let gate = live.judge.hold_turn().await;
+    let mut arriving = Box::pin(live.judge.judge_turn(turn("arriving"), PATIENT));
+    assert!(crate::effort_judge::worker_tests::poll_once(&mut arriving).is_none(), "it waits for its turn at the gate");
+    live.judge.unload_idle(1);
+    drop(gate);
+    let answered = mixdog_rt::time::timeout(HANG, arriving).await.expect("the turn is answered");
+    assert!(decided(&answered), "{answered:?}");
+    ends(&mut old).await;
+    let new = live.next_host().await;
+    assert!(open(&new) && live.no_host_pending(), "one host, the new one");
+    assert_eq!(live.judge.worker().threads(), (Some(2), 0));
 }

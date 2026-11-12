@@ -276,6 +276,7 @@ async fn request_user_jwt(
 pub async fn exchange_user_jwt(
     http: &dyn HttpSend,
     base_url: &str,
+    account: &str,
     session_token: &str,
 ) -> Result<UserSession, ProviderError> {
     if session_token.is_empty() {
@@ -302,6 +303,8 @@ pub async fn exchange_user_jwt(
     if decoded.user_jwt.is_empty() {
         return Err(protocol_error("Devin GetUserJwt returned no user JWT"));
     }
+    // The user JWT every chat call carries is a credential before any does; the account's next one replaces it.
+    crate::oauth::carried::keep(&crate::oauth::carried::derived_source("devin user jwt", account), &[&decoded.user_jwt]);
     let custom = decoded.custom_api_server_url.trim();
     Ok(UserSession {
         jwt: decoded.user_jwt,
@@ -326,6 +329,135 @@ mod tests {
             .expect_err("never answers");
         assert_dispatcher("devinUnary", &transport);
         assert_thrown("devinUnary", &error.message);
+    }
+
+    /// A network that answers every GetUserJwt with the next user JWT of `prefix`.
+    fn jwt_network(prefix: &'static str) -> crate::providers::listing_row::testing::Replay {
+        let n = std::sync::atomic::AtomicUsize::new(0);
+        crate::providers::listing_row::testing::Replay::new(move |_| {
+            let jwt = format!("{prefix}-{}", n.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+            let mut body = vec![0x0a, jwt.len() as u8];
+            body.extend_from_slice(jwt.as_bytes());
+            (200, body)
+        })
+    }
+
+    /// A Devin provider holding a static session token, over a network of its own, as a configuration builds it.
+    fn static_provider(prefix: &'static str, identity: Option<&str>) -> crate::providers::devin::DevinAdapter {
+        use crate::providers::devin::DevinAdapter;
+        use crate::providers::devin::auth::Identity;
+        use crate::providers::devin::auth::StaticSessionToken;
+        use crate::providers::devin::auth::StoredCredentials;
+        let credentials = StoredCredentials {
+            access_token: format!("session-of-{prefix}"),
+            refresh_token: None,
+            expires_at: None,
+            identity: identity.map(|id| Identity { id: Some(id.to_owned()), email: None }),
+        };
+        DevinAdapter::new(None, std::sync::Arc::new(jwt_network(prefix)), std::sync::Arc::new(StaticSessionToken::new(credentials, prefix)))
+    }
+
+    /// A Devin provider reading its own credential file in `dir`, the way a configured provider does, over a network of its
+    /// own. Two of them over two files are two accounts.
+    fn file_provider(dir: &std::path::Path, prefix: &'static str) -> crate::providers::devin::DevinAdapter {
+        use crate::providers::devin::DevinAdapter;
+        use crate::providers::devin::auth::FileSessionToken;
+        let path = dir.join(format!("{prefix}.json"));
+        std::fs::write(&path, format!(r#"{{"access_token":"file-session-of-{prefix}"}}"#)).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let file = crate::oauth::CredentialFile::new(path, io);
+        DevinAdapter::new(None, std::sync::Arc::new(jwt_network(prefix)), std::sync::Arc::new(FileSessionToken(file)))
+    }
+
+    /// One turn's exchange: the file's session token, then the user JWT for it.
+    async fn exchange_file(provider: &crate::providers::devin::DevinAdapter) -> String {
+        use crate::providers::devin::SessionToken;
+        let token = provider.token.session_token().await.unwrap();
+        provider.user_session(&token).await.unwrap().jwt
+    }
+
+    /// Two credential files are two accounts: the other account's tokens stay redacted through this account's rotations
+    /// and past unrelated retirements, and this account's replaced user JWT retires.
+    #[tokio::test]
+    async fn file_accounts_keep_their_tokens_through_each_others_rotations() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (file_provider(dir.path(), "file-jwt-of-a"), file_provider(dir.path(), "file-jwt-of-b"));
+        let a_jwt = exchange_file(&a).await;
+        let mut b_jwts = Vec::new();
+        for _ in 0..3 {
+            b_jwts.push(exchange_file(&b).await);
+        }
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file the-unrelated-account-of-the-devin-file-test.json", &[&format!("devin-file-unrelated-{i:05}")]);
+        }
+        let registry = carried::registry();
+        assert!(registry.holds(&a_jwt), "A's live user JWT stays");
+        assert!(registry.holds("file-session-of-file-jwt-of-a"), "A's session token stays");
+        assert!(registry.holds(b_jwts.last().unwrap()), "B's live user JWT stays");
+        assert!(registry.holds("file-session-of-file-jwt-of-b"), "B's session token stays");
+        assert!(!registry.holds(&b_jwts[0]), "B's replaced user JWT retired");
+    }
+
+    /// Ten rotations of each of two file accounts: each pins its session token and its one current user JWT, the rest
+    /// retire within the caps.
+    #[tokio::test]
+    async fn ten_rotations_of_each_file_account_stay_within_the_caps() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (file_provider(dir.path(), "ten-file-jwt-of-a"), file_provider(dir.path(), "ten-file-jwt-of-b"));
+        for _ in 0..10 {
+            exchange_file(&a).await;
+            exchange_file(&b).await;
+        }
+        let counts = carried::registry().counts();
+        assert_eq!(counts.held, 4, "a session token and a user JWT pinned per account");
+        assert!(counts.retired <= carried::RETIRED_CAP && counts.carried <= carried::CARRIED_CAP);
+    }
+
+    async fn exchange(provider: &crate::providers::devin::DevinAdapter) -> String {
+        provider.user_session("session-token").await.unwrap().jwt
+    }
+
+    /// Three providers live at once, two of them holding a token that came with no identity: the others' rotations and
+    /// unrelated retirements past the cap never retire a live user JWT.
+    #[tokio::test]
+    async fn providers_keep_their_user_jwts_through_each_others_rotations() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let (a, b, c) = (static_provider("user-jwt-of-a", None), static_provider("user-jwt-of-b", None), static_provider("user-jwt-of-c", Some("acct-c")));
+        let (a_jwt, c_jwt) = (exchange(&a).await, exchange(&c).await);
+        let mut b_jwts = Vec::new();
+        for _ in 0..3 {
+            b_jwts.push(exchange(&b).await);
+        }
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file the-unrelated-account-of-the-devin-test.json", &[&format!("devin-trio-unrelated-{i:05}")]);
+        }
+        let registry = carried::registry();
+        assert!(registry.holds(&a_jwt), "A's live user JWT stays");
+        assert!(registry.holds(&c_jwt), "C's live user JWT stays");
+        assert!(registry.holds(b_jwts.last().unwrap()), "B's live user JWT stays");
+        assert!(!registry.holds(&b_jwts[0]), "B's replaced user JWT retired");
+    }
+
+    /// Ten rotations of each of two identity-less providers: each pins its one current user JWT, the rest retire within the
+    /// caps.
+    #[tokio::test]
+    async fn ten_rotations_of_each_provider_stay_within_the_caps() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let (a, b) = (static_provider("ten-jwt-of-a", None), static_provider("ten-jwt-of-b", None));
+        for _ in 0..10 {
+            exchange(&a).await;
+            exchange(&b).await;
+        }
+        let counts = carried::registry().counts();
+        assert_eq!(counts.held, 2, "one pinned user JWT per provider");
+        assert!(counts.retired <= carried::RETIRED_CAP && counts.carried <= carried::CARRIED_CAP);
     }
 
     #[test]

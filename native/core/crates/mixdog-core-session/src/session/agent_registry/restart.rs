@@ -289,35 +289,92 @@ impl RestartNotices for crate::session::SessionDirectory {
     }
 }
 
+/// How far this process has taken one restart notice (`queued` of `restart-notify.mjs`): a notice is queued under its id once
+/// per process. The owner's queue knows an id only while it holds the entry, so a notice queued again after its owner took the
+/// entry is delivered again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum NoticeStage {
+    /// Being queued by a pass that has not heard its write acknowledged.
+    Queueing,
+    /// Queued and acknowledged; its row's stamp is what is left.
+    Stored,
+}
+
+/// Releases a notice still `Queueing` when its pass ends without hearing the write (a failure, or the pass dropped).
+struct Queueing<'a> {
+    registry: &'a AgentRegistry,
+    execution: &'a str,
+}
+
+impl Drop for Queueing<'_> {
+    fn drop(&mut self) {
+        let mut notices = self.registry.restart_notices.lock().unwrap_or_else(|e| e.into_inner());
+        if notices.get(self.execution) == Some(&NoticeStage::Queueing) {
+            notices.remove(self.execution);
+        }
+    }
+}
+
+impl AgentRegistry {
+    /// The stage of `execution` in this process; `None` when it is not being queued, which this call then claims.
+    fn claim_restart_notice(&self, execution: &str) -> Option<NoticeStage> {
+        let mut notices = self.restart_notices.lock().unwrap_or_else(|e| e.into_inner());
+        let stage = notices.get(execution).copied();
+        if stage.is_none() {
+            notices.insert(execution.to_owned(), NoticeStage::Queueing);
+        }
+        stage
+    }
+
+    fn restart_notice_stored(&self, execution: &str) {
+        self.restart_notices.lock().unwrap_or_else(|e| e.into_inner()).insert(execution.to_owned(), NoticeStage::Stored);
+    }
+
+    fn restart_notice_stamped(&self, execution: &str) {
+        self.restart_notices.lock().unwrap_or_else(|e| e.into_inner()).remove(execution);
+    }
+}
+
 /// `notifyRestartFailures()`: tells each owner, once, that its agent task died with the previous process. In Node's order
 /// (`restart-notify.mjs:115-131`): the notice is stored in the owner's queue under its stable execution id first, only then is
 /// the row stamped and the task registered. A failure or a crash before the stamp leaves the row owed
 /// (the next pass or restart retries it, and the id makes the retry one entry); a row whose notice was refused is left for
-/// the next pass, as Node's per-row catch. Returns how many owners were told.
+/// the next pass, as Node's per-row catch. A notice this process is already queueing (another pass has not heard its write
+/// acknowledged yet) is left to that pass, and one stored whose stamp failed is only stamped: queued again, an owner that took
+/// the entry meanwhile would be told again. Returns how many owners were told.
 pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn RestartNotices, board: &JobBoard, stamp: &str) -> Result<usize, String> {
     let mut told = 0;
     for (session, row) in registry.pending_restart_failures().await? {
         let execution = restart_notification_id(&row);
-        let task = clean(row.get("task_id"));
-        let text = mixdog_agent::agent_tool::board::render_agent_completion(
-            if task.is_empty() { &execution } else { &task },
-            &clean(row.get("tag")),
-            "failed",
-            "",
-            RESTART_FAILURE_ERROR,
-            "",
-        );
-        let owner = ThreadId::from(clean(row.get("ownerSessionId")).as_str());
-        // The card goes first, as every completion's: the queued copy then knows its card stands for it and shows no row of
-        // its own (`suppressDisplay`), where Node's queue dedups the later mirror by the same id.
-        notices.show(&owner, &execution, text.clone()).await;
-        crate::session::new_task::crash_gate("restart-notice-unstored");
-        if let Err(error) = notices.queue_durably(&owner, &execution, text).await {
-            tracing::warn!("[agent-tool] restart notification retry pending: {error}");
+        let stage = registry.claim_restart_notice(&execution);
+        if stage == Some(NoticeStage::Queueing) {
             continue;
         }
-        crate::session::new_task::crash_gate("restart-notice-stored");
+        let _queueing = (stage.is_none()).then(|| Queueing { registry, execution: &execution });
+        if stage.is_none() {
+            let task = clean(row.get("task_id"));
+            let text = mixdog_agent::agent_tool::board::render_agent_completion(
+                if task.is_empty() { &execution } else { &task },
+                &clean(row.get("tag")),
+                "failed",
+                "",
+                RESTART_FAILURE_ERROR,
+                "",
+            );
+            let owner = ThreadId::from(clean(row.get("ownerSessionId")).as_str());
+            // The card goes first, as every completion's: the queued copy then knows its card stands for it and shows no row of
+            // its own (`suppressDisplay`), where Node's queue dedups the later mirror by the same id.
+            notices.show(&owner, &execution, text.clone()).await;
+            crate::session::new_task::crash_gate("restart-notice-unstored");
+            if let Err(error) = notices.queue_durably(&owner, &execution, text).await {
+                tracing::warn!("[agent-tool] restart notification retry pending: {error}");
+                continue;
+            }
+            registry.restart_notice_stored(&execution);
+            crate::session::new_task::crash_gate("restart-notice-stored");
+        }
         registry.mark_restart_notified(&[session], stamp).await?;
+        registry.restart_notice_stamped(&execution);
         register_failed_task(board, &row);
         told += 1;
     }

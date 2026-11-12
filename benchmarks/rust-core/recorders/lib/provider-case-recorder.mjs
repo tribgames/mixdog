@@ -16,7 +16,7 @@ import { createRequire, register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { exact } from './exact.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { installDeterministicWorld } from './deterministic-world.mjs';
 import { recorderProvenance } from './provenance.mjs';
 import { RecorderError, refuseRecorderErrors } from './recorder-error.mjs';
@@ -44,12 +44,24 @@ const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 /** A failure bound on one case on the real clock (the product's own timers are virtual and never fire). */
 export const CASE_DEADLINE_MS = 60_000;
+/** `promise` under the same real-clock bound, failing with a message that names what was awaited; for a world's own start-up, which runs outside any case. */
+export async function withinDeadline(promise, what) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = realSetTimeout(() => reject(new RecorderError(`recorder: ${what} did not happen within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([promise, limit]);
+  } finally {
+    realClearTimeout(timer);
+  }
+}
 
 export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true, maskRow = null, pure = {} }) {
   const args = parseArgs();
   const tree = resolveTree(args);
   const only = args.get('only');
-  const identity = exactProductIdentity(tree, NODE_COMMIT);
+  const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
   mkdirSync('D:/mixdog-build/tmp/w22', { recursive: true });
   const dataDir = `D:/mixdog-build/tmp/w22/${set}`;
   rmSync(dataDir, { recursive: true, force: true });
@@ -499,7 +511,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       writeSetManifest(stage, {
         set,
         recorder: recorderProvenance(recorderUrl).recorder,
-        command: `node ${recorderProvenance(recorderUrl).recorder} --tree <exact export of ${NODE_COMMIT}>`,
+        command: `node ${recorderProvenance(recorderUrl).recorder} --tree <export of ${NODE_COMMIT}${args.get('patch') ? ` with ${args.get('patch')} applied` : ''}>${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`,
         identity,
         extra: { ...recorderProvenance(recorderUrl, dataFiles), levels, entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {"$exact": <kind>} tag', describedValues: { '{"$stream": [chunk...]}': 'an async stream the recorder handed the product, as the chunks it yields in order', '{"$response": {status, statusText, headers, bodyChunks}}': 'a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)', '{"$instance": name, constructedWith: [args]}': 'an instance of a product class, as the arguments it was constructed with', '{"callback": name}': 'a function the recorder handed the product; its scripted behaviour is the case body' }, ...(net ? { replayExclusions: { 'request headers': 'the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library\'s user-agent) and the body bytes; no header is excluded from the comparison' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host\'s OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
       });

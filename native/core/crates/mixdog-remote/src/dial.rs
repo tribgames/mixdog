@@ -3,8 +3,7 @@
 //! a leg in "connecting" (hang audit F16; the leg's heartbeat only starts once it is open).
 //!
 //! Node's relay legs dial with `ws` and no handshake timeout (`relay-tunnel.mjs:234`). Divergence
-//! (decisions.md): 30 s, the startup bound of Codex's MCP client (`codex-mcp/src/rmcp_client.rs:114`)
-//! and of Node's `DEFAULT_MCP_STARTUP_TIMEOUT_MS`.
+//! (decisions.md): 30 s, the startup bound of Node's MCP client (`DEFAULT_MCP_STARTUP_TIMEOUT_MS`).
 
 use std::io;
 use std::time::Duration;

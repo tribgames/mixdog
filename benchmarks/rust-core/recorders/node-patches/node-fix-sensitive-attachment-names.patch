@@ -1,0 +1,108 @@
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-projection.mjs b/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
+index e02d9b9..c94c9f0 100644
+--- a/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
++++ b/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
+@@ -52,10 +52,53 @@ function redactTextOrJson(sessionId, text) {
+   return redactSensitiveText(sessionId, text);
+ }
+ 
+-/** Message content with the session's values redacted in its text. */
++// Parts whose file name a person gave: an attachment or a media part. The name
++// (and a path ending in it) can spell the value, and mapContentText leaves these
++// parts as they are. The attached-files note keeps a record of each file
++// (`attachmentReference.files`, attachment-reference.mjs) beside its text: the
++// row stores it and its clients receive it.
++const NAMED_PARTS = new Set(['attachment', 'image', 'image_url', 'input_image', 'file', 'input_file', 'document', 'audio', 'input_audio', 'video']);
++const NAME_KEYS = ['name', 'filename', 'title', 'path'];
++
++function redactNames(sessionId, record) {
++  let next = record;
++  for (const key of NAME_KEYS) {
++    if (typeof record[key] !== 'string') continue;
++    const redacted = redactSensitiveText(sessionId, record[key]);
++    if (redacted === record[key]) continue;
++    if (next === record) next = { ...record };
++    next[key] = redacted;
++  }
++  return next;
++}
++
++function redactPartNames(sessionId, part) {
++  if (!part || typeof part !== 'object') return part;
++  let next = NAMED_PARTS.has(part.type) || part.attachmentRef ? redactNames(sessionId, part) : part;
++  const files = part.attachmentReference?.files;
++  if (Array.isArray(files)) {
++    const named = files.map((file) => (file && typeof file === 'object' ? redactNames(sessionId, file) : file));
++    if (named.some((file, i) => file !== files[i])) {
++      next = { ...next, attachmentReference: { ...part.attachmentReference, files: named } };
++    }
++  }
++  return next;
++}
++
++/** Message content with the session's values redacted in its text and its attachments' names. */
+ export function redactSensitiveContent(sessionId, content) {
+   if (!sensitiveValuesVersion(sessionId)) return content;
+-  return mapContentText(content, (text) => redactTextOrJson(sessionId, text));
++  const mapped = mapContentText(content, (text) => redactTextOrJson(sessionId, text));
++  const parts = Array.isArray(mapped) ? mapped : Array.isArray(mapped?.content) ? mapped.content : null;
++  if (!parts) return mapped;
++  let changed = false;
++  const named = parts.map((part) => {
++    const next = redactPartNames(sessionId, part);
++    if (next !== part) changed = true;
++    return next;
++  });
++  if (!changed) return mapped;
++  return Array.isArray(mapped) ? named : { ...mapped, content: named };
+ }
+ 
+ /** A tool call with the session's values redacted in its argument values. */
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs
+new file mode 100644
+index 0000000..9cb4919
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs
+@@ -0,0 +1,42 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { redactSensitiveMessages } from './sensitive-projection.mjs';
++import { rememberSensitiveValues } from './sensitive-values.mjs';
++
++test("a marked value in an attachment's or file's name is stored redacted, as in its text and tool results", () => {
++  const session = 'sess_sensitive_names';
++  rememberSensitiveValues(session, [{ name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: 'hunter2' } } }]);
++  const stored = redactSensitiveMessages(session, [
++    {
++      role: 'user',
++      content: [
++        { type: 'text', text: 'here is hunter2' },
++        { type: 'attachment', attachmentRef: 'att_1', name: 'hunter2-notes.pdf', mimeType: 'application/pdf' },
++        { type: 'file', data: 'AAAA', mimeType: 'application/pdf', filename: 'hunter2.pdf' },
++      ],
++    },
++    { role: 'tool', toolCallId: 'c1', content: 'read hunter2' },
++    { role: 'user', content: 'Conversation summary: hunter2', meta: { source: 'compact-summary' } },
++  ]);
++  assert.deepEqual(stored[0].content, [
++    { type: 'text', text: 'here is [redacted]' },
++    { type: 'attachment', attachmentRef: 'att_1', name: '[redacted]-notes.pdf', mimeType: 'application/pdf' },
++    { type: 'file', data: 'AAAA', mimeType: 'application/pdf', filename: '[redacted].pdf' },
++  ]);
++  assert.equal(stored[1].content, 'read [redacted]');
++  assert.equal(stored[2].content, 'Conversation summary: [redacted]');
++});
++
++test("a marked value in an attached file's name and path is stored redacted in the files note's record", () => {
++  const session = 'sess_sensitive_names';
++  rememberSensitiveValues(session, [{ name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: 'hunter2' } } }]);
++  const path = 'C:\\attachments\\ab\\hunter2-notes.pdf';
++  const redacted = 'C:\\attachments\\ab\\[redacted]-notes.pdf';
++  const file = (name, at) => ({ attachmentRef: 'a'.repeat(64), name, mimeType: 'application/pdf', sizeBytes: 4, path: at });
++  const [stored] = redactSensitiveMessages(session, [
++    { role: 'user', content: [{ type: 'text', text: `[Attached files on this PC:\n- ${path}\n]`, attachmentReference: { kind: 'files', files: [file('hunter2-notes.pdf', path)] } }] },
++  ]);
++  assert.deepEqual(stored.content, [
++    { type: 'text', text: `[Attached files on this PC:\n- ${redacted}\n]`, attachmentReference: { kind: 'files', files: [file('[redacted]-notes.pdf', redacted)] } },
++  ]);
++});

@@ -464,7 +464,11 @@ fn result_fact(message: &Value) -> Option<ResultFact> {
     Some(ResultFact {
         call_id,
         text: content_text(message),
-        is_error: message.get("isError").and_then(Value::as_bool),
+        // A tool result states its failure by `toolKind: "error"` alone (`finalize.mjs`); `toolCallOutcome` reads either.
+        is_error: match message.get("toolKind").and_then(Value::as_str) {
+            Some("error") => Some(true),
+            _ => message.get("isError").and_then(Value::as_bool),
+        },
         ui_diff: message
             .as_object()
             .and_then(|m| m.get("uiDiff"))
@@ -969,6 +973,14 @@ fn is_context_ack(message: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed tool result is stored with `toolKind: "error"` and no `isError` (`finalize.mjs`); its card still reads as failed.
+    #[test]
+    fn a_tool_result_marked_by_its_kind_alone_is_a_failure() {
+        let failed = result_fact(&json!({ "role": "tool", "toolCallId": "call_1", "content": "Error: x", "toolKind": "error" })).expect("fact");
+        let plain = result_fact(&json!({ "role": "tool", "toolCallId": "call_1", "content": "ok" })).expect("fact");
+        assert_eq!((failed.is_error, plain.is_error), (Some(true), None));
+    }
 
     /// A live record's later rows have opaque ids of their own (Node's `nextId()` per card), derived from the record's id and stable per
     /// record; a stored record from another source keeps `<iid>:<n>`.

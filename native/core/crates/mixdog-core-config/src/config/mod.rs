@@ -35,6 +35,8 @@ pub mod secret_changes;
 mod watch;
 mod channel_follow;
 
+pub use storage::migrate_codex_route;
+pub use storage::migrate_codex_route_over;
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
@@ -245,6 +247,10 @@ struct Shared {
     generation: AtomicU64,
     /// The generation again, for services that follow the document (`Config::changes`).
     changed: tokio::sync::watch::Sender<u64>,
+    /// The file watch's reload passes, counted whatever each found (a changed document, the same bytes, a file that does not
+    /// parse yet): Node's notification pass runs after every event of its watch, so a write caught halfway is heard by it
+    /// ([`Config::watch_passes`]).
+    passes: tokio::sync::watch::Sender<u64>,
     /// What runs inside each adoption ([`Config::on_adoption`]), by registration id.
     adoptions: Mutex<Vec<(u64, Adoption)>>,
     next_adoption: AtomicU64,
@@ -354,6 +360,7 @@ impl Config {
             writer: Mutex::new(raised),
             generation: AtomicU64::new(0),
             changed: tokio::sync::watch::channel(0).0,
+            passes: tokio::sync::watch::channel(0).0,
             adoptions: Mutex::default(),
             next_adoption: AtomicU64::new(0),
             announcer: std::sync::OnceLock::new(),
@@ -377,6 +384,12 @@ impl Config {
     /// derive a view from the config and push it when it changes.
     pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
         self.shared.changed.subscribe()
+    }
+
+    /// Ticks after every reload pass of the file watch ([`ConfigWatcher`]), including one that installed nothing because the
+    /// file did not parse (a write still in progress): the signal that the watch has taken in what the file holds now.
+    pub fn watch_passes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.shared.passes.subscribe()
     }
 
     /// `hook` runs inside every adoption of a document (a write or an external reload), once for each adopted document, in the
@@ -1134,3 +1147,5 @@ fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(),
 mod tests;
 #[cfg(test)]
 mod guard_replay;
+#[cfg(test)]
+mod concurrency_node_cases;

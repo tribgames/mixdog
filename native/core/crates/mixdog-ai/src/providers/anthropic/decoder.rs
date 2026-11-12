@@ -24,13 +24,14 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::errors::classify_stream_error;
+use super::replay_blocks;
 use crate::providers::leak;
 use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
 use crate::providers::leak::Recovered;
 
-const NATIVE_CALL_TYPES: [&str; 2] = ["server_tool_use", "mcp_tool_use"];
-const NATIVE_RESULT_TYPES: [&str; 7] = [
+pub(super) const NATIVE_CALL_TYPES: [&str; 2] = ["server_tool_use", "mcp_tool_use"];
+pub(super) const NATIVE_RESULT_TYPES: [&str; 7] = [
     "web_search_tool_result",
     "web_fetch_tool_result",
     "code_execution_tool_result",
@@ -98,7 +99,7 @@ enum Block {
 }
 
 #[derive(Default)]
-struct UsageAcc {
+pub(super) struct UsageAcc {
     input: u64,
     output: u64,
     cache_read: u64,
@@ -121,7 +122,7 @@ fn reported_cost_usd(value: &Value) -> Option<f64> {
 
 impl UsageAcc {
     /// Omitted fields keep the earlier report; an explicit zero replaces it.
-    fn update(&mut self, raw: &Value) {
+    pub(super) fn update(&mut self, raw: &Value) {
         let Some(map) = raw.as_object() else { return };
         let field = |name: &str| map.get(name).and_then(Value::as_u64);
         if let Some(v) = field("input_tokens") {
@@ -153,7 +154,7 @@ impl UsageAcc {
     }
 
     /// Mixdog input is inclusive: fresh input + cache read + cache write.
-    fn usage(&self) -> Usage {
+    pub(super) fn usage(&self) -> Usage {
         Usage {
             input_tokens: self.input + self.cache_read + self.cache_write,
             output_tokens: self.output,
@@ -188,6 +189,10 @@ pub(crate) struct AnthropicDecoder {
     skipped: HashSet<u64>,
     /// The server-side fallbacks the stream reported (`turn.fallbackEvents`), as `parseAnthropicFallbackBlock` records them.
     fallbacks: Vec<Value>,
+    /// `turn.hasThinkingContent`: a thinking delta or a redacted thinking block streamed.
+    has_thinking: bool,
+    /// `turn.contentBlockTypes`: the delta types and `fallback`, first-seen order.
+    block_types: Vec<String>,
     /// An output block opened (`turn.firstOutputAt`).
     output_started: bool,
     /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
@@ -196,7 +201,7 @@ pub(crate) struct AnthropicDecoder {
 }
 
 /// Node `message.stop_reason || null`: an absent reason stays absent.
-fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
+pub(super) fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
     Some(match raw.filter(|r| !r.is_empty())? {
         "end_turn" => StopReason::EndTurn,
         "tool_use" => StopReason::ToolUse,
@@ -205,6 +210,28 @@ fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
         "refusal" => StopReason::Refusal,
         other => StopReason::Other(other.to_owned()),
     })
+}
+
+/// `parseAnthropicFallbackBlock` (anthropic-server-fallback.mjs:26-40): a `fallback` block's record
+/// (`{ trigger, originalModel, fallbackModel, category? }`) and the model it hands the turn to; `None` for a block
+/// that names no source or target model.
+pub(super) fn fallback_record(block: &Value) -> Option<(Value, String)> {
+    let model_of = |side: &str| match block.get(side) {
+        Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
+        Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
+        _ => String::new(),
+    };
+    let (from, to) = (model_of("from"), model_of("to"));
+    if from.is_empty() || to.is_empty() {
+        return None;
+    }
+    let trigger = block.get("trigger").filter(|t| t.is_object());
+    let text_of = |key: &str| trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty());
+    let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
+    if let Some(category) = text_of("category") {
+        record["category"] = json!(category);
+    }
+    Some((record, to))
 }
 
 impl AnthropicDecoder {
@@ -226,6 +253,8 @@ impl AnthropicDecoder {
             leaked_dispatched: 0,
             skipped: HashSet::new(),
             fallbacks: Vec::new(),
+            has_thinking: false,
+            block_types: Vec::new(),
             output_started: false,
         }
     }
@@ -280,23 +309,16 @@ impl AnthropicDecoder {
     }
 
     /// The ordered assistant blocks of the turn, in provider block order,
-    /// reduced to what the API accepts back: empty text is dropped, and a
-    /// thinking block that only became adjacent to the previous one through
-    /// that removal is dropped too (it would fuse two runs into one).
+    /// reduced to what the API accepts back ([`replay_blocks::sanitize`]); a
+    /// merged thinking run dropped is reported once (turn-blocks.mjs:88-99).
     fn replay_blocks(&self) -> Vec<Value> {
-        let mut out: Vec<Value> = Vec::new();
-        let mut separator_removed = false;
-        let mut last_kept_thinking = false;
+        let mut blocks: Vec<Value> = Vec::new();
         for (index, block) in &self.blocks {
             if self.skipped.contains(index) {
                 continue;
             }
             let value = match block {
                 Block::Text { text, citations } => {
-                    if text.is_empty() {
-                        separator_removed = true;
-                        continue;
-                    }
                     let mut value = json!({ "type": "text", "text": text });
                     if !citations.is_empty() {
                         value["citations"] = Value::Array(citations.clone());
@@ -314,15 +336,20 @@ impl AnthropicDecoder {
                 Block::NativeResult(block) => block.clone(),
                 _ => continue,
             };
-            let is_thinking = matches!(block, Block::Thinking { .. } | Block::Redacted { .. });
-            if is_thinking && last_kept_thinking && separator_removed {
-                continue;
-            }
-            out.push(value);
-            last_kept_thinking = is_thinking;
-            separator_removed = false;
+            blocks.push(value);
         }
-        out
+        let mut merged = 0;
+        replay_blocks::sanitize(&blocks, &mut |dropped, block| {
+            if dropped == replay_blocks::Dropped::MergedThinking {
+                merged += 1;
+                if merged == 1 {
+                    let kind = block.get("type").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("thinking");
+                    tracing::warn!(
+                        "[anthropic] dropped a {kind} block separated only by an empty text block; replaying it would merge two thinking runs into one"
+                    );
+                }
+            }
+        })
     }
 
     fn emit_completed(&mut self, out: &mut Vec<StreamEvent>) {
@@ -356,6 +383,8 @@ impl AnthropicDecoder {
         if !self.fallbacks.is_empty() {
             out.push(StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": self.fallbacks })));
         }
+        // `hasThinkingContent` / `contentBlockTypes` (turn-outcome.mjs:143-144).
+        out.push(StreamEvent::ContentSummary { has_thinking: self.has_thinking, block_types: self.block_types.clone() });
         out.push(StreamEvent::Completed {
             pricing_model: None,
             request_ms: None,
@@ -426,27 +455,14 @@ impl AnthropicDecoder {
         // A server-side fallback hands the turn to the fallback model (`parseAnthropicFallbackBlock`,
         // anthropic-server-fallback.mjs:26-40, and content-block-start.mjs:52-58): the block carries no content.
         if block.get("type").and_then(Value::as_str) == Some("fallback") {
-            let model_of = |side: &str| match block.get(side) {
-                Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
-                Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
-                _ => String::new(),
-            };
-            let (from, to) = (model_of("from"), model_of("to"));
-            if from.is_empty() || to.is_empty() {
-                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
-                self.output_started(out);
-            } else {
-                let trigger = block.get("trigger").filter(|t| t.is_object());
-                let text_of = |key: &str| {
-                    trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty())
-                };
-                let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
-                if let Some(category) = text_of("category") {
-                    record["category"] = json!(category);
-                }
+            if let Some((record, to)) = fallback_record(block) {
                 self.fallbacks.push(record);
+                self.note_block_type("fallback");
                 self.serve(&to, out);
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
+            } else {
+                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
+                self.output_started(out);
             }
             return;
         }
@@ -480,6 +496,7 @@ impl AnthropicDecoder {
                 );
             }
             "redacted_thinking" => {
+                self.has_thinking = true;
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
                 out.push(StreamEvent::Progress(ProgressKind::Reasoning));
                 self.blocks.insert(index, Block::Redacted { data: text_of("data") });
@@ -519,9 +536,23 @@ impl AnthropicDecoder {
         }
     }
 
+    /// `turn.contentBlockTypes.add(kind)`: first-seen order, each once.
+    fn note_block_type(&mut self, kind: &str) {
+        if !self.block_types.iter().any(|k| k == kind) {
+            self.block_types.push(kind.to_owned());
+        }
+    }
+
     fn block_delta(&mut self, index: u64, delta: Option<&Value>, out: &mut Vec<StreamEvent>) {
         let Some(delta) = delta else { return };
         let str_of = |field: &str| delta.get(field).and_then(Value::as_str).unwrap_or("");
+        // content-block-delta.mjs:96: every delta's (non-empty) type.
+        if let Some(kind) = delta.get("type").and_then(Value::as_str).filter(|k| !k.is_empty()) {
+            self.note_block_type(kind);
+        }
+        if matches!(delta.get("type").and_then(Value::as_str), Some("thinking_delta" | "signature_delta")) {
+            self.has_thinking = true;
+        }
         match delta.get("type").and_then(Value::as_str).unwrap_or("") {
             "text_delta" => {
                 let text = str_of("text").to_owned();
