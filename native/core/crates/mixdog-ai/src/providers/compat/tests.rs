@@ -517,6 +517,8 @@ fn media_and_tool_results_lower_to_chat_content() {
             ContentPart::Image(ImageSource::Base64 {
                 data: "AAAA".into(),
                 mime_type: "image/png".into(),
+                width: None,
+                height: None,
             }),
         ]),
     );

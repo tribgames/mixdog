@@ -13,7 +13,6 @@ use futures::future::BoxFuture;
 use futures::future::FutureExt;
 use futures::future::Shared;
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_core_api::domain::process::EnvSpec;
 use mixdog_core_api::domain::process::ExitStatus;
@@ -759,6 +758,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use base64::Engine;
+    use mixdog_core_api::domain::common::EventSource;
     use mixdog_core_api::domain::computer::ComputerBackend;
     use mixdog_core_api::domain::computer::ComputerError;
     use mixdog_core_api::domain::process::KillReason;
@@ -779,8 +779,11 @@ mod tests {
     use crate::desktop::computer_backend::ComputerConfig;
     use crate::desktop::computer_backend::ProcessComputerBackend;
     use crate::desktop::computer_backend::RESPONSE_MARKER;
-    use crate::desktop::computer_gnome::Display;
-    use crate::desktop::computer_gnome::ShotFiles;
+    use mixdog_core_api::CoreError;
+    use mixdog_core_api::HostCapability;
+    use mixdog_core_api::HostChannel;
+    use mixdog_core_api::HostError;
+    use mixdog_core_api::ids::Method;
 
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-linux-readiness/golden.json");
 
@@ -845,13 +848,6 @@ mod tests {
         disabled: String,
         /// The helper's answer to each request action; any other action is answered as an error.
         helper: Map<String, Value>,
-        /// How the extension's screenshot goes: `ok`, `fails`, `no-file` (exits 0, writes nothing) or `empty` (a 0x0 PNG).
-        screenshot: String,
-        png: Vec<u8>,
-        empty_png: Vec<u8>,
-        /// The one display the recording's Electron stand-in reports (id 1, scale 1, at the origin).
-        display: (i64, i64),
-        shot_id: String,
     }
 
     impl World {
@@ -866,16 +862,7 @@ mod tests {
                 enabled: value["gsettings"]["enabled"].as_str().expect("enabled").to_owned(),
                 disabled: value["gsettings"]["disabled"].as_str().expect("disabled").to_owned(),
                 helper: value["helperReplies"].as_object().expect("helper replies").clone(),
-                screenshot: value["screenshot"]["how"].as_str().expect("how").to_owned(),
-                png: bytes_of(&value["screenshot"]["png"]),
-                empty_png: bytes_of(&value["screenshot"]["emptyPng"]),
-                display: (value["display"]["width"].as_i64().expect("width"), value["display"]["height"].as_i64().expect("height")),
-                shot_id: value["shotId"].as_str().expect("shot id").to_owned(),
             }
-        }
-
-        fn displays(&self) -> Vec<Display> {
-            vec![Display { id: "1".into(), x: 0, y: 0, width: self.display.0, height: self.display.1, scale_factor: 1.0, primary: true }]
         }
 
         /// The shell checks the real probes run (`test -w`, `command -v`, `test -e`), against the world's files and the `PATH` they were given.
@@ -892,8 +879,8 @@ mod tests {
             }
         }
 
-        /// What `gdbus` and `gsettings` answer: the exit code and stdout; the extension's screenshot is written to `files`.
-        fn tool(&self, program: &str, args: &[String], files: &Files) -> (i32, String) {
+        /// What `gdbus` and `gsettings` answer: the exit code and stdout.
+        fn tool(&self, program: &str, args: &[String]) -> (i32, String) {
             let has = |word: &str| args.iter().any(|arg| arg == word);
             match program {
                 "gdbus" if has("Version") => match self.window_version {
@@ -903,16 +890,6 @@ mod tests {
                 "gdbus" if has("org.a11y.Bus.GetAddress") => {
                     if self.a11y { (0, "('unix:path=/run/user/1000/at-spi/bus',)\n".into()) } else { (1, String::new()) }
                 }
-                "gdbus" if args.iter().any(|arg| arg.ends_with(".Screenshot")) => {
-                    if self.screenshot == "fails" {
-                        return (1, String::new());
-                    }
-                    if self.screenshot != "no-file" {
-                        let path = args.last().expect("the file argument").trim_matches('\'');
-                        files.put(path, if self.screenshot == "empty" { self.empty_png.clone() } else { self.png.clone() });
-                    }
-                    (0, "()\n".into())
-                }
                 "gsettings" if args.get(1).map(String::as_str) == Some("org.gnome.shell") && args.get(2).map(String::as_str) == Some("enabled-extensions") => {
                     (0, self.enabled.clone())
                 }
@@ -921,26 +898,6 @@ mod tests {
                 }
                 _ => (1, String::new()),
             }
-        }
-    }
-
-    /// The files of the virtual machine: what the extension wrote and the core has not yet removed.
-    #[derive(Default)]
-    struct Files(Mutex<HashMap<String, Vec<u8>>>);
-
-    impl Files {
-        fn put(&self, path: &str, bytes: Vec<u8>) {
-            self.0.lock().unwrap().insert(path.to_owned(), bytes);
-        }
-    }
-
-    impl ShotFiles for Files {
-        fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
-            self.0.lock().unwrap().get(path).cloned().ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
-        }
-
-        fn remove(&self, path: &str) {
-            self.0.lock().unwrap().remove(path);
         }
     }
 
@@ -968,18 +925,16 @@ mod tests {
     struct Machine {
         world: Arc<World>,
         log: Arc<Log>,
-        files: Arc<Files>,
         senders: Mutex<HashMap<String, UnboundedSender<ProcessEvent>>>,
         receivers: Mutex<HashMap<String, UnboundedReceiver<ProcessEvent>>>,
         seq: AtomicU64,
     }
 
     impl Machine {
-        fn new(world: &Arc<World>, log: &Arc<Log>, files: &Arc<Files>) -> Arc<Self> {
+        fn new(world: &Arc<World>, log: &Arc<Log>) -> Arc<Self> {
             Arc::new(Self {
                 world: world.clone(),
                 log: log.clone(),
-                files: files.clone(),
                 senders: Mutex::default(),
                 receivers: Mutex::default(),
                 seq: AtomicU64::new(0),
@@ -1005,22 +960,19 @@ mod tests {
             let (send, receive) = tokio::sync::mpsc::unbounded_channel();
             self.senders.lock().unwrap().insert(request.handle.0.clone(), send);
             self.receivers.lock().unwrap().insert(request.handle.0.clone(), receive);
-            let hangs = self.world.screenshot == "hangs" && args.iter().any(|arg| arg.ends_with(".Screenshot"));
             if !request.stdin_piped {
                 let (code, out) = match program.as_str() {
                     "/bin/sh" => (i32::from(!self.world.shell(&request.env, &args[1], &args[3])), String::new()),
                     "gdbus" | "gsettings" => {
                         self.log.0.lock().unwrap().push(json!({ "tool": std::iter::once(program.clone()).chain(args.iter().cloned()).collect::<Vec<_>>() }));
-                        self.world.tool(program, args, &self.files)
+                        self.world.tool(program, args)
                     }
                     other => return Err(ProcessError::ProgramNotFound { program: other.to_owned() }),
                 };
                 if !out.is_empty() {
                     self.emit(&request.handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.into_bytes() });
                 }
-                if !hangs {
-                    self.emit(&request.handle, |seq| Self::exited(seq, code, None));
-                }
+                self.emit(&request.handle, |seq| Self::exited(seq, code, None));
             }
             Ok(SpawnedProcess { handle: request.handle, pid: 1 })
         }
@@ -1074,56 +1026,95 @@ mod tests {
         refused: usize,
         diagnosed: usize,
         frames: usize,
+        hosted: usize,
         pixel_failures: usize,
-        electron: usize,
         errors: usize,
+        refused_without_desktop: usize,
     }
 
-    /// The content blocks the core returned, in the recording's shape, minus the image's bytes and media type (see `node_blocks`).
+    /// The content blocks the core returned, in the recording's shape (`computerToolResult`: an image block carries its size and its base64 source).
     fn blocks_of(parts: &[ToolPart]) -> Vec<Value> {
         parts
             .iter()
             .map(|part| match part {
                 ToolPart::Text(text) => json!({"type": "text", "text": text}),
-                ToolPart::Image { width, height, .. } => json!({"type": "image", "width": width, "height": height}),
+                ToolPart::Image { mime, data: ImageData::Bytes(bytes), width, height } => json!({
+                    "type": "image",
+                    "width": width,
+                    "height": height,
+                    "source": {"type": "base64", "media_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes)},
+                }),
                 other => panic!("unexpected part {other:?}"),
             })
             .collect()
     }
 
-    /// The content blocks Node returned. NOT COMPARED: an image's bytes and media type. Node resamples and re-encodes the frame in
-    /// Electron (Chromium's JPEG encoder), which the recorder replaces with a stand-in (`STANDIN-JPEG q<quality>` before the PNG it was
-    /// given) and the core has no counterpart of yet (route undecided): neither side's bytes say anything about the other's, so they
-    /// are not compared. What is compared is the block's `width` and `height`.
+    /// The content blocks Node returned.
     fn node_blocks(content: &[Value]) -> Vec<Value> {
         content
             .iter()
             .map(|block| match block["type"].as_str().expect("a block type") {
                 "text" => json!({"type": "text", "text": block["text"]}),
-                "image" => json!({"type": "image", "width": block["width"], "height": block["height"]}),
+                "image" => json!({"type": "image", "width": block["width"], "height": block["height"], "source": block["source"]}),
                 other => panic!("unexpected block {other}"),
             })
             .collect()
     }
 
-    /// One recorded call through `ProcessComputerBackend::run` on a fresh backend and a fresh machine of the recorded world, compared whole
-    /// with what Node's tool returned: the error flag, every content block, and the gdbus / gsettings invocations and helper requests in
-    /// order. A capture Node could only take through Electron is `Unavailable`.
-    async fn replay(world: World, session: &str, args: &Value, node: &Value, label: &str, seen: &mut Seen) {
-        let world = Arc::new(world);
-        let (log, files) = (Arc::new(Log::default()), Arc::new(Files::default()));
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(&world, &log, &files)).with_linux_session(
-            world.env.clone(),
-            world.displays(),
-            files.clone(),
-            world.shot_id.clone(),
-        );
-        let got = backend.run(request(args).expect("a recorded call"), CancellationToken::new()).await;
-        if node["electron"] == true {
-            assert!(matches!(got, Err(ComputerError::Unavailable { .. })), "{label}: Node takes this capture through Electron, got {got:?}");
-            seen.electron += 1;
-            return;
+    /// The desktop the recorder ran: it answers `host/computer/capture` with the bridge answer the recorder saw for the one command it was
+    /// sent, and `host/computer/displays` with the `readDisplays()` the recorder took in the same world. It keeps what it was asked.
+    struct Desktop {
+        serving: bool,
+        displays: Value,
+        /// The recorded bridge answer (`{ ok, value }` or `{ ok, error }`) to the capture, when the recording has one.
+        answer: Option<Value>,
+        asked: Mutex<Vec<Value>>,
+    }
+
+    #[async_trait]
+    impl HostChannel for Desktop {
+        fn serves(&self, capability: HostCapability) -> bool {
+            assert_eq!(capability, HostCapability::Computer);
+            self.serving
         }
+
+        async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
+            assert!(self.serving, "the core asked a desktop that is not attached");
+            assert_eq!(capability, HostCapability::Computer);
+            match method.0 {
+                "host/computer/displays" => {
+                    assert_eq!(params, json!({}));
+                    Ok(self.displays.clone())
+                }
+                "host/computer/capture" => {
+                    let answer = self.answer.as_ref().expect("the recording has no capture of a screen for this call");
+                    self.asked.lock().unwrap().push(params["command"].clone());
+                    if answer["ok"] == true {
+                        Ok(answer["value"].clone())
+                    } else {
+                        Err(HostError::Rpc { code: -32000, message: answer["error"].as_str().expect("the host's message").to_owned(), data: None })
+                    }
+                }
+                other => panic!("the core asked the desktop for {other}"),
+            }
+        }
+
+        fn notify(&self, _: HostCapability, method: Method, _: Value) -> Result<(), CoreError> {
+            panic!("the core sent {} to the desktop", method.0)
+        }
+    }
+
+    /// One recorded call through `ProcessComputerBackend::run` on a fresh backend and a fresh machine of the recorded world, compared whole
+    /// with what Node's tool returned: the error flag, every content block, the gdbus / gsettings invocations and helper requests in order, and
+    /// the command a capture of a screen sent to the desktop. `attached`: the recorder ran with the desktop host (not the no-desktop case).
+    async fn replay(world: World, displays: &Value, attached: bool, session: &str, args: &Value, node: &Value, label: &str, seen: &mut Seen) {
+        let world = Arc::new(world);
+        let log = Arc::new(Log::default());
+        let desktop = Arc::new(Desktop { serving: attached, displays: displays.clone(), answer: node.get("host").map(|host| host["answer"].clone()), asked: Mutex::default() });
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(&world, &log))
+            .with_linux_session(world.env.clone())
+            .with_desktop(desktop.clone());
+        let got = backend.run(request(args).expect("a recorded call"), CancellationToken::new()).await;
         let result = &node["result"];
         let want = node_blocks(result["content"].as_array().expect("content"));
         let is_error = match got {
@@ -1139,6 +1130,7 @@ mod tests {
                 }
                 assert_eq!(vec![json!({"type": "text", "text": failure_text(&code, &message, args)})], want, "{label}: the error text the tool returns");
                 seen.pixel_failures += usize::from(code == "computer_reported");
+                seen.refused_without_desktop += usize::from(!attached);
                 true
             }
             Err(other) => panic!("{label}: Node ran it, got {other:?}"),
@@ -1146,6 +1138,9 @@ mod tests {
         assert_eq!(is_error, result["isError"] == true, "{label}: the error flag");
         seen.errors += usize::from(is_error);
         seen.diagnosed += usize::from(args["action"] == "diagnose");
+        let sent: Vec<Value> = node.get("host").map(|host| vec![host["command"].clone()]).unwrap_or_default();
+        seen.hosted += sent.len();
+        assert_eq!(*desktop.asked.lock().unwrap(), sent, "{label}: the command the desktop was sent");
         assert_eq!(Value::Array(log.events()), node["events"], "{label}: the gdbus/gsettings invocations and helper requests, in order");
     }
 
@@ -1161,45 +1156,88 @@ mod tests {
             let observed = &recorded["observed"];
             for node in observed["calls"].as_array().expect("calls") {
                 reset_probe();
-                replay(World::of(&observed["world"]), "default", &node["args"], node, &format!("{name} / {}", node["args"]), &mut seen).await;
+                replay(World::of(&observed["world"]), &observed["hostDisplays"], true, "default", &node["args"], node, &format!("{name} / {}", node["args"]), &mut seen).await;
             }
             sessions += 1;
         }
         assert!(
-            sessions >= 30 && seen.refused > 100 && seen.diagnosed >= 30 && seen.frames >= 3 && seen.pixel_failures >= 4 && seen.electron >= 10 && seen.errors > 100,
-            "{sessions} sessions, {} refused, {} diagnosed, {} frames, {} pixel failures, {} electron, {} errors",
+            sessions >= 30 && seen.refused > 100 && seen.diagnosed >= 30 && seen.frames >= 3 && seen.hosted >= 60 && seen.pixel_failures >= 4 && seen.errors > 100,
+            "{sessions} sessions, {} refused, {} diagnosed, {} frames, {} sent to the desktop, {} pixel failures, {} errors",
             seen.refused,
             seen.diagnosed,
             seen.frames,
+            seen.hosted,
             seen.pixel_failures,
-            seen.electron,
             seen.errors
         );
     }
 
-    /// Node ends a GNOME capture at 12 s (`GNOME_SHELL_CAPTURE_TIMEOUT_MS`), inside the 15 s the `gdbus` process gets: a `gdbus` that
-    /// never answers fails the capture after 12 s of the runtime's (paused) clock.
+    /// The display list is the host's own: a diagnose on one display and on two reports what `readDisplays()` answered, and each display's
+    /// capture is the command the client sent, answered by the host.
     #[tokio::test(start_paused = true)]
     #[allow(clippy::await_holding_lock)]
-    async fn a_gnome_capture_that_never_answers_ends_at_12_seconds() {
+    async fn the_display_list_and_each_displays_capture_are_the_hosts() {
         let _serial = serial();
-        let recorded = case("session gnome-everything")["observed"].clone();
-        let mut world = World::of(&recorded["world"]);
-        world.screenshot = "hangs".into();
-        let world = Arc::new(world);
-        let (log, files) = (Arc::new(Log::default()), Arc::new(Files::default()));
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "default"), Machine::new(&world, &log, &files)).with_linux_session(
-            world.env.clone(),
-            world.displays(),
-            files.clone(),
-            world.shot_id.clone(),
-        );
-        let call = json!({"action": "capture", "input": {"mode": "vision", "screen": 0}});
-        // Nothing else is waiting on the clock, so a paused runtime moves it to the next deadline: the first one the capture armed.
-        let started = tokio::time::Instant::now();
-        let got = backend.run(request(&call).expect("a capture"), CancellationToken::new()).await;
-        assert_eq!(started.elapsed(), Duration::from_secs(12), "the capture's bound");
-        assert!(matches!(got, Err(ComputerError::Failed { ref code, .. }) if code == "computer_reported"), "{got:?}");
+        let one = case("session gnome-everything")["observed"].clone();
+        let two = case("session gnome-two-displays")["observed"].clone();
+        assert_eq!((one["hostDisplays"].as_array().map(Vec::len), two["hostDisplays"].as_array().map(Vec::len)), (Some(1), Some(2)));
+        let mut seen = Seen::default();
+        for observed in [&one, &two] {
+            let calls = observed["calls"].as_array().expect("calls");
+            let mut screens = Vec::new();
+            for node in calls {
+                let wanted = node["args"]["action"] == "diagnose" || node["args"]["input"]["screen"].is_number();
+                if !wanted {
+                    continue;
+                }
+                reset_probe();
+                replay(World::of(&observed["world"]), &observed["hostDisplays"], true, "default", &node["args"], node, &format!("displays {}", node["args"]), &mut seen).await;
+                if node["args"]["input"]["screen"].is_number() {
+                    screens.push((node["args"]["input"]["screen"].as_i64().expect("screen"), node["result"]["isError"] == true));
+                }
+            }
+            let count = observed["hostDisplays"].as_array().expect("displays").len() as i64;
+            // A screen that is on the list is captured; one past it is the host's refusal.
+            assert_eq!(screens, vec![(0, false), (1, count < 2)]);
+        }
+        assert!(seen.diagnosed >= 2 && seen.frames >= 3, "{} diagnosed, {} frames", seen.diagnosed, seen.frames);
+    }
+
+    /// With no desktop attached Node refuses a call before it probes or dispatches anything; so does the core, for the calls it sends to the desktop.
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::await_holding_lock)]
+    async fn with_no_desktop_the_calls_that_need_one_are_refused_as_node_refuses() {
+        let _serial = serial();
+        let recorded = case("no desktop attached")["observed"].clone();
+        let mut seen = Seen::default();
+        for node in recorded["calls"].as_array().expect("calls") {
+            assert_eq!(node["events"], json!([]), "Node probed nothing");
+            reset_probe();
+            replay(World::of(&recorded["world"]), &json!([]), false, "default", &node["args"], node, &format!("no desktop / {}", node["args"]), &mut seen).await;
+        }
+        assert_eq!((seen.refused_without_desktop, seen.errors), (3, 3));
+    }
+
+    /// A capture the desktop did not answer by the capability's deadline (the client's 150 s `REQUEST_TIMEOUT_MS`) reads in Node's words.
+    #[test]
+    fn a_capture_that_outlives_the_deadline_reads_as_the_bridge_timing_out() {
+        let timed_out: HostError = CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "timedOut".into() }.into();
+        let err = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+            struct Slow(HostError);
+            #[async_trait]
+            impl HostChannel for Slow {
+                async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+                    Err(self.0.clone())
+                }
+                fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+                    Ok(())
+                }
+            }
+            let machine = Machine::new(&Arc::new(World::of(&case("session gnome-everything")["observed"]["world"])), &Arc::new(Log::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "default"), machine).with_desktop(Arc::new(Slow(timed_out)));
+            backend.run(request(&json!({"action": "capture", "input": {"mode": "vision", "screen": 0}})).unwrap(), CancellationToken::new()).await
+        });
+        assert!(matches!(&err, Err(ComputerError::Failed { code, message }) if code == "computer_reported" && message == "Error: computer bridge timed out"), "{err:?}");
     }
 
     /// The probe is the process's, not a session's, and it lives 3 seconds of the runtime's clock: two sessions inside the window share it,
@@ -1219,7 +1257,7 @@ mod tests {
                 let mut world = World::of(&recorded["world"]);
                 world.writable = if step["uinput"].as_bool().expect("uinput") { vec!["/dev/uinput".to_owned()] } else { Vec::new() };
                 let session = node["sessionId"].as_str().expect("session");
-                replay(world, session, &recorded["call"], node, &format!("at {at} / {session}"), &mut seen).await;
+                replay(world, &recorded["hostDisplays"], true, session, &recorded["call"], node, &format!("at {at} / {session}"), &mut seen).await;
             }
         }
         assert_eq!(seen.diagnosed, 8);

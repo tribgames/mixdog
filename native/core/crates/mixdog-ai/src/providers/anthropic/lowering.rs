@@ -134,7 +134,7 @@ fn data_url_parts(url: &str) -> Option<(&str, &str)> {
 fn part_to_block(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
-        ContentPart::Image(ImageSource::Base64 { data, mime_type }) => json!({
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": mime_type, "data": data },
         }),

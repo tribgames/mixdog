@@ -110,7 +110,7 @@ fn lowered_content(content: &Content, vision: bool) -> (String, Vec<ImageData>) 
     for part in parts {
         match part {
             ContentPart::Text(t, _) => text.push_str(t),
-            ContentPart::Image(ImageSource::Base64 { data, mime_type }) if vision => {
+            ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) if vision => {
                 images.push(ImageData {
                     base64_data: data.clone(),
                     mime_type: mime_type.clone(),
