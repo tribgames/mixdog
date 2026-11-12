@@ -43,39 +43,3 @@ can still omit details, including in a reused legacy chunk. This explicitly
 trades stricter semantic checking for lower latency and more chunk reuse.
 Do not describe resulting compression ratios as proven lossless.
 
-## Existing chunks: snapshot-first audit and simulation
-
-From the repository root:
-
-```powershell
-node scripts/memory-chunk-quality.mjs
-node scripts/memory-chunk-quality.mjs --input C:\path\snapshot.json --simulate-limit 2
-```
-
-The first command reads the advertised running PG service using a repeatable,
-read-only transaction. It never starts a service or migrates the live schema.
-The second re-chunks original member bodies from a supplied snapshot, using the
-configured memory agent. It reports actual elapsed call time and checks exact
-source-row coverage of the resulting chunks plus RAW fallback. It changes
-neither the live DB nor the supplied snapshot.
-
-Every run allocates a unique temporary directory and retains:
-
-- `snapshot.json`: unchanged source backup.
-- `working.json`: separate copy with simulated compressed outputs.
-- `report.json`: per-chunk reasons, timings/errors, reuse counts and
-  source/projection integrity checks.
-
-Existing summaries passing the cheap checks can be reused without regeneration.
-Simulation starts from original member bodies, never from a damaged summary.
-Root/member identities and original content are preserved in the working copy.
-A provider error stops further AI calls and exits nonzero while
-retaining the report. No command here updates the live DB or deploys code.
-Legacy deferred/sentinel rows are reported separately and remain available as
-RAW; this audit does not silently requeue them.
-
-Run the relevant tests with the repository runner:
-
-```powershell
-npm test -- memory-chunk memory-cycle1-quality memory-cycle-packets compact-handoff
-```

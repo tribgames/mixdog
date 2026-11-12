@@ -12,6 +12,7 @@ use mixdog_core_api::domain::provider::DocumentSource;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
@@ -145,13 +146,93 @@ fn replayed_parts(message: &Message, dialect: &Dialect, model: &str, traits: &dy
     (!parts.is_empty()).then_some(parts)
 }
 
+/// The recorded parts of an assistant turn on Antigravity (`signatureSafeMessages`, antigravity-request.mjs:139-163):
+/// only a replay the same family (Claude or not) recorded is this route's (`replayFamilyMatches`).
+fn antigravity_own_parts(message: &Message, dialect: &Dialect, model: &str) -> Option<Vec<Value>> {
+    let replay = message.replay_for(&dialect.owner).next()?;
+    if let Some(recorded) = replay.items.get("model").and_then(Value::as_str)
+        && !recorded.is_empty()
+        && antigravity_claude(recorded) != antigravity_claude(model)
+    {
+        return None;
+    }
+    let parts = replay.items.get("parts")?.as_array()?.clone();
+    (!parts.is_empty()).then_some(parts)
+}
+
+fn is_thought(part: &Value) -> bool {
+    part.get("thought") == Some(&Value::Bool(true))
+}
+
+/// `hasOwnClaudeSignature`: a signature this route recorded (the validator-bypass sentinel is Gemini's, not Claude's).
+fn own_claude_signature(part: &Value) -> bool {
+    part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty() && s != SIGNATURE_SENTINEL)
+}
+
+/// `coalesceClaudeThoughts`: each run of thought deltas becomes one block that ends at its signature.
+fn coalesce_claude_thoughts(parts: Vec<Value>) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut open: Option<Map<String, Value>> = None;
+    for part in parts {
+        let Some(map) = part.as_object().filter(|_| is_thought(&part)) else {
+            out.extend(open.take().map(Value::Object));
+            out.push(part);
+            continue;
+        };
+        let text = map.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut block = match open.take() {
+            // `{ ...open, ...part, text: open.text + partText }`
+            Some(mut block) => {
+                let joined = format!("{}{text}", block.get("text").and_then(Value::as_str).unwrap_or_default());
+                block.extend(map.clone());
+                block.insert("text".into(), joined.into());
+                block
+            }
+            None => {
+                let mut block = map.clone();
+                block.insert("text".into(), text.into());
+                block
+            }
+        };
+        if map.get("thoughtSignature").is_some_and(Value::is_string) {
+            out.push(Value::Object(std::mem::take(&mut block)));
+        } else {
+            open = Some(block);
+        }
+    }
+    out.extend(open.map(Value::Object));
+    out
+}
+
+/// `claudeReplayParts` (antigravity-request.mjs:117-127): only a signature this route recorded is replayed, the empty
+/// text parts around calls go, thought runs are rejoined, and a thought block left unsigned is dropped.
+fn claude_replay_parts(parts: Vec<Value>, own: bool) -> Vec<Value> {
+    let signed = parts.into_iter().map(|mut part| {
+        let keep = own && own_claude_signature(&part);
+        if let Some(map) = part.as_object_mut()
+            && map.contains_key("thoughtSignature")
+            && !keep
+        {
+            map.shift_remove("thoughtSignature");
+        }
+        part
+    });
+    // `isEmptyPlainTextPart`: the Claude bridge rejects an empty text part on replay.
+    let kept = signed
+        .filter(|part| !(part.get("text").and_then(Value::as_str) == Some("") && !is_thought(part) && !part.get("thoughtSignature").is_some_and(Value::is_string)))
+        .collect();
+    coalesce_claude_thoughts(kept).into_iter().filter(|part| !is_thought(part) || own_claude_signature(part)).collect()
+}
+
 fn model_content(
     message: &Message,
     dialect: &Dialect,
     model: &str,
     traits: &dyn ModelTraits,
 ) -> Result<Option<Value>, ProviderError> {
-    let mut parts = if let Some(parts) = replayed_parts(message, dialect, model, traits) {
+    let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { replayed_parts(message, dialect, model, traits) };
+    let recorded = own.is_some();
+    let mut parts = if let Some(parts) = own {
         parts
     } else {
         let mut parts = content_parts(&message.content)?;
@@ -164,10 +245,121 @@ fn model_content(
         }
         parts
     };
+    if dialect.family_gated {
+        if antigravity_claude(model) {
+            // A turn that held only empty or dropped parts is omitted, not sent as `parts: []`.
+            parts = claude_replay_parts(parts, recorded);
+        }
+        // Signatures this route recorded are kept; a thought or signed part with no recorded signature carries
+        // the recovery sentinel, and a missing one is never made up.
+        for part in &mut parts {
+            let signed = part.get("thoughtSignature").is_some_and(Value::is_string);
+            if (is_thought(part) || signed)
+                && (!recorded || !part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty()))
+            {
+                part["thoughtSignature"] = json!(SIGNATURE_SENTINEL);
+            }
+        }
+    }
     if !dialect.function_ids {
         strip_ids(&mut parts);
     }
     Ok((!parts.is_empty()).then(|| json!({ "role": "model", "parts": parts })))
+}
+
+fn is_tool_result_turn(content: &Value) -> bool {
+    content["role"] == "user"
+        && content["parts"].as_array().is_some_and(|parts| parts.iter().any(|p| p.get("functionResponse").is_some_and(|r| !r.is_null())))
+}
+
+fn has_signed_thinking(content: &Value) -> bool {
+    content["parts"].as_array().is_some_and(|parts| parts.iter().any(|p| is_thought(p) && own_claude_signature(p)))
+}
+
+/// `closeUnthoughtToolLoop` (antigravity-request.mjs:180-208): with thinking on, a tool loop whose turn did not open
+/// with signed thinking is closed on the wire: the closed part loses its thinking, a model reply acknowledges the
+/// results and a user nudge opens a fresh turn, after the results of the turn's last unthought model message.
+fn close_unthought_tool_loop(contents: Vec<Value>) -> Vec<Value> {
+    if !contents.last().is_some_and(is_tool_result_turn) {
+        return contents;
+    }
+    let start = contents.iter().rposition(|c| c["role"] == "user" && !is_tool_result_turn(c)).map_or(0, |p| p + 1);
+    let models: Vec<usize> = (start..contents.len()).filter(|i| contents[*i]["role"] == "model").collect();
+    let Some(&first) = models.first() else { return contents };
+    if has_signed_thinking(&contents[first]) {
+        return contents;
+    }
+    let unthought = models.iter().rev().copied().find(|i| !has_signed_thinking(&contents[*i])).unwrap_or(first);
+    let mut cut = unthought + 1;
+    let mut results = 0;
+    while contents.get(cut).is_some_and(is_tool_result_turn) {
+        results += contents[cut]["parts"].as_array().map_or(0, |p| p.iter().filter(|x| x.get("functionResponse").is_some_and(|r| !r.is_null())).count());
+        cut += 1;
+    }
+    if results == 0 {
+        return contents;
+    }
+    let mut rest = contents;
+    let tail = rest.split_off(cut);
+    let mut out: Vec<Value> = rest
+        .into_iter()
+        .filter_map(|mut content| {
+            if content["role"] != "model" {
+                return Some(content);
+            }
+            let parts: Vec<Value> = content["parts"].as_array().cloned().unwrap_or_default().into_iter().filter(|p| !is_thought(p)).collect();
+            (!parts.is_empty()).then(|| {
+                content["parts"] = Value::Array(parts);
+                content
+            })
+        })
+        .collect();
+    let ack = if results == 1 { "[Tool result received.]".to_owned() } else { format!("[{results} tool results received.]") };
+    out.push(json!({ "role": "model", "parts": [{ "text": ack }] }));
+    out.push(json!({ "role": "user", "parts": [{ "text": "[Continue.]" }] }));
+    out.extend(tail);
+    out
+}
+
+/// Used when the gateway declared no output limit for a Claude id (`CLAUDE_MAX_OUTPUT_TOKENS`).
+const CLAUDE_MAX_OUTPUT_TOKENS: u32 = 64_000;
+
+/// `claudeGatewayLevel`: Google's ThinkingLevel enum tops out at `high`.
+fn claude_gateway_level(value: &str) -> Option<&'static str> {
+    match value.to_lowercase().as_str() {
+        "xhigh" | "max" | "ultra" | "high" => Some("high"),
+        "low" => Some("low"),
+        "medium" => Some("medium"),
+        _ => None,
+    }
+}
+
+/// `claudeThinkingConfig` (antigravity-request.mjs:228-243): an explicit token budget as-is, else the effort as
+/// `thinkingLevel`; thoughts always included.
+fn claude_thinking_config(options: &RequestOptions, cap: u32) -> Result<Map<String, Value>, ProviderError> {
+    let mut config = Map::new();
+    config.insert("includeThoughts".into(), json!(true));
+    let budget = param(options, "thinkingBudget").or_else(|| param(options, "thinkingBudgetTokens"));
+    let Some(budget) = budget else {
+        let level = match param(options, "thinkingLevel") {
+            Some(value) => value.as_str().and_then(claude_gateway_level),
+            None => options.effort.as_deref().and_then(claude_gateway_level),
+        };
+        if let Some(level) = level {
+            config.insert("thinkingLevel".into(), json!(level));
+        }
+        return Ok(config);
+    };
+    let value = match budget {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => mixdog_js::string_to_number(s),
+        _ => f64::NAN,
+    };
+    if value.fract() != 0.0 || !value.is_finite() || value < 1024.0 || value >= f64::from(cap) {
+        return Err(invalid(format!("Antigravity Claude thinkingBudget must be an integer from 1024 to {}.", cap - 1)));
+    }
+    config.insert("thinkingBudget".into(), json!(value as u64));
+    Ok(config)
 }
 
 /// The `functionCall` object the request replays for each tool-call id, so
@@ -450,10 +642,37 @@ pub fn build_request(
 ) -> Result<Value, ProviderError> {
     let family = traits.is_gemini_family(&request.model);
     let gemini_fields = !dialect.family_gated || family;
-    let contents = contents(request, dialect, traits)?;
+    let mut contents = contents(request, dialect, traits)?;
     if contents.is_empty() {
         return Err(invalid("No messages to send"));
     }
+    // A Claude model behind Antigravity: its own output cap and thinking config, and with thinking on, an unthought
+    // tool loop closed on the wire (`buildAntigravityRequest`, antigravity-request.mjs:236-252). The tail reminder is
+    // not history: the closure sees the real tail and the reminder stays last.
+    let claude = dialect.family_gated && antigravity_claude(&request.model);
+    let claude_generation = if claude {
+        let cap = request.options.model_max_output_tokens.filter(|n| *n > 0).unwrap_or(CLAUDE_MAX_OUTPUT_TOKENS);
+        let thinking = claude_thinking_config(&request.options, cap)?;
+        let thinks = thinking.contains_key("thinkingLevel")
+            || thinking.contains_key("thinkingBudget")
+            || request.model.len().checked_sub(9).and_then(|at| request.model.get(at..)).is_some_and(|tail| tail.eq_ignore_ascii_case("-thinking"));
+        if thinks {
+            let reminder = request
+                .messages
+                .last()
+                .is_some_and(|m| m.role == Role::User && m.source == Some(MessageSource::TailReminder) && !text_of(&m.content).is_empty())
+                .then(|| contents.pop())
+                .flatten();
+            contents = close_unthought_tool_loop(contents);
+            contents.extend(reminder);
+        }
+        let mut generation = Map::new();
+        generation.insert("maxOutputTokens".into(), json!(cap));
+        generation.insert("thinkingConfig".into(), Value::Object(thinking));
+        Some(generation)
+    } else {
+        None
+    };
     let system: Vec<String> = request
         .messages
         .iter()
@@ -486,11 +705,23 @@ pub fn build_request(
     let declarations = tool_accept::function_declarations(&request.tools, mode, &mut |excluded| {
         report_exclusion(&request.options, excluded)
     });
+    // Hosted tools ahead of the one function-declaration entry (`toGeminiRequestTools`, gemini-schema.mjs:805-810); the
+    // tool config only accompanies kept declarations.
+    let mut tools = crate::providers::hosted::gemini_tools(&request.options);
     if !declarations.is_empty() {
-        body.insert("tools".into(), json!([{ "functionDeclarations": declarations }]));
-        if let Some(config) = tool_config(&request.options, dialect.default_tool_mode) {
-            body.insert("toolConfig".into(), config);
-        }
+        tools.push(json!({ "functionDeclarations": declarations }));
+    }
+    if !tools.is_empty() {
+        body.insert("tools".into(), Value::Array(tools));
+    }
+    if !declarations.is_empty()
+        && let Some(config) = tool_config(&request.options, dialect.default_tool_mode)
+    {
+        body.insert("toolConfig".into(), config);
+    }
+    if let Some(generation) = claude_generation {
+        body.insert("generationConfig".into(), Value::Object(generation));
+        return Ok(Value::Object(body));
     }
     let mut generation = Map::new();
     if let Some(thinking) = thinking_config(request, traits, gemini_fields.then_some(true))? {

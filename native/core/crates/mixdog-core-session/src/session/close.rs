@@ -145,29 +145,6 @@ pub enum Saved {
     Dropped,
 }
 
-/// A header write issued for `expected_generation` (`saveSessionAsync(session, { expectedGeneration })`): refused
-/// when the record is past that generation ([`drops_against`]), judged against the header the write then lands on.
-pub async fn patch_header_fenced(
-    threads: &dyn ThreadState,
-    thread: &ThreadId,
-    expected_generation: Option<f64>,
-    set: Map<String, Value>,
-    unset: Vec<String>,
-) -> Result<Saved, PortError> {
-    loop {
-        let recorded = threads.header(thread).await?;
-        if drops_against(&recorded, expected_generation) {
-            return Ok(Saved::Dropped);
-        }
-        let expect = ["generation", "closed"].into_iter().map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null))).collect();
-        match threads.patch_header_if(thread, expect, set.clone(), unset.clone()).await? {
-            None => return Ok(Saved::Written),
-            // The lifecycle moved meanwhile: judged again against it.
-            Some(_) => continue,
-        }
-    }
-}
-
 /// The reason the idle sweep closes with (`markSessionClosed(id, 'idle-sweep', ..)`,
 /// `sweep-row.mjs:136`).
 pub const IDLE_SWEEP_REASON: &str = "idle-sweep";
@@ -316,30 +293,39 @@ impl SessionClose {
         self.providers.release_session(thread.as_str());
         self.directory.deps().deletion.release_mcp_scope(thread.as_str());
         if let Some(handle) = self.directory.handle(thread) {
-            let _ = handle.cell.ctl_tx.send(Ctl::Closed).await;
+            let (taken, took) = tokio::sync::oneshot::channel();
+            if handle.cell.ctl_tx.send(Ctl::Closed(taken)).await.is_ok() {
+                // An actor that ends first drops the answer: it is gone either way.
+                let _ = took.await;
+            }
         }
     }
 
-    /// The tombstone, written against the header it was computed from; `Ok(false)`: absent.
     async fn mark_closed(&self, thread: &ThreadId, reason: &str) -> Result<bool, PortError> {
-        loop {
-            let recorded = match self.threads.header(thread).await {
-                Ok(header) => header,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            };
-            let set = tombstone(&recorded, reason, self.directory.deps().clock.now_ms());
-            let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
-                .into_iter()
-                .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
-                .collect();
-            match self.threads.patch_header_if(thread, expect, set, Vec::new()).await {
-                Ok(None) => return Ok(true),
-                // Another write moved the header meanwhile: computed again from what it holds now.
-                Ok(Some(_)) => continue,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            }
+        write_close(&self.threads, thread, reason, self.directory.deps().clock.now_ms()).await
+    }
+}
+
+/// `markSessionClosed(id, reason)`: the tombstone, written against the header it was computed from. `Ok(false)`: no such
+/// session.
+pub(crate) async fn write_close(threads: &dyn ThreadState, thread: &ThreadId, reason: &str, now: i64) -> Result<bool, PortError> {
+    loop {
+        let recorded = match threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let set = tombstone(&recorded, reason, now);
+        let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
+            .into_iter()
+            .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
+            .collect();
+        match threads.patch_header_if(thread, expect, set, Vec::new()).await {
+            Ok(None) => return Ok(true),
+            // Another write moved the header meanwhile: computed again from what it holds now.
+            Ok(Some(_)) => continue,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
         }
     }
 }
@@ -394,49 +380,34 @@ mod tests {
         value.as_object().cloned().expect("an object")
     }
 
-    const TWIN: &str = include_str!("../../../../fixtures/session-lifecycle/twin.json");
-    const LIFECYCLE_KEYS: [&str; 9] = ["generation", "updatedAt", "detachedReason", "ownerClosedAt", "closed", "closedReason", "status", "cancelStatus", "cancelledAt"];
-
-    /// The clock of recorded call window `step` (0 is the session's creation, step `n` its `n`th barrier).
-    fn clock_of(step: i64) -> i64 {
-        1000 * (step + 1)
-    }
-
-    /// A recorded lifecycle header with its `{ "step": n }` stamps read as the clock of that call.
-    fn resolved(recorded: &Value) -> Map<String, Value> {
-        recorded
-            .as_object()
-            .expect("a lifecycle")
-            .iter()
-            .map(|(key, value)| (key.clone(), value.get("step").and_then(Value::as_i64).map_or_else(|| value.clone(), |step| json!(clock_of(step)))))
-            .collect()
-    }
-
-    fn lifecycle(header: &Map<String, Value>) -> Map<String, Value> {
-        LIFECYCLE_KEYS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect()
+    /// Node's recording of the session store's barriers and save fence, read when the test runs (4.4 MB: every step
+    /// holds the whole stored header, system prompt included).
+    fn twin() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-lifecycle/twin.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("twin.json")).expect("twin.json")
     }
 
     /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
-    /// store: each step leaves the lifecycle header the Rust fields make from the same header and clock.
+    /// store: each step leaves the whole stored header the Rust fields make from the same header and clock.
     #[test]
     fn the_barriers_leave_what_node_recorded() {
-        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let twin = twin();
         let cases = twin["barriers"].as_array().expect("barriers");
         assert_eq!(cases.len(), 7);
         for case in cases {
             let name = case["name"].as_str().expect("name");
             let steps = case["steps"].as_array().expect("steps");
-            let mut header = resolved(&steps[0]["before"]);
+            let mut header = obj(steps[0]["before"].clone());
             for (index, step) in steps.iter().enumerate() {
-                let now = clock_of(index as i64 + 1);
+                let now = step["clock"].as_i64().expect("clock");
                 let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
-                assert_eq!(lifecycle(&header), resolved(&step["before"]), "{name} step {index}: the header the step starts from");
+                assert_eq!(header, obj(step["before"].clone()), "{name} step {index}: the header the step starts from");
                 let fields = match op {
                     "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
                     _ => tombstone(&header, reason, now),
                 };
                 header.extend(fields);
-                assert_eq!(lifecycle(&header), resolved(&step["after"]), "{name} step {index} ({op} {reason})");
+                assert_eq!(header, obj(step["after"].clone()), "{name} step {index} ({op} {reason})");
                 assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
             }
         }
@@ -445,7 +416,7 @@ mod tests {
     /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
     #[test]
     fn a_stale_save_is_refused_as_node_refuses_it() {
-        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let twin = twin();
         let cases = twin["fence"].as_array().expect("fence");
         assert_eq!(cases.len(), 16);
         let mut refused = 0;
@@ -492,8 +463,7 @@ mod tests {
         }
     }
 
-    /// A detach lands against the header it was computed from (computed again when another write moved it), and a
-    /// save issued for the generation before it is refused while one issued for the new generation lands.
+    /// A detach lands against the header it was computed from (computed again when another write moved it).
     #[tokio::test]
     async fn a_detach_fences_the_save_issued_before_it() {
         let thread = ThreadId::from("sess_a");
@@ -505,12 +475,6 @@ mod tests {
             json!({ "generation": 1, "updatedAt": 7, "detachedReason": "no live session clients" }),
             "the fields Node's first detach records"
         );
-
-        let late = obj(json!({ "title": "late" }));
-        assert_eq!(patch_header_fenced(&cell, &thread, Some(0.0), late.clone(), Vec::new()).await.unwrap(), Saved::Dropped);
-        assert!(cell.header.lock().unwrap().get("title").is_none(), "the refused save wrote nothing");
-        assert_eq!(patch_header_fenced(&cell, &thread, Some(1.0), late, Vec::new()).await.unwrap(), Saved::Written);
-        assert_eq!(cell.header.lock().unwrap()["title"], json!("late"));
 
         cell.conflict_once.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(write_detach(&cell, &thread, "SIGTERM", true, 9).await.unwrap());

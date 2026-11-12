@@ -37,7 +37,6 @@ use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
-use super::result_reuse::ToolResultReuse;
 use mixdog_core_run::run_host::route_fallback::HopHost;
 use mixdog_core_run::run_host::route_fallback::RouteHop;
 use mixdog_core_ports::ports::gate::GateEnv;
@@ -191,6 +190,9 @@ mod session_view;
 
 pub struct HostRunParts {
     services: HostServices,
+    /// Each thread's `_providerPrefixGuardState`: the fingerprint of the request its last completed turn settled on, in memory
+    /// only (Node never stores it).
+    prefix_guards: std::sync::Mutex<std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>>,
 }
 
 /// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
@@ -227,9 +229,29 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
     options.thread = Some(identity);
 }
 
+/// `...session.providerCacheOpts`, spread last into every send's options (`ask-turn-loop-options.mjs:74-77`): the
+/// session's cache policy. Its `cacheStrategy` is what the Anthropic body reads as `model_parameters.cacheStrategy`
+/// (a lead session's message breakpoints are `1h`), its `promptCacheScope` the request's cache scope.
+pub(crate) fn apply_cache_opts(options: &mut mixdog_core_api::domain::provider::RequestOptions, header: &Header) {
+    let Some(opts) = header.get("providerCacheOpts").and_then(Value::as_object) else { return };
+    if let Some(strategy) = opts.get("cacheStrategy").filter(|strategy| strategy.is_object()) {
+        let parameters = options.model_parameters.get_or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(parameters) = parameters.as_object_mut() {
+            parameters.insert("cacheStrategy".to_owned(), strategy.clone());
+        }
+    }
+    if let Some(scope) = opts.get("promptCacheScope").and_then(Value::as_str) {
+        options.prompt_cache_scope = Some(scope.to_owned());
+    }
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
-        Self { services }
+        Self { services, prefix_guards: std::sync::Mutex::default() }
+    }
+
+    fn prefix_guards(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>> {
+        self.prefix_guards.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -256,6 +278,11 @@ fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider:
     super::context_world::snapshot_tools(header, tools, referenced, &provider)
 }
 
+/// The session's `wireRoute` as the pin a gateway's send reads; `None` without one.
+fn wire_pin_of(route: Option<&Value>) -> Option<mixdog_core_api::domain::provider::WirePin> {
+    mixdog_core_api::domain::provider::WirePin::from_route(route?)
+}
+
 fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
@@ -267,6 +294,16 @@ fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
         return Err(refuse("the session has no working directory"));
     }
     Ok(Path::new(cwd).to_path_buf())
+}
+
+/// The registry's connected-server tools (`isMcpTool`, `mcp__…`), which a non-bridge session's call reaches
+/// by name though its request did not carry them; a built-in it did not offer stays unknown.
+struct McpOnly(Arc<dyn ToolResolver>);
+
+impl ToolResolver for McpOnly {
+    fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
+        if name.starts_with("mcp__") { self.0.resolve(scope, name) } else { None }
+    }
 }
 
 /// What a request of a thread is made of, the same for the turn that sends it and for the rebuild a
@@ -295,14 +332,17 @@ struct RequestSource<'a> {
 }
 
 impl HostRunParts {
-    /// The tools a run calls: the surface's own and, on a bridge session, the registry behind them. A
-    /// deferred tool is not in the request, but a call to it (through `call_tool`, or by its name) runs it,
-    /// as Node's executor dispatches by registry (`tool-exec/dispatch.mjs`).
+    /// The tools a run calls: the surface's own and the registry behind them, the whole registry on a bridge
+    /// session and its connected servers' tools on any other. A deferred tool is not in the request, but a call
+    /// to it (through `call_tool`, or by its name) runs it, as Node's executor dispatches by registry
+    /// (`tool-exec/dispatch.mjs`); `dispatchMcp` runs a tool a connected server of the session's scope holds
+    /// whatever the session's exposure (`isRegisteredMcpTool`).
     fn surface_tools(&self, set: ToolSet, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> ToolSet {
-        if !surface.bridge {
-            return set;
+        let scope = super::session_tools::header_scope(header).map(str::to_owned);
+        if surface.bridge {
+            return set.with_registry(self.services.resolver.clone(), scope);
         }
-        set.with_registry(self.services.resolver.clone(), super::session_tools::header_scope(header).map(str::to_owned))
+        set.with_registry(Arc::new(McpOnly(self.services.resolver.clone())), scope)
     }
 
     async fn request_parts(&self, source: RequestSource<'_>) -> Result<RequestParts, TurnError> {
@@ -310,11 +350,17 @@ impl HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
         let provider_id = text(header, "provider");
-        let provider = s
-            .registry
-            .get(provider_id)
-            .await
-            .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
+        // Node readies the route's provider when a stored session is resumed (`resume.mjs:108` `refreshRouteEffort` ->
+        // `route-resolution.mjs:38` `ensureProvidersReady(ensureProviderEnabled(config, provider))`); a thread opened
+        // after a restart has had no such step here, so the first request readies it the same way.
+        let provider = match s.registry.get(provider_id).await {
+            Some(provider) => Some(provider),
+            None => match seams.hop_host(thread, header) {
+                Some(host) => host.provider(provider_id).await.map_err(refuse)?,
+                None => None,
+            },
+        }
+        .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
         let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
@@ -339,8 +385,10 @@ impl HostRunParts {
         options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
+        apply_cache_opts(&mut options, header);
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
+        options.wire_pin = wire_pin_of(header.get("wireRoute"));
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
 
@@ -474,6 +522,23 @@ impl RunParts for HostRunParts {
         self.services.seams.first_response_timeout_ms(agent).await
     }
 
+    fn keep_prefix_guard(&self, thread: &ThreadId, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
+        let mut guards = self.prefix_guards();
+        match guard {
+            Some(guard) => {
+                guards.insert(thread.clone(), guard);
+            }
+            None => {
+                guards.remove(thread);
+            }
+        }
+    }
+
+    async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {
+        let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names).await.map_err(|error| refuse(error.to_string()))
+    }
+
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
@@ -502,7 +567,7 @@ impl RunParts for HostRunParts {
         } else {
             header
         };
-        let RequestParts { provider, cwd, tool_set, settings, options } = self
+        let RequestParts { provider, cwd, tool_set, settings, mut options } = self
             .request_parts(RequestSource {
                 thread,
                 header,
@@ -526,6 +591,8 @@ impl RunParts for HostRunParts {
                 // The route moved while resolving: the newer route pins on its own turn.
                 let live = directory.live_header(thread).header();
                 if text(&live, "provider") == provider_id && text(&live, "model") == model {
+                    // The turn's sends read the pin the session now holds (`sendWireRoute` reads `session.wireRoute`).
+                    options.wire_pin = wire_pin_of(Some(&pin));
                     let mut set = serde_json::Map::new();
                     set.insert("wireRoute".into(), pin);
                     input.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await.map_err(|_| refuse("the pinned wire route could not be saved"))?;
@@ -542,7 +609,8 @@ impl RunParts for HostRunParts {
             files: s.files.clone(),
             processes: s.processes.clone(),
             progress: input.progress.clone(),
-            deadline_of: None,
+            // `executeToolOwned` runs every call through `runReadOnlyIoWithDeadline` (`tool-exec.mjs:130`).
+            deadline_of: Some(mixdog_agent::tools::read_only_io_deadline()),
             notify: input.notify.clone(),
             review: None,
         };
@@ -588,6 +656,13 @@ impl RunParts for HostRunParts {
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
         config.slot = input.slot;
+        // `loop-state.mjs`: a compaction between turns parked a one-shot intent; the turn's first send takes it and the record
+        // drops it.
+        if let Some(intent) = header.get("pendingCacheBreakIntent").and_then(Value::as_str) {
+            config.cache_break_intent = Some(intent.to_owned());
+            let change = mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["pendingCacheBreakIntent".into()] };
+            input.port.save_header(change).await.map_err(|_| refuse("the session's pending cache break could not be taken"))?;
+        }
 
         // The gate needs the observer and the token, which the factory makes after this: it is
         // built from them.
@@ -649,11 +724,8 @@ impl RunParts for HostRunParts {
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
-            reuse: Some({
-                let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
-                s.reuses.track(&reuse);
-                reuse
-            }),
+            // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
+            reuse: Some(s.reuses.run(s.io, session_id, &cwd, read_body, s.clock.clone())),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(self.tail_reminder(header)),
@@ -669,7 +741,7 @@ impl RunParts for HostRunParts {
                 &cwd.to_string_lossy(),
             ))),
             blobs: s.blobs.clone(),
-            carry: RunCarry::from_saved(header),
+            carry: RunCarry { prefix_guard: self.prefix_guards().get(thread).cloned(), ..RunCarry::from_saved(header) },
         })
     }
 }

@@ -40,7 +40,7 @@ pub struct GateGuard { _turn: ChainGuard }
 
 /// The one cancel primitive of the dispatchers ([`Scope::run`], no deadline): cancel wins a tie,
 /// so a token that already fired never takes a free gate, and the work is dropped on cancel.
-async fn until_cancelled<T>(cancel: &CancellationToken, work: impl Future<Output = T>) -> Result<T, GateCancelled> {
+pub(crate) async fn until_cancelled<T>(cancel: &CancellationToken, work: impl Future<Output = T>) -> Result<T, GateCancelled> {
     Scope::new().cancel(cancel).run(work).await.done().ok_or(GateCancelled)
 }
 

@@ -1338,6 +1338,21 @@ impl crate::common::HasOpId for RoomLeaveParams {
     }
 }
 
+/// Params of `room/send`: `input` is `{ threadId, prompt, options }`, the room log and the turn input `turn/start` takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RoomSendParams {
+    pub op_id: OpId,
+    pub input: JsonValue,
+}
+
+impl crate::common::HasOpId for RoomSendParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
 /// Params of `room/reset`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -4547,6 +4562,10 @@ pub struct ProjectFsEntryPathParams {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsReadLocalParams {
     pub path: String,
+    /// The file's bytes are not in the answer, which names a transfer of them to page through
+    /// (`transfer/readRange`, then `transfer/endRead`): a 20 MB file is more than one answer carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paged: Option<bool>,
 }
 
 /// Params of `projectFs/statLocal`.
@@ -4989,9 +5008,14 @@ impl crate::common::HasOpId for TransferTrashEntryParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferGrantMintParams {
-    pub path: String,
+    /// The local path to describe; absent when `attachmentId` names a conversation's attachment instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<JsonValue>,
+    /// A conversation's attachment (with `sessionId`), staged in the PC's temp folder and granted to that conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_id: Option<JsonValue>,
 }
 
 /// Params of `lsp/document`.

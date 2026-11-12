@@ -1,0 +1,101 @@
+{
+  "cases": 3,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-transcript-page-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test: the daemon client is the real session service called in process; replies are recorded as the objects returned (and their JSON byte size, a measure). A replay over the real daemon wire records the same reply objects.",
+    "notRun": "no real store or runtime; the viewer is one local client token",
+    "runs": "createSessionService (subscribeSession, readSession) with a scripted readStoredSession over 300 rows, SessionHostTransport.readSession, SessionHostPublication (projections, applySessionResult, applyTranscriptPage, heldTranscript), SessionTranscriptWindows"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 378041,
+      "path": "golden.json",
+      "sha256": "ab71482680948e0d39def0599fd4a3f2d803fcd4b8df1e2b1900ec5f36082397"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-host-transcript-page-cases.mjs",
+  "recorderSha256": "feb487051a9acb65ae7707d3b52552b24f9130c9a1f86c82a1e0c24f07debf7d",
+  "replay": {
+    "compare": "the core's answers to the recorded reads whole (rows, hasOlder), and the rows the desktop client displays at the end of each case against the recorded snapshot.items whole",
+    "entry": "Two replays. (1) What the core itself answers: thread/items/list (mixdog-core-session/src/session/reads.rs items_list) over a real store, session_host_replay_tests (an_older_page_answers_only_the_revealed_rows_as_node_recorded, a_session_that_changed_between_reads_answers_the_recorded_window_as_node_recorded, held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node_recorded), each compared whole with the recording. (2) What the user then sees: the desktop client code (protocol client, host adapter createChatApi + createChatHostApi, renderer hook useTranscriptWindow with its pager) run against the built mixdogd over its WebSocket listener: node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs --mixdogd <exe> --seeds <dir with c300 and c302, each laid by `cargo-gate.ps1 run -p mixdog-app-server-daemon --example seed_transcript_page_session -- <dir>/c300` and `... -- <dir>/c302 n0 n1`>",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {
+      "rowIds": "a row id is the core's item id where the recorder scripted c0..c299; the rows are compared whole without it",
+      "rowText": "the recorder handed its scripted rows to the host untrimmed (`row <id> ` x50); a stored assistant message restores as its trimmed text in Node (transcript-restore/restore.mjs restoredAssistantTranscriptItems) and in the core alike, so the recorded text is compared trimmed",
+      "pageShape": "Node's host reply wrapper (page/full, projectionStamp, byte size) is the desktop host's; the core answers the same rows and hasOlder on thread/items/list (older page by the opening page's nextCursor; full read without a cursor)",
+      "seeding": "a connection cannot store rows: the core runs over a data directory whose session (the 300 recorded rows c0..c299, and n0, n1 for the changed session) the core's own row writer laid (the seed_transcript_page_session example, thread/inheritedRows/append)",
+      "pageSize": "the page is larger: the K1 pager (renderer/transcript-history.ts) asks for 512 rows (TRANSCRIPT_HISTORY_PAGE_ITEMS, transcript-history.ts:3, request at :145), where Node's recorded host asked for 64 (session-host-transcript-page.test.mjs:77 `held + 64`; renderer tail page TRANSCRIPT_TAIL_PAGE_ITEMS = 64, transcript-history.ts:242), so the replay compares the recorded 64 rows as the newest 64 of the revealed rows, the held rows as held, the newest 96 displayed with snapshot.items, and hasOlder is false (512 reaches the first of the 300 rows) where the 64-row page recorded true",
+      "olderPage": "an older page crosses ...: the reader scrolled up and nothing moves, so the pager's own request is replayed (see pageSize); the Rust test compares only what the core answers (the revealed rows and hasOlder)",
+      "changedBetweenReads": "a session that changed between reads: the client holds the core's feed, so the appended rows are among its held rows once the feed frames are applied; Node's state (32 rows held, 2 more in the core) exists here while those frames are not yet applied, i.e. while the page is in flight. The replay holds the pager's page read in flight, then the client's held rows are the 34 (the tail moved); the pager drops the page and the hook reads the window the request was made for (32 held + 64 = 96 rows), and the 96 rows displayed are compared whole with the recorded snapshot.items",
+      "inFlightMovement": "held rows that move while the page is in flight: the held rows are the desktop host's own copy in Node (session-host-publication.ts heldTranscript), the recorder changed only that copy; here the hook is given the held rows without their first, while the pager's page read is held in flight. The pager drops the page and the hook reads the window the request was made for (32 + 64 = 96 rows, not 31 + 64), and the 96 rows displayed are compared whole with the recorded snapshot.items"
+    },
+    "protocolMethods": [
+      "thread/items/list (mixdog-app-protocol/src/methods.rs:185)"
+    ],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": {
+      "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy": "session_host_replay_tests::an_older_page_answers_only_the_revealed_rows_as_node_recorded; node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs --mixdogd <exe> --seeds <dir with c300 and c302, each laid by `cargo-gate.ps1 run -p mixdog-app-server-daemon --example seed_transcript_page_session -- <dir>/c300` and `... -- <dir>/c302 n0 n1`>",
+      "a session that changed between reads answers the page in full": "session_host_replay_tests::a_session_that_changed_between_reads_answers_the_recorded_window_as_node_recorded; node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs --mixdogd <exe> --seeds <dir with c300 and c302, each laid by `cargo-gate.ps1 run -p mixdog-app-server-daemon --example seed_transcript_page_session -- <dir>/c300` and `... -- <dir>/c302 n0 n1`>",
+      "held rows that move while the page is in flight fall back to a full read": "session_host_replay_tests::held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node_recorded; node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs --mixdogd <exe> --seeds <dir with c300 and c302, each laid by `cargo-gate.ps1 run -p mixdog-app-server-daemon --example seed_transcript_page_session -- <dir>/c300` and `... -- <dir>/c302 n0 n1`>"
+    }
+  },
+  "set": "session-host-transcript-page-cases",
+  "totalBytes": 378041,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

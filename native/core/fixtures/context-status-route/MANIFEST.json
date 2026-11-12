@@ -1,30 +1,74 @@
 {
-  "command": "node benchmarks/rust-core/recorders/context-status-route/record.mjs --tree <git clone of the Node product at b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "node benchmarks/rust-core/recorders/context-status-route/record.mjs --tree <git clone of the Node product at b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2451352,
+      "bytes": 2453602,
       "path": "golden.json",
-      "sha256": "3408414744b40b274171b11088bb1ffe344f12424bb022f3ab003e809d524edc"
+      "sha256": "90559c3e079bdd03dacd860e84d512152cf8aceeb5c0def9cdd49d5cba4a3d4b"
     }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": [
+    "uuids, `msg_`, `it_` and scratch-folder ids: numbered in order of first appearance, same length",
+    "epoch-millisecond times: rebased on one origin, distances kept",
+    "`mcpPid`, `clientHostPid` and `elapsedMs`: one constant each",
+    "the run folder of the recording: named as the integration recordings name it (RECORDED_ROOT), after checking it is as long"
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "files": 9139,
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+      "paths": [
+        "src/session-runtime/services/agent-tool/model-select.mjs",
+        "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+        "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+        "src/session-runtime/services/agent-tool/tool-def.mjs",
+        "src/tui/app/model-picker/route-selection/effort.mjs"
+      ],
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+    },
+    "patches": [
+      {
+        "file": "node-fix-spawn-model-settings.patch",
+        "paths": [
+          "src/session-runtime/services/agent-tool/model-select.mjs",
+          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+          "src/session-runtime/services/agent-tool/tool-def.mjs",
+          "src/tui/app/model-picker/route-selection/effort.mjs"
+        ],
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 5
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "ec36b84fb4ee7e19ad9a065cac4c669986e69b23dee69475103148b9db0e5222",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/context-status-route/record.mjs",
+  "recorderSha256": "172a175fb434b7f444db0ed5e986e3095e84ede9d78617e929b23a65269181b7",
   "set": "context-status-route",
-  "totalBytes": 2451352
+  "totalBytes": 2453602
 }

@@ -171,8 +171,12 @@ pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: 
     Ok(dims)
 }
 
-/// Node's text for a use after the stop began (`ensurePgInstance`, `supervisor.mjs:648`).
+/// Node's text for a use after the stop ended (`ensurePgInstance`, `supervisor.mjs:648`).
 const REFUSED_AFTER_STOP: &str = "[supervisor-pg] process is shutting down; PG start refused";
+
+/// Node's text for a use while the stop runs, and for an opening the stop ended (the lifecycle's refusal and its abort reason,
+/// `memory-service-lifecycle.mjs:23,69`).
+const STOPPING: &str = "memory service stopping";
 
 /// How long a stop waits for an opening in flight (`stopOwnedPgForShutdown`'s `timeoutMs`, 6 s).
 const OPENING_JOIN: Duration = Duration::from_secs(6);
@@ -202,6 +206,8 @@ type Flight = futures::future::Shared<BoxFuture<'static, std::result::Result<(),
 #[derive(Default)]
 struct Opening {
     stopped: bool,
+    /// From the stop's start until it returns: a refusal in this span is Node's lifecycle's, after it the supervisor's.
+    stop_running: bool,
     /// The opening task's outcome, shared by every use that arrived while it runs, under the number of its opening; forgotten when that task ends by
     /// any way, a panic included, so the next use starts a new one (Node's `createSharedAbortable` hands one promise to all callers and forgets it
     /// whenever it settles, `supervisor.mjs:659-665`).
@@ -210,6 +216,19 @@ struct Opening {
     launched: u64,
     /// When the latest opening was launched: a request's wait for the runtime is bounded from it (Node's from its spawn of the memory child).
     since: Option<tokio::time::Instant>,
+}
+
+fn refusal(opening: &Opening) -> &'static str {
+    if opening.stop_running { STOPPING } else { REFUSED_AFTER_STOP }
+}
+
+/// Clears the stop's running mark when the stop ends, however it ends.
+struct StopRunning<'a>(&'a std::sync::Mutex<Opening>);
+
+impl Drop for StopRunning<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).stop_running = false;
+    }
 }
 
 /// Forgets its opening when the opening task ends, however it ends.
@@ -262,6 +281,53 @@ pub struct MemoryStack {
     backfill_boot: std::sync::Mutex<Option<BackfillBoot>>,
     backfill: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     backfill_cancel: CancellationToken,
+    #[cfg(any(test, feature = "test-support"))]
+    stop_seam: StopSeam,
+}
+
+/// A development-only seam on the stop's two failing steps, inert until a test acts: it makes the background-work stop or the storage release fail with a
+/// given text, and records each step as it ends, in order.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Default)]
+pub struct StopSeam {
+    state: std::sync::Mutex<StopSeamState>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Default)]
+struct StopSeamState {
+    fail_background: Option<String>,
+    fail_storage: Option<String>,
+    steps: Vec<&'static str>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl StopSeam {
+    pub fn fail_background(&self, text: &str) {
+        self.state.lock().expect("seam").fail_background = Some(text.to_owned());
+    }
+
+    pub fn fail_storage(&self, text: &str) {
+        self.state.lock().expect("seam").fail_storage = Some(text.to_owned());
+    }
+
+    /// The stop steps that ended so far (`background-stopped`, `storage-released`), in order.
+    pub fn steps(&self) -> Vec<&'static str> {
+        self.state.lock().expect("seam").steps.clone()
+    }
+
+    fn step(&self, step: &'static str, outcome: Result<()>) -> Result<()> {
+        let mut state = self.state.lock().expect("seam");
+        state.steps.push(step);
+        let injected = match step {
+            "background-stopped" => state.fail_background.clone(),
+            _ => state.fail_storage.clone(),
+        };
+        match injected {
+            Some(text) => Err(MemoryError::Rejected(text)),
+            None => outcome,
+        }
+    }
 }
 
 impl MemoryStack {
@@ -303,7 +369,10 @@ impl MemoryStack {
             };
             let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
             let search = SessionSearchIngest::new(SessionSearchDb::over(search_db.clone()), sensitive.clone());
-            let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| provider as Arc<dyn QueryEmbedder>);
+            // `embedQuery` (`query-hybrid-search.mjs:39`): a cold model is warmed within the recall's bounded wait.
+            let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| {
+                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary)) as Arc<dyn QueryEmbedder>
+            });
             let recall = Recall::new(RecallDeps {
                 db: memory_db.clone(),
                 clock: Arc::new(|| Clock { now_ms: chrono::Utc::now().timestamp_millis(), zone: mixdog_js::time::local_zone() }),
@@ -364,6 +433,8 @@ impl MemoryStack {
                 backfill_boot: std::sync::Mutex::new(backfill),
                 backfill: std::sync::Mutex::new(None),
                 backfill_cancel: CancellationToken::new(),
+                #[cfg(any(test, feature = "test-support"))]
+                stop_seam: StopSeam::default(),
             }
         });
         Ok(built)
@@ -376,7 +447,7 @@ impl MemoryStack {
             let mut opening = self.opening.lock().expect("opening");
             // Node refuses before its fast path and before joining the shared ensure (`ensurePgInstance`, `supervisor.mjs:647-665`).
             if opening.stopped {
-                return Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()));
+                return Err(MemoryError::Rejected(refusal(&opening).to_owned()));
             }
             if let Some(opened) = self.opened.get() {
                 return Ok(opened);
@@ -395,7 +466,23 @@ impl MemoryStack {
         };
         // A failed opening's text is every waiting use's error.
         flight.await.map_err(MemoryError::Rejected)?;
-        self.opened.get().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))
+        self.opened.get().ok_or_else(|| MemoryError::Rejected(self.refusal().to_owned()))
+    }
+
+    /// The text a use refused by a stop gets: the lifecycle's while the stop runs, the supervisor's after it.
+    fn refusal(&self) -> &'static str {
+        refusal(&self.opening.lock().expect("opening"))
+    }
+
+    /// The stop's failure seam (development builds only).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn stop_seam(&self) -> &StopSeam {
+        &self.stop_seam
+    }
+
+    /// Whether a stop is running (Node's `isStopping`).
+    pub fn is_stopping(&self) -> bool {
+        self.opening.lock().expect("opening").stop_running
     }
 
     /// Starts the opening as a task of its own: it runs to its end whatever its callers do (Node's shared promise does), and `stop` cancels and joins it.
@@ -422,7 +509,8 @@ impl MemoryStack {
             let opening = self.opening.lock().expect("opening");
             match outcome {
                 Err(error) => return Err(error.message()),
-                Ok(opened) if opening.stopped => opened,
+                // Node's acquisition resolved after the abort: `signal.throwIfAborted()` throws the abort reason (`memory-service-lifecycle.mjs:33`).
+                Ok(opened) if opening.stopped => (opened, refusal(&opening)),
                 Ok(opened) => {
                     let _ = self.opened.set(opened);
                     let me = self.clone();
@@ -431,10 +519,11 @@ impl MemoryStack {
                 }
             }
         };
+        let (late, refused) = late;
         if let Err(error) = self.release(&late).await {
             tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL an opening started after the stop began");
         }
-        Err(REFUSED_AFTER_STOP.to_owned())
+        Err(refused.to_owned())
     }
 
     /// The pools close and, unless this is a secondary process, the postmaster stops, within the shutdown's bound.
@@ -456,6 +545,11 @@ impl MemoryStack {
     }
 
     async fn open(&self) -> Result<Opened> {
+        // A stop in the same turn as the use cancels the acquisition before it starts (Node's queued `initialize` sees the aborted signal first,
+        // `memory-service-lifecycle.mjs:30`).
+        if self.cancel.is_cancelled() {
+            return Err(MemoryError::Rejected(self.refusal().to_owned()));
+        }
         let runtime_dir = match &self.source {
             PgRuntimeSource::Dir(dir) => dir.clone(),
             PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
@@ -491,7 +585,7 @@ impl MemoryStack {
     async fn until_stopped<T>(&self, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
         tokio::select! {
             biased;
-            () = self.cancel.cancelled() => Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned())),
+            () = self.cancel.cancelled() => Err(MemoryError::Rejected(self.refusal().to_owned())),
             done = work => done,
         }
     }
@@ -604,9 +698,21 @@ impl MemoryStack {
         self.memory.data_dir().to_owned()
     }
 
-    /// Whether an opening has completed (the postmaster of this stack is up).
+    /// Whether an opening has completed and no stop has ended since (Node's `initialized`, cleared when its stop settles,
+    /// `memory-service-lifecycle.mjs:99`).
     pub fn is_open(&self) -> bool {
-        self.opened.get().is_some()
+        let opening = self.opening.lock().expect("opening");
+        self.opened.get().is_some() && (!opening.stopped || opening.stop_running)
+    }
+
+    /// The host's stop at quit (and at a failed composition): in Node the memory process stops when its last client is gone and writes a
+    /// failed stop to its stderr (`memory-daemon-lifecycle.mjs:66-71`, `log` = `__mixdogMemoryLog`, `index.mjs:170`), which the daemon's spawner
+    /// mirrors into `memory-runtime-proxy.log`. The core writes the same line to the memory worker's stderr. Node's preceding "client grace
+    /// elapsed" line names a timer the core does not have, and the separate process's exit code has no counterpart.
+    pub async fn stop_for_quit(&self) {
+        if let Err(error) = self.stop().await {
+            mixdog_rt::memory_stderr!("[memory-service] daemon client-grace shutdown failed: {}", error.message());
+        }
     }
 
     /// `_stopRuntime`: background installs end, the pools drain, then the postmaster stops
@@ -615,8 +721,10 @@ impl MemoryStack {
         let flight = {
             let mut opening = self.opening.lock().expect("opening");
             opening.stopped = true;
+            opening.stop_running = true;
             opening.flight.as_ref().map(|(_, flight)| flight.clone())
         };
+        let _running = StopRunning(&self.opening);
         self.cancel.cancel();
         // Node's order (`shutdownOwnedPg`, `adapter.mjs:603-627`): the work that writes through the database ends first, within the point at which Node asks
         // PostgreSQL to stop whatever teardown still runs (`PG_FORCED_STOP_AT`, `daemon-pg-stop.mjs:36-41`); then the opening in flight is waited for;
@@ -652,7 +760,7 @@ impl MemoryStack {
                 self.transcripts.persist_transcript_offsets().await;
             }
         };
-        if tokio::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
+        if mixdog_rt::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
             // Node's fallback log line (`daemon-pg-stop.mjs:38`); what the teardown had not finished is ended, and PostgreSQL is asked to stop anyway.
             tracing::warn!("teardown still running {}ms into shutdown; stopping postgres before the launcher's kill", PG_FORCED_STOP_AT.as_millis());
             if let Some(cycles) = &self.cycles {
@@ -668,18 +776,31 @@ impl MemoryStack {
         // process lives that long. A postmaster started by an opening admitted before the stop and still coming up at 6 s is left as Node leaves it (its
         // exit hook, `supervisor.mjs:832-845`, covers only a published `_live`): it runs outside the core's job, and the next core attaches to it and stops it.
         if let Some(flight) = flight {
-            let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
+            let _ = mixdog_rt::time::timeout(OPENING_JOIN, flight).await;
         }
         let opened = self.opened.get();
         if let Some(runtime) = &self.runtime {
             runtime.shutdown();
         }
+        // Node attempts every step and reports what failed, one failure as itself, several together (`memory-service-lifecycle.mjs:73-96`):
+        // the background work's stop ends here (its last step is the embedding shutdown above), then storage is released whatever it reported.
+        let background: Result<()> = Ok(());
+        #[cfg(any(test, feature = "test-support"))]
+        let background = self.stop_seam.step("background-stopped", background);
         if let Some(cycles) = &self.cycles {
             cycles.reset_in_flight();
         }
-        match opened {
+        let storage = match opened {
             Some(opened) => self.release(opened).await,
             None => Ok(()),
+        };
+        #[cfg(any(test, feature = "test-support"))]
+        let storage = self.stop_seam.step("storage-released", storage);
+        let mut failures: Vec<MemoryError> = [background, storage].into_iter().filter_map(Result::err).collect();
+        match failures.len() {
+            0 => Ok(()),
+            1 => Err(failures.remove(0)),
+            _ => Err(MemoryError::Shutdown(failures)),
         }
     }
 }

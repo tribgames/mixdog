@@ -1,0 +1,787 @@
+{
+  "domain": "memory-recall-readiness",
+  "source": "src/runtime/memory/lib/recall-embedding-readiness.test.mjs",
+  "vector": [
+    0.25,
+    0.75
+  ],
+  "cases": [
+    {
+      "name": "ready recall embeds immediately as a query (test line 8)",
+      "scenario": {
+        "label": "ready recall embeds immediately as a query",
+        "query": "memory query",
+        "result": {
+          "vector": [
+            0.25,
+            0.75
+          ],
+          "state": "ready"
+        },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": [
+              "embed",
+              "memory query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": [
+                0.25,
+                0.75
+              ],
+              "state": "ready"
+            }
+          }
+        ],
+        "calls": [
+          "isReady",
+          [
+            "embed",
+            "memory query",
+            {
+              "priority": true,
+              "inputType": "query"
+            }
+          ]
+        ],
+        "timers": []
+      }
+    },
+    {
+      "name": "cold recall waits for warmup and keeps dense retrieval in the same request (test line 31)",
+      "scenario": {
+        "label": "cold recall waits for warmup and keeps dense retrieval in the same request",
+        "query": "교차 language query",
+        "result": {
+          "vector": [
+            0.25,
+            0.75
+          ],
+          "state": "warmed"
+        },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 50
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "warmup settled"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "product call",
+            "call": [
+              "embed",
+              "교차 language query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": [
+                0.25,
+                0.75
+              ],
+              "state": "warmed"
+            }
+          }
+        ],
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup",
+          [
+            "embed",
+            "교차 language query",
+            {
+              "priority": true,
+              "inputType": "query"
+            }
+          ]
+        ],
+        "timers": [
+          {
+            "armed": 50,
+            "cleared": true,
+            "fired": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall reports warmup failure and preserves lexical fallback (test line 70)",
+      "scenario": {
+        "label": "cold recall reports warmup failure and preserves lexical fallback",
+        "query": "fallback query",
+        "result": {
+          "vector": null,
+          "state": "failed",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "load failed",
+            "props": {}
+          }
+        },
+        "errorIsTheInjectedObject": true,
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 50
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "warmup rejected",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "load failed",
+              "props": {}
+            }
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "product call",
+            "call": [
+              "onWarmupError",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": null,
+              "state": "failed",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed",
+                "props": {}
+              }
+            }
+          }
+        ],
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup",
+          [
+            "onWarmupError",
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "load failed",
+              "props": {}
+            }
+          ]
+        ],
+        "timers": [
+          {
+            "armed": 50,
+            "cleared": true,
+            "fired": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall aborts without waiting for the timeout (test line 90)",
+      "scenario": {
+        "label": "cold recall aborts without waiting for the timeout",
+        "query": "cancel query",
+        "rejected": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "cancelled",
+          "props": {}
+        },
+        "rejectedWithTheInjectedReason": true,
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 5000
+          },
+          {
+            "step": "abort the signal (reason: the injected error)"
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "recall call rejected",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "cancelled",
+              "props": {}
+            }
+          }
+        ],
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup"
+        ],
+        "timers": [
+          {
+            "armed": 5000,
+            "cleared": true,
+            "fired": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall falls back after the bounded wait while warmup continues (test line 47)",
+      "scenario": {
+        "label": "cold recall falls back after the bounded wait while warmup continues",
+        "query": "bounded wait",
+        "result": {
+          "vector": null,
+          "state": "timeout"
+        },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 5
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "step": "clock: fire timer 0 (delay 5)"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": null,
+              "state": "timeout"
+            }
+          },
+          {
+            "step": "settle: the warmup gate resolves"
+          },
+          {
+            "event": "warmup settled"
+          }
+        ],
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup"
+        ],
+        "timers": [
+          {
+            "armed": 5,
+            "cleared": true,
+            "fired": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "further shapes (beyond the test file)",
+      "scenarios": [
+        {
+          "label": "cold recall times out, then the warmup fails in the background",
+          "query": "late failure",
+          "result": {
+            "vector": null,
+            "state": "timeout"
+          },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 5
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "step": "clock: fire timer 0 (delay 5)"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "timeout"
+              }
+            },
+            {
+              "step": "settle: the warmup gate rejects"
+            },
+            {
+              "event": "warmup rejected",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed late",
+                "props": {}
+              }
+            },
+            {
+              "event": "product call",
+              "call": [
+                "onWarmupError",
+                {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "load failed late",
+                  "props": {}
+                }
+              ]
+            }
+          ],
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "onWarmupError",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed late",
+                "props": {}
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 5,
+              "cleared": true,
+              "fired": true
+            }
+          ]
+        },
+        {
+          "label": "empty query",
+          "query": "   ",
+          "result": {
+            "vector": null,
+            "state": "empty"
+          },
+          "trace": [
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "empty"
+              }
+            }
+          ],
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "null-ish query is empty",
+          "query": null,
+          "result": {
+            "vector": null,
+            "state": "empty"
+          },
+          "trace": [
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "empty"
+              }
+            }
+          ],
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "cold recall that cannot warm up",
+          "query": "cannot warm",
+          "result": {
+            "vector": null,
+            "state": "unavailable"
+          },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "unavailable"
+              }
+            }
+          ],
+          "calls": [
+            "isReady",
+            "canWarmup"
+          ],
+          "timers": []
+        },
+        {
+          "label": "signal already aborted before the call",
+          "query": "aborted early",
+          "rejected": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "already cancelled",
+            "props": {}
+          },
+          "rejectedWithTheInjectedReason": true,
+          "trace": [
+            {
+              "step": "abort the signal before the call (reason: the injected error)"
+            },
+            {
+              "event": "recall call rejected",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "already cancelled",
+                "props": {}
+              }
+            }
+          ],
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "signal aborted without a reason",
+          "query": "aborted bare",
+          "rejected": {
+            "$exact": "error",
+            "name": "AbortError",
+            "message": "This operation was aborted",
+            "code": 20,
+            "props": {}
+          },
+          "rejectedWithTheInjectedReason": null,
+          "trace": [
+            {
+              "step": "abort the signal before the call (no reason)"
+            },
+            {
+              "event": "recall call rejected",
+              "error": {
+                "$exact": "error",
+                "name": "AbortError",
+                "message": "This operation was aborted",
+                "code": 20,
+                "props": {}
+              }
+            }
+          ],
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "zero wait with an already-resolved warmup",
+          "query": "zero wait",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "warmed"
+          },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 0
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "event": "warmup settled"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "zero wait",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "warmed"
+              }
+            }
+          ],
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "embed",
+              "zero wait",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 0,
+              "cleared": true,
+              "fired": false
+            }
+          ]
+        },
+        {
+          "label": "warmup completes after a deferred release, before the wait",
+          "query": "deferred warmup",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "warmed"
+          },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 60000
+            },
+            {
+              "step": "settle: the warmup gate is released"
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "event": "warmup settled"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "deferred warmup",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "warmed"
+              }
+            }
+          ],
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "embed",
+              "deferred warmup",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 60000,
+              "cleared": true,
+              "fired": false
+            }
+          ]
+        },
+        {
+          "label": "query is trimmed before embedding",
+          "query": "  padded query  ",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "ready"
+          },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "padded query",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "ready"
+              }
+            }
+          ],
+          "calls": [
+            "isReady",
+            [
+              "embed",
+              "padded query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": []
+        }
+      ]
+    }
+  ]
+}

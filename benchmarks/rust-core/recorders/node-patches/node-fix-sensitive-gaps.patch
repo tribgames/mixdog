@@ -1,0 +1,227 @@
+diff --git a/apps/desktop/src/main/agent-room-log-sensitive.test.mjs b/apps/desktop/src/main/agent-room-log-sensitive.test.mjs
+new file mode 100644
+index 0000000..ea97c08
+--- /dev/null
++++ b/apps/desktop/src/main/agent-room-log-sensitive.test.mjs
+@@ -0,0 +1,20 @@
++// The room list's preview follows the row as the log stored it: a member's
++// speech whose sensitive values the daemon replaced shows the marker there.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { createRoomLog } from './agent-room-log.ts';
++
++test('the preview is the stored row, a sensitive value as the marker', async () => {
++  const rooms = { abc123: { id: 'abc123' } };
++  const log = createRoomLog(
++    {
++      appendRows: async (_id, rows) => ({ rows: rows.map((row) => ({ ...row, text: row.text.replace('482913', '[redacted]') })) }),
++      readItems: async () => [],
++      republishCatalog: () => {},
++    },
++    () => rooms
++  );
++  await log.post('abc123', [{ id: 's1', kind: 'speech', speaker: 'gh', at: 1, text: 'the code is 482913' }]);
++  assert.equal(rooms.abc123.lastPreview, 'the code is [redacted]');
++});
+diff --git a/apps/desktop/src/main/agent-room-log.ts b/apps/desktop/src/main/agent-room-log.ts
+index 6434a2b..8778144 100644
+--- a/apps/desktop/src/main/agent-room-log.ts
++++ b/apps/desktop/src/main/agent-room-log.ts
+@@ -63,8 +63,9 @@ export function createRoomLog(
+       const kept = Array.isArray(stored?.rows) ? (stored.rows as RoomRow[]) : rows;
+       const list = [...(recent.get(roomId) ?? []), ...kept].slice(-RECENT_ROWS);
+       recent.set(roomId, list);
+-      // The list row's preview follows every spoken line, as a home thread's does.
+-      const said = [...rows].reverse().find((row) => row.kind === 'user' || row.kind === 'speech');
++      // The list row's preview follows every spoken line, as a home thread's does,
++      // as stored (a speech's sensitive values are the marker there).
++      const said = [...kept].reverse().find((row) => row.kind === 'user' || row.kind === 'speech');
+       const room = rooms()[roomId];
+       if (said && room) {
+         room.lastPreview = plainPreviewText(said.text).slice(0, 200);
+diff --git a/src/session-runtime/agent-home-delivery.mjs b/src/session-runtime/agent-home-delivery.mjs
+index 01c70e6..61d6851 100644
+--- a/src/session-runtime/agent-home-delivery.mjs
++++ b/src/session-runtime/agent-home-delivery.mjs
+@@ -60,6 +60,7 @@ import {
+   routineSummary,
+ } from '../runtime/agent/orchestrator/session/routine-result.mjs';
+ import { readJsonState, updateJsonAtomic } from '../runtime/shared/atomic-file.mjs';
++import { redactSensitiveText } from '../runtime/agent/orchestrator/session/sensitive-values.mjs';
+ import { endHandoff, noteHandoff } from '../runtime/shared/delegated-approval-host.mjs';
+ import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
+ import { submissionIdsOf, submissionOutcome } from './agent-task-sessions.mjs';
+@@ -714,7 +715,8 @@ function routineResultItem(row, result) {
+     kind: result.kind === 'webhook' ? 'webhook' : 'schedule',
+     name: row.name,
+     ok: result.ok === true,
+-    text: routineSummary(result.text),
++    // The run's reply leaves its session: its sensitive values read as the marker.
++    text: routineSummary(redactSensitiveText(result.runSessionId, result.text)),
+     runSessionId: result.runSessionId || null,
+     ...(result.reason ? { reason: String(result.reason) } : {}),
+     ...(result.paused === true ? { paused: true } : {}),
+@@ -770,6 +772,8 @@ function taskReportItem({
+   watchIds = [],
+   progressRunId = '',
+ }) {
++  // The task's reply leaves its session: its sensitive values read as the marker.
++  text = redactSensitiveText(taskSessionId, text);
+   // The model-facing reply keeps its lines up to REPLY_LIMIT; the row's
+   // one-line summary is derived from it (agentTaskMessage).
+   const reply = boundedReply(text);
+diff --git a/src/session-runtime/agent-home-delivery.slow.test.mjs b/src/session-runtime/agent-home-delivery.slow.test.mjs
+index 149f453..dc0a5bc 100644
+--- a/src/session-runtime/agent-home-delivery.slow.test.mjs
++++ b/src/session-runtime/agent-home-delivery.slow.test.mjs
+@@ -606,6 +606,25 @@ test('a final report whose answer is still queued as progress carries it instead
+   assert.match(wakes[0], /All done\./);
+ });
+ 
++test("a task report and a routine result reach the home with their session's sensitive values as the marker", async (t) => {
++  const { rememberSensitiveValues } = await import('../runtime/agent/orchestrator/session/sensitive-values.mjs');
++  const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: '482913' } } };
++  rememberSensitiveValues('sess_task_s', [fill]);
++  rememberSensitiveValues('sess_run_s', [fill]);
++  const h = homes(t, ['sess_home_lead']);
++  h.state.busy = true;
++  const delivery = createAgentHomeDelivery(h.deps);
++  await delivery.enqueueTask('lead', { taskSessionId: 'sess_task_s', title: 'T', runId: 'task_s', status: 'completed', text: 'the code is 482913' });
++  await delivery.enqueue({ name: 'daily', ownerAgentId: 'lead' }, { runId: 'run_s', ok: true, text: 'ran with 482913', runSessionId: 'sess_run_s' });
++  const queued = JSON.stringify(await h.deps.queue.items('sess_home_lead'));
++  h.state.busy = false;
++  await delivery.drain('sess_home_lead');
++  const all = queued + JSON.stringify(h.sessions.get('sess_home_lead').messages);
++  assert.ok(!all.includes('482913'), all);
++  assert.match(all, /the code is \[redacted\]/);
++  assert.match(all, /ran with \[redacted\]/);
++});
++
+ test('a home thread that does not exist yet keeps its result queued until it does', async (t) => {
+   const h = homes(t, []);
+   const delivery = createAgentHomeDelivery(h.deps);
+diff --git a/src/session-runtime/agent-room-delivery.mjs b/src/session-runtime/agent-room-delivery.mjs
+index 83f0914..cc6e2a6 100644
+--- a/src/session-runtime/agent-room-delivery.mjs
++++ b/src/session-runtime/agent-room-delivery.mjs
+@@ -12,9 +12,11 @@ import {
+   normalizeRoomRow,
+   roomIdOfSession,
+   roomMemberOfSession,
++  roomMemberSessionId,
+   roomRowItem,
+   roomRowMessage,
+ } from '../runtime/agent/orchestrator/session/agent-room.mjs';
++import { redactSensitiveText } from '../runtime/agent/orchestrator/session/sensitive-values.mjs';
+ import { reactInSession } from '../runtime/agent/orchestrator/session/message-reactions.mjs';
+ import { artifactRecords } from '../runtime/shared/handoff-artifacts.mjs';
+ import { collectTurnArtifacts, sessionRoots, turnSlice } from './handoff-attachments.mjs';
+@@ -73,6 +75,14 @@ function speechWithArtifacts(row, roomId, loadSession, log) {
+   }
+ }
+ 
++/** A member's speech leaves its own session: the values that session marked
++ *  sensitive read as the marker, in the log and in the rows handed back. */
++function spokenOwnText(row, roomId) {
++  if (row?.kind !== 'speech' || typeof row.text !== 'string') return row;
++  const text = redactSensitiveText(roomMemberSessionId(roomId, row.speaker), row.text);
++  return text === row.text ? row : { ...row, text };
++}
++
+ /** A row's `{ parts, attachments }` for the stored files among `files`
+  *  (handoff-attachments.mjs collectTurnArtifacts); none when none is stored. */
+ function storedFileFields(files) {
+@@ -147,7 +157,7 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
+         await Promise.all(
+           (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
+         )
+-      ).map((row) => normalizeRoomRow(row));
++      ).map((row) => spokenOwnText(normalizeRoomRow(row), roomId));
+       return commit(sessionId, () => prepared);
+     });
+   }
+diff --git a/src/session-runtime/agent-room-delivery.test.mjs b/src/session-runtime/agent-room-delivery.test.mjs
+index 992888b..b7b557b 100644
+--- a/src/session-runtime/agent-room-delivery.test.mjs
++++ b/src/session-runtime/agent-room-delivery.test.mjs
+@@ -138,3 +138,20 @@ test('a post whose PDF intake stalls fails at the deadline and the next post sti
+   assert.equal((await report).added, 1);
+   assert.deepEqual(ids(session), ['after']);
+ });
++
++test("a member's speech is posted with its session's sensitive values as the marker", async () => {
++  const { rememberSensitiveValues } = await import('../runtime/agent/orchestrator/session/sensitive-values.mjs');
++  const { roomMemberSessionId } = await import('../runtime/agent/orchestrator/session/agent-room.mjs');
++  const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: '482913' } } };
++  rememberSensitiveValues(roomMemberSessionId('abc123', 'gh'), [fill]);
++  const { session, delivery } = memory();
++  const posted = await delivery.append(ROOM_LOG, [
++    speech('s1', 'the code is 482913'),
++    { ...speech('s2', 'other says 482913'), speaker: 'alpha' },
++  ]);
++  assert.deepEqual(
++    session.messages.map((message) => message.content),
++    ['the code is [redacted]', 'other says 482913']
++  );
++  assert.deepEqual(posted.rows.map((row) => row.text), ['the code is [redacted]', 'other says 482913']);
++});
+diff --git a/src/session-runtime/services/agent-tool/execute-read-sensitive.test.mjs b/src/session-runtime/services/agent-tool/execute-read-sensitive.test.mjs
+new file mode 100644
+index 0000000..2feff3e
+--- /dev/null
++++ b/src/session-runtime/services/agent-tool/execute-read-sensitive.test.mjs
+@@ -0,0 +1,34 @@
++// The agent tool's `read` of a worker with no task reads the worker's own text off its session: its sensitive values
++// come back as the marker, as its report does.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { createAgentExecute } from './execute.mjs';
++import { rememberSensitiveValues } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
++
++const CODE = '482913';
++
++function executeOver(handoff) {
++  const job = { taskId: null, meta: { sessionId: 'read-worker' }, result: `fallback ${CODE}` };
++  const views = { getJobOrWorker: () => ({ ...job, meta: { ...job.meta } }), renderJob: (shown) => shown };
++  return createAgentExecute({
++    mgr: { readSessionHandoff: async () => handoff },
++    defaultCwd: '',
++    awaitKeychainPrewarm: async () => {},
++    registry: { resolveTombstoneOwners() {} },
++    views,
++    spawnFlow: {},
++    sendFlow: {},
++    closeFlow: {},
++    terminalTrace: null,
++  });
++}
++
++test('a read of a worker has its sensitive values as the marker, handoff or fallback', async () => {
++  rememberSensitiveValues('read-worker', [{ name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: CODE } } }]);
++  for (const handoff of [`handoff ${CODE}`, '']) {
++    const shown = String(await executeOver(handoff)({ type: 'read', sessionId: 'read-worker' }, {}));
++    assert.ok(!shown.includes(CODE), shown);
++    assert.ok(shown.includes('[redacted]'), shown);
++  }
++});
+diff --git a/src/session-runtime/services/agent-tool/execute.mjs b/src/session-runtime/services/agent-tool/execute.mjs
+index 4f275aa..cc02b75 100644
+--- a/src/session-runtime/services/agent-tool/execute.mjs
++++ b/src/session-runtime/services/agent-tool/execute.mjs
+@@ -1,4 +1,5 @@
+ import { errorLine } from '../../../runtime/shared/err-text.mjs';
++import { redactSensitiveText } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
+ import { createSendDispatch } from './execute-send.mjs';
+ import { createSpawnDispatch } from './execute-spawn.mjs';
+ import { createTagResume } from './execute-resume.mjs';
+@@ -28,6 +29,8 @@ export function createAgentExecute({
+       const handoff = await mgr.readSessionHandoff(job.meta?.sessionId);
+       if (handoff) job.result = handoff;
+     }
++    // A worker's own text read off its session leaves it: its sensitive values read as the marker, as in its report.
++    if (job?.taskId == null && typeof job?.result === 'string') job.result = redactSensitiveText(job.meta?.sessionId, job.result);
+     return renderResult(views.renderJob(job, true));
+   }
+ 

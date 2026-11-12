@@ -79,6 +79,19 @@ pub struct BatchFile {
     pub rel_path: String,
     pub content: String,
     pub expected_content: String,
+    /// The content held an unpaired surrogate escape on the wire, read as U+FFFD (`CallContext::lone_surrogates`).
+    pub content_lone: bool,
+    /// The expected content held one: it equals no lossless file text, as Node's lone unit equalled none.
+    pub expected_lone: bool,
+}
+
+/// Node's `encodeProjectText` (project-files.ts:96): a save of content holding a lone surrogate is refused, the file untouched.
+/// The core reads the unit as U+FFFD, so the request says whether the content held one; it is refused at the point Node encodes.
+fn check_paired(content_lone: bool) -> WsResult<()> {
+    if content_lone {
+        return Err(WsError::invalid("File content contains unpaired Unicode surrogates."));
+    }
+    Ok(())
 }
 
 pub fn parse_encoding(name: &str) -> WsResult<Encoding> {
@@ -183,7 +196,9 @@ fn check_content(content: &str, expected: &str) -> WsResult<()> {
 
 /// The current text of an open file, checked as a save's precondition: lossless
 /// text equal to `expected`.
-fn expected_text(file: &mut File, expected: &str, label: &str) -> WsResult<(Vec<u8>, Decoded)> {
+/// `expected_lone`: `expected` held an unpaired surrogate on the wire (now U+FFFD); it matches nothing, so a real U+FFFD on
+/// disk is no match (Node: project-files.ts:320, the lone unit never equals decoded text).
+fn expected_text(file: &mut File, expected: &str, expected_lone: bool, label: &str) -> WsResult<(Vec<u8>, Decoded)> {
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(WsError::new(Reason::NotAFile, "Not a file."));
@@ -199,7 +214,7 @@ fn expected_text(file: &mut File, expected: &str, label: &str) -> WsResult<(Vec<
             "File has invalid text encoding. Convert or repair it in an external editor before saving.",
         ));
     }
-    if decoded.binary || decoded.content != expected {
+    if decoded.binary || expected_lone || decoded.content != expected {
         return Err(WsError::precondition(expected, &decoded.content));
     }
     Ok((bytes, decoded))
@@ -232,13 +247,15 @@ impl ProjectFs {
         content: &str,
         expected: &str,
         encoding: Option<Encoding>,
+        (content_lone, expected_lone): (bool, bool),
     ) -> WsResult<f64> {
         check_content(content, expected)?;
         let file = project_entry_path(root, rel)?;
         let mut opened = open_authorized_rw(&file, root)?;
         let _claim = self.identities.lock(vec![opened.id.key()]);
         path_names_file(root, rel, &opened)?;
-        let (original, decoded) = expected_text(&mut opened.file, expected, rel)?;
+        let (original, decoded) = expected_text(&mut opened.file, expected, expected_lone, rel)?;
+        check_paired(content_lone)?;
         let bytes = text::encode(
             content,
             encoding.unwrap_or(decoded.encoding),
@@ -281,7 +298,8 @@ impl ProjectFs {
         let mut staged = Vec::new();
         for (index, (rel, write)) in normalized.iter().enumerate() {
             path_names_file(root, rel, &opened[index])?;
-            let (before, decoded) = expected_text(&mut opened[index].file, &write.expected_content, rel)?;
+            let (before, decoded) = expected_text(&mut opened[index].file, &write.expected_content, write.expected_lone, rel)?;
+            check_paired(write.content_lone)?;
             let after = text::encode(&write.content, decoded.encoding, decoded.has_bom);
             staged.push(Staged { rel: rel.clone(), before, after });
         }
@@ -599,7 +617,7 @@ pub struct LocalEntry {
 
 pub fn stat_local(path: &str) -> WsResult<LocalEntry> {
     let absolute = crate::pathguard::absolute_local_path(path)?;
-    let meta = fs::metadata(&absolute)?;
+    let meta = fs::metadata(&absolute).at("stat", &absolute)?;
     Ok(LocalEntry {
         name: display_name(&absolute),
         absolute_path: absolute.to_string_lossy().into_owned(),
@@ -618,8 +636,14 @@ pub struct LocalFile {
 }
 
 pub fn read_local(path: &str) -> WsResult<LocalFile> {
+    let (file, name, size) = local_file(path)?;
+    Ok(LocalFile { name, size, mime_type: mime_type(&file), data: base64::engine::general_purpose::STANDARD.encode(fs::read(&file)?) })
+}
+
+/// The checks of `readLocalFileAbs` before the read (an absolute path to a file of at most 20 MB): the file, its display name and size.
+pub fn local_file(path: &str) -> WsResult<(PathBuf, String, u64)> {
     let file = crate::pathguard::absolute_local_path(path)?;
-    let meta = fs::metadata(&file)?;
+    let meta = fs::metadata(&file).at("stat", &file)?;
     let name = display_name(&file);
     if !meta.is_file() {
         return Err(WsError::new(Reason::NotAFile, "Only files can be attached."));
@@ -627,12 +651,7 @@ pub fn read_local(path: &str) -> WsResult<LocalFile> {
     if meta.len() > LOCAL_FILE_MAX {
         return Err(WsError::new(Reason::TooLarge, format!("{name}: files must be 20 MB or smaller.")));
     }
-    Ok(LocalFile {
-        name,
-        size: meta.len(),
-        mime_type: mime_type(&file),
-        data: base64::engine::general_purpose::STANDARD.encode(fs::read(&file)?),
-    })
+    Ok((file, name, meta.len()))
 }
 
 #[cfg(test)]
@@ -691,9 +710,9 @@ mod tests {
     fn cas_write_keeps_identity_and_refuses_stale_content() {
         let (_d, root, fs_) = fixture();
         let before = path_id(&root.join("utf8.txt")).unwrap();
-        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None).unwrap_err();
+        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None, (false, false)).unwrap_err();
         assert_eq!(stale.message, "File changed on disk. Reload or keep your edits before saving.");
-        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None).unwrap();
+        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None, (false, false)).unwrap();
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "rewritten\n");
         assert_eq!(path_id(&root.join("utf8.txt")).unwrap(), before);
     }
@@ -702,8 +721,46 @@ mod tests {
     fn hard_link_sees_the_in_place_write() {
         let (_d, root, fs_) = fixture();
         fs::hard_link(root.join("utf8.txt"), root.join("link.txt")).unwrap();
-        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None).unwrap();
+        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None, (false, false)).unwrap();
         assert_eq!(fs::read_to_string(root.join("link.txt")).unwrap(), "new");
+    }
+
+    /// Node refuses a save whose content holds a lone surrogate and leaves the file as it was (project-files.ts:96, recorded as
+    /// native/core/fixtures/inbound-lone-surrogate `file-content-lone`, `batch-content-lone`); content holding a real U+FFFD is saved.
+    #[test]
+    fn a_save_of_content_that_held_a_lone_surrogate_is_refused_and_the_file_kept() {
+        let (_d, root, fs_) = fixture();
+        let refused = fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "héllo\nworld\n", None, (true, false)).unwrap_err();
+        assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
+        let batch = |content_lone| {
+            vec![
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), content_lone: false, expected_lone: false },
+                BatchFile { rel_path: "crlf.txt".into(), content: "B\u{fffd}".into(), expected_content: "a\r\nb\r\n".into(), content_lone, expected_lone: false },
+            ]
+        };
+        let refused = fs_.write_batch(&root, &batch(true), true).unwrap_err();
+        assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
+        assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "a\r\nb\r\n");
+        fs_.write_batch(&root, &batch(false), true).unwrap();
+        assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "B\u{fffd}");
+        fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "A", None, (false, false)).unwrap();
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "x\u{fffd}");
+    }
+
+    /// An expected content that held a lone surrogate equals no file text, a real U+FFFD on disk included: the save is refused as
+    /// stale, the file untouched (Node project-files.ts:320; recorded as native/core/fixtures/inbound-lone-surrogate
+    /// `expected-content-lone`).
+    #[test]
+    fn an_expected_content_that_held_a_lone_surrogate_matches_no_file() {
+        let (_d, root, fs_) = fixture();
+        fs::write(root.join("r.txt"), "a\u{fffd}b\n").unwrap();
+        let stale = fs_.write_text(&root, "r.txt", "new", "a\u{fffd}b\n", None, (false, true)).unwrap_err();
+        assert_eq!(stale.message, "File changed on disk. Reload or keep your edits before saving.");
+        let batch = [BatchFile { rel_path: "r.txt".into(), content: "new".into(), expected_content: "a\u{fffd}b\n".into(), content_lone: false, expected_lone: true }];
+        assert_eq!(fs_.write_batch(&root, &batch, true).unwrap_err().reason.code(), "preconditionFailed");
+        assert_eq!(fs::read_to_string(root.join("r.txt")).unwrap(), "a\u{fffd}b\n");
     }
 
     #[test]
@@ -724,8 +781,8 @@ mod tests {
         let (_d, root, fs_) = fixture();
         let files = |second: &str| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into() },
-                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into() },
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), content_lone: false, expected_lone: false },
+                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into(), content_lone: false, expected_lone: false },
             ]
         };
         let bad = fs_.write_batch(&root, &files("wrong"), true).unwrap_err();

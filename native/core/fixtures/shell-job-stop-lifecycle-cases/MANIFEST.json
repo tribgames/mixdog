@@ -1,0 +1,163 @@
+{
+  "cases": 1,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "nativeSpawnBinary": {
+      "bytes": 1441792,
+      "note": "a debug build made by another worker; its sources are the committed tree above (its working-copy Cargo.lock differed, so the build is not bit-reproducible from o1). Nothing in golden.json depends on it: no path, version or build string is recorded, only job rows, statuses and exit codes. A replay must build native/mixdog-spawn from o1 6bf0a5bbf itself (cargo build, not run here) and must not compare the sha256 of this binary, which is provenance only.",
+      "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\k1\\mixdog-spawn-o1-debug.exe",
+      "sha256": "b01d3545e0be52bf73aa8b92b687a393b9b1b61dd7a93334537dc123c372de16",
+      "sourceCommit": "6bf0a5bbf (o1)",
+      "sourceTree": "native/mixdog-spawn tree 6d9cf9666bdf622151ae5d9ff78c4bbdbe560baa at 6bf0a5bbf; the same tree id is at HEAD of the branch (w11) that built the binary"
+    },
+    "notRun": "no Electron; the session runtime is the test's scripted object (state, stopShellJob, dispose); timers are virtual",
+    "runs": "standalone/session-service.mjs createSessionService (idle eviction), daemon-local-session-bridge.mjs, daemon-desktop-runtime.mjs, the desktop SessionHost (setVisibleSessions, subscribeSessionStates, stopShellJob), tools/shell-command.mjs execShellCommand (auto background), builtin/shell-jobs.mjs, builtin/task-tool.mjs stopBackgroundShellJob, native-spawn-client.mjs over the REAL native spawn server",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 13268,
+      "path": "golden.json",
+      "sha256": "b07b0373b3a4591ca1d1104995c9c3e7dfe08cac3ab9f1599cf3743418e311ce"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "3e1301689dcce08b5ceaf1a0a7c0d0e6b29e6cf26b0c2eba10b58cfcd38ccb52"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.jobId",
+      "$.cases[0].observed.steps[3].started.stdoutPath",
+      "$.cases[0].observed.steps[3].started.stderrPath",
+      "$.cases[0].observed.steps[3].started.jobId",
+      "$.cases[0].observed.steps[3].running.jobs[0].taskId",
+      "$.cases[0].observed.steps[3].running.jobs[0].cwd",
+      "$.cases[0].observed.steps[3].running.jobs[0].startedAt",
+      "$.cases[0].observed.steps[5].settled.finished[0].taskId",
+      "$.cases[0].observed.steps[5].settled.finished[0].cwd",
+      "$.cases[0].observed.steps[5].settled.finished[0].startedAt",
+      "$.cases[0].observed.steps[5].settled.finished[0].finishedAt",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].taskId",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].cwd",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].startedAt",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].finishedAt",
+      "$.cases[0].observed.paneRows[2].jobs[0].taskId",
+      "$.cases[0].observed.paneRows[2].jobs[0].cwd",
+      "$.cases[0].observed.paneRows[2].jobs[0].startedAt",
+      "$.cases[0].observed.paneRows[5].finished[0].taskId",
+      "$.cases[0].observed.paneRows[5].finished[0].cwd",
+      "$.cases[0].observed.paneRows[5].finished[0].startedAt",
+      "$.cases[0].observed.paneRows[5].finished[0].finishedAt"
+    ],
+    "reason": "the isolated test environment root is written <fixtureRoot>; the wall clock is real (the job records are files with real mtimes) plus the virtual elapsed time: job ids job_<ms of the wall clock>_N are written job_<ms>_N and ISO times <iso>, the virtual offsets are in steps[].atMs"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
+  "recorderSha256": "1d71b170dd0f707874631a79421a912cbd0af662ac20aac6fb578def7c64923e",
+  "replay": {
+    "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
+    "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs; thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79).",
+    "existsButNotPublicOnO1": [
+      "idle reclaim around a running shell job: actor.rs:162 IDLE_EVICT, :1233 arm_idle_evict, :1248 has_active(\"shell\") (private)"
+    ],
+    "missingOnO1": [],
+    "replayedBy": {
+      "a job started after reclaim and reload reaches the pane as stopped; a running job keeps its session loaded": "node benchmarks/rust-core/recorders/replay-shell-job-stop-lifecycle.mjs --mixdogd <exe> (a built mixdogd over its WebSocket listener, the desktop protocol client's sessionStateOf(..).shellJobs as the pane; the strip a loading session carries comes from SessionDeps.shell_strips, actor.rs SessionActor::new)"
+    },
+    "declared": {
+      "steps[].status": "Node's session-service counters (live, busy, watched, retained, projected, pendingViewerSessions): the desktop host's bookkeeping, shown to no user",
+      "steps[].paneRowCount": "how many pane rows Node's host published (its republish timer); the pane itself is compared",
+      "steps[].disposedSessions": "Node's runtime disposal log",
+      "steps[].runtimesCreated": "Node's runtime construction count",
+      "steps[3].started": "the in-process execShellCommand return value; the core's job reaches the user as its pane row",
+      "steps[].atMs": "the recorder's virtual clock",
+      "paneRows": "every pane row Node's host republished, including its timer repeats; the pane at each user step is compared (paneRows[0] when shown, then running, settled, lastPane)",
+      "timers": "Node's timer arming log",
+      "idleEvictMs": "the recorder's idle-evict setting"
+    },
+    "normalised": {
+      "reclaim": "Node's `steps[1]`/`steps[4]` (live 0 and disposedSessions; live 1 and retained 1) are the host's session counters, which no core wire call shows. The core drops a thread when its last watcher leaves and nothing of it works, and keeps it while background work runs (mixdog-core-session tests.rs an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context, agent_activity_tests.rs a_thread_nobody_watched_stays_while_its_background_work_runs); the replay checks the desktop holds no state of the hidden session, so the pane after showing it again is the load's strip (`a_strip_at_load_keeps_a_finished_job_within_its_retention_and_drops_it_after`, shell_jobs.rs).",
+      "jobId": "the recorder writes Node's minted job id as job_<ms>_000000; the core names a background job after its tool call (task-call_serve), mapped to the same placeholder",
+      "startedAt/finishedAt": "an instant: the core's ms number and Node's ISO string are both written <iso>",
+      "cwd": "the session folder is written <fixtureRoot>",
+      "timersArmedOrder": {
+        "evidence": "two interleavings seen over about 40 runs, about 1 run in 15 showing the second. At virtual 1200, after the session reload, four entries swap places among the same-instant entries: the first reads setTimeout 0, setTimeout 30000, (setTimeout 300 unchanged), setImmediate; the second reads setTimeout 30000, setImmediate, (setTimeout 300 unchanged), setTimeout 0. The diff of the two raw goldens is 4 lines added and 4 removed, all inside timers.armed; fired, advances, steps and paneRows are identical",
+        "path": "$.cases[0].observed.timers.armed",
+        "reason": "the order in which Node's independent async chains arm timers at one virtual instant is Node's own interleaving, not asserted behaviour",
+        "rule": "entries with the same atMs ordered by api, then ms, then original index; all other lists (fired, advances, steps, paneRows) exactly as observed"
+      }
+    },
+    "protocolMethods": [
+      "thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE)",
+      "thread/listShellJobs",
+      "thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79)"
+    ],
+    "rustTargets": [
+      {
+        "line": 63,
+        "name": "ShellJobsService",
+        "path": "native/core/crates/mixdog-core-session/src/session/shell_jobs.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "shell-job-stop-lifecycle-cases",
+  "totalBytes": 13268,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

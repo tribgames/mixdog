@@ -130,6 +130,7 @@ impl OpStore for ThreadOpStore {
             drop(handle.op_call(OpCall::Await(id.clone())).await);
         }
         let deps = self.dir.deps();
+        deps.store.unheld().await;
         let (store, thread, op) = (deps.store.clone(), self.thread.clone(), id.as_str().to_owned());
         let stored = deps
             .lanes

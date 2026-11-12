@@ -268,6 +268,33 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   remove();
 });
 
+test('a core connection sends no desktop announcement after a settings write: the write carried it', async () => {
+  for (const [writesAnnounceThemselves, expected] of [[true, []], [false, [['notifySettingsChanged', ['desktop']]]]]) {
+    const handlers = new Map();
+    const operations = [];
+    registerWindowSettingsIpc({
+      window: { webContents: { setZoomFactor() {} } },
+      app: { quit() {} },
+      host: {},
+      handle: (channel, listener) => handlers.set(channel, listener),
+      invokeDesktopOperation: async (name, args) => {
+        operations.push([name, args]);
+        return {};
+      },
+      writesAnnounceThemselves,
+    });
+    for (const [channel, args] of [
+      [DESKTOP_IPC.updateSetting, ['keepAwake', true]],
+      [DESKTOP_IPC.setNotificationVolume, [50]],
+      [DESKTOP_IPC.setSessionRetention, ['sessionAutoArchiveDays', 7]],
+    ]) {
+      operations.length = 0;
+      await handlers.get(channel)({}, ...args);
+      assert.deepEqual(operations.slice(1), expected, String(channel));
+    }
+  }
+});
+
 /** A port that records what the store asks of the core. */
 function recordingPort(answers = {}) {
   const calls = [];

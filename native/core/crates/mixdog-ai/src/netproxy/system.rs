@@ -506,7 +506,7 @@ impl SystemProxy {
 
     fn lookup(inner: Arc<Inner>, origin: String, resolver: Arc<dyn SystemProxyResolver>, id: u64) -> Lookup {
         async move {
-            let answered = tokio::time::timeout(RESOLVE_TIMEOUT, resolver.resolve(&origin)).await;
+            let answered = mixdog_rt::time::timeout(RESOLVE_TIMEOUT, resolver.resolve(&origin)).await;
             let found = match answered {
                 Ok(Ok(answer)) => Some(route_from_chromium(&answer)),
                 _ => None,

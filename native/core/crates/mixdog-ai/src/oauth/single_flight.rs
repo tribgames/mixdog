@@ -185,7 +185,7 @@ mod tests {
         assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
         drop(caller);
         let deadline = std::time::Duration::from_secs(60);
-        assert!(matches!(tokio::time::timeout(deadline, end).await, Ok(Ok(()))), "the refresh ended with no caller waiting");
+        assert!(matches!(mixdog_rt::time::timeout(deadline, end).await, Ok(Ok(()))), "the refresh ended with no caller waiting");
     }
 
     // A replay starts as a new process: a refresh left running by an earlier one is not joined. The reset is the
@@ -229,7 +229,7 @@ mod tests {
             assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
             // The refresh's own task says it runs, so what the runtime drops is a refresh in flight.
             let deadline = std::time::Duration::from_secs(60);
-            assert!(matches!(tokio::time::timeout(deadline, run).await, Ok(Ok(()))), "the refresh's task ran");
+            assert!(matches!(mixdog_rt::time::timeout(deadline, run).await, Ok(Ok(()))), "the refresh's task ran");
         });
         drop(first);
         assert_eq!(runtime().block_on(refresh_once(path, async { 7u32 })), Ok(7));

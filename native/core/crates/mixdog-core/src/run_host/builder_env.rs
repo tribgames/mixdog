@@ -388,6 +388,7 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
             let developer = config.agent().get("developer").cloned().unwrap_or(Value::Null);
             !provider_available(name, remote_client(&*env), &developer)
         }),
+        local: Some(p.local.runtime()),
     };
     (built, shared)
 }

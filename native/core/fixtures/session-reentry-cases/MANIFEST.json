@@ -1,0 +1,112 @@
+{
+  "cases": 7,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-reentry-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test: the daemon client is the real session service called in process (handleCall).",
+    "notRun": "no real runtime or store; the daemon client is the service called in-process",
+    "runs": "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 60980,
+      "path": "golden.json",
+      "sha256": "ed071f6923ad5aea158114928b65c1a88606b6c164e2e21d9fb9c1c8dc8786be"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
+  "recorderSha256": "acfd1dbb5919a587489f6baaf0bba8b9c4858c942a8e1a7a281c88d9285bf418",
+  "replay": {
+    "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
+    "entry": "Six cases: a built mixdogd over its real WebSocket listener, the desktop protocol client (packages/protocol-client connect, sessionReducer, sessionStateOf) as the desktop, a second client as the old runtime that writes while the desktop is away; the desktop's outgoing reads are counted and can be held on the socket (a read in flight). The replayed submission id: thread/start then turn/start twice with one clientSubmissionId into the session actor (actor.rs Submissions::join).",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "replayedBy": {
+      "an evicted session delivers new prompts and replies (reopen first: true)": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "an evicted session delivers new prompts and replies (reopen first: false)": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "a delayed stored reply cannot overwrite a newly materialized turn": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "cold refresh ticks do not stack reads while that session is still loading": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "read tracing measures a held host read and propagates its correlation without changing the result": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "a traced host read preserves its original rejection": "node benchmarks/rust-core/recorders/replay-session-reentry.mjs --mixdogd <exe>",
+      "a replayed submission id joins the original instead of double-submitting": "mixdog-core-session session_reentry_tests::a_replayed_submission_id_joins_the_original_as_node_recorded"
+    },
+    "declared": {
+      "steps[].serviceSize": "how many runtimes Node's session service holds: the desktop host's bookkeeping, shown to no user",
+      "steps[].storedReads": "Node's host store-read counter; the reads the desktop sends are compared instead where a case is about them (readsUnchanged, readsSinceOpen)",
+      "steps[].updateCount": "how many updates Node's host published to its listener",
+      "steps[].lastUpdate.snapshot.projectionStamp": "Node's host projection counter",
+      "steps[].lastUpdate.frameSource": "whether Node's host built the frame from the live runtime or a stored replay. The desktop forwards it (desktop-service-client.ts:564) and acts on it: a replay frame never raises a turn notification (connections/server-notifier.ts:171, desktop-turn-notifier.ts:217). K1's client has no such field (packages/protocol-client carries none; the core's frames neither): a turn notification there comes from the live turn/completed event of the core, which a resume or read snapshot never carries, so a stored read cannot notify; the rows the user sees are compared as texts",
+      "steps[].lastUpdate.readTraceId, lastUpdate.readTraceId": "the read-tracing sink's correlation id: the desktop forwards it (desktop-service-client.ts:563) only to reportTranscriptRead (shared/transcript-read-diagnostics.ts), a diagnostics sink that draws nothing; the protocol client carries no such field",
+      "records, recordsWhileHeld": "the read-tracing sink's records",
+      "delayed stored reply, transcripts shown": "compared: every transcript the desktop shows from the held read to the end (the recorded sequence: [stored], then [stored, new turn, reply]) and that its connection stays open with no reconnect. Declared: Node's scripted runtime answered a turn in one publication, the core's turn shows its prompt before its answer, so the replay requires the first and last recorded states and that every state between only adds rows to the one before it",
+      "performanceNowWhileHeld, performanceNowAtRelease": "the recorder's scripted performance clock for the tracing sink",
+      "outcome.rejected.message": "the recorder's injected store failure text; the core's own read failure (a session the store does not hold) is the input, and the caller must get exactly the core's error (sameErrorObject)",
+      "reopenBeforeSubmit, idleEvictMs, evictSweepMs, nowMs": "the recorder's settings"
+    },
+    "normalised": {
+      "texts": "the desktop's user and assistant rows in order; the core writes a row only through a turn, so each row the recorder wrote into the store or the old runtime without a turn ('old progress N', 'persisted after leaving', 'cold refresh', 'stored answer', 'private saved answer') is the answer of a turn whose carrier prompt ('progress N', 'leave', 'cold', 'stored', 'saved') is left out of texts, as are the core's turn-end divider rows (kind turndone)",
+      "lastUpdate.snapshot.items[].id": "the core mints its own item ids; rows are compared by text in order",
+      "clock": "mock timers, not the shared fixed Date.now; performance.now reads the same mock clock (ms since the fixture started), except where a case scripts it (read tracing: 0, then 321)",
+      "dataDir": "temp user-data dir not in the recording"
+    },
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "session-reentry-cases",
+  "totalBytes": 60980,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

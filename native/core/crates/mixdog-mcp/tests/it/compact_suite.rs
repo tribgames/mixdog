@@ -69,7 +69,7 @@ fn unmask(value: &Value, dir: &str) -> Value {
 async fn the_compaction_hooks_send_what_node_does() {
     let golden: Value = serde_json::from_str(include_str!("../golden/compact.json")).unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let session_id = golden["common"]["session_id"].as_str().unwrap().to_owned();
     for case in golden["cases"].as_array().unwrap() {
         let label = case["name"].as_str().unwrap();

@@ -5,7 +5,9 @@
 pub mod admin;
 pub mod bridge;
 pub mod call;
+pub mod intent;
 pub mod ports;
+pub mod routines_db;
 pub mod running;
 pub mod runtime;
 pub mod service;
@@ -15,9 +17,17 @@ pub mod tools;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod intent_tests;
+#[cfg(test)]
 mod setup_tests;
 #[cfg(test)]
 mod tests_runtime;
+#[cfg(test)]
+mod replays_owned_runtime;
+#[cfg(test)]
+mod replays_call_ids;
+#[cfg(test)]
+mod schedule_error_wire_replay_tests;
 
 pub use admin::{AdminDeps, AdminError, ChannelAdmin};
 pub use bridge::BridgeCalls;

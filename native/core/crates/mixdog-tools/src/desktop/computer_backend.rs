@@ -62,6 +62,7 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_recovery::lead_code as error_code;
 use super::computer_screen::Screen;
 use crate::state::secrets::ComputerSecretHost;
 
@@ -568,7 +569,7 @@ impl ProcessComputerBackend {
                 self.retire().await;
                 Err(ComputerError::Failed {
                     code: "computer_command_timeout".into(),
-                    message: format!("command exceeded {}ms; the input host was restarted", COMMAND_TIMEOUT.as_millis()),
+                    message: format!("computer_command_timeout: command exceeded {}ms; the input host was restarted", COMMAND_TIMEOUT.as_millis()),
                 })
             }
             Scoped::Done(Err(_)) => Err(host_exited()),
@@ -713,19 +714,6 @@ fn host_exited() -> ComputerError {
 
 fn unsupported(reason: &str) -> ComputerError {
     ComputerError::Unavailable { reason: reason.into() }
-}
-
-/// The leading code token of an error text (`computerErrorCode`).
-fn error_code(text: &str) -> String {
-    let text = js_trim(text);
-    let text = text.strip_prefix("Error:").map_or(text, js_trim_start);
-    let end = text.find([':', '|']).unwrap_or(0);
-    let head = &text[..end];
-    let valid = !head.is_empty()
-        && head.len() <= 80
-        && head.starts_with(|c: char| c.is_ascii_alphabetic())
-        && head.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if valid { head.to_ascii_lowercase() } else { String::new() }
 }
 
 fn host_error(message: &str) -> ComputerError {
@@ -1528,7 +1516,7 @@ done
             let cancel = CancellationToken::new();
             let trip = cancel.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(200)).await;
                 trip.cancel();
             });
             let hung = backend

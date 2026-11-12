@@ -1,0 +1,198 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the persisted and restored user row keep the attachments, and drop malformed ones",
+      "observed": {
+        "attachments": [
+          {
+            "id": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "attachmentRef": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "kind": "text",
+            "name": "Pasted text #1",
+            "mimeType": "text/plain",
+            "size": 960
+          },
+          {
+            "id": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "attachmentRef": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "kind": "text",
+            "name": "notes.md",
+            "mimeType": "text/markdown",
+            "size": 800
+          },
+          {
+            "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "kind": "image",
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "size": 9
+          },
+          {
+            "id": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "attachmentRef": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "kind": "file",
+            "name": "spec.pdf",
+            "mimeType": "application/pdf",
+            "size": 13
+          },
+          {
+            "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "kind": "file",
+            "name": "plan.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size": 10
+          }
+        ],
+        "malformed": [
+          {
+            "id": "../etc/passwd",
+            "name": "x"
+          },
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          null
+        ],
+        "persistedMeta": {
+          "messageId": "msg_1",
+          "at": 1,
+          "attachments": [
+            {
+              "id": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+              "attachmentRef": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+              "kind": "text",
+              "name": "Pasted text #1",
+              "mimeType": "text/plain",
+              "size": 960
+            },
+            {
+              "id": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+              "attachmentRef": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+              "kind": "text",
+              "name": "notes.md",
+              "mimeType": "text/markdown",
+              "size": 800
+            },
+            {
+              "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+              "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+              "kind": "image",
+              "name": "shot.png",
+              "mimeType": "image/png",
+              "size": 9
+            },
+            {
+              "id": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+              "attachmentRef": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+              "kind": "file",
+              "name": "spec.pdf",
+              "mimeType": "application/pdf",
+              "size": 13
+            },
+            {
+              "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+              "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+              "kind": "file",
+              "name": "plan.docx",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "size": 10
+            }
+          ]
+        },
+        "normalized": [
+          {
+            "id": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "attachmentRef": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "kind": "text",
+            "name": "Pasted text #1",
+            "mimeType": "text/plain",
+            "size": 960
+          },
+          {
+            "id": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "attachmentRef": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "kind": "text",
+            "name": "notes.md",
+            "mimeType": "text/markdown",
+            "size": 800
+          },
+          {
+            "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "kind": "image",
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "size": 9
+          },
+          {
+            "id": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "attachmentRef": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "kind": "file",
+            "name": "spec.pdf",
+            "mimeType": "application/pdf",
+            "size": 13
+          },
+          {
+            "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "kind": "file",
+            "name": "plan.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size": 10
+          }
+        ],
+        "restoredKind": "user",
+        "restoredAttachments": [
+          {
+            "id": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "attachmentRef": "19348f389d05652c3376fadfdbf3d40084906b8349980bfbbc5e07ae3a8591ae",
+            "kind": "text",
+            "name": "Pasted text #1",
+            "mimeType": "text/plain",
+            "size": 960
+          },
+          {
+            "id": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "attachmentRef": "0a7d5a606baa055936ba496e65aad87cc01663b884d9ddc0680074611b05fcce",
+            "kind": "text",
+            "name": "notes.md",
+            "mimeType": "text/markdown",
+            "size": 800
+          },
+          {
+            "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "kind": "image",
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "size": 9
+          },
+          {
+            "id": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "attachmentRef": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+            "kind": "file",
+            "name": "spec.pdf",
+            "mimeType": "application/pdf",
+            "size": 13
+          },
+          {
+            "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "kind": "file",
+            "name": "plan.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size": 10
+          }
+        ],
+        "legacyKind": "user",
+        "legacyHasAttachments": false
+      }
+    }
+  ]
+}

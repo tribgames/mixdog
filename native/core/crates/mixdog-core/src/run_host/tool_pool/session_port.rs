@@ -28,6 +28,7 @@ use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
+use mixdog_protocol::ThreadItem;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::session_title::AiTitle;
 use mixdog_core_session::session::session_title::StoredTitles;
@@ -50,6 +51,67 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::callers::ThreadCallers;
+use super::session_output::ListPage;
+use super::session_output::range_of;
+use super::session_output::row_of;
+use super::session_output::session_read_output;
+
+mod actions;
+mod bots;
+
+pub use bots::BotRow;
+pub use bots::BotWorld;
+
+/// The session catalog as the `session` tool's list reads it (`service.listThreadCatalog`, `readStoredThreadCatalogRow`,
+/// `storedLiveWork`): Node's catalog rows, newest activity first, with the live `working` and `agentWorking` laid over.
+#[async_trait]
+pub trait ThreadCatalog: Send + Sync {
+    /// At most `limit` rows after `cursor`, and the cursor that continues after the last one when more follow.
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError>;
+    /// The row of `id`, `None` when the catalog would not list it.
+    async fn row(&self, id: &str) -> Result<Option<Value>, CoreError>;
+    /// The sessions with live work now.
+    fn live(&self) -> LiveWork;
+    /// What the live overlay says of one session besides its turn: the bots whose sends run in it (`handedBy`) and whether it
+    /// shows an approval (`liveSessionAwaitingApproval`).
+    fn work_of(&self, id: &str) -> SessionWork;
+}
+
+/// [`ThreadCatalog::work_of`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionWork {
+    pub handed_by: Vec<String>,
+    pub awaiting_approval: bool,
+}
+
+/// `storedLiveWork`: `own`, the sessions with a turn in flight; `agents`, the Leads an Agent session in flight works for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveWork {
+    pub own: Vec<String>,
+    pub agents: Vec<String>,
+}
+
+#[async_trait]
+impl ThreadCatalog for mixdog_core_session::session::thread_list::ThreadListService {
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError> {
+        let (sessions, next_cursor) = self.catalog_page(cursor, limit).await?;
+        Ok(ListPage { sessions, next_cursor })
+    }
+
+    async fn row(&self, id: &str) -> Result<Option<Value>, CoreError> {
+        self.catalog_row(id).await
+    }
+
+    fn live(&self) -> LiveWork {
+        let work = self.live_work();
+        LiveWork { own: work.own.iter().map(|id| id.as_str().to_owned()).collect(), agents: work.agents.iter().map(|id| id.as_str().to_owned()).collect() }
+    }
+
+    fn work_of(&self, id: &str) -> SessionWork {
+        let overlay = self.overlay_of(&ThreadId::from(id));
+        SessionWork { handed_by: overlay.handed_by.unwrap_or_default(), awaiting_approval: overlay.awaiting_approval == Some(true) }
+    }
+}
 
 /// Requests to a thread, open or not (`CallContext::internal`): the directory seen as the tools
 /// see it.
@@ -58,6 +120,18 @@ pub trait ThreadRequests: Send + Sync {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError>;
     /// The user's interrupt of the turn running in `thread` (`abortSession`): whether one was.
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError>;
+    /// `rt.pendingCompactSessionIds.add(id)`: `thread` compacts once, when its running turn settles.
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError>;
+    /// The stored transcript of `thread`, oldest first (`service.readSession({ transcriptRange })`'s rows).
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError>;
+    /// `service.submitSession({ sessionId, prompt: content, options: { id, mode: 'prompt', transcriptMeta: { sender: 'lead',
+    /// fromAgent?, hop?, botChain? } } })`: `content` runs in `thread` at once when it is idle, else queues behind the running
+    /// turn. Whether the thread took it.
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError>;
+    /// A `thread/start` (a directory request, answered with the new thread's row under `thread`).
+    async fn start(&self, params: Value) -> Result<Value, CoreError>;
+    /// `turnHopOf(session)` and `turnBotChainOf(session)`: the bot-to-bot depth and chain of the turn `thread` is in.
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>);
 }
 
 #[async_trait]
@@ -74,6 +148,31 @@ impl ThreadRequests for SessionDirectory {
 
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
         self.interrupt_running_turn(thread)
+    }
+
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
+        self.schedule_compact_after_turn(thread)
+    }
+
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError> {
+        self.transcript_items(thread).await
+    }
+
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError> {
+        Ok(self.submit_session_message(thread, content, id, hop, bot_chain, from_agent).await)
+    }
+
+    async fn start(&self, params: Value) -> Result<Value, CoreError> {
+        let op = OpId::from(uuid::Uuid::now_v7().to_string());
+        let request = CoreRequest { method: Method("thread/start"), params, op: Some(op), ctx: CallContext::internal("session-tool") };
+        match mixdog_core_api::ThreadDirectory::request(self, request).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(started) => Ok(started.result),
+        }
+    }
+
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
+        (self.turn_hop(thread), self.turn_bot_chain(thread))
     }
 }
 
@@ -98,6 +197,9 @@ pub trait ProjectList: Send + Sync {
 #[async_trait]
 pub trait BotIds: Send + Sync {
     async fn ids(&self) -> Result<Vec<String>, String>;
+    /// `agentDisplayName(id)`: the name a bot goes by in the envelope of its messages (Mixy's name, else the definition's,
+    /// else the id).
+    async fn name(&self, id: &str) -> String;
 }
 
 /// [`BotIds`] over the agent definitions: each custom agent that is a contact, its kind read
@@ -123,6 +225,20 @@ impl BotIds for ContactBotIds {
             }
         }
         Ok(ids)
+    }
+
+    async fn name(&self, id: &str) -> String {
+        if id == MIXY_AGENT_ID {
+            return match self.agents.lead_status().await {
+                Ok(status) if !status.name.is_empty() => status.name,
+                _ => "Mixy".to_owned(),
+            };
+        }
+        let named = match self.agents.load(id).await {
+            Ok(Some(definition)) => definition.name.split_whitespace().collect::<Vec<_>>().join(" "),
+            _ => String::new(),
+        };
+        if named.is_empty() { id.to_owned() } else { named }
     }
 }
 
@@ -162,6 +278,13 @@ pub struct SessionPortParts {
     pub projects: Arc<dyn ProjectList>,
     pub bots: Arc<dyn BotIds>,
     pub suggestions: Arc<dyn Suggestions>,
+    /// What `list` reads: the catalog, bound once the thread list exists.
+    pub catalog: Arc<dyn ThreadCatalog>,
+    /// The bots, routines, held requests and report watches `session bots` reads.
+    pub world: Arc<dyn BotWorld>,
+    /// The queue of turns waiting for their provider quota to reset: what a status reads as a session's `quotaResume`.
+    pub quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
+    pub clock: Arc<dyn mixdog_agent::env::Clock>,
     pub io: InteractiveIo,
 }
 
@@ -193,6 +316,17 @@ impl DirectorySessionPort {
 
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
         self.parts.threads.header(thread).await
+    }
+
+    /// `session action=read` (`targetRequest` and `sessionReadOutput`): a window of another session's transcript, counted
+    /// from its newest row, each row quoted with its own text window.
+    async fn read(&self, call: &ControlCall) -> Result<Value, PortError> {
+        let request = actions::target_request(call, "read")?;
+        let target = ThreadId::from(request.id.as_str());
+        self.target_header(&target).await?;
+        let items = self.parts.requests.transcript(&target).await.map_err(core)?;
+        let range = range_of(items.iter().filter_map(row_of).collect(), request.offset as u64, request.limit as u64);
+        session_read_output(&request.id, &range, request.text_offset as usize, request.item_id.as_deref()).map_err(failed)
     }
 }
 
@@ -237,6 +371,10 @@ impl SessionPort for DirectorySessionPort {
         Ok(if known { home } else { target.to_owned() })
     }
 
+    async fn unknown_bot(&self, target: &str) -> Result<Option<String>, PortError> {
+        self.unknown_bot_text(target).await
+    }
+
     async fn resolve_attachments(&self, _: &ThreadId, _: &Value, _: &AbsPath, _: &str) -> Result<Vec<Value>, PortError> {
         Err(PortError::Unavailable {
             capability: "attachments".to_owned(),
@@ -245,19 +383,26 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn control(&self, call: ControlCall) -> Result<Value, PortError> {
-        let session_id = || call.args.get("session_id").map(mixdog_js::value_to_string).map(|s| mixdog_js::js_trim(&s).to_owned()).unwrap_or_default();
         match call.action.as_str() {
             "cancel" => {
-                let target = ThreadId::from(session_id());
+                let target = ThreadId::from(actions::target_request(&call, "cancel")?.id);
+                self.target_header(&target).await?;
                 let aborted = self.parts.requests.interrupt(&target).map_err(core)?;
                 Ok(json!({ "sessionId": target.as_str(), "aborted": aborted }))
             }
             "delete" => {
-                let target = ThreadId::from(session_id());
+                let target = ThreadId::from(actions::target_request(&call, "delete")?.id);
+                self.target_header(&target).await?;
                 let params = json!({ "threadId": target.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
                 let deleted = self.parts.requests.request(&target, "thread/delete", params).await.map_err(core)?;
                 Ok(json!({ "sessionId": target.as_str(), "deleted": deleted == Value::Bool(true) }))
             }
+            "read" => self.read(&call).await,
+            "list" => self.list(&call).await,
+            "send" => self.send(&call).await,
+            "create" => self.create(&call).await,
+            "bots" => self.bots(&call).await,
+            "status" => self.session_status(&call).await,
             other => Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={other} is not available in this runtime"),
@@ -323,25 +468,13 @@ impl SessionPort for DirectorySessionPort {
         Ok(set)
     }
 
-    async fn schedule_compact(&self, _: &ThreadId) -> Result<(), PortError> {
-        // Node leaves a flag the turn settle consumes (`takePendingCompact`); the session actor's
-        // settle has no such flag, and a compaction started while the turn runs is refused busy.
-        Err(PortError::Unavailable {
-            capability: "compact".to_owned(),
-            message: "session: compact is not available in this runtime".to_owned(),
-        })
+    async fn schedule_compact(&self, thread: &ThreadId) -> Result<(), PortError> {
+        self.parts.requests.compact_after_turn(thread).map_err(core)
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
-        // `thread/fork` copies the history as it stands; the compacting inheritance of
-        // `inheritToNewSession({compact: true})` has no handler behind it yet.
-        if compact {
-            return Err(PortError::Unavailable {
-                capability: "fork-compact".to_owned(),
-                message: "session: fork with compact is not available in this runtime".to_owned(),
-            });
-        }
-        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
+        // `inheritToNewSession({ compact })`: the carry summarises the conversation even when it fits and refuses, leaving no heir, when it cannot.
+        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "compact": compact });
         let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(core)?;
         let id = reply
             .pointer("/thread/id")
@@ -360,7 +493,7 @@ impl SessionPort for DirectorySessionPort {
             ]);
             self.parts.threads.patch_header(&copy, set, Vec::new()).await?;
         }
-        Ok((id, false))
+        Ok((id, compact))
     }
 
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError> {

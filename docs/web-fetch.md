@@ -37,7 +37,7 @@ Neither path imports the user's signed-in profile or shares cookies between
 calls. Paused browser requests receive a single pinned response; Chromium owns
 redirect URLs, method changes and cookie updates, with every next hop gated.
 
-The public-IP transport remains Node-based even for Chromium. This retains
+The public-IP transport remains the core's own HTTP client even for Chromium. This retains
 DNS-rebinding protection, but does **not** reproduce native browser TLS
 fingerprints. CAPTCHA, authenticated content and IP blocks are not guaranteed
 to work. A nonempty HTTP 200 page without explicit challenge headers may still
@@ -46,17 +46,14 @@ Explicit HTTP or challenge failures are not cached as successful page reads.
 
 ## Dependencies and reference boundary
 
-Readability, JSDOM and puppeteer-core remain useful for article fallback, DOM
-parsing/cookie scoping and the browser pool respectively. No new dependency was
-needed. Crawlee's documented session, concurrency and blocking concepts were
+Crawlee's documented session, concurrency and blocking concepts were
 studied; its implementation code was not copied, translated or adapted into
 these modules.
 
 ## Focused checks
 
 ```powershell
-node scripts/test-direct.mjs src/runtime/web-search/lib/document-content.test.mjs src/runtime/web-search/lib/http-fetch.test.mjs src/runtime/web-search/lib/fetch-pipeline.test.mjs src/runtime/web-search/lib/fetch-output.test.mjs
-node scripts/test-direct.mjs --experimental-test-module-mocks src/runtime/web-search/lib/browser-document.live.test.mjs
+cargo test --manifest-path native/core/Cargo.toml -p mixdog-tools web
 ```
 
 The browser check uses an installed Chrome/Edge and deterministic HTTP fixtures

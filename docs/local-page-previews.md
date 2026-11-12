@@ -64,7 +64,7 @@ process replacing paths during the final filesystem checks and open.
 ## Focused checks
 
 ```sh
-node scripts/test-direct.mjs src/runtime/shared/projects-authority.test.mjs
+cargo test --manifest-path native/core/Cargo.toml -p mixdog-core-session project
 npm test --prefix apps/desktop -- src/main/local-page-server.test.mjs src/main/local-page-permissions.test.mjs src/main/local-access-denied.test.mjs
 ```
 

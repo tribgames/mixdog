@@ -115,48 +115,35 @@ enum Invalidate {
 }
 
 /// Resolves when the login is cancelled or its deadline passes: Node's abort of the login signal.
-struct Deadline {
-    #[cfg(not(feature = "test-support"))]
-    at: tokio::time::Instant,
+/// Under a test that took the seams (`seam::take_control`) it is a fire of `seam::DEADLINE`.
+enum Deadline {
+    At(tokio::time::Instant),
     #[cfg(feature = "test-support")]
-    seen: usize,
-    #[cfg(feature = "test-support")]
-    wall: Option<tokio::time::Instant>,
+    Fired(usize),
 }
 
 impl Deadline {
     fn start() -> Self {
-        #[cfg(not(feature = "test-support"))]
-        {
-            Self { at: tokio::time::Instant::now() + super::LOGIN_DEADLINE }
-        }
         #[cfg(feature = "test-support")]
-        {
-            let millis = crate::oauth::callback::LOGIN_DEADLINE_MS.load(std::sync::atomic::Ordering::SeqCst);
-            Self {
-                seen: crate::oauth::callback::seam::DEADLINE.count(),
-                wall: (millis > 0).then(|| tokio::time::Instant::now() + std::time::Duration::from_millis(millis)),
-            }
+        if crate::oauth::callback::seam::controlled() {
+            return Self::Fired(crate::oauth::callback::seam::DEADLINE.count());
         }
+        Self::At(tokio::time::Instant::now() + super::LOGIN_DEADLINE)
     }
 
     async fn passed(&self) {
-        #[cfg(not(feature = "test-support"))]
-        tokio::time::sleep_until(self.at).await;
-        #[cfg(feature = "test-support")]
-        match self.wall {
-            Some(at) => tokio::time::sleep_until(at).await,
-            None => crate::oauth::callback::seam::DEADLINE.after(self.seen).await,
+        match self {
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
+            #[cfg(feature = "test-support")]
+            Self::Fired(seen) => crate::oauth::callback::seam::DEADLINE.after(*seen).await,
         }
     }
 
     fn expired(&self) -> bool {
-        #[cfg(not(feature = "test-support"))]
-        return tokio::time::Instant::now() >= self.at;
-        #[cfg(feature = "test-support")]
-        match self.wall {
-            Some(at) => tokio::time::Instant::now() >= at,
-            None => crate::oauth::callback::seam::DEADLINE.count() > self.seen,
+        match self {
+            Self::At(at) => tokio::time::Instant::now() >= *at,
+            #[cfg(feature = "test-support")]
+            Self::Fired(seen) => crate::oauth::callback::seam::DEADLINE.count() > *seen,
         }
     }
 }

@@ -9,6 +9,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 
 use super::models::{ModelTable, SeedModel};
 use super::retry;
+use crate::providers::first_byte::FirstBytePolicy;
 
 /// The wire a model is served on (PW §5.7 `WIRES`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -240,6 +241,9 @@ pub struct ChatDialect {
     /// A reply's reasoning is kept for replay even when the dialect does not
     /// replay it today (the receive side of the replay envelope).
     pub capture_reasoning: bool,
+    /// A replaying custom endpoint needs non-empty `reasoning_content` on every assistant tool-call turn: a turn
+    /// without stored reasoning sends `" "` (`toOpenAIMessages` `customReplay`).
+    pub pad_tool_call_reasoning: bool,
     pub reasoning_shape: Option<ReasoningShape>,
     pub effort: EffortDialect,
     pub tool_choice: ToolChoiceSupport,
@@ -256,6 +260,9 @@ pub struct ChatDialect {
     /// Per-request `x-session-affinity` / `x-parent-session-id` headers and
     /// the client `User-Agent`.
     pub session_affinity_headers: bool,
+    /// A header naming the conversation on every send, on each wire: the session's id, else one drawn for the send
+    /// (OpenCode Go's `x-opencode-session`, opencode-go.mjs:129-142).
+    pub session_header: Option<&'static str>,
     /// Gateway error codes with a message of their own.
     pub friendly_codes: &'static [FriendlyCode],
     /// A refusal's text leads with its status (`400 <message>`), as the
@@ -263,6 +270,9 @@ pub struct ChatDialect {
     pub status_in_message: bool,
     /// The text of a 401 that needs a new sign-in.
     pub reauth: ReauthText,
+    /// The profile's own first-byte window (`chatProfile.firstByteTimeoutMs` and the profile's `firstByteRetries`): a
+    /// provider that sets one states a first-response budget over its retry ladder; `None` keeps the watchdog's default.
+    pub first_byte: Option<FirstBytePolicy>,
 }
 
 /// How a provider words a rejected login-issued key.
@@ -284,6 +294,7 @@ impl ChatDialect {
         developer_role: false,
         replay_reasoning: false,
         capture_reasoning: false,
+        pad_tool_call_reasoning: false,
         reasoning_shape: None,
         effort: EffortDialect::None,
         tool_choice: ToolChoiceSupport::NoneOnly,
@@ -294,9 +305,11 @@ impl ChatDialect {
         cost: CostField::None,
         in_band_invalid_request_retryable: false,
         session_affinity_headers: false,
+        session_header: None,
         friendly_codes: &[],
         status_in_message: true,
         reauth: ReauthText::Plain,
+        first_byte: None,
     };
 }
 
@@ -349,6 +362,9 @@ pub struct ListingRules {
     /// Muse Code and OpenCode Go do; MiMo and Command Code do not: `openai-compat.mjs:280`, `wire-gateway.mjs:166`,
     /// `muse-code-oauth.mjs:442`, `opencode-go-oauth.mjs:329`).
     pub caches_model_info: bool,
+    /// The roster is read by the generic class's `fetchCompatModelItems`: the bearer, the client's default headers,
+    /// then the fetch's own `accept` (the other gateways read it with `fetchRoster`, `accept` first).
+    pub plain_fetch: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -376,6 +392,7 @@ impl ListingRules {
         publishes_roster: false,
         shape: ListingShape::Compat,
         caches_model_info: true,
+        plain_fetch: false,
     };
 }
 
@@ -487,7 +504,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: XAI_NO_EFFORT,
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::xai,
         }
     }
@@ -516,7 +533,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::deepseek,
         }
     }
@@ -549,7 +566,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::unprofiled,
         }
     }
@@ -581,6 +598,10 @@ impl CompatProfile {
                     ("421", "Request blocked by content moderation"),
                     ("441", "Request blocked by risk control"),
                 ],
+                // `MIMO_FIRST_BYTE_TIMEOUT_MS = min(300 s, PROVIDER_MAX_BEFORE_WARN_MS)`, one first-byte retry
+                // (`COMPAT_RETRY_PROFILES['mimo-oauth'].firstByteRetries`); the ceiling is the environment's
+                // ([`crate::providers::first_byte::FirstByteSettings::compat`]).
+                first_byte: Some(FirstBytePolicy { timeout_ms: 300_000, max_ms: 300_000, retries: Some(1) }),
                 ..ChatDialect::PLAIN
             },
             credential: CredentialKind::StaticKey {
@@ -684,6 +705,7 @@ impl CompatProfile {
             chat: ChatDialect {
                 effort: EffortDialect::Declared,
                 reauth: ReauthText::SignInExpired,
+                session_header: Some("x-opencode-session"),
                 ..ChatDialect::PLAIN
             },
             credential: CredentialKind::StaticKey {

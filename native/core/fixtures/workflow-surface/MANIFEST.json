@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-workflow-surface.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-workflow-surface-set.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
   "fileCount": 4,
   "files": [
     {
@@ -8,9 +8,9 @@
       "sha256": "b3b9a6f49d6b6848a48ca8a61a8dd2ee3aa8240a9adeb1eee056fcb88776010c"
     },
     {
-      "bytes": 131943,
+      "bytes": 129773,
       "path": "lead-parts.json",
-      "sha256": "228c78b8c6d52ce561ce9d776681b14da6b0bb453417f9761318063ee415ad45"
+      "sha256": "c0cb6feaeba1109d153605716074f4b657c352392d1070c451c5ef96b5595c9c"
     },
     {
       "bytes": 20105,
@@ -18,28 +18,86 @@
       "sha256": "8207c345c43c1f62aeedc61cf8dea489dc8d8c0cd903c9b3adea56426c000777"
     },
     {
-      "bytes": 361500,
+      "bytes": 352024,
       "path": "surface.json",
-      "sha256": "787671b83e99b31041fc62b2cefd5037a514802535f6d2ce0d5f98c2db34c9c6"
+      "sha256": "3d7bdaf2659c98e0231bd9a4fb2a55cbf68aa8aec63f7fa80d580e92b8579602"
     }
   ],
-  "product": {
-    "appsSha256": "1facc8bfdb98c5a49136a8474c0f9bd6b10874f9a9f8f8147afe15e60f7d0fcd",
-    "commit": "5855228e785617de6b01b0c8ca2f69b02d4ea90f",
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9248,
-    "refComparison": {
-      "closestCommit": "5855228e785617de6b01b0c8ca2f69b02d4ea90f",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
-    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-workflow-context.mjs",
+      "sha256": "adc2c391dc9d1c1b029fd99178cc2ec033a0c04b3ce740a798dac31eaaa16d3f"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-workflow-lead-parts.mjs",
+      "sha256": "91b50234d2afb17c5b1fe6b3e09f49c7880a64cad05b2bc559baad3ea53b1e28"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-workflow-orchestration-text.mjs",
+      "sha256": "1a6d8f8395fddb273d7e0cfc8846c837af4fe2a1ae2a1f18829a9ad3e8db1d2e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-workflow-surface.mjs",
+      "sha256": "77ab882896cbb0c519027061fa58ef7c92249287cfc9ec9036bff92ad39c1ad7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+      "paths": [
+        "src/session-runtime/services/agent-tool/model-select.mjs",
+        "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+        "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+        "src/session-runtime/services/agent-tool/tool-def.mjs",
+        "src/tui/app/model-picker/route-selection/effort.mjs"
+      ],
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+    },
+    "patches": [
+      {
+        "file": "node-fix-spawn-model-settings.patch",
+        "paths": [
+          "src/session-runtime/services/agent-tool/model-select.mjs",
+          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+          "src/session-runtime/services/agent-tool/tool-def.mjs",
+          "src/tui/app/model-picker/route-selection/effort.mjs"
+        ],
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5
+    },
+    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
-  "recorder": "benchmarks/rust-core/recorders/record-workflow-surface.mjs",
+  "recorder": "benchmarks/rust-core/recorders/record-workflow-surface-set.mjs",
+  "recorderSha256": "b52efc90870a269d46e4e2eef7533c995b95287c8c759d9ac3814da1be64c5af",
   "set": "workflow-surface",
-  "totalBytes": 527351
+  "totalBytes": 515705
 }

@@ -1,0 +1,1329 @@
+{
+  "name": "path-arg-shapes",
+  "files": {
+    "a/x.ts": "export const xa = 1;\n",
+    "b/xy.ts": "export const xb = 2;\n",
+    "top.ts": "export const top = 3;\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "warmupNone"
+        ]
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "list",
+      "input": {
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "Error: list arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": [
+          "a"
+        ]
+      },
+      "text": "Error: list arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": []
+      },
+      "text": "Error: list arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": 3
+      },
+      "text": "Error: list arg \"path\" must be string (got number)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: list arg \"path\" must be string (got object)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": true
+      },
+      "text": "Error: list arg \"path\" must be string (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": null
+      },
+      "text": "a\tdir\nb\tdir\ntop.ts\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": ""
+      },
+      "text": "a\tdir\nb\tdir\ntop.ts\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": " \t "
+      },
+      "text": "a\tdir\nb\tdir\ntop.ts\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": [
+          "",
+          null
+        ]
+      },
+      "text": "a\tdir\nb\tdir\ntop.ts\tfile",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: list arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "Error: find arg \"path\" must be a string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": [
+          "a"
+        ]
+      },
+      "text": "Error: find arg \"path\" must be a string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": []
+      },
+      "text": "Error: find arg \"path\" must be a string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": 3
+      },
+      "text": "Error: find arg \"path\" must be a string (got number)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: find arg \"path\" must be a string (got object)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": true
+      },
+      "text": "Error: find arg \"path\" must be a string (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": null
+      },
+      "text": "a/x.ts\nb/xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": ""
+      },
+      "text": "a/x.ts\nb/xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": " \t "
+      },
+      "text": "a/x.ts\nb/xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": [
+          "",
+          null
+        ]
+      },
+      "text": "a/x.ts\nb/xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "x",
+        "path": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: find arg \"path\" must be a string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "a"
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": []
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": 3
+      },
+      "text": "Error: glob arg \"path\" must be string (got number)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: glob arg \"path\" must be string (got object)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": true
+      },
+      "text": "Error: glob arg \"path\" must be string (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": null
+      },
+      "text": "a/x.ts\nb/xy.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": ""
+      },
+      "text": "a/x.ts\nb/xy.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": " \t "
+      },
+      "text": "a/x.ts\nb/xy.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          "",
+          null
+        ]
+      },
+      "text": "a/x.ts\nb/xy.ts\ntop.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: glob arg \"path\" must be string (got array)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "# grep a\n# a/x.ts:1 [lines 1-1]\nexport const xa = 1;\n\n# grep b\n# b/xy.ts:1 [lines 1-1]\nexport const xb = 2;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "a"
+        ]
+      },
+      "text": "# a/x.ts:1 [lines 1-1]\nexport const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": []
+      },
+      "text": "Error: grep arg \"path\" must contain 1-10 non-empty path strings (0 given, max 10)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": 3
+      },
+      "text": "Error: grep arg \"path\" must be string or string[] (got number)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: grep arg \"path\" must be string or string[] (got object)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": true
+      },
+      "text": "Error: grep arg \"path\" must be string or string[] (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": null
+      },
+      "text": "# ./a/x.ts:1 [lines 1-1]\nexport const xa = 1;\n# ./b/xy.ts:1 [lines 1-1]\nexport const xb = 2;\n# ./top.ts:1 [lines 1-1]\nexport const top = 3;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": ""
+      },
+      "text": "# ./a/x.ts:1 [lines 1-1]\nexport const xa = 1;\n# ./b/xy.ts:1 [lines 1-1]\nexport const xb = 2;\n# ./top.ts:1 [lines 1-1]\nexport const top = 3;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": " \t "
+      },
+      "text": "# ./a/x.ts:1 [lines 1-1]\nexport const xa = 1;\n# ./b/xy.ts:1 [lines 1-1]\nexport const xb = 2;\n# ./top.ts:1 [lines 1-1]\nexport const top = 3;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "",
+          null
+        ]
+      },
+      "text": "Error: grep arg \"path\" must contain 1-10 non-empty path strings (2 given, max 10)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: grep arg \"path\" must contain 1-10 non-empty path strings (1 given, max 10)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "a",
+          ""
+        ]
+      },
+      "text": "Error: grep arg \"path\" must contain 1-10 non-empty path strings (2 given, max 10)",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "xb",
+        "path": [
+          "a",
+          "b",
+          "top.ts"
+        ]
+      },
+      "text": "# grep b\n# b/xy.ts:1 [lines 1-1]\nexport const xb = 2;\n\n(no matches) paths=[\"a\",\"top.ts\"]",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "a",
+          "nope",
+          " a ",
+          "top.ts"
+        ]
+      },
+      "text": "# grep a\n# a/x.ts:1 [lines 1-1]\nexport const xa = 1;\n\n# grep nope\nError: path does not exist: <ROOT>/nope (ENOENT) Not found; under \".\" try: \"a\", \"b\", \"top.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)\n\n# grep top.ts\n# top.ts:1 [lines 1-1]\nexport const top = 3;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "zzz",
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "(no matches)",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "a",
+          "b"
+        ],
+        "mode": "files"
+      },
+      "text": "# grep a\na/x.ts\n\n# grep b\nb/xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "export",
+        "path": [
+          "p0",
+          "p1",
+          "p2",
+          "p3",
+          "p4",
+          "p5",
+          "p6",
+          "p7",
+          "p8",
+          "p9",
+          "p10"
+        ]
+      },
+      "text": "Error: grep arg \"path\" must contain 1-10 non-empty path strings (11 given, max 10)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "read 2 (2 failed)\n\na [error]\nError: Directory: a. Use list/glob to inspect directories; read expects a file.\nentries:\n- x.ts\n\nb [error]\nError: Directory: b. Use list/glob to inspect directories; read expects a file.\nentries:\n- xy.ts",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": [
+          "a"
+        ]
+      },
+      "text": "Error: Directory: a. Use list/glob to inspect directories; read expects a file.\nentries:\n- x.ts",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": []
+      },
+      "text": "Error: read arg \"path\" must be string, string[], or object[] (got array)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": 3
+      },
+      "text": "Error: read arg \"path\" must be string, string[], or object[] (got number)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": {
+          "p": "a"
+        }
+      },
+      "text": "Error: read arg \"path\" must be string, string[], or object[] (got object)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": true
+      },
+      "text": "Error: read arg \"path\" must be string, string[], or object[] (got boolean)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": null
+      },
+      "text": "Error: read requires \"path\" (or alias file_path).",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": ""
+      },
+      "text": "Error: path is required.",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": " \t "
+      },
+      "text": "Error: path is required.",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": [
+          "",
+          null
+        ]
+      },
+      "text": "Error: read requires \"path\" (or alias file_path).",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: read arg \"path[0]\" must be string or {path,offset,limit} object (got array)",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": [
+          "top.ts"
+        ]
+      },
+      "text": "read 1\n\ntop.ts [ok]\n[lines 1-1]\nexport const top = 3;",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": 3
+      },
+      "text": "Error: read arg \"file_path\" must be a path string or an array of targets",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": null
+      },
+      "text": "Error: read requires \"path\" (or alias file_path).",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": ""
+      },
+      "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?, tail?}",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": [
+          "a",
+          "b"
+        ],
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": [
+          "a"
+        ],
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": [],
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": 3,
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": {
+          "p": "a"
+        },
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": true,
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": null,
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": "",
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": " \t ",
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: cannot read <ROOT> (EISDIR: illegal operation on a directory, read)",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": [
+          "",
+          null
+        ],
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "edit",
+      "input": {
+        "file_path": [
+          [
+            "a"
+          ]
+        ],
+        "old_string": "nothing-here",
+        "new_string": "y"
+      },
+      "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+      "isError": true
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": [
+          "a"
+        ]
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": []
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": 3
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": {
+          "p": "a"
+        }
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": true
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": null
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": ""
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": " \t "
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": [
+          "",
+          null
+        ]
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "cwd": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "# best declaration candidate\na/x.ts:1-1:14 (typescript, export variable, matches=1)\n1: export const xa = 1;",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          "a",
+          "b"
+        ]
+      },
+      "text": "# symbols <ROOT>\\a\nError: code_graph symbols: file not found in graph: <ROOT>\\a — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.\n\n# symbols <ROOT>\\b\nError: code_graph symbols: file not found in graph: <ROOT>\\b — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          "a"
+        ]
+      },
+      "text": "Error: code_graph symbols: file not found in graph: <ROOT>\\a — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": []
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": 3
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": {
+          "p": "a"
+        }
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": true
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": null
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": ""
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": " \t "
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          "",
+          null
+        ]
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "text": "Error: code_graph symbols: file not found in graph: <ROOT>\\a — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": [
+          "a",
+          "b"
+        ]
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Array"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": [
+          "a"
+        ]
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Array"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": []
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Array"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": {
+          "p": "a"
+        }
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Object"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": true
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type boolean (true)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": null
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": ""
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": " \t "
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": [
+          "",
+          null
+        ]
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Array"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": [
+          [
+            "a"
+          ]
+        ]
+      },
+      "thrown": "The \"path\" argument must be of type string. Received an instance of Array"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": false
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "file": 0
+      },
+      "text": "Error: code_graph symbols: file not found in graph: (missing file)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "references",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "callers",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "overview",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "imports",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "dependents",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "search",
+        "symbols": [
+          "xa"
+        ],
+        "file": 3
+      },
+      "thrown": "The \"path\" argument must be of type string. Received type number (3)"
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          3
+        ]
+      },
+      "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          true
+        ]
+      },
+      "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          {
+            "p": "a"
+          }
+        ]
+      },
+      "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          [
+            "a",
+            "b"
+          ]
+        ]
+      },
+      "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbols",
+        "files": [
+          "a",
+          null
+        ]
+      },
+      "text": "Error: code_graph symbols: file not found in graph: <ROOT>\\a — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.",
+      "isError": false
+    }
+  ]
+}

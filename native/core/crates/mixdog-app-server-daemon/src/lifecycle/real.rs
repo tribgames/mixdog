@@ -334,6 +334,7 @@ pub struct ProcessExiter;
 impl Exiter for ProcessExiter {
     #[allow(clippy::disallowed_methods, reason = "this is the one place the core ends its process")]
     fn exit(&self, code: i32) {
+        crate::crash_record::record_exit(code);
         std::process::exit(code);
     }
 }

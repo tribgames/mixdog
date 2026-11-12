@@ -1,0 +1,82 @@
+{
+  "name": "search-admission-point-search-passes",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "requests": 1
+    },
+    {
+      "start": "waiter",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "a",
+          "path": "t"
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "start": "point",
+      "call": {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "t"
+        }
+      },
+      "until": "answered",
+      "requests": 2,
+      "answer": {
+        "text": "# t/a.ts:1 [lines 1-1]\nneedle one",
+        "isError": false
+      }
+    },
+    {
+      "tick": 17500
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "text": "Error: rg failed for t: native file inventory search timed out after 17500ms.",
+        "isError": true
+      }
+    },
+    {
+      "settle": "waiter",
+      "requests": 2,
+      "answer": {
+        "text": "Error: broad search I/O admission wait exceeded 17500ms; retry after running work completes",
+        "isError": true
+      }
+    }
+  ]
+}

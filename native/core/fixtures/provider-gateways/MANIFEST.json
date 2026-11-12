@@ -1,0 +1,365 @@
+{
+  "clockStartMs": 1794225600000,
+  "command": "node benchmarks/rust-core/recorders/record-provider-gateways.mjs --tree <b6f tree>",
+  "fileCount": 51,
+  "files": [
+    {
+      "bytes": 3940,
+      "path": "command-code-chat.json",
+      "sha256": "af85b57e8f6568e10fcd850f9a5ce6db46dba838e587023e77efdc2a0d88fd06"
+    },
+    {
+      "bytes": 4249,
+      "path": "command-code-messages.json",
+      "sha256": "edc2f7c7a9939408b497f6b2ed0d9466a4c2079ff4cb6c94dbe1f817bf46b028"
+    },
+    {
+      "bytes": 4530,
+      "path": "command-code-responses.json",
+      "sha256": "9a3c83a01632209071d99e9fcd508bf6f960fc43748fce55e333058788f89df0"
+    },
+    {
+      "bytes": 4414,
+      "path": "config-effort-command-code-messages.json",
+      "sha256": "6b238d44c2c51bd0cec129c805dcd7913a7b4c0daa2507f95fb6e9436e8b8fd1"
+    },
+    {
+      "bytes": 6346,
+      "path": "config-effort-deepseek-chat.json",
+      "sha256": "e9c1e3cf4c2032a6de96b5d93a08b23dccd2124538290ef12727b54bbca99d67"
+    },
+    {
+      "bytes": 3649,
+      "path": "config-effort-deepseek-messages.json",
+      "sha256": "a5453481c0eb2632e570309f3c48ec331290cbca68e896b584f6cf62d7866341"
+    },
+    {
+      "bytes": 4455,
+      "path": "config-effort-opencode-go-messages.json",
+      "sha256": "73ba526c373b3ed8562ed0eb675768e6d1aad77495be11168707d2ff4bdd3165"
+    },
+    {
+      "bytes": 7022,
+      "path": "config-effort-openrouter-chat.json",
+      "sha256": "ab476995228732a8892f9ac66c38b981f00f8937541ac67f9607350e9b4092c3"
+    },
+    {
+      "bytes": 7542,
+      "path": "config-effort-openrouter-messages.json",
+      "sha256": "6f58659e2677b0dc6b4aea35c7aad75e37c77944ac4c3ba84e6b8bc1974d427f"
+    },
+    {
+      "bytes": 6357,
+      "path": "config-effort-openrouter-responses.json",
+      "sha256": "34e5ac4fb1b9b0dfa4cf87d090525d451d3a3b6391dbccf9bbe59ccda5e107c9"
+    },
+    {
+      "bytes": 3245,
+      "path": "config-effort-unsupported-deepseek-chat.json",
+      "sha256": "1deff4943f91ebf3349032da860e4d7a702596ea0be6218902150ab1822d8396"
+    },
+    {
+      "bytes": 3560,
+      "path": "config-effort-unsupported-openrouter-chat.json",
+      "sha256": "b7e2e100e068e70621f20d9d57f73d5f9fb7c63af6dcde1c115cefe986e15067"
+    },
+    {
+      "bytes": 3310,
+      "path": "config-effort-unsupported-xai-chat.json",
+      "sha256": "14c75213accf1c1b88febf6d2f6611e0c07634ba76fa8b3f6bc8f26cdb298551"
+    },
+    {
+      "bytes": 6460,
+      "path": "config-effort-xai-chat.json",
+      "sha256": "59fd26d800705e8d51c2b8fee99925c2c9c78e7db0acd9ea460992418ca2a2ae"
+    },
+    {
+      "bytes": 11093,
+      "path": "config-effort-xai-responses.json",
+      "sha256": "fd2b1a8a1d6ba6b70a214a814fb5c3f35b5803978560a05b106ad164cf8017e7"
+    },
+    {
+      "bytes": 3577,
+      "path": "custom-keys-after-output.json",
+      "sha256": "b511a88f3dc2671103c09733b026b1d36232c62fba468f7fc22a72c5e8508650"
+    },
+    {
+      "bytes": 7804,
+      "path": "custom-keys-anthropic-thinking.json",
+      "sha256": "0d10e84df2e31dd4fc66a0f5d5305d24d8e02c1ac9643931e38392ee6376d5e3"
+    },
+    {
+      "bytes": 7876,
+      "path": "custom-keys-exhausted.json",
+      "sha256": "01b1e107911be3176325cc726eecdb3c9838e99658ff1552e5e464b6f0f75b8a"
+    },
+    {
+      "bytes": 2871,
+      "path": "custom-keys-not-quota.json",
+      "sha256": "1d303d6a6df419f1b61a90e6f40a842ae0d7dbbd61de3ea6eb2f40df20c2213b"
+    },
+    {
+      "bytes": 3613,
+      "path": "custom-keys-reasoning-then-quota.json",
+      "sha256": "b3156729bf2eb1faf87c40bd8aad89a3e9247a21d298aaf467ea1a7f14116242"
+    },
+    {
+      "bytes": 7974,
+      "path": "custom-keys-reasoning.json",
+      "sha256": "b54f610eea452bd1dfe0cb3a1c52a0e133cc4d3b8cb45a570935691701ab6c9e"
+    },
+    {
+      "bytes": 9555,
+      "path": "custom-keys-switch.json",
+      "sha256": "f8bb178ff07cb2a81a3113f831fda0f3c2a290939387554c79db2192e7f387f1"
+    },
+    {
+      "bytes": 5079,
+      "path": "custom-reasoning-replay.json",
+      "sha256": "e588e5399ec10d31678ff495c2a69f33548980d5776be795de03282c1aec1867"
+    },
+    {
+      "bytes": 3160,
+      "path": "deepseek-chat-toolless.json",
+      "sha256": "90a879a88031cf68c3d9b22028bdd86b6e8fa7f3d46add77daf4147c9d5bb37f"
+    },
+    {
+      "bytes": 3909,
+      "path": "deepseek-listing.json",
+      "sha256": "b1ee721c3bf3b8a05346535197a4ff132d387e532134eded9ee45b3fb9b90ef0"
+    },
+    {
+      "bytes": 3610,
+      "path": "deepseek-messages-tools.json",
+      "sha256": "ce05e989db634ff586ffd97aec2ee10d5f4cd06e13d0d75145fabbdb8d43c6ab"
+    },
+    {
+      "bytes": 3798,
+      "path": "deepseek-pinned-toolless.json",
+      "sha256": "8b08b29a6792bed680c8f52436c512cae78e6e10d44432c4ba947ffbc993c541"
+    },
+    {
+      "bytes": 3712,
+      "path": "effort-layers-preset-over-config.json",
+      "sha256": "541d911322c87d2af4795bfd704a537ec7259796b457c97ad242f0c599503101"
+    },
+    {
+      "bytes": 3841,
+      "path": "effort-layers-session-over-preset.json",
+      "sha256": "925bf3a954280569a956c9529bdb1c41e988041eb35dcb12c732d16665f3a1af"
+    },
+    {
+      "bytes": 3861,
+      "path": "effort-layers-turn-over-session.json",
+      "sha256": "ef2b0dda53b42909f0c7e6f8491198658b08c7ce162bc5cc26bccf1284a5980d"
+    },
+    {
+      "bytes": 3732,
+      "path": "muse-responses.json",
+      "sha256": "9f3c6c820ed7b036f6d81ba97a59943dc80f51d6eb7188165dd36baea23c27ee"
+    },
+    {
+      "bytes": 3944,
+      "path": "opencode-go-chat.json",
+      "sha256": "378954219047ec794d2a268e7c266b93cd6c5e428d68b15a1468199e3f293f6a"
+    },
+    {
+      "bytes": 2866,
+      "path": "opencode-go-gemini-redirect.json",
+      "sha256": "adbdf0589fa21c345bcdeacb9ffd334c7ac5e88726756bf838282c21183ec616"
+    },
+    {
+      "bytes": 3537,
+      "path": "opencode-go-gemini.json",
+      "sha256": "7776b094ee2e8197fcc8a270036768d20257f9b4de435194ad0cf30fdc86ca2a"
+    },
+    {
+      "bytes": 4199,
+      "path": "opencode-go-messages.json",
+      "sha256": "0d70fa43d0833a3458b0c48eb139fa8b4f0fbe5e5fcf8381a73eeb093e1904d4"
+    },
+    {
+      "bytes": 4580,
+      "path": "opencode-go-responses.json",
+      "sha256": "966a76f0ea45a289f467ee8d64f834b30bdeb5f2e6b2544c5ecf33e530e2d3d8"
+    },
+    {
+      "bytes": 6171,
+      "path": "openrouter-alias-slug.json",
+      "sha256": "f3efabe0045e4f2d717ff1f8cb7b0368ef930a3b10087fa2244bd5dfd1b1601a"
+    },
+    {
+      "bytes": 3291,
+      "path": "openrouter-chat.json",
+      "sha256": "9e24e876e7c969798ffd565b78863db3bd8618cd0b06b2f723d1431d556929b1"
+    },
+    {
+      "bytes": 14844,
+      "path": "openrouter-messages-reasoning.json",
+      "sha256": "0e6102e7b7e0f3e024960588c8994ac88bf6fafddca650866b2c5d1106e19171"
+    },
+    {
+      "bytes": 2613,
+      "path": "openrouter-messages-redirect.json",
+      "sha256": "64962672eb52a419af40eed7b9772082d277eaed2750468c3e8516fbba6c8152"
+    },
+    {
+      "bytes": 3947,
+      "path": "openrouter-messages-usage.json",
+      "sha256": "57079329983c9a3147a996fa77e864f9a537bbd4dea247de2f017f8a6fe621e5"
+    },
+    {
+      "bytes": 3542,
+      "path": "openrouter-messages.json",
+      "sha256": "12e39ede91cc4bf6da0b082b82d457fb5c6722206276f9a0b528478a499e50c9"
+    },
+    {
+      "bytes": 8075,
+      "path": "openrouter-model-switch.json",
+      "sha256": "0cdde7f800b5b56b51cdcb7d726ff7014c6f27991eed1a51ca1c10808687b1a8"
+    },
+    {
+      "bytes": 2565,
+      "path": "openrouter-refusal-stays.json",
+      "sha256": "440059eebeee544d38c8469780384c38b082d9bc993fbacd810b1a3ab523a89b"
+    },
+    {
+      "bytes": 4040,
+      "path": "openrouter-reroute-once.json",
+      "sha256": "c42d36a226b04c502f8e1a3b6ebb906e14254fff692a4b9a2eb3296723a8b35d"
+    },
+    {
+      "bytes": 11309,
+      "path": "openrouter-reroute-unsupported.json",
+      "sha256": "102fa319c95ecc8a2b0ee250746f0afa8a78086a8c5bf423b0d0dde2481db75a"
+    },
+    {
+      "bytes": 12846,
+      "path": "openrouter-responses-reasoning.json",
+      "sha256": "2926c991d28b033347fd65f44424861efab08a31581e20d76ac0aa65a2ff395f"
+    },
+    {
+      "bytes": 3889,
+      "path": "openrouter-responses.json",
+      "sha256": "b5b56e2ef04e53dbf6a2612bcf412bf1ee8fd6057ce22ca730930f1ddacfb293"
+    },
+    {
+      "bytes": 3263,
+      "path": "xai-chat-api-mode.json",
+      "sha256": "a2da086f85bb54eca4196f20dba6898c35d8bdecb665e7e579cb472d78a689de"
+    },
+    {
+      "bytes": 4461,
+      "path": "xai-listing.json",
+      "sha256": "c4eee46b2d93bf4d5f51854fef2690f98cd301f5a414adac1b14f2e881d50b49"
+    },
+    {
+      "bytes": 3744,
+      "path": "xai-responses.json",
+      "sha256": "370047e26c8899be6582e5edd427a92d0ae493df7e8b94385159a54c14d846f1"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
+  "recorderSha256": "a6051d77177938485aa05bfefa2ce2a97d33cbe1a194dd6b102d2359de2816b8",
+  "replayExclusions": {
+    "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
+    "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
+    "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
+    "onStreamDelta kinds other than 'reasoning'": "not logged by the recorder: 'transport' / 'semantic' / 'text' / 'tool' feed the session's liveness clock (the core's progress stamps), and the text and tool calls are compared as textDelta and the result's toolCalls; 'reasoning' is logged because it is the reasoning the caller is shown",
+    "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
+    "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
+    "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
+    "result.usage fields other than inputTokens, outputTokens, cachedTokens and costUsd": "promptTokens equals inputTokens on every wire of these gateways (inclusive input), cacheWriteTokens and raw are not recorded; cachedTokens and costUsd are recorded only when the answer reported them",
+    "send.opts": "the arguments of the Node call the recording was made with (the turn effort, OpenRouter's own effort); the replay maps effort to the request's effort and openRouterReasoningEffort to its model parameter of the same name. The callbacks and the session objects the recorder adds are not recorded",
+    "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
+    "the Messages engine's redirect error text": "Node names the connection error the SDK raises (\"Connection error.\") and keeps the guard's sentence only as its cause; the core carries the connection error text, and its typed transport fault in place of the cause",
+    "toolCall": "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)"
+  },
+  "scenarios": [
+    "command-code-chat",
+    "command-code-messages",
+    "command-code-responses",
+    "config-effort-command-code-messages",
+    "config-effort-deepseek-chat",
+    "config-effort-deepseek-messages",
+    "config-effort-opencode-go-messages",
+    "config-effort-openrouter-chat",
+    "config-effort-openrouter-messages",
+    "config-effort-openrouter-responses",
+    "config-effort-unsupported-deepseek-chat",
+    "config-effort-unsupported-openrouter-chat",
+    "config-effort-unsupported-xai-chat",
+    "config-effort-xai-chat",
+    "config-effort-xai-responses",
+    "custom-keys-after-output",
+    "custom-keys-anthropic-thinking",
+    "custom-keys-exhausted",
+    "custom-keys-not-quota",
+    "custom-keys-reasoning",
+    "custom-keys-reasoning-then-quota",
+    "custom-keys-switch",
+    "custom-reasoning-replay",
+    "deepseek-chat-toolless",
+    "deepseek-listing",
+    "deepseek-messages-tools",
+    "deepseek-pinned-toolless",
+    "effort-layers-preset-over-config",
+    "effort-layers-session-over-preset",
+    "effort-layers-turn-over-session",
+    "muse-responses",
+    "opencode-go-chat",
+    "opencode-go-gemini",
+    "opencode-go-gemini-redirect",
+    "opencode-go-messages",
+    "opencode-go-responses",
+    "openrouter-alias-slug",
+    "openrouter-chat",
+    "openrouter-messages",
+    "openrouter-messages-reasoning",
+    "openrouter-messages-redirect",
+    "openrouter-messages-usage",
+    "openrouter-model-switch",
+    "openrouter-refusal-stays",
+    "openrouter-reroute-once",
+    "openrouter-reroute-unsupported",
+    "openrouter-responses",
+    "openrouter-responses-reasoning",
+    "xai-chat-api-mode",
+    "xai-listing",
+    "xai-responses"
+  ],
+  "set": "provider-gateways",
+  "totalBytes": 265870
+}

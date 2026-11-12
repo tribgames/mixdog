@@ -23,7 +23,7 @@ use super::*;
 use crate::agents::tests::writable;
 use crate::agents::{ConnectorCatalog, NO_WIDEN};
 
-const TWIN: &str = include_str!("../../../../../fixtures/desktop/settings/agent-settings-setup-twin.json");
+const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/agent-settings-setup-twin.json");
 
 struct Catalog {
     servers: Vec<String>,
@@ -164,7 +164,7 @@ fn replaced(value: &Value, from: &str, to: &str) -> Value {
 
 #[tokio::test]
 async fn the_setup_actions_answer_what_the_recorded_node_handlers_answered() {
-    let twin: Value = serde_json::from_str(TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&TWIN).unwrap();
     let strings = |key: &str| -> Vec<String> { twin[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect() };
     let tools = twin["tools"].as_array().unwrap().iter().map(|pair| (pair[0].as_str().unwrap().to_owned(), pair[1].as_str().unwrap().to_owned())).collect();
     let (dir, agents) = writable(json!({})).await;

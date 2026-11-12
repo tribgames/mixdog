@@ -1,0 +1,33 @@
+{
+  "id": "lone-leg-reset",
+  "auth": "openai-direct",
+  "script": [
+    "reset"
+  ],
+  "until": 100,
+  "events": [
+    {
+      "t": 0,
+      "on": "dial",
+      "conn": 1
+    },
+    {
+      "t": 0,
+      "on": "upgrade",
+      "conn": 1,
+      "action": "reset"
+    },
+    {
+      "t": 0,
+      "on": "closed",
+      "conn": 1
+    }
+  ],
+  "outcome": {
+    "ok": false,
+    "t": 0,
+    "message": "socket hang up",
+    "code": "ECONNRESET",
+    "httpStatus": null
+  }
+}

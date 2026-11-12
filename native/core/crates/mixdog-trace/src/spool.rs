@@ -15,6 +15,32 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// Test hooks (feature `flush-probe`) for the spool file at one path: `writing` runs with each chunk just before it is
+/// appended (a test holds the flush there), `blocked` runs when a flush finds another flush writing and waits for it.
+#[cfg(feature = "flush-probe")]
+pub mod flush_probe {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    pub trait Probe: Send + Sync {
+        fn blocked(&self);
+        fn writing(&self, chunk: &str);
+    }
+
+    static PROBES: Mutex<Vec<(PathBuf, Arc<dyn Probe>)>> = Mutex::new(Vec::new());
+
+    pub fn install(path: &Path, probe: Arc<dyn Probe>) {
+        PROBES.lock().unwrap_or_else(|poison| poison.into_inner()).push((path.to_path_buf(), probe));
+    }
+
+    pub(super) fn get(path: &Path) -> Option<Arc<dyn Probe>> {
+        let probes = PROBES.lock().unwrap_or_else(|poison| poison.into_inner());
+        probes.iter().find(|(probe_path, _)| probe_path == path).map(|(_, probe)| probe.clone())
+    }
+}
+
 /// Rotate above this size (Node `_LOCAL_TRACE_MAX_BYTES`).
 const MAX_BYTES: u64 = 10 * 1024 * 1024;
 /// Age after which queued lines are due (Node `_LOCAL_TRACE_FLUSH_MS` / `_TOOL_FAILURE_FLUSH_MS`).
@@ -64,6 +90,8 @@ pub(crate) struct Spool {
     rotates: bool,
     kind: Kind,
     state: Mutex<State>,
+    /// Held for the whole of a flush: the chunk taken and the append that writes it.
+    writing: Mutex<()>,
 }
 
 impl Spool {
@@ -88,6 +116,7 @@ impl Spool {
                 first_queued_ms: None,
                 last_rotate_check_ms: 0,
             }),
+            writing: Mutex::new(()),
         }
     }
 
@@ -122,6 +151,15 @@ impl Spool {
     }
 
     pub(crate) fn flush(&self, now_ms: i64) -> Vec<Warning> {
+        // One write at a time, as Node keeps one in flight: a second flusher that took the next chunk must not reach the
+        // file before the chunk ahead of it.
+        #[cfg(feature = "flush-probe")]
+        if matches!(self.writing.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
+            if let Some(probe) = flush_probe::get(&self.path) {
+                probe.blocked();
+            }
+        }
+        let _writing = self.writing.lock().unwrap_or_else(|poison| poison.into_inner());
         let chunk = {
             let mut state = self.lock();
             state.first_queued_ms = None;
@@ -138,6 +176,10 @@ impl Spool {
         }
         if self.rotates {
             warnings.extend(self.maybe_rotate(now_ms));
+        }
+        #[cfg(feature = "flush-probe")]
+        if let Some(probe) = flush_probe::get(&self.path) {
+            probe.writing(&chunk);
         }
         if let Err(error) = append(&self.path, chunk.as_bytes()) {
             warnings.push(self.warning(spool_name, spool_text, &error));

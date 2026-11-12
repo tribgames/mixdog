@@ -1,0 +1,115 @@
+{
+  "cases": 2,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-remote-idle-state-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "The relay hop is JSON: each delivered frame is recorded as the text the encoder produced (`wireText`) and as the value the decoder read after markCompactWire (`wireReadByDecoder`).",
+    "notRun": "the relay transport: the wires are taken from the encoder as the relay would send them. Date.now is read through the test's own withClock (T0 + offsets); the global clock is T0",
+    "runs": "src/session-runtime/goal-state.mjs, standalone/agent-tool/job-views.mjs (createJobViews list/listJobs) and job-views/session-progress.mjs liveAgentStatusRow with a registered background agent task, apps/desktop/src/main/state-delta.ts (encoder compact/plain, decoder, isNoDelta, markCompactWire), renderer/session-goal-presentation.ts labels"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 67924,
+      "path": "golden.json",
+      "sha256": "20ef16bf3ba2c868c10e64f21d90b3546aa45c2c1cf92ea93bba915bbcc29625"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-remote-idle-state-cases.mjs",
+  "recorderSha256": "18aef43a5ff69ee479424f56ff0d739deb3732ab6900863b7bbcaf66530df948",
+  "replay": {
+    "compare": "mixdog-app-server feeds (idle session state frames): replay the 30 pulses against the Rust encoder and compare which pulses deliver a frame and each delivered wire whole; goal snapshot cases mixdog-core-domains goal state",
+    "entry": "Case 2 (goal state snapshots): public_goal (mixdog-core-goal/src/goal/state.rs:330) and the session Goal lane's goalStateSnapshot, visible_goal with nothing suppressed (mixdog-core-session/src/session/goal_lane.rs:214; production: the session actor's goal lane, actor.rs:1606 and :1671); goal_state_snapshot takes no null, visible_goal does. Replay: mixdog-core-session src/session/goal_snapshot_replay_tests.rs. Case 1: the phone's connection to the core (a thread subscription, the relay's feed): a thread whose Goal runs and whose agent job streams, the replay clock advanced over each recorded pulse; compared: for each recorded read, whether the phone received a frame (Node: a delivered wire, or none). Replay: mixdog-core-session src/session/idle_state_replay_tests.rs.",
+    "cases": {
+      "an idle session with a running Goal and agent job sends no state frames until content changes": "replayed through the phone's thread subscription on the replay clock; the delivered wires themselves are Node's snapshot delta encoding (state-delta.ts), which the K1 phone does not receive (it folds the thread feed), so the compared value per read is whether a frame reached the phone",
+      "goal state snapshots are idempotent and leave clock-less Goals untouched": "replayed (pure: the Node test calls goal-state.mjs functions; the Rust lane functions take the same Goal and clock)"
+    },
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "the snapshot delta encoder / decoder (compact and plain wire, isNoDelta, markCompactWire) and the pulse delivery: not in the K1 path (the phone reads the thread feed; packages/protocol-client folds it)"
+    ],
+    "normalised": {
+      "clock": "Date.now is T0 (2026-03-01T10:00:00Z) outside withClock, not the shared fixed clock",
+      "undefined": "case 2: an object key Node set to undefined is absent in the compared value (the Goal lane crosses as JSON, where JSON.stringify drops it); plainSameObject / idempotent (object identity in Node) compare as value equality"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 315,
+        "name": "active_elapsed_ms",
+        "path": "native/core/crates/mixdog-core-goal/src/goal/state.rs"
+      },
+      {
+        "line": 330,
+        "name": "public_goal",
+        "path": "native/core/crates/mixdog-core-goal/src/goal/state.rs"
+      },
+      {
+        "line": 361,
+        "name": "goal_state_snapshot",
+        "path": "native/core/crates/mixdog-core-goal/src/goal/state.rs"
+      },
+      {
+        "line": 214,
+        "name": "visible_goal",
+        "path": "native/core/crates/mixdog-core-session/src/session/goal_lane.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "remote-idle-state-cases",
+  "totalBytes": 67924,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

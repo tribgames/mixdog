@@ -9,7 +9,16 @@ disallowed-methods = [
   { path = "tokio::runtime::Handle::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
   { path = "tokio::runtime::Runtime::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
   { path = "tokio::task::block_in_place", allow-invalid = true, reason = "blocks an RT-C/RT-W worker; submit a job to a lane token (mixdog-rt)" },
-  { path = "std::thread::sleep", reason = "blocks the thread; use tokio::time in async code or run on a lane/thread token" },
+
+  # Timers are armed through mixdog_rt::time, so a replay's clock (feature virtual-clock, mixdog-rt/src/virtual_clock.rs) orders
+  # and fires them as Node does. mixdog-rt, their home, carries its own clippy.toml without these.
+  { path = "tokio::time::sleep", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::sleep" },
+  { path = "tokio::time::sleep_until", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::sleep_until" },
+  { path = "tokio::time::timeout", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::timeout" },
+  { path = "tokio::time::timeout_at", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::timeout_at" },
+  { path = "tokio::time::interval", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::interval" },
+  { path = "tokio::time::interval_at", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::interval_at" },
+  { path = "std::thread::sleep", reason = "blocks the thread; use mixdog_rt::time in async code or run on a lane/thread token" },
   { path = "tokio::fs::read", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
   { path = "tokio::fs::read_to_string", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
   { path = "tokio::fs::read_dir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },

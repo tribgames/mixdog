@@ -49,7 +49,7 @@ impl AgentRegistry {
             base => base,
         };
         let mut highest = 0.0_f64;
-        for (existing, _) in &st.tags {
+        for (existing, _) in st.tags.iter() {
             let Some(digits) = existing.strip_prefix(base).filter(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())) else {
                 continue;
             };
@@ -174,6 +174,10 @@ mod tests {
             false
         }
         fn write(&self, _: &str, _: Option<Row>) {}
+        fn keep(&self, _: &str, _: Option<Row>) {}
+        fn kept(&self, _: &str) -> bool {
+            false
+        }
     }
 
     impl LiveSessions for Empty {

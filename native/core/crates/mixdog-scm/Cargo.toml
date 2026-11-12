@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Development only: `GhClient::on_write_queued`, told when a write waits behind another write of its repository.
+write-queue-hook = []
+
 [dependencies]
 mixdog-protocol = { workspace = true }
 mixdog-app-protocol = { workspace = true }
@@ -26,24 +30,30 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "rt"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+unicode-normalization = { workspace = true }
 url = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 tokio = { workspace = true, features = ["rt", "macros", "io-util", "fs", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-protocol = { workspace = true, features = ["codegen"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-app-protocol = { workspace = true }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-protocol = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { path = ".", features = ["write-queue-hook"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -48,12 +48,6 @@ on:
         required: false
       AZURE_CLIENT_SECRET:
         required: false
-      # Mixdog's Google OAuth desktop client, embedded into runtime.asar on
-      # every platform; the job fails without it.
-      MIXDOG_GOOGLE_OAUTH_CLIENT_ID:
-        required: true
-      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET:
-        required: true
 
 permissions:
   contents: read
@@ -97,15 +91,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-      # Written into src/ before anything reads the tree: prepare-runtime packs
-      # runtime.asar from the `npm pack` file list, which includes this
-      # gitignored file, and the prepared-runtime cache key below hashes src/**,
-      # so a restored archive always embeds the current client.
-      - name: Embed the Google OAuth client
-        env:
-          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
-        run: node scripts/embed-google-oauth-client.mjs --require
       - name: Resolve package and runtime cache keys
         id: runtime-dependencies
         shell: bash
@@ -392,6 +377,14 @@ jobs:
         with:
           name: desktop-out
           path: apps/desktop/out
+      # The release's mixdogd for every target (mixdogd-build.yml, called by
+      # release.yml), laid out where stage-core.mjs takes them. electron-builder
+      # packs .runtime/core (this app's core) and .runtime/server-cores (what
+      # the SSH install uploads) as extraResources.
+      - uses: ./.github/actions/stage-mixdogd
+      - name: Stage the cores (the app's own and the four server cores)
+        shell: bash
+        run: node apps/desktop/scripts/stage-core.mjs --platform=${{ inputs.platform }} --arch=${{ inputs.arch }}
       - name: Build Windows installer
         id: windows-package
         if: inputs.platform == 'win32'
@@ -497,7 +490,7 @@ jobs:
               printf '%s\n' "$APPLE_API_KEY_P8" > "$key_path"
               chmod 600 "$key_path"
               # electron-builder imports the base64 .p12 into a temporary
-              # keychain; its afterSign hook (scripts/notarize-mac.cjs)
+              # keychain; its afterSign hook (apps/desktop/scripts/notarize-mac.cjs)
               # notarizes through notarytool with the API key and staples.
               export CSC_LINK="$MAC_CERTIFICATE_P12_BASE64"
               export CSC_KEY_PASSWORD="$MAC_CERTIFICATE_PASSWORD"
@@ -542,18 +535,16 @@ jobs:
         working-directory: apps/desktop
       # Source-shape packaging invariants (packaging.test.mjs) run in the
       # release gate on every push; only the built artifact is checked here.
-      # The same step proves runtime.asar carries the Google OAuth client the
-      # job embedded (packaging-artifact.live.test.mjs reads the two values).
+      # The Google OAuth client is compiled into mixdogd (mixdogd-build.yml checks
+      # it there), not into runtime.asar, so no secret is passed here.
       - name: Verify this platform's packaged runtime layout
-        env:
-          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
-          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: npm run verify:packaging-artifact
         working-directory: apps/desktop
-      - name: Smoke packaged desktop memory runtime
+      # The core this package ships (the file electron-builder packed from
+      # .runtime/core) boots on a fresh profile and answers a first call.
+      - name: Smoke the packaged core
         if: inputs.platform != 'win32'
-        run: npm run verify:packaged-runtime
-        working-directory: apps/desktop
+        run: node scripts/rust-core/smoke-mixdogd.mjs --mixdogd apps/desktop/.runtime/core/mixdogd
       # The release is still a hidden draft here. Uploading while the packaged
       # runtime smoke runs is safe: either failure keeps publish blocked, and a
       # recovery run clobbers the unpublished assets.
@@ -576,7 +567,7 @@ jobs:
           bash .github/scripts/upload-release-assets.sh "${assets[@]}" &
           upload_pid=$!
           smoke_status=0
-          npm run verify:packaged-runtime --prefix apps/desktop || smoke_status=$?
+          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd apps/desktop/.runtime/core/mixdogd.exe || smoke_status=$?
           upload_status=0
           wait "$upload_pid" || upload_status=$?
           test "$smoke_status" -eq 0

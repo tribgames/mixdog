@@ -45,14 +45,111 @@ pub const MAX_FRAME_PAYLOAD: usize = INLINE_MAX + NON_BODY_MAX;
 /// Largest whole frame.
 pub const MAX_FRAME_LEN: usize = MAX_FRAME_PAYLOAD + FRAME_OVERHEAD;
 
+/// First bytes of a group marker's payload (FORMAT.md §3.6). A write of more than one record frame
+/// is a group: one marker frame, then its member frames. The marker carries the ordinal of its
+/// first member and takes none of its own; its payload, covered by the frame's CRC, is
+/// `#group <count, 8 hex> <bytes, 16 hex> <sha256, 64 hex>`: how many member frames follow, how
+/// many bytes they take, and the SHA-256 of exactly those bytes. The digest binds the members to
+/// this marker: bytes of any other write (stale bytes after a truncation, another group's frames)
+/// cannot complete the group. A record payload is a JSON object (`{`), so no record is a marker,
+/// and a log with no markers (every log written before groups) reads as before.
+pub const GROUP_MARKER: &[u8] = b"#group ";
+/// Length of a group marker's payload.
+pub const GROUP_MARKER_LEN: usize = GROUP_MARKER.len() + 8 + 1 + 16 + 1 + 64;
+
+/// A parsed group marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupMarker {
+    pub count: u64,
+    pub bytes: u64,
+    pub sha256: [u8; 32],
+}
+
+/// The marker payload of the group whose member frames are `members` (their bytes, in order).
+pub fn group_marker(count: u64, members: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    let digest: [u8; 32] = sha2::Sha256::digest(members).into();
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("#group {count:08x} {:016x} {hex}", members.len()).into_bytes()
+}
+
+/// First bytes of a group file's head frame (FORMAT.md §1, §3.6): the file's first frame, taking
+/// the ordinal of the checkpoint it carries. Its payload, covered by the frame's CRC, is the marker
+/// fields of its group (`#gfile <count> <bytes> <sha256>`, as `#group `), one space, then the
+/// `checkpoint` record of the state before the group. It is no record and no anchor to any reader
+/// that does not know group files, so such a reader never opens a group file (§3.6). The fields
+/// and the space add 97 bytes to a checkpoint payload, within `NON_BODY_MAX`: a head is a frame of
+/// at most `MAX_FRAME_LEN` like any other.
+pub const GROUP_FILE_HEAD: &[u8] = b"#gfile ";
+
+/// The head frame payload of a group file whose members are `members` and whose state before the
+/// group is the `checkpoint` record `checkpoint` (its encoded payload).
+pub fn group_file_head(count: u64, members: &[u8], checkpoint: &[u8]) -> Vec<u8> {
+    let mut out = group_marker(count, members);
+    out[..GROUP_FILE_HEAD.len()].copy_from_slice(GROUP_FILE_HEAD);
+    out.push(b' ');
+    out.extend_from_slice(checkpoint);
+    out
+}
+
+/// A group file's head payload: its group's marker and the `checkpoint` record payload. `Err` for
+/// anything else.
+pub fn parse_group_file_head(payload: &[u8]) -> Result<(GroupMarker, &[u8]), CorruptCause> {
+    if !payload.starts_with(GROUP_FILE_HEAD) || payload.len() <= GROUP_MARKER_LEN || payload[GROUP_MARKER_LEN] != b' ' {
+        return Err(CorruptCause::Framing);
+    }
+    Ok((marker_fields(&payload[..GROUP_MARKER_LEN])?, &payload[GROUP_MARKER_LEN + 1..]))
+}
+
+/// The marker a payload is; `None` for a record payload. `Err` for a payload that starts as a
+/// marker and is not one.
+pub fn parse_group_marker(payload: &[u8]) -> Result<Option<GroupMarker>, CorruptCause> {
+    if !payload.starts_with(GROUP_MARKER) {
+        return Ok(None);
+    }
+    marker_fields(payload).map(Some)
+}
+
+/// The count, bytes and digest of a marker payload whose 7-byte prefix was matched.
+fn marker_fields(payload: &[u8]) -> Result<GroupMarker, CorruptCause> {
+    let lower_hex = |digits: &[u8]| digits.iter().all(|&b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let hex = |digits: &[u8]| if lower_hex(digits) { std::str::from_utf8(digits).ok().and_then(|text| u64::from_str_radix(text, 16).ok()) } else { None };
+    let rest = &payload[GROUP_MARKER.len()..];
+    if payload.len() != GROUP_MARKER_LEN || rest[8] != b' ' || rest[25] != b' ' || !lower_hex(&rest[26..]) {
+        return Err(CorruptCause::Framing);
+    }
+    let (Some(count), Some(bytes)) = (hex(&rest[..8]), hex(&rest[9..25])) else {
+        return Err(CorruptCause::Framing);
+    };
+    if count < 2 {
+        return Err(CorruptCause::Framing);
+    }
+    let mut sha256 = [0u8; 32];
+    for (i, byte) in sha256.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(std::str::from_utf8(&rest[26 + 2 * i..28 + 2 * i]).expect("hex digits"), 16).expect("hex digits");
+    }
+    Ok(GroupMarker { count, bytes, sha256 })
+}
+
 /// Bytes of frames after which the writer starts the next batch with a `checkpoint`.
 pub const CHECKPOINT_EVERY: u64 = 1024 * 1024;
-/// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window);
-/// the most one write batch holds.
+/// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window). A
+/// group (one request's whole unit) may be larger; the reader bound below then holds again from
+/// the next write, whose leading `checkpoint` is due (§6.3).
 pub const DURABILITY_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Reader bound (FORMAT.md §6.3): the bytes from the start of the newest committed
 /// `checkpoint` (or `session`) frame of the newest log file to its end are fewer.
 pub const REVERSE_SCAN_MAX: u64 = CHECKPOINT_EVERY + 2 * DURABILITY_WINDOW_BYTES;
+/// Largest member bytes of a group written in place, appended to a log file (FORMAT.md §3.6). A
+/// larger group is a group file (§1): its head frame, the members and nothing else, published
+/// whole under the number after a gap, read forward from its head.
+pub const GROUP_IN_PLACE_MAX: u64 = 2 * 1024 * 1024;
+/// Bytes before a candidate anchor in which the marker of an in-place group covering it starts:
+/// the marker frame and the largest in-place group (§3.5).
+pub const GROUP_LOOKBACK: u64 = GROUP_IN_PLACE_MAX + (GROUP_MARKER_LEN + FRAME_OVERHEAD) as u64;
+/// Bytes read at a time when a group file is read (§6.3): its check and fold hold this and one
+/// frame, never the group.
+pub const GROUP_CHECK_CHUNK: usize = 1024 * 1024;
 /// A log file is not appended past this size; the next batch starts a new file.
 pub const ROTATE_AT: u64 = 64 * 1024 * 1024;
 

@@ -1,0 +1,705 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "one answer everywhere: created: false is no, whatever else is there",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": false,
+            "name": "Buddy"
+          },
+          "thread": [
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ],
+          "schedules": [
+            {
+              "name": "daily-news",
+              "ownerAgentId": "lead",
+              "enabled": true
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        },
+        "leadManifestAfter": {
+          "created": false,
+          "name": "Buddy"
+        },
+        "profileFilesAfter": [
+          "routine-results-2.json",
+          "routine-results-2.json.bak",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-2.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-2.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": false,\n  \"name\": \"Buddy\"\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: a name the user set is yes",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true,
+            "name": "Buddy"
+          }
+        },
+        "answers": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "leadManifestAfter": {
+          "created": true,
+          "name": "Buddy"
+        },
+        "profileFilesAfter": [
+          "heartbeat-4.json",
+          "heartbeat-6.json",
+          "routine-results-5.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-4.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-6.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-5.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true,\n  \"name\": \"Buddy\"\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: a message the user wrote in her thread is yes",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Project A is building; it got to step 3."
+            },
+            {
+              "role": "assistant",
+              "content": "Project B finished its tests."
+            },
+            {
+              "role": "user",
+              "content": "What is B doing?"
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "heartbeat-7.json",
+          "heartbeat-9.json",
+          "routine-results-8.json",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-7.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-9.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-8.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"},{\"role\":\"user\",\"content\":\"What is B doing?\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: a schedule she owns is yes (her thread holds only its results)",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Daily news: three items."
+            }
+          ],
+          "schedules": [
+            {
+              "name": "daily-news",
+              "ownerAgentId": "lead",
+              "enabled": true
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "heartbeat-10.json",
+          "heartbeat-12.json",
+          "routine-results-11.json",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-10.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-12.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-11.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Daily news: three items.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: a webhook she owns is yes",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "webhooks": [
+            {
+              "name": "issues",
+              "ownerAgentId": "lead",
+              "enabled": false
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "heartbeat-13.json",
+          "heartbeat-15.json",
+          "routine-results-14.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-13.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-15.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-14.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: v1.3.0's unnamed automatic Mixy with only heartbeat posts is no (another bot's routine is no evidence)",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Project A is building; it got to step 3."
+            },
+            {
+              "role": "assistant",
+              "content": "Project B finished its tests."
+            }
+          ],
+          "schedules": [
+            {
+              "name": "pr-watch",
+              "ownerAgentId": "reviewer",
+              "enabled": true
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "routine-results-17.json",
+          "routine-results-17.json.bak",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-17.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-17.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: an undecided profile is no",
+      "observed": {
+        "setup": {},
+        "answers": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        },
+        "leadManifestAfter": {
+          "created": false
+        },
+        "profileFilesAfter": [
+          "routine-results-20.json",
+          "routine-results-20.json.bak",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-20.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-20.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": false\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: an undecided profile with only heartbeat posts in her thread is no",
+      "observed": {
+        "setup": {
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Project A is building; it got to step 3."
+            },
+            {
+              "role": "assistant",
+              "content": "Project B finished its tests."
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "routine-results-23.json",
+          "routine-results-23.json.bak",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-23.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-23.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "one answer everywhere: an undecided profile with a routine she owns is yes, as at v1.3.5",
+      "observed": {
+        "setup": {
+          "schedules": [
+            {
+              "name": "daily-news",
+              "ownerAgentId": "lead",
+              "enabled": true
+            }
+          ]
+        },
+        "answers": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "profileFilesAfter": [
+          "heartbeat-25.json",
+          "heartbeat-27.json",
+          "routine-results-26.json",
+          "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-25.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-27.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-26.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": "a legacy Mixy with routines stays visible and keeps her heartbeat; without them she is gone everywhere",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Project A is building; it got to step 3."
+            },
+            {
+              "role": "assistant",
+              "content": "Project B finished its tests."
+            }
+          ],
+          "schedules": [
+            {
+              "name": "daily-news",
+              "ownerAgentId": "lead",
+              "enabled": true
+            }
+          ]
+        },
+        "botStoreSplit": false,
+        "withRoutine": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "status": {
+          "created": true,
+          "name": "",
+          "avatar": null,
+          "homeChatted": false,
+          "route": null,
+          "exists": true
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "withoutHerRoutine": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        }
+      }
+    },
+    {
+      "case": "a legacy Mixy with routines stays visible and keeps her heartbeat; without them she is gone everywhere (the bot store split left her in agents/lead)",
+      "observed": {
+        "setup": {
+          "manifest": {
+            "created": true
+          },
+          "thread": [
+            {
+              "role": "assistant",
+              "content": "Project A is building; it got to step 3."
+            },
+            {
+              "role": "assistant",
+              "content": "Project B finished its tests."
+            }
+          ],
+          "schedules": [
+            {
+              "name": "daily-news",
+              "ownerAgentId": "lead",
+              "enabled": true
+            }
+          ]
+        },
+        "botStoreSplit": true,
+        "withRoutine": {
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
+          "desktop": true,
+          "desktopAgain": true,
+          "heartbeatAfter": "armed"
+        },
+        "status": {
+          "created": true,
+          "name": "",
+          "avatar": null,
+          "homeChatted": false,
+          "route": null,
+          "exists": true
+        },
+        "leadManifestAfter": {
+          "created": true
+        },
+        "withoutHerRoutine": {
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
+          "desktop": false,
+          "desktopAgain": false,
+          "heartbeatAfter": "no-mixy"
+        }
+      }
+    },
+    {
+      "case": "an undecided profile is decided once by the desktop, and the decision changes no answer",
+      "observed": {
+        "thread": [
+          {
+            "role": "assistant",
+            "content": "Project A is building; it got to step 3."
+          },
+          {
+            "role": "assistant",
+            "content": "Project B finished its tests."
+          }
+        ],
+        "log": [
+          {
+            "step": "undecided",
+            "status": {
+              "created": null,
+              "name": "",
+              "avatar": null,
+              "homeChatted": false,
+              "route": null,
+              "exists": false
+            }
+          },
+          {
+            "step": "desktop shows",
+            "shows": false
+          },
+          {
+            "step": "after the desktop decided",
+            "status": {
+              "created": true,
+              "name": "",
+              "avatar": null,
+              "homeChatted": false,
+              "route": null,
+              "exists": false
+            },
+            "heartbeat": "no-mixy"
+          },
+          {
+            "step": "the user wrote to her",
+            "desktop": true,
+            "heartbeat": "armed",
+            "routineOwnerProblem": ""
+          }
+        ],
+        "leadManifestAfter": {
+          "created": true
+        }
+      }
+    }
+  ]
+}

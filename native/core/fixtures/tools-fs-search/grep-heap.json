@@ -1,0 +1,76 @@
+{
+  "name": "grep-heap",
+  "files": {
+    "huge/b.ts": "needle b\n"
+  },
+  "filesRepeat": {
+    "huge/a.ts": [
+      "needle first\n",
+      "needle ",
+      [
+        "x",
+        40000000
+      ],
+      "\n",
+      "needle last\n"
+    ]
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "huge"
+      },
+      "text": "# huge/b.ts:1 [lines 1-1]\nneedle b\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg exit 2 (partial results): 1 file(s) could not be read (permission or I/O error); matches from those files are missing",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "huge",
+        "context": 0
+      },
+      "text": "huge/b.ts\n  1: needle b\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg exit 2 (partial results): 1 file(s) could not be read (permission or I/O error); matches from those files are missing",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "huge",
+        "mode": "files"
+      },
+      "text": "huge/a.ts\nhuge/b.ts",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "huge",
+        "mode": "count"
+      },
+      "text": "huge/b.ts:1\n[1 shown, more exist; offset:1 for the rest]\n[total 1 match across 1 file]\n[warning] rg exit 2 (partial results)",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "huge/a.ts"
+      },
+      "text": "(no matches in partial results)\n[warning] rg exit 2 (partial results): 1 file(s) could not be read (permission or I/O error); matches from those files are missing",
+      "isError": false
+    }
+  ]
+}

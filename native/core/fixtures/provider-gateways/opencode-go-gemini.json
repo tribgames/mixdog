@@ -1,0 +1,114 @@
+{
+  "id": "opencode-go-gemini",
+  "provider": "opencode-go-oauth",
+  "config": {
+    "enabled": true,
+    "preconnect": false
+  },
+  "listing": [
+    {
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "headers": {
+        "host": "opencode.ai",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "mixdog",
+        "authorization": "Bearer go-access",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate"
+      },
+      "body": "",
+      "answer": {
+        "status": 200,
+        "body": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"gemini-3-pro\":{\"name\":\"gemini-3-pro\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}"
+      }
+    }
+  ],
+  "sends": [
+    {
+      "model": "gemini-3-pro",
+      "tools": [],
+      "history": [],
+      "opts": {
+        "sessionId": "sess-go"
+      },
+      "sessionId": "sess-go",
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://opencode.ai",
+          "path": "/inference/go/v1/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": {
+            "host": "opencode.ai",
+            "connection": "keep-alive",
+            "content-type": "application/json",
+            "authorization": "Bearer go-access",
+            "x-goog-api-key": "go-access",
+            "user-agent": "mixdog",
+            "x-opencode-session": "sess-go",
+            "accept": "*/*",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "206"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The result \"}]}}],\"modelVersion\":\"fixture\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "textDelta",
+          "text": "The result "
+        },
+        {
+          "on": "textDelta",
+          "text": "is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    }
+  ]
+}

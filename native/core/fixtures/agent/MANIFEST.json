@@ -98,14 +98,14 @@
       "sha256": "cfe78a5a4d229cc0fbdb2f72ca74ebb05429e596ce588067da85ba96fe8aea32"
     },
     {
-      "bytes": 63111,
+      "bytes": 67989,
       "path": "connect-errors/golden/connect_errors.json",
-      "sha256": "1356ed648d9d81ba61dfea3771764d85e2e2263fb526683d34034ff33693660a"
+      "sha256": "d8f1a6ed1a647fd76f74df24c637ca7c461822028f9b982d80ceda9c4ddb2b7d"
     },
     {
-      "bytes": 34780,
+      "bytes": 38152,
       "path": "connect-errors/record.mjs",
-      "sha256": "b4657fb18ff66f943cbfa48c6c3e18e67ccb6468fff666098360a8e98db722c8"
+      "sha256": "9aa48e7edfe9b1c7558220f306dc74a93ee1850f741e86c1a2ab3704f68afa20"
     },
     {
       "bytes": 1817,
@@ -253,14 +253,14 @@
       "sha256": "6ec1f55693dc2179b2faa0382abeafdd0b96a18ffcea52c590b2e5573e7e10a1"
     },
     {
-      "bytes": 1216479,
+      "bytes": 1212022,
       "path": "leaked-toolcall/golden/leaked_toolcall.json",
-      "sha256": "15f9c9edbdcbd9a2a3121824333678d0a184fe31de5c05a3a6f6b3cad7f26774"
+      "sha256": "231014023aa5092928140f57d33b8c89801fb9c200bc0ed8159596a7b6c6912a"
     },
     {
-      "bytes": 30672,
+      "bytes": 32299,
       "path": "leaked-toolcall/record.mjs",
-      "sha256": "0875dd5fcaac4416122ee0ecb346a2f1844ad1540c1b20a6a6a2d6f11e4223a1"
+      "sha256": "7595f48b78c8ec3cd9358135185b166b53cf7932b3d7110e838bc181399aac67"
     },
     {
       "bytes": 18290,
@@ -423,10 +423,18 @@
       "sha256": "12fda8b6b84474881528ff9582557365bb1b22f4886b5e18db4961dfb5b6854f"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -441,5 +449,12 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4220847
+  "totalBytes": 4226267,
+  "exclusions": [
+    {
+      "path": "leaked-toolcall/golden/leaked_toolcall.json",
+      "scope": "scenarios[].stored.toolResults[].content and stored.early[].content",
+      "reason": "The recorder writes its sandbox root (a per-run scratch directory the real read tool prints in its path-absent answer) as <ROOT>; the replay runs the core's real read tool over a sandbox holding a.txt, maps its root to the same token and compares these bodies, except, in a scenario in which more than one call ran, the bodies that begin with [file unchanged or [lines 1-1] (which of several reads of a.txt got the file lines and which the dedup stub follows the order the runs reached the file: Node ran the streamed call before the batch's, the core starts a native call as its event arrives). Those are not compared."
+    }
+  ]
 }

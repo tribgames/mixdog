@@ -22,7 +22,7 @@ use mixdog_rt::InteractiveIo;
 use mixdog_tools::fs::read_failure_message;
 use mixdog_agent::compact::settings::agent_terminal_reap_ms;
 use mixdog_core_config::config::Config;
-use mixdog_core_session::session::agent_registry::{LiveSessions, ReapWindow, Row};
+use mixdog_core_session::session::agent_registry::{LiveSessions, LiveStamp, ReapWindow, Row};
 
 use super::compose_parts::LateDirectory;
 
@@ -65,6 +65,10 @@ impl LiveSessions for LateLiveSessions {
 
     fn runtime_stage(&self, session: &str) -> Option<String> {
         LiveSessions::runtime_stage(&*self.0.directory()?, session)
+    }
+
+    fn stamp(&self, session: &str) -> Option<LiveStamp> {
+        LiveSessions::stamp(&*self.0.directory()?, session)
     }
 }
 

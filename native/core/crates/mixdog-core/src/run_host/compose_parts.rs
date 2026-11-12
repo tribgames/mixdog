@@ -293,7 +293,8 @@ pub fn hops(
         let deps = HopDeps {
             registry: registry.clone(),
             catalog,
-            config: Arc::new(move || (*config.full()).clone()),
+            // `getConfigSnapshot()` is the agent config (`providers`, `default`, presets), the file's `agent` section.
+            config: Arc::new(move || config.agent()),
             bots,
             errors,
             wiring,
@@ -345,6 +346,8 @@ pub struct Owed {
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
@@ -391,6 +394,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         shells: owed.shells,
         liveness: owed.liveness,
         search_usage: owed.search_usage,
+        reuses: owed.reuses,
     }
 }
 
@@ -663,7 +667,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let hub = McpHub::new(
-            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
             dir.path().join("tool-results"),
             mixdog_mcp::result::OutputPolicy::default(),
         );

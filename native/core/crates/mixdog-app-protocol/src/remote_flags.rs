@@ -95,7 +95,7 @@ mod tests {
     /// Every method the table names is in the method table, a relay connection may call it (a request) or send it (a notification).
     #[test]
     fn every_served_call_is_a_method_a_phone_may_use() {
-        let methods: Value = serde_json::from_str(include_str!("../schema/method_table.json")).unwrap();
+        let methods: Value = serde_json::from_str(mixdog_testkit::fixture!("schema/method_table.json")).unwrap();
         let usable = |name: &str| {
             methods["clientMethods"].as_array().unwrap().iter().any(|entry| {
                 entry["method"] == name && entry["origins"].as_array().is_some_and(|origins| origins.iter().any(|origin| origin == "relay"))

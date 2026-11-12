@@ -1,0 +1,6229 @@
+{
+  "domain": "session-sequence",
+  "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
+  "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
+  "cases": [
+    {
+      "name": "detach-accepted-while-a-delete-succeeds",
+      "testLine": 64,
+      "input": {
+        "id": "sess_sequence_detach_ok_1",
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "op": "deleteSession"
+          },
+          {
+            "op": "closeSession",
+            "reason": "desktop-context-switch",
+            "options": {
+              "tombstone": false
+            }
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "firstSave": "saved",
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "deleted": true,
+        "closed": true,
+        "commitError": null,
+        "unlinks": [
+          {
+            "id": "sess_sequence_detach_ok_1",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": []
+      }
+    },
+    {
+      "name": "detach-accepted-while-a-delete-fails",
+      "testLine": 64,
+      "input": {
+        "id": "sess_sequence_detach_fail_2",
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "op": "deleteSession"
+          },
+          {
+            "op": "closeSession",
+            "reason": "desktop-context-switch",
+            "options": {
+              "tombstone": false
+            }
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "firstSave": "saved",
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "deleted": false,
+        "closed": true,
+        "commitError": null,
+        "unlinks": [
+          {
+            "id": "sess_sequence_detach_fail_2",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_detach_fail_2",
+          "generation": 2,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-context-switch",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3f404142434445464748494a\",\"id\":\"sess_sequence_detach_fail_2\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_detach_fail_2\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-context-switch\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-1",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_1_3",
+        "seed": 1,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "close",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          null,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          "dropped",
+          null
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          false
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_1_3",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-2",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_2_4",
+        "seed": 2,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "detach",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          2,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          3
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_2_4",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_2_4",
+          "generation": 3,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8b8c8d8e8f90919293949596\",\"id\":\"sess_sequence_random_2_4\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_2_4\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-3",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_3_5",
+        "seed": 3,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          1,
+          "dropped",
+          false,
+          true,
+          false,
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_3_5",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_3_5",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-4",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_4_6",
+        "seed": 4,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          false,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_4_6",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-5",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_5_7",
+        "seed": 5,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "close",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          2
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_5_7",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_5_7",
+          "generation": 2,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"191a1b1c1d1e1f2021222324\",\"id\":\"sess_sequence_random_5_7\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_5_7\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-6",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_6_8",
+        "seed": 6,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          false,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_6_8",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_6_8\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_6_8\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-7",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_7_9",
+        "seed": 7,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "detach",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          "dropped",
+          false,
+          "dropped",
+          2
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_7_9",
+          "generation": 2,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"65666768696a6b6c6d6e6f70\",\"id\":\"sess_sequence_random_7_9\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_7_9\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-8",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_8_10",
+        "seed": 8,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          false,
+          false,
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_8_10",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8f909192939495969798999a\",\"id\":\"sess_sequence_random_8_10\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_8_10\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-9",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_9_11",
+        "seed": 9,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "debounced",
+            "content": "m5"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false,
+          true,
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          true,
+          "dropped",
+          false,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true,
+          true,
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_9_11",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_9_11",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-10",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_10_12",
+        "seed": 10,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          false,
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_10_12",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_10_12",
+          "generation": 2,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"dbdcdddedfe0e1e2e3e4e5e6\",\"id\":\"sess_sequence_random_10_12\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_10_12\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-11",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_11_13",
+        "seed": 11,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          1,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_11_13",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"05060708090a0b0c0d0e0f10\",\"id\":\"sess_sequence_random_11_13\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_11_13\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-12",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_12_14",
+        "seed": 12,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "debounced",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "debounced",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          "dropped",
+          false,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_12_14",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2f303132333435363738393a\",\"id\":\"sess_sequence_random_12_14\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_12_14\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-13",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_13_15",
+        "seed": 13,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "delete",
+            "content": "m6"
+          },
+          {
+            "kind": "debounced",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          2,
+          false,
+          false,
+          false,
+          false,
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_13_15",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_13_15",
+          "generation": 2,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5152535455565758595a5b5c\",\"id\":\"sess_sequence_random_13_15\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_13_15\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-14",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_14_16",
+        "seed": 14,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "close",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          "saved",
+          false,
+          2
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_14_16",
+            "fails": true
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_14_16",
+          "generation": 2,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7b7c7d7e7f80818283848586\",\"id\":\"sess_sequence_random_14_16\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_14_16\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-15",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_15_17",
+        "seed": 15,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "debounced",
+            "content": "m5"
+          },
+          {
+            "kind": "close",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "debounced",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          {
+            "$exact": "undefined"
+          },
+          true,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          null,
+          "dropped",
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_15_17",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-16",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_16_18",
+        "seed": 16,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "detach",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "delete",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          1,
+          "dropped",
+          "dropped",
+          true
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_16_18",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-17",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_17_19",
+        "seed": 17,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          true,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_17_19",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-18",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_18_20",
+        "seed": 18,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          true,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          false,
+          true
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_18_20",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_18_20",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_18_20",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-19",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_19_21",
+        "seed": 19,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_19_21",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5e5f606162636465666768\",\"id\":\"sess_sequence_random_19_21\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_19_21\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-20",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_20_22",
+        "seed": 20,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "close",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "debounced",
+            "content": "m7"
+          },
+          {
+            "kind": "save",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          3,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_20_22",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_20_22",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_20_22",
+          "generation": 3,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7f808182838485868788898a\",\"id\":\"sess_sequence_random_20_22\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_20_22\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-21",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_21_23",
+        "seed": 21,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          "saved",
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150,
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_21_23",
+          "generation": 0,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b1b2b3b4b5b6b7b8b9babbbc\",\"id\":\"sess_sequence_random_21_23\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_21_23\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-22",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_22_24",
+        "seed": 22,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "debounced",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          1,
+          "dropped",
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_22_24",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"d3d4d5d6d7d8d9dadbdcddde\",\"id\":\"sess_sequence_random_22_24\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_22_24\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-23",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_23_25",
+        "seed": 23,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "detach",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          "dropped",
+          "dropped",
+          "dropped",
+          null
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_23_25",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-24",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_24_26",
+        "seed": 24,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          "dropped",
+          "dropped",
+          false,
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_24_26",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"1718191a1b1c1d1e1f202122\",\"id\":\"sess_sequence_random_24_26\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_24_26\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-25",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_25_27",
+        "seed": 25,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "close",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          null,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          null
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          false
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_25_27",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-26",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_26_28",
+        "seed": 26,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "detach",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          false,
+          null,
+          "dropped",
+          false,
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_26_28",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-27",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_27_29",
+        "seed": 27,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "close",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "delete",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          {
+            "$exact": "undefined"
+          },
+          "saved",
+          "saved",
+          1,
+          "dropped",
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_27_29",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7d7e7f808182838485868788\",\"id\":\"sess_sequence_random_27_29\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_27_29\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-28",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_28_30",
+        "seed": 28,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          true
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_28_30",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-29",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_29_31",
+        "seed": 29,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          1,
+          "dropped",
+          "dropped",
+          false,
+          false,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_29_31",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_29_31",
+            "fails": true
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_29_31",
+          "generation": 3,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e1e2e3e4e5e6e7e8e9eaebec\",\"id\":\"sess_sequence_random_29_31\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_29_31\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":3},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-30",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_30_32",
+        "seed": 30,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          1,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_30_32",
+          "generation": 1,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"131415161718191a1b1c1d1e\",\"id\":\"sess_sequence_random_30_32\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_30_32\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-31",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_31_33",
+        "seed": 31,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_31_33",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"35363738393a3b3c3d3e3f40\",\"id\":\"sess_sequence_random_31_33\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_31_33\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-32",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_32_34",
+        "seed": 32,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "debounced",
+            "content": "m6"
+          },
+          {
+            "kind": "close",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          false,
+          "dropped",
+          false,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          4
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_32_34",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_32_34",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_32_34",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_32_34",
+          "generation": 4,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5758595a5b5c5d5e5f606162\",\"id\":\"sess_sequence_random_32_34\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_32_34\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":4,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-33",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_33_35",
+        "seed": 33,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          null,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          false,
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          false,
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_33_35",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-34",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_34_36",
+        "seed": 34,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "delete",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "close",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          false,
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          true,
+          null,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          null,
+          "dropped",
+          false,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          false,
+          true,
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_34_36",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-35",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_35_37",
+        "seed": 35,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "detach",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          false,
+          true,
+          null,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_35_37",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_35_37",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-36",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_36_38",
+        "seed": 36,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "close",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          1,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_36_38",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"ff000102030405060708090a\",\"id\":\"sess_sequence_random_36_38\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_36_38\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-37",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_37_39",
+        "seed": 37,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_37_39",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2122232425262728292a2b2c\",\"id\":\"sess_sequence_random_37_39\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_37_39\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-38",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_38_40",
+        "seed": 38,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          1,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_38_40",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_38_40",
+          "generation": 2,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_38_40\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_38_40\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-39",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_39_41",
+        "seed": 39,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "close",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          "saved",
+          1,
+          {
+            "$exact": "undefined"
+          },
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_39_41",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"75767778797a7b7c7d7e7f80\",\"id\":\"sess_sequence_random_39_41\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_39_41\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-40",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_40_42",
+        "seed": 40,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "delete",
+            "content": "m5"
+          },
+          {
+            "kind": "delete",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          },
+          {
+            "kind": "delete",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          true,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          false,
+          false,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          false
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_40_42",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-41",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_41_43",
+        "seed": 41,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "detach",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          },
+          {
+            "kind": "delete",
+            "content": "m6"
+          },
+          {
+            "kind": "detach",
+            "content": "m7"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          2,
+          false,
+          false,
+          3,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true,
+          false
+        ],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_41_43",
+          "generation": 3,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c9cacbcccdcecfd0d1d2d3d4\",\"id\":\"sess_sequence_random_41_43\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_41_43\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-42",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_42_44",
+        "seed": 42,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "debounced",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "delete",
+            "content": "m7"
+          },
+          {
+            "kind": "debounced",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          true,
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          false,
+          false,
+          "dropped",
+          "dropped",
+          true,
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_42_44",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_42_44",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_42_44",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-43",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_43_45",
+        "seed": 43,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "close",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          false,
+          false,
+          1,
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_43_45",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2d2e2f303132333435363738\",\"id\":\"sess_sequence_random_43_45\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_43_45\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-44",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_44_46",
+        "seed": 44,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "detach",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          true,
+          "dropped",
+          false,
+          null
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_44_46",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-45",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_45_47",
+        "seed": 45,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          true
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_45_47",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-46",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_46_48",
+        "seed": 46,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          false,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_46_48",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"a3a4a5a6a7a8a9aaabacadae\",\"id\":\"sess_sequence_random_46_48\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_46_48\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-47",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_47_49",
+        "seed": 47,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_47_49",
+          "generation": 1,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c5c6c7c8c9cacbcccdcecfd0\",\"id\":\"sess_sequence_random_47_49\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_47_49\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-48",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_48_50",
+        "seed": 48,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "detach",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "detach",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          true,
+          null,
+          "dropped",
+          "dropped",
+          "dropped",
+          "dropped",
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_48_50",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-49",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_49_51",
+        "seed": 49,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "detach",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          },
+          {
+            "kind": "save",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          },
+          {
+            "kind": "save",
+            "content": "m8"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          true,
+          "dropped",
+          null,
+          "dropped",
+          "dropped",
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_49_51",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-50",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_50_52",
+        "seed": 50,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "detach",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          },
+          {
+            "kind": "delete",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          1,
+          {
+            "$exact": "undefined"
+          },
+          true,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_50_52",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-51",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_51_53",
+        "seed": 51,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          },
+          {
+            "kind": "debounced",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          },
+          {
+            "kind": "detach",
+            "content": "m6"
+          },
+          {
+            "kind": "save",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          false,
+          true,
+          {
+            "$exact": "undefined"
+          },
+          false,
+          null,
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_51_53",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_51_53",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-52",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_52_54",
+        "seed": 52,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m4"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m5"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m6"
+          },
+          {
+            "kind": "deleteFail",
+            "content": "m7"
+          }
+        ],
+        "unlinkPlan": [
+          true,
+          false,
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          true,
+          "dropped",
+          false,
+          false,
+          false,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_52_54",
+            "fails": true
+          },
+          {
+            "id": "sess_sequence_random_52_54",
+            "fails": false
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-53",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_53_55",
+        "seed": 53,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "close",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "debounced",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          false,
+          1,
+          "dropped",
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_53_55",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c1c2c3c4c5c6c7c8c9cacbcc\",\"id\":\"sess_sequence_random_53_55\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_53_55\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-54",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_54_56",
+        "seed": 54,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "delete",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          1,
+          false
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_54_56",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e3e4e5e6e7e8e9eaebecedee\",\"id\":\"sess_sequence_random_54_56\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_54_56\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-55",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_55_57",
+        "seed": 55,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "delete",
+            "content": "m2"
+          },
+          {
+            "kind": "detach",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          false
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          true,
+          null
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_55_57",
+            "fails": false
+          }
+        ],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": null,
+        "logFile": null,
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-56",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_56_58",
+        "seed": 56,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "close",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          1,
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_56_58",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2728292a2b2c2d2e2f303132\",\"id\":\"sess_sequence_random_56_58\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_56_58\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-57",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_57_59",
+        "seed": 57,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          "dropped",
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_57_59",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_57_59",
+          "generation": 1,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"494a4b4c4d4e4f5051525354\",\"id\":\"sess_sequence_random_57_59\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_57_59\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-58",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_58_60",
+        "seed": 58,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "deleteFail",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "debounced",
+            "content": "m3"
+          }
+        ],
+        "unlinkPlan": [
+          true
+        ]
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          false,
+          2,
+          {
+            "$exact": "undefined"
+          }
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [
+          {
+            "id": "sess_sequence_random_58_60",
+            "fails": true
+          }
+        ],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_58_60",
+          "generation": 2,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-session-delete",
+          "closedReason": "test",
+          "status": "closed",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6b6c6d6e6f70717273747576\",\"id\":\"sess_sequence_random_58_60\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_58_60\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-59",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_59_61",
+        "seed": 59,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "debounced",
+            "content": "m1"
+          },
+          {
+            "kind": "save",
+            "content": "m2"
+          },
+          {
+            "kind": "detach",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          {
+            "$exact": "undefined"
+          },
+          "saved",
+          1,
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [
+          150
+        ],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_59_61",
+          "generation": 1,
+          "closed": false,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"95969798999a9b9c9d9e9fa0\",\"id\":\"sess_sequence_random_59_61\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_59_61\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_59_61.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    },
+    {
+      "name": "random-seed-60",
+      "testLine": 168,
+      "input": {
+        "id": "sess_sequence_random_60_62",
+        "seed": 60,
+        "initialSave": {
+          "messages": [
+            "m0"
+          ],
+          "generation": 0,
+          "closed": false
+        },
+        "ops": [
+          {
+            "kind": "save",
+            "content": "m1"
+          },
+          {
+            "kind": "close",
+            "content": "m2"
+          },
+          {
+            "kind": "save",
+            "content": "m3"
+          },
+          {
+            "kind": "save",
+            "content": "m4"
+          },
+          {
+            "kind": "save",
+            "content": "m5"
+          }
+        ],
+        "unlinkPlan": []
+      },
+      "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
+        "results": [
+          "saved",
+          1,
+          "dropped",
+          "dropped",
+          "dropped"
+        ],
+        "commitError": null,
+        "unlinkPlanLeft": [],
+        "unlinks": [],
+        "timersArmed": [],
+        "clockSteps": [],
+        "stored": {
+          "id": "sess_sequence_random_60_62",
+          "generation": 1,
+          "closed": true,
+          "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
+        },
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bfc0c1c2c3c4c5c6c7c8c9ca\",\"id\":\"sess_sequence_random_60_62\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_60_62\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_11_13.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_27_29.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_37_39.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_41_43.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_54_56.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_59_61.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_60_62.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-channel-remote-restore.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-restore-deleted-session.patch",
+  "exclusions": [
+    "logs keeps only the lines starting \"remote intent \" or \"channel remote intent \", as channel-remote-intent does",
+    "calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)",
+    "no inbound delivery is recorded: in b6f10295a no process delivers a channel inbound message to a session. The channels runtime runs only in the daemon, whose notify sink hands the channel method to createChannelSessionRouter (standalone/daemon.mjs:924-933) with getSessionId always null; the router then logs \"unavailable\" and returns true (session-runtime/services/channel-session-router.mjs:10-18), so transport.notify (standalone/channel-transport/remote-notify.mjs:24), the SSE path to a session runtime's onNotify (session-runtime/boot/tools.mjs:161-169), is never reached for it",
+    "no bot send is recorded: b6f10295a has none; the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:29-96; session-runtime/services/channel-worker.mjs:21)",
+    "so the restore's whole visible effect is the binding: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)",
+    "list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4468,
+      "path": "golden.json",
+      "sha256": "da79b40e62525a2573a8fd424fdc308eabbde03d4771f9586ae33f9fafad4782"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-restore-deleted-session.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/store-summary-reader.mjs",
+        "src/standalone/channel-transport.mjs",
+        "src/standalone/channel-transport/remote-binding-restore.test.mjs",
+        "src/standalone/channel-transport/remote-binding.mjs",
+        "src/standalone/daemon-stored-session-views.mjs",
+        "src/standalone/daemon.mjs"
+      ],
+      "sha256": "e409ee5c2641b53a39a6a95eb4099340009ac58b8ff7b8b3f139ef4822f2cda6"
+    },
+    "patches": [
+      {
+        "file": "node-fix-restore-deleted-session.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/store-summary-reader.mjs",
+          "src/standalone/channel-transport.mjs",
+          "src/standalone/channel-transport/remote-binding-restore.test.mjs",
+          "src/standalone/channel-transport/remote-binding.mjs",
+          "src/standalone/daemon-stored-session-views.mjs",
+          "src/standalone/daemon.mjs"
+        ],
+        "sha256": "e409ee5c2641b53a39a6a95eb4099340009ac58b8ff7b8b3f139ef4822f2cda6"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 6
+    },
+    "srcSha256": "522c40e482565bbdc56d9e2b7717bb82e8354151fec62829c785d405d38302d4",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channel-remote-restore.mjs",
+  "recorderSha256": "0ade884049b2551db5bb702a37cb16649fa033dd0206cf046897e8f6434af11e",
+  "set": "channel-remote-restore",
+  "totalBytes": 4468
+}

@@ -1,0 +1,30 @@
+[package]
+name = "treerun"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runs one program as the root of a tree that is ended whole: scripts/rust-core/lib/process-tree.mjs"
+
+# A package of its own: it joins no workspace. System calls come through crates the product's workspace already locks
+# (win32job for the job object, rustix for the POSIX wait, group signal and pidfd); the `unsafe` left is listed in the report.
+[workspace]
+
+[target.'cfg(windows)'.dependencies]
+win32job = "2"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["std", "process", "event", "fs"] }
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
+
+# macOS lists a process group's members only through libproc (proc_listpgrppids), which rustix does not wrap.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects"] }

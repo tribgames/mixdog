@@ -1,0 +1,1507 @@
+{
+  "domain": "memory-history-duplicates",
+  "source": "src/runtime/memory/lib/history-duplicates.test.mjs",
+  "clock": {
+    "dateNowMs": 1700000000000,
+    "reason": "verifiedAt of chunk_quality"
+  },
+  "cases": [
+    {
+      "name": "records of every status are searchable and stored aliases stay read-only (test line 76)",
+      "before": [
+        {
+          "id": 1,
+          "ts": 100,
+          "project_id": "project",
+          "summary": "Original summary",
+          "content": "Original request",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 1,
+          "status": "archived",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": 2,
+          "chunk_quality": null
+        },
+        {
+          "id": 2,
+          "ts": 200,
+          "project_id": "project",
+          "summary": "Current summary",
+          "content": "Current response",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 2,
+          "status": "pending",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        },
+        {
+          "id": 3,
+          "ts": 110,
+          "project_id": "project",
+          "summary": null,
+          "content": "Original follow-up",
+          "element": null,
+          "is_root": 0,
+          "chunk_root": 1,
+          "status": "pending",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        },
+        {
+          "id": 4,
+          "ts": 300,
+          "project_id": "other",
+          "summary": "Other project",
+          "content": "Private request",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 4,
+          "status": "active",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        }
+      ],
+      "steps": [
+        {
+          "label": "scope filter selects every status of the project",
+          "filter": {
+            "clause": "AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived') AND (entries.project_id IS NULL OR entries.project_id = $1)",
+            "params": [
+              "project"
+            ]
+          },
+          "rows": [
+            {
+              "id": 1
+            },
+            {
+              "id": 2
+            },
+            {
+              "id": 3
+            }
+          ],
+          "ids": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "label": "retrieveEntries project, sort date",
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND (project_id IS NULL OR project_id = $2)\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $3 OFFSET $4",
+              "params": [
+                1,
+                "project",
+                50,
+                0
+              ]
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "id": 1,
+          "ts": 100,
+          "project_id": "project",
+          "summary": "Original summary",
+          "content": "Original request",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 1,
+          "status": "archived",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": 2,
+          "chunk_quality": null
+        },
+        {
+          "id": 2,
+          "ts": 200,
+          "project_id": "project",
+          "summary": "Current summary",
+          "content": "Current response",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 2,
+          "status": "pending",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        },
+        {
+          "id": 3,
+          "ts": 110,
+          "project_id": "project",
+          "summary": null,
+          "content": "Original follow-up",
+          "element": null,
+          "is_root": 0,
+          "chunk_root": 1,
+          "status": "pending",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        },
+        {
+          "id": 4,
+          "ts": 300,
+          "project_id": "other",
+          "summary": "Other project",
+          "content": "Private request",
+          "element": "subject",
+          "is_root": 1,
+          "chunk_root": 4,
+          "status": "active",
+          "concept_id": null,
+          "supersedes_id": null,
+          "role": null,
+          "source_ref": null,
+          "session_id": null,
+          "source_turn": null,
+          "time_source": null,
+          "category": null,
+          "score": null,
+          "last_seen_at": null,
+          "duplicate_of": null,
+          "chunk_quality": null
+        }
+      ]
+    },
+    {
+      "name": "stored aliases keep Cycle 1 summaries reusable (session-a) (test line 115)",
+      "secondSession": "session-a",
+      "assessments": [
+        {
+          "root": 1,
+          "memberIds": [
+            1,
+            3
+          ],
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "structural",
+            "sourceTokens": 471,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "root": 2,
+          "memberIds": [
+            2
+          ],
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "structural",
+            "sourceTokens": 275,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        }
+      ],
+      "chunkRoots": [
+        1,
+        2,
+        1,
+        4
+      ]
+    },
+    {
+      "name": "stored aliases keep Cycle 1 summaries reusable (session-b) (test line 115)",
+      "secondSession": "session-b",
+      "assessments": [
+        {
+          "root": 1,
+          "memberIds": [
+            1,
+            3
+          ],
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "structural",
+            "sourceTokens": 471,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "root": 2,
+          "memberIds": [
+            2
+          ],
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "structural",
+            "sourceTokens": 275,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        }
+      ],
+      "chunkRoots": [
+        1,
+        2,
+        1,
+        4
+      ]
+    },
+    {
+      "name": "duplicate representatives collapse only inside the requested history window and project (test line 150)",
+      "steps": [
+        {
+          "label": "retrieveEntries common",
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND (project_id IS NULL OR project_id = $2)\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $3 OFFSET $4",
+              "params": [
+                1,
+                "project",
+                50,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries ts_to 150",
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND (project_id IS NULL OR project_id = $2) AND ts <= $3\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $4 OFFSET $5",
+              "params": [
+                1,
+                "project",
+                150,
+                50,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "old row content unchanged",
+          "content": "Original request"
+        },
+        {
+          "label": "collapse [old, current]",
+          "rows": [
+            {
+              "id": 2,
+              "ts": 200,
+              "project_id": "project",
+              "summary": "Current summary",
+              "content": "Current response",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 2,
+              "status": "pending",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": null,
+              "chunk_quality": null
+            }
+          ],
+          "ids": [
+            2
+          ]
+        },
+        {
+          "label": "collapse [old]",
+          "rows": [
+            {
+              "id": 1,
+              "ts": 100,
+              "project_id": "project",
+              "summary": "Original summary",
+              "content": "Original request",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 1,
+              "status": "archived",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": 2,
+              "chunk_quality": null
+            }
+          ],
+          "ids": [
+            1
+          ]
+        },
+        {
+          "label": "collapse [old, current in another project]",
+          "rows": [
+            {
+              "id": 1,
+              "ts": 100,
+              "project_id": "project",
+              "summary": "Original summary",
+              "content": "Original request",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 1,
+              "status": "archived",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": 2,
+              "chunk_quality": null
+            },
+            {
+              "id": 2,
+              "ts": 200,
+              "project_id": "other",
+              "summary": "Current summary",
+              "content": "Current response",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 2,
+              "status": "pending",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": null,
+              "chunk_quality": null
+            }
+          ],
+          "ids": [
+            1,
+            2
+          ]
+        },
+        {
+          "label": "searchRelevantHybrid \"request\"",
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived') AND (entries.project_id IS NULL OR entries.project_id = $5)\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($6::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived') AND (ee.project_id IS NULL OR ee.project_id = $5)\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                "project",
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived') AND (entries.project_id IS NULL OR entries.project_id = $2)",
+              "params": [
+                [
+                  1
+                ],
+                "project"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "searchRelevantHybrid \"request\" ts_to 150",
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived') AND entries.ts <= $5 AND (entries.project_id IS NULL OR entries.project_id = $6)\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($7::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived') AND ee.ts <= $5 AND (ee.project_id IS NULL OR ee.project_id = $6)\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                150,
+                "project",
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived') AND entries.ts <= $2 AND (entries.project_id IS NULL OR entries.project_id = $3)",
+              "params": [
+                [
+                  1
+                ],
+                150,
+                "project"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "deleting an old alias representative preserves the original chunks (test line 164)",
+      "steps": [
+        {
+          "label": "after deleting the representative",
+          "duplicateOfOfRow1": null,
+          "chunkRoots": [
+            1,
+            1,
+            4
+          ]
+        },
+        {
+          "label": "retrieveEntries project, sort date",
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND (project_id IS NULL OR project_id = $2)\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $3 OFFSET $4",
+              "params": [
+                1,
+                "project",
+                50,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicates do not consume hybrid output slots or browse-page offsets (test line 189)",
+      "steps": [
+        {
+          "label": "hybrid limit 2",
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              },
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": 4,
+                "last_seen_at": null,
+                "duplicate_of": 2,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              4,
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($5::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived')\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')",
+              "params": [
+                [
+                  4,
+                  1
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "label": "hybrid limit 1",
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              4
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($5::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived')\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')",
+              "params": [
+                [
+                  4,
+                  1
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries limit 2",
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                2,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries limit 1 offset 0",
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                1,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries limit 1 offset 1",
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              4
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries limit 1 offset 2",
+          "result": {
+            "rows": [],
+            "ids": []
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "rowsUnchanged": true
+    },
+    {
+      "name": "a long duplicate prefix cannot starve distinct results or repeat later pages (test line 208)",
+      "insertedAliasIds": "5..30 (duplicate_of 2, ts 50, score 100)",
+      "steps": [
+        {
+          "label": "retrieveEntries limit 2",
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                2,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries limit 2 offset 2",
+          "result": {
+            "rows": [],
+            "ids": []
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "label": "hybrid limit 2",
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              },
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": 4,
+                "last_seen_at": null,
+                "duplicate_of": 2,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              4,
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($5::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived')\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')",
+              "params": [
+                [
+                  4,
+                  1
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "paging keeps an alias whose representative is outside the requested session (test line 220)",
+      "steps": [
+        {
+          "label": "retrieveEntries session older limit 1",
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": "older",
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND session_id = $2 AND (project_id IS NULL OR project_id = $3)\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $4 OFFSET $5",
+              "params": [
+                1,
+                "older",
+                "project",
+                1,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "label": "retrieveEntries session older limit 1 offset 1",
+          "result": {
+            "rows": [],
+            "ids": []
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND session_id = $2 AND (project_id IS NULL OR project_id = $3)\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY score DESC NULLS LAST, ts DESC, id DESC\n               LIMIT $4 OFFSET $5",
+              "params": [
+                1,
+                "older",
+                "project",
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hybrid member expansion reads only selected distinct roots (test line 242)",
+      "steps": [
+        {
+          "label": "hybrid limit 1 includeMembers",
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical",
+                "members": []
+              }
+            ],
+            "ids": [
+              4
+            ],
+            "memberContents": []
+          },
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "\nWITH\n\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),\n\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),\n\ntrgm AS (\n  SELECT id,\n         1.0::float8 AS trg_sim,\n         ROW_NUMBER() OVER (ORDER BY ts DESC) AS trgm_rank\n  FROM entries\n  WHERE (\n      content ILIKE '%' || $3 || '%'\n      OR (element ILIKE '%' || $3 || '%' OR (element IS NULL AND '' ILIKE '%' || $3 || '%'))\n      OR (summary ILIKE '%' || $3 || '%' OR (summary IS NULL AND '' ILIKE '%' || $3 || '%'))\n    )\n    AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')\n    \n    AND id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n  ORDER BY ts DESC\n  LIMIT $4\n),\n\nexact_matches AS (\n  SELECT ee.id,\n         ee.ts,\n         q.term,\n         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df\n  FROM entries ee\n  CROSS JOIN LATERAL (\n    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary\n    OFFSET 0\n  ) lc\n  JOIN LATERAL unnest($5::text[]) AS q(term) ON (\n       strpos(lc.content, q.term) > 0\n       OR strpos(lc.element, q.term) > 0\n       OR strpos(lc.summary, q.term) > 0\n  )\n  WHERE true\n    AND NOT (ee.is_root = 0 AND ee.chunk_root IS NOT DISTINCT FROM ee.id AND ee.status IS NOT DISTINCT FROM 'archived')\n    \n    AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 200000, 0) FROM entries)\n),\nexact AS (\n  SELECT id,\n         COUNT(*)::float8 AS exact_hits,\n         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,\n         SUM(\n           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n           / SQRT(GREATEST(term_df, 1))\n         )::float8 AS exact_rarity,\n         ROW_NUMBER() OVER (\n           ORDER BY SUM(\n                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)\n                      / SQRT(GREATEST(term_df, 1))\n                    ) DESC,\n                    COUNT(*) DESC,\n                    MAX(ts) DESC\n         ) AS exact_rank\n  FROM exact_matches\n  GROUP BY id\n  HAVING COUNT(*) >= 1\n  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC\n  LIMIT $4\n),\ncombined AS (\n  SELECT id FROM dense  WHERE id IS NOT NULL UNION\n  SELECT id FROM sparse WHERE id IS NOT NULL UNION\n  SELECT id FROM trgm   WHERE id IS NOT NULL UNION\n  SELECT id FROM exact  WHERE id IS NOT NULL\n)\nSELECT\n  e.id, e.element, e.summary, e.category, e.status, e.score,\n  e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,\n  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,\n  e.role,\n  d.sim        AS dense_sim,\n  d.dense_rank,\n  s.lex        AS sparse_lex,\n  s.sparse_rank,\n  t.trg_sim,\n  t.trgm_rank,\n  x.exact_hits,\n  x.exact_phrase_hits,\n  x.exact_rarity,\n  x.exact_rank\nFROM combined c\nJOIN   entries e ON e.id = c.id\nLEFT JOIN dense  d ON d.id = c.id\nLEFT JOIN sparse s ON s.id = c.id\nLEFT JOIN trgm   t ON t.id = c.id\nLEFT JOIN exact  x ON x.id = c.id",
+              "params": [
+                null,
+                "",
+                "request",
+                240,
+                [
+                  "request"
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of\n       FROM entries WHERE id = ANY($1::bigint[]) AND NOT (entries.is_root = 0 AND entries.chunk_root IS NOT DISTINCT FROM entries.id AND entries.status IS NOT DISTINCT FROM 'archived')",
+              "params": [
+                [
+                  4,
+                  1
+                ]
+              ]
+            },
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root\n         FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0\n         ORDER BY ts ASC, id ASC",
+              "params": [
+                [
+                  4
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "expandedRootLists": [
+        [
+          4
+        ]
+      ]
+    },
+    {
+      "name": "previously stored lineage still selects the newer conclusion without a reviewer (test line 256)",
+      "probes": [
+        {
+          "label": "old with its correction",
+          "old": {
+            "id": 1,
+            "ts": 100,
+            "concept_ids": [
+              1
+            ],
+            "summary": "Old conclusion"
+          },
+          "latest": {
+            "id": 2,
+            "ts": 200,
+            "matched_concept_id": 1,
+            "supersedes_id": 1,
+            "summary": "Correction"
+          },
+          "result": [
+            {
+              "id": 2,
+              "ts": 200,
+              "matched_concept_id": 1,
+              "supersedes_id": 1,
+              "summary": "Correction"
+            }
+          ]
+        },
+        {
+          "label": "old with no correction",
+          "result": [
+            {
+              "id": 1,
+              "ts": 100,
+              "concept_ids": [
+                1
+              ],
+              "summary": "Old conclusion"
+            }
+          ]
+        }
+      ],
+      "oldUnchanged": true
+    }
+  ]
+}

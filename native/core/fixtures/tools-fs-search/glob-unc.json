@@ -1,0 +1,191 @@
+{
+  "name": "glob-unc",
+  "files": {
+    "deep/inner/x.ts": "x\n"
+  },
+  "junctions": {
+    "jn": "deep/inner"
+  },
+  "warmup": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "//server/share/j*/x.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/j*/x.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "\\\\server\\share\\x\\*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "//./C:/x/*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "//?/C:/x/*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//?/C:/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": [
+          "*.ts",
+          "//server/share/*.ts"
+        ]
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "//server/share"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "\\\\server\\share\\dir"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/dir\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "<ROOT>\\j*\\x.ts"
+      },
+      "text": "<ROOT>/jn/x.ts",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "/\\server/share/x/*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "\\/server/share/x/*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "\\\\?\\C:\\x\\*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//?/C:/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "\\\\.\\C:\\x\\*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "/\\./C:/x/*.ts"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x/*.ts\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "/\\server/share"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "\\/server/share/dir"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/dir\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "/\\server/share/a/../b/./c"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//server/share/b/c\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "\\\\.\\C:\\x"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "//./C:/x"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "\\/./C:/x"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.ts",
+        "path": "/\\./C:/x"
+      },
+      "text": "Error: glob refuses UNC/SMB path \"//./C:/x\"; remote share access is blocked to prevent NTLM credential leaks",
+      "isError": true
+    }
+  ]
+}

@@ -102,6 +102,15 @@ import {
 } from '../shared/desktop-pet';
 import { HEARTBEAT_INTERVAL_CHOICES } from '../shared/core-src/runtime/shared/heartbeat-interval.mjs';
 import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
+import {
+  MAX_PROMPT_LENGTH,
+  optionalPlainRecord,
+  requireAllowedKeys,
+  requiredCapabilityRequest,
+  TURN_REVIEW_CAPABILITY_ARITY,
+  validateStructuredValue,
+  validateTurnCapabilityArgs,
+} from '../shared/capability-request';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -336,9 +345,6 @@ export function requiredVisualizePanelSize(value: unknown): { width: number; hei
   return { width: side('width'), height: side('height') };
 }
 
-const MAX_PROMPT_LENGTH = 1_000_000;
-const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
-
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
@@ -373,7 +379,6 @@ const SUBMIT_OPTION_KEYS = new Set([
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode', 'worktree']);
-const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set([
   'provider',
   'model',
@@ -589,15 +594,6 @@ const CAPABILITY_ARITY = {
   getQuotaHistory: [0, 1],
   getSessionUsage: [0, 1],
   consumeCodexRateLimitResetCredit: [1, 1],
-  getSessionReviewDiff: [0, 0],
-  getSessionReviewFilePatch: [1, 2],
-  getTurnReviewDiff: [0, 1],
-  getTurnReviewFilePatch: [1, 1],
-  revertTurnReview: [0, 1],
-  revertTurnReviewFile: [1, 2],
-  getTurnChanges: [1, 1],
-  revertTurnChanges: [3, 3],
-  reapplyTurnChanges: [3, 3],
   clearSessionChangeHistory: [0, 0],
   getOnboardingStatus: [0, 0],
   skipOnboarding: [0, 0],
@@ -658,6 +654,7 @@ const CAPABILITY_ARITY = {
   setMediaAssetBoard: [2, 2],
   openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
+  ...TURN_REVIEW_CAPABILITY_ARITY,
   ...WORKTREE_CAPABILITY_ARITY,
   ...IMPORT_CAPABILITY_ARITY,
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
@@ -1016,12 +1013,6 @@ function requiredModelPreferences(provider: unknown, changes: unknown): void {
   }
 }
 
-function requireAllowedKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
-  if (Object.keys(input).some((key) => !allowed.has(key))) {
-    throw new TypeError(`${name} contains an unsupported field.`);
-  }
-}
-
 export function projectDisplayName(value: unknown): string {
   if (typeof value !== 'string') throw new TypeError('alias must be a string.');
   const text = value.trim();
@@ -1113,35 +1104,6 @@ function requiredWorkspaceSearchLimit(value: unknown): number {
     throw new TypeError('maxResults is invalid.');
   }
   return value as number;
-}
-
-function validateStructuredValue(value: unknown, state = { strings: 0, nodes: 0 }, depth = 0): void {
-  state.nodes += 1;
-  if (state.nodes > 20_000 || depth > 12) throw new TypeError('structured input is too large.');
-  if (value === null || typeof value === 'boolean') return;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('structured input contains an invalid number.');
-    return;
-  }
-  if (typeof value === 'string') {
-    state.strings += value.length;
-    if (state.strings > MAX_STRUCTURED_STRING_TOTAL) throw new TypeError('structured input is too large.');
-    return;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > 5_000) throw new TypeError('structured input contains too many entries.');
-    for (const entry of value) validateStructuredValue(entry, state, depth + 1);
-    return;
-  }
-  if (!value || typeof value !== 'object') throw new TypeError('structured input is invalid.');
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length > 5_000) throw new TypeError('structured input contains too many fields.');
-  for (const [key, entry] of entries) {
-    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
-      throw new TypeError('structured input contains an invalid field.');
-    }
-    validateStructuredValue(entry, state, depth + 1);
-  }
 }
 
 export function requiredPromptContent(value: unknown): DesktopPromptContent {
@@ -1346,22 +1308,15 @@ function requiredStarterGuideState(value: unknown): void {
 }
 
 export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabilityRequest {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('capability request is invalid.');
-  }
-  const input = value as Record<string, unknown>;
-  requireAllowedKeys(input, CAPABILITY_REQUEST_KEYS, 'capability request');
-  if (typeof input.capability !== 'string' || !CAPABILITY_SET.has(input.capability)) {
-    throw new TypeError('capability is unavailable.');
-  }
-  const capability = input.capability as DesktopCapability;
-  const args = input.args === undefined ? [] : input.args;
-  if (!Array.isArray(args)) throw new TypeError('capability arguments must be an array.');
-  const [minimum, maximum] = CAPABILITY_ARITY[capability];
-  if (args.length < minimum || args.length > maximum) {
-    throw new TypeError(`capability ${capability} received an invalid number of arguments.`);
-  }
-  validateStructuredValue(args);
+  return requiredCapabilityRequest(value, {
+    known: (name): name is DesktopCapability => CAPABILITY_SET.has(name),
+    arity: (capability) => CAPABILITY_ARITY[capability],
+    validate: validateCapabilityArgs,
+    sessionId: requiredSessionId,
+  });
+}
+
+function validateCapabilityArgs(capability: DesktopCapability, args: unknown[], input: Record<string, unknown>): void {
   if (capability === 'retryFailedTurn') {
     const target = requiredSessionId(args[0]);
     requiredString(args[1], 'turn key', 512);
@@ -1398,15 +1353,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     const projectPath = requiredString(options.projectPath, 'projectPath', 4_096);
     if (!pathIsAbsolute(projectPath) || projectPath.includes('\0')) throw new TypeError('projectPath is invalid.');
   }
-  const sessionId =
-    input.sessionId === undefined || input.sessionId === null || input.sessionId === ''
-      ? undefined
-      : requiredSessionId(input.sessionId);
-  return { capability, args, ...(sessionId ? { sessionId } : {}) };
 }
-
-const optionalPlainRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
 function validateContextStatusArgs(options: unknown): void {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
@@ -1679,54 +1626,6 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   }
   if (capability === 'saveOpenAIUsageSessionKey') {
     validateSecret(args[0], 'secret');
-  }
-}
-
-function validateTurnCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
-  // A /btw side question: one non-empty question text.
-  if (capability === 'askSide') requiredString(args[0], 'side question', MAX_PROMPT_LENGTH);
-  if (capability === 'getTurnReviewDiff' && args[0] !== undefined) {
-    // The turn review bar asks for `{ refresh, known, summary, poll }`: whether
-    // to re-read the worktree before diffing, the tag of the review it already
-    // shows, whether a collapsed bar can go without the patch text, and
-    // whether its interval timer (`poll: 'background'`) sent the read.
-    // Anything else is not a review option.
-    const options = optionalPlainRecord(args[0]);
-    if (
-      !options ||
-      Object.entries(options).some(([key, option]) => {
-        if (key === 'refresh' || key === 'summary') return typeof option !== 'boolean';
-        if (key === 'poll') return option !== 'background';
-        return key !== 'known' || typeof option !== 'string' || !/^[a-f0-9]{32}$/.test(option);
-      })
-    ) {
-      throw new TypeError('turn review options are invalid.');
-    }
-  }
-  if (capability === 'getSessionReviewFilePatch' || capability === 'getTurnReviewFilePatch') {
-    // `[file, oldPath?]`: one listed file (and a rename's source) of a review.
-    requiredString(args[0], 'file', 4_096);
-    if (args[1] !== undefined) requiredString(args[1], 'oldPath', 4_096);
-  }
-  if (capability === 'getTurnChanges') {
-    // `{ checkpointId, patch?, file? }`: one turn's recorded changes.
-    const options = optionalPlainRecord(args[0]);
-    if (!options) throw new TypeError('turn changes options are invalid.');
-    requiredString(options.checkpointId, 'checkpointId', 512);
-    for (const [key, option] of Object.entries(options)) {
-      if (key === 'checkpointId') continue;
-      if (key === 'patch' && typeof option === 'boolean') continue;
-      if (key === 'file' && typeof option === 'string' && option.length <= 4_096) continue;
-      throw new TypeError('turn changes options are invalid.');
-    }
-  }
-  if (capability === 'revertTurnChanges' || capability === 'reapplyTurnChanges') {
-    // `[checkpointId, file | null, revision]`.
-    requiredString(args[0], 'checkpointId', 512);
-    if (args[1] !== null) requiredString(args[1], 'file', 4_096);
-    if (typeof args[2] !== 'number' || !Number.isSafeInteger(args[2]) || args[2] < 0) {
-      throw new TypeError('revision must be a non-negative integer.');
-    }
   }
 }
 

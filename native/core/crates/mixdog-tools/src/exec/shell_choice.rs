@@ -22,10 +22,11 @@ pub(crate) fn chosen_shell(windows: bool, configured: &str, env_shell: Option<&s
 }
 
 /// `resolveShell()`'s default program: the kept one, else a probe on `lane` kept for the next
-/// spawns until the setting changes. `Err` is the reason the probe could not run.
+/// spawns until the setting changes (the setting is its only source the kept value tracks, as
+/// Node's `_resolvedShell`). `Err` is the reason the probe could not run.
 pub(crate) async fn default_program(
     source: &std::sync::Arc<dyn super::jobs::ShellSource>,
-    lane: mixdog_rt::MaintenanceIo,
+    lane: mixdog_rt::SpawnIo,
     cancel: &tokio_util::sync::CancellationToken,
     configured: &str,
 ) -> Result<String, String> {
@@ -104,6 +105,52 @@ mod tests {
             let configured = mixdog_js::js_trim(step["set"].as_str().unwrap());
             assert_eq!(chosen_shell(true, configured, None, DEFAULT), expected(step), "{step}");
         }
+    }
+
+    /// A setting whose change drops the kept default, as the daemon's `ConfiguredShell` does
+    /// (`setConfiguredShell`); every probe answers a new program.
+    #[derive(Default)]
+    struct Setting {
+        value: std::sync::Mutex<String>,
+        kept: std::sync::Mutex<Option<String>>,
+        probes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl super::super::jobs::ShellSource for Setting {
+        fn configured(&self) -> String {
+            self.value.lock().unwrap().clone()
+        }
+        fn kept_default(&self) -> Option<String> {
+            self.kept.lock().unwrap().clone()
+        }
+        fn resolve_default(&self) -> String {
+            format!("probe-{}", self.probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+        }
+        fn keep_default(&self, configured: &str, program: String) {
+            if *self.value.lock().unwrap() == configured {
+                *self.kept.lock().unwrap() = Some(program);
+            }
+        }
+    }
+
+    /// The default program of one spawn.
+    async fn spawn_program(source: &std::sync::Arc<dyn super::super::jobs::ShellSource>) -> String {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        default_program(source, mixdog_rt::testing::tokens().spawn_io, &cancel, &source.configured()).await.unwrap()
+    }
+
+    /// The default program is probed once and kept; a setting change makes the next spawn probe again.
+    #[tokio::test]
+    async fn the_kept_default_program_is_probed_again_after_the_setting_changes() {
+        let setting = std::sync::Arc::new(Setting::default());
+        let source: std::sync::Arc<dyn super::super::jobs::ShellSource> = setting.clone();
+        assert_eq!(spawn_program(&source).await, "probe-1");
+        assert_eq!(spawn_program(&source).await, "probe-1");
+        *setting.value.lock().unwrap() = "pwsh".into();
+        *setting.kept.lock().unwrap() = None;
+        assert_eq!(spawn_program(&source).await, "probe-2");
+        assert_eq!(spawn_program(&source).await, "probe-2");
+        assert_eq!(setting.probes.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

@@ -37,7 +37,7 @@ use mixdog_core_session::session::StoredRows;
 use mixdog_core_session::session::route_session::ContextStatusCache;
 use mixdog_core_session::session::run::{Compaction, Dropped};
 use mixdog_core_session::session::thread_context::{ContextSnapshot, ContextWorld};
-use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction};
+use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction, OffloadCopies};
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Value, json};
@@ -71,6 +71,8 @@ pub struct ManualParts {
     pub io: ToolIo,
     pub data_dir: PathBuf,
     pub blobs: Arc<dyn BlobReads>,
+    /// The sessions' result caches: a compaction that replaced the transcript starts the session a new read epoch.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The meters of a thread's pressure on one provider, as the latest `prepare_books` left them.
@@ -86,6 +88,16 @@ impl HostManualCompaction {
     pub fn new(parts: ManualParts) -> Self {
         Self { parts, prepared: Mutex::new(HashMap::new()) }
     }
+}
+
+/// The stored bodies a compactor serializes for an execution archive: each conversation message's own row, as Node's
+/// `session.messages` hold them (an unregistered message would archive as `null`).
+fn registered(messages: &[AgentMessage], rows: &[Value]) -> Arc<StoredRows> {
+    let stored = Arc::new(StoredRows::new());
+    for (message, row) in messages.iter().zip(rows) {
+        stored.record(message, row.clone());
+    }
+    stored
 }
 
 fn number(value: f64) -> Value {
@@ -241,6 +253,17 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     (working, committed.result)
 }
 
+/// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`.
+pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates().await
+}
+
+/// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
+pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(candidates, transcripts, copies, now).await;
+}
+
 /// `compactSessionMessages` after a pass that did not fail: the reading of the last request is reset.
 fn manual_tail(working: &mut Header, now: f64) {
     for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens"] {
@@ -294,7 +317,7 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages, &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
@@ -303,7 +326,8 @@ impl ManualCompaction for HostManualCompaction {
         // request's media alone would need the compaction.
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false };
+        // `runHandoffCompaction` passes no Goal reminder: a compaction outside a turn marks it for the next turn instead.
+        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -312,7 +336,7 @@ impl ManualCompaction for HostManualCompaction {
         parts.hooks.pre(thread, trigger).await;
         let output = match compactor.compact(request(require)).await {
             Ok(output) => output,
-            Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
+            Err(CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) => {
                 return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
@@ -366,6 +390,15 @@ impl ManualCompaction for HostManualCompaction {
             commit_started_at,
             committed_at: Arc::new(move || clock.now_ms() as f64),
         };
+        // `!changed` (`compaction-runner.mjs:690-731`): Node keeps the transcript, the provider
+        // continuation and the display as they are and writes only the header's compaction record.
+        let (mut working, result) = committed_header(&facts, &snapshot.header, &[]);
+        if result.get("changed") == Some(&Value::Bool(false)) {
+            manual_tail(&mut working, facts.now);
+            let change = header_change(&snapshot.header, &working);
+            self.parts.threads.patch_header(thread, change.set, change.unset).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+            return Ok(Some(result));
+        }
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
         let header: CompactionHeader = Box::new(move |header, appended| {
@@ -377,6 +410,8 @@ impl ManualCompaction for HostManualCompaction {
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
         match directory.commit_compaction(thread, snapshot_ids, compaction, Some(header)).await? {
             CompactionCommit::Applied => {
+                // `compaction-runner.mjs:699`: `resetReadStateAfterCompaction` once the changed transcript is adopted.
+                self.parts.reuses.compacted(thread.as_str());
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
@@ -406,15 +441,15 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages[messages.len() - rows.len()..], &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
             blobs: parts.blobs.clone(),
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
         let output = compactor.compact(request).await.map_err(|error| match error {
-            CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
+            CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
         })?;
         Ok(Some(output.messages.iter().map(row_of).collect()))
@@ -422,6 +457,14 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.parts.hooks.post(thread, trigger).await;
+    }
+
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        offload_candidates(&self.parts.io, &self.parts.data_dir, thread).await
+    }
+
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+        prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, candidates, transcripts, copies).await;
     }
 
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,
@@ -456,8 +499,8 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.config.route_config(header)
     }
 
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        self.parts.config.settings_changes()
+    fn settings_changes(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        self.parts.config.settings_changes(thread)
     }
 
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {

@@ -2,8 +2,10 @@
 //! last inference's timings, and the last integrity verification. Never persisted.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Instant;
+
+use tokio::time::Instant;
 
 use serde_json::{Map, Value, json};
 
@@ -68,26 +70,37 @@ impl ModelState {
         self.signal.notify();
     }
 
-    /// Marks an inference as running; `queued_at` is when the request entered the queue.
-    pub fn begin_inference<'a>(&'a self, id: &str, queued_at: Instant) -> Inference<'a> {
+    /// Marks an inference as running (`beginLocalInference`); `queued_at` is when the request entered the queue. The clock is
+    /// tokio's, so a test moves it.
+    pub fn begin_inference(self: &Arc<Self>, id: &str, queued_at: Instant) -> Inference {
         let started = Instant::now();
-        let wait = started.saturating_duration_since(queued_at).as_millis() as i64;
+        // The running state carries the wait as measured, unrounded (`Math.max(0, started - queuedAt)`).
+        let wait = number(millis(queued_at, started));
         self.with(id, |s| {
             s.insert("inference".into(), json!({"state": "running", "queueWaitMs": wait}));
         });
-        Inference { owner: self, id: id.to_owned(), queued_at, started, first: Mutex::new(None) }
+        Inference { owner: Arc::clone(self), id: id.to_owned(), queued_at, started, first: Mutex::new(None) }
     }
 }
 
-pub struct Inference<'a> {
-    owner: &'a ModelState,
+/// A JS number: a whole value reads as an integer.
+fn number(value: f64) -> Value {
+    if value.fract() == 0.0 { json!(value as i64) } else { json!(value) }
+}
+
+fn millis(from: Instant, to: Instant) -> f64 {
+    to.saturating_duration_since(from).as_secs_f64() * 1000.0
+}
+
+pub struct Inference {
+    owner: Arc<ModelState>,
     id: String,
     queued_at: Instant,
     started: Instant,
     first: Mutex<Option<Instant>>,
 }
 
-impl Inference<'_> {
+impl Inference {
     /// A stream event; transport-level events do not count as the first response.
     pub fn progress(&self, kind: &str) {
         let mut first = self.first.lock().unwrap();
@@ -99,13 +112,14 @@ impl Inference<'_> {
     pub fn finish(&self, input_tokens: Option<i64>, output_tokens: Option<i64>, error: Option<&str>) {
         let end = Instant::now();
         let first = *self.first.lock().unwrap();
-        let generation_ms = first.map(|f| end.saturating_duration_since(f).as_secs_f64() * 1000.0);
+        let generation_ms = first.map(|f| millis(f, end));
         let tps = match (generation_ms, output_tokens) {
-            (Some(g), Some(o)) if g > 0.0 && o > 1 => json!((((o - 1) as f64 / (g / 1000.0)) * 10.0).round() / 10.0),
+            (Some(g), Some(o)) if g > 0.0 && o > 1 => number((((o - 1) as f64 / (g / 1000.0)) * 10.0).round() / 10.0),
             _ => Value::Null,
         };
-        let ms = |a: Instant, b: Instant| b.saturating_duration_since(a).as_secs_f64() * 1000.0;
-        self.owner.with(&self.id, |s| {
+        let ms = millis;
+        let owner = Arc::clone(&self.owner);
+        owner.with(&self.id, |s| {
             s.insert(
                 "inference".into(),
                 json!({
@@ -141,7 +155,7 @@ mod tests {
 
     #[test]
     fn inference_reports_running_then_a_finished_summary() {
-        let state = ModelState::default();
+        let state = Arc::new(ModelState::default());
         let run = state.begin_inference("m", Instant::now());
         assert_eq!(state.get("m")["inference"]["state"], "running");
         run.progress("transport");

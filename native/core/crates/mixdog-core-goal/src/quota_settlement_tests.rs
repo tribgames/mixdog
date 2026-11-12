@@ -13,7 +13,7 @@ use mixdog_core_base::quota_resume::QuotaResumeStore;
 use crate::quota_settlement::{Begin, QuotaFailure, QuotaSettlement, ResumeContext, latest_quota_failure, transcript_turn_keys};
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../fixtures/ai-admin/quota-settlement-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/quota-settlement-twin.json")).unwrap()
 }
 
 fn rows(value: &Value) -> Vec<Value> {

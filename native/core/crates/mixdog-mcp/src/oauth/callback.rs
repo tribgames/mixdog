@@ -113,29 +113,32 @@ pub struct Flush {
     bound: Arc<std::sync::OnceLock<Bound>>,
 }
 
-/// The deadline of a flush's bound: a second after it was fixed. Under `test-support` it counts on the test's
-/// controlled clock ([`seam::CLOCK`]) instead of the wall clock, except in this crate's own unit tests, which run the
-/// production mechanism on tokio's (pausable) time.
-struct Bound(
-    #[cfg(not(all(feature = "test-support", not(test))))] tokio::time::Instant,
-    #[cfg(all(feature = "test-support", not(test)))] u64,
-);
+/// The deadline of a flush's bound: a second after it was fixed. Once a test took the seams ([`seam::take_control`])
+/// it counts on the test's controlled clock ([`seam::CLOCK`]) instead; this crate's own unit tests never take them and
+/// run the production mechanism on tokio's (pausable) time.
+enum Bound {
+    At(tokio::time::Instant),
+    #[cfg(feature = "test-support")]
+    Seam(u64),
+}
 
 impl Bound {
     const MS: u64 = 1000;
 
     fn from_now() -> Self {
-        #[cfg(not(all(feature = "test-support", not(test))))]
-        return Self(tokio::time::Instant::now() + Duration::from_millis(Self::MS));
-        #[cfg(all(feature = "test-support", not(test)))]
-        return Self(seam::CLOCK.now() + Self::MS);
+        #[cfg(feature = "test-support")]
+        if seam::controlled() {
+            return Self::Seam(seam::CLOCK.now() + Self::MS);
+        }
+        Self::At(tokio::time::Instant::now() + Duration::from_millis(Self::MS))
     }
 
     async fn passed(&self) {
-        #[cfg(not(all(feature = "test-support", not(test))))]
-        tokio::time::sleep_until(self.0).await;
-        #[cfg(all(feature = "test-support", not(test)))]
-        seam::CLOCK.reached(self.0).await;
+        match self {
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
+            #[cfg(feature = "test-support")]
+            Self::Seam(at) => seam::CLOCK.reached(*at).await,
+        }
     }
 }
 
@@ -203,8 +206,9 @@ impl Callback {
     }
 }
 
-/// Test seams (feature `test-support`): every wait that Node bounds by a timer is driven by the test instead, and the
-/// listener's lifecycle is recorded as the events Node's recorder observed.
+/// Test seams (feature `test-support`): once a test calls [`seam::take_control`], every wait that Node bounds by a
+/// timer is driven by the test instead, and the listener's lifecycle is recorded as the events Node's recorder
+/// observed. Until then (always, in a daemon built with the feature) the timers are the production ones.
 #[cfg(feature = "test-support")]
 pub mod seam {
     use std::sync::Mutex;
@@ -214,6 +218,19 @@ pub mod seam {
     use std::sync::atomic::Ordering;
 
     use tokio::sync::Notify;
+
+    static CONTROLLED: AtomicBool = AtomicBool::new(false);
+
+    /// From now on, in this process, the flush bound runs on [`CLOCK`], the login deadline on [`DEADLINE`], and the
+    /// listener's lifecycle is recorded in [`EVENTS`].
+    pub fn take_control() {
+        CONTROLLED.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether a test took the seams ([`take_control`]).
+    pub fn controlled() -> bool {
+        CONTROLLED.load(Ordering::SeqCst)
+    }
 
     /// A counter a test fires and waiters wait to pass: a stand-in for a timer the test controls.
     pub struct Tick {
@@ -249,7 +266,8 @@ pub mod seam {
         }
     }
 
-    /// The controlled clock of the 1 s bound of a page flush: it passes only when the test advances it.
+    /// The controlled clock of the 1 s bound of a page flush and of [`super::HELD_PAGE_DELAY_MS`]: it passes only when the
+    /// test advances it.
     pub struct Clock {
         now_ms: AtomicU64,
         notify: Notify,
@@ -284,7 +302,7 @@ pub mod seam {
     }
 
     pub static CLOCK: Clock = Clock::new();
-    /// The login deadline fires when the test fires this (unless `LOGIN_DEADLINE_MS` is set).
+    /// The login deadline fires when the test fires this.
     pub static DEADLINE: Tick = Tick::new();
     /// The next held page waits, before it is written, until `PAGE_RELEASE` fires; `PAGE_HELD` fires when it waits.
     pub static HOLD_NEXT_PAGE: AtomicBool = AtomicBool::new(false);
@@ -308,12 +326,14 @@ pub mod seam {
 
 fn event(_name: &'static str) {
     #[cfg(feature = "test-support")]
-    seam::event(_name);
+    if seam::controlled() {
+        seam::event(_name);
+    }
 }
 
-/// Test seam: how long the next held page waits before it is written, so a request can land in the
-/// window between the login's outcome and the flush of its page; `HELD_PAGE_DELAYING` is notified
-/// when that wait starts.
+/// Test seam: how long, on [`seam::CLOCK`], the next held page waits before it is written, so a request can land in the
+/// window between the login's outcome and the flush of its page; `HELD_PAGE_DELAYING` is notified when that wait starts,
+/// and the page goes on once the test advanced the clock by as much.
 #[cfg(feature = "test-support")]
 pub static HELD_PAGE_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "test-support")]
@@ -325,11 +345,6 @@ pub static HELD_PAGE_DELAYING: tokio::sync::Notify = tokio::sync::Notify::const_
 pub static LISTENERS_CLOSED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(feature = "test-support")]
 pub static LISTENER_CLOSED: tokio::sync::Notify = tokio::sync::Notify::const_new();
-
-/// Test seam: the login deadline in milliseconds for the next logins (0: Node's five minutes), so a timeout can be
-/// driven through the real abort path.
-#[cfg(feature = "test-support")]
-pub static LOGIN_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The listener's handle: stops it from accepting and destroys the connections it owns.
 #[derive(Clone)]
@@ -431,7 +446,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
             }
         }
     };
-    tokio::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
+    mixdog_rt::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
     let head = String::from_utf8_lossy(&buf);
     let mut lines = head.lines();
     let mut first = lines.next()?.split(' ');
@@ -491,7 +506,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         return write_page(&mut stream, "400 Bad Request", &invalid, false).await;
     }
     // The code is only the start: the page stays open until the login reports its outcome.
-    let outcome = tokio::time::timeout(OUTCOME_WAIT, outcome).await;
+    let outcome = mixdog_rt::time::timeout(OUTCOME_WAIT, outcome).await;
     #[cfg(feature = "test-support")]
     let held = seam::HOLD_NEXT_PAGE.swap(false, Ordering::SeqCst);
     #[cfg(not(feature = "test-support"))]
@@ -510,8 +525,9 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         }
         let delay = HELD_PAGE_DELAY_MS.swap(0, Ordering::SeqCst);
         if delay > 0 {
+            let until = seam::CLOCK.now() + delay;
             HELD_PAGE_DELAYING.notify_one();
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+            seam::CLOCK.reached(until).await;
         }
     }
     match outcome {

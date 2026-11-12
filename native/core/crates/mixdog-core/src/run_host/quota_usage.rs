@@ -155,7 +155,7 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/quota-usable/quota-usable-twin.json");
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
 
     struct Vars(Option<&'static str>);
 
@@ -211,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_readings_decide_as_nodes_provider_quota_usable() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["cases"].as_array().unwrap();
         assert!(cases.len() > 500);
         for case in cases {
@@ -228,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_pc_answers_and_a_disconnected_pc_reports_as_node_does() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
         assert!(cases.len() > 70);
         let never = Arc::new(Replay { case: json!({}), step: Mutex::new(0), reads: Mutex::new(0) });

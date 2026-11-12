@@ -35,9 +35,8 @@ icon-theme resolution rules, shell-profile detection, and the built-in
 language contributions used to generate the Monaco pane languages.
 
 - `apps/desktop/src/renderer/explorer-logic.ts`, `ExplorerTree.tsx`,
-  `editor-ansi.ts`, `file-icons.tsx`, `seti-icons.ts`
+  `editor-ansi.ts`, `seti-icons.ts`
 - `apps/desktop/src/shared/editor-languages.ts`
-- `apps/desktop/src/main/shell-profiles.ts`
 - `apps/desktop/scripts/generate-seti-icons.mjs`,
   `apps/desktop/scripts/generate-editor-languages.mjs`
 
@@ -67,7 +66,7 @@ unmodified: `diffAdded`, `diffModified`, `diffRemoved`, `diffRenamed` and
 <https://github.com/microsoft/vscode-pull-request-github>
 
 The default pull-request query set and its category labels in
-`apps/desktop/src/main/gh-cli.ts`.
+`native/core/crates/mixdog-scm/src/gh/pr.rs`.
 
 ### Seti UI — Copyright (c) 2014 Jesse Weed
 
@@ -86,6 +85,24 @@ MIT terms. The upstream notice is preserved as `LICENSES/ripgrep-NOTICE.txt`.
 - `native/mixdog-graph/` (the `grep` and `ignore` crates)
 - `src/runtime/agent/orchestrator/tools/builtin/` (the `rg` fast path)
 
+### fancy-regex 0.19.2 — Copyright 2015 The Fancy Regex Authors
+
+<https://github.com/fancy-regex/fancy-regex>
+
+The crate is vendored and compiled into the Rust core, where it matches the
+`pattern` keywords of MCP tools' output schemas. The upstream license is
+preserved as `LICENSES/fancy-regex-MIT.txt` and beside the vendored tree.
+
+- `native/core/vendor/fancy-regex/`
+
+Statement of changes (listed in `native/core/vendor/fancy-regex/MIXDOG.md` and
+marked `mixdog` in the sources): a stop a caller sets on its thread, which a
+match reads at bounded intervals of counted steps (`src/interrupt.rs`, new;
+`src/vm.rs`); searches handed to regex-automata run its lazy DFA one byte at a
+time in the VM (`src/vm.rs`, `src/compile.rs`, `src/lib.rs`), and no seek
+pre-filter is compiled; the manifest drops the examples, tests, benches and
+dev-dependencies.
+
 ### Ink — Copyright (c) Vadim Demedes
 
 Installed from Mixdog's patched Ink runtime release asset. The package retains
@@ -99,15 +116,14 @@ the upstream MIT license.
 
 The V4A `apply_patch` Lark grammar, reproduced verbatim from
 `codex-rs/core/src/tools/handlers/apply_patch.lark` in
-`src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs`, together with the
+`native/core/crates/mixdog-tools/src/fs/specs/apply_patch.json`, together with the
 seek/replacement semantics of the patch engine.
 
-- `src/runtime/agent/orchestrator/tools/patch/`
 - `native/mixdog-patch/`
 
 Statement of changes (Apache-2.0 section 4(b)): the Lark grammar is carried
-unmodified. The patch engine under the two paths above is an independent
-implementation in JavaScript and Rust that follows the same seek and
+unmodified. The patch engine under the path above is an independent
+implementation in Rust that follows the same seek and
 replacement semantics; it is not a copy of the upstream Rust sources. The
 upstream NOTICE file is preserved as `LICENSES/codex-NOTICE.txt`.
 
@@ -215,7 +231,7 @@ application. Its complete GPL text ships beside the two native executables.
 
 ## Tidy engines
 
-Optional managed downloads for the tidy tool (`src/runtime/tidy/`). They are
+Optional managed downloads for the tidy tool (`native/core/crates/mixdog-services/src/tidy/`). They are
 not compiled into Mixdog. Redistributable engines may be mirrored to this
 repository's GitHub releases; GPL binaries are never attached to that mirror.
 
@@ -299,12 +315,11 @@ Full license text: `LICENSES/air-MIT.txt`
 <https://github.com/can1357/oh-my-pi>
 
 The Devin provider follows its Devin integration. The model-family table in
-`src/runtime/agent/orchestrator/providers/devin-wire-families.mjs` is data
-taken from its model-collapse rules, and these files contain code derived from
-it: `devin-wire-models.mjs` (catalog discovery and family collapsing),
-`devin-wire-session.mjs` (client identity values), `devin-wire-identity.mjs`
-(model classification and thinking rendering), `devin-wire-schema.mjs` (tool
-schema normalization) and `devin-wire-tool-args.mjs` (tool-argument repair),
-all under `src/runtime/agent/orchestrator/providers/`.
+`native/core/crates/mixdog-ai/src/providers/devin/reviewed_families.json` is
+data taken from its model-collapse rules, and the code under
+`native/core/crates/mixdog-ai/src/providers/devin/` contains code derived from
+it: catalog discovery and family collapsing, client identity values, model
+classification and thinking rendering, tool schema normalization and
+tool-argument repair.
 
 Full license text: `LICENSES/oh-my-pi-MIT.txt`

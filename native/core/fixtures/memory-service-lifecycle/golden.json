@@ -1,0 +1,966 @@
+{
+  "domain": "memory-service-lifecycle",
+  "source": "src/runtime/memory/lib/memory-service-lifecycle.test.mjs",
+  "cases": [
+    {
+      "name": "concurrent initialization opens each owner and publishes readiness once (test line 57)",
+      "steps": [
+        {
+          "label": "init x2 concurrently, then once more",
+          "sameInitPromiseWhilePending": true,
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the bound port is advertised before runtime readiness, but ready waits for both (test line 73)",
+      "steps": [
+        {
+          "label": "init with the runtime pending: the port is advertised, ready is not published",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "listen",
+            [
+              "advertise",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "runtime resolves",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shutdown waits for in-flight acquisition before releasing its resources (test line 90)",
+      "steps": [
+        {
+          "label": "init pending, then stop(): the signal is aborted, a second stop returns the same promise, init() is refused",
+          "signalAbortedAtStop": true,
+          "secondStopIsTheSamePromise": true,
+          "initDuringStop": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "memory service stopping",
+              "props": {}
+            }
+          },
+          "shutdownCalledYet": false,
+          "state": {
+            "initialized": false,
+            "stopping": true,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            "withdraw",
+            "close"
+          ]
+        },
+        {
+          "label": "the acquisition finishes: shutdown comes after it, no ready",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "memory service stopping",
+              "props": {}
+            }
+          },
+          "acquiredBeforeShutdown": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "acquired",
+            [
+              "error",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "memory service stopping",
+                "props": {}
+              }
+            ],
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "same-tick shutdown cancels queued acquisition instead of starting it (test line 121)",
+      "steps": [
+        {
+          "label": "init() and stop() in the same tick",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "memory service stopping",
+              "props": {}
+            }
+          },
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ],
+      "initializeCalled": false,
+      "listenCalled": false
+    },
+    {
+      "name": "a late listener result cannot re-advertise or report ready after stop (test line 131)",
+      "steps": [
+        {
+          "label": "init with the bind pending, stop(), the bind resolves late",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "memory service stopping",
+              "props": {}
+            }
+          },
+          "anyAdvertiseOrReady": false,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "runtime failure during a pending HTTP bind is handled and releases both owners (test line 142)",
+      "steps": [
+        {
+          "label": "runtime fails while the bind is pending",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "database unavailable",
+              "props": {}
+            }
+          },
+          "errorIsTheInjectedObject": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "error",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "database unavailable",
+                "props": {}
+              }
+            ],
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "listener failure waits for runtime acquisition and preserves the bind error (test line 161)",
+      "steps": [
+        {
+          "label": "the bind fails while the runtime is pending",
+          "shutdownCalledYet": false,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "listen"
+          ]
+        },
+        {
+          "label": "the runtime acquisition ends",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "bind denied",
+              "props": {}
+            }
+          },
+          "errorIsTheInjectedObject": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "integrated or secondary startup reports a null port without advertising (test line 178)",
+      "steps": [
+        {
+          "label": "init with a null port (integrated or secondary startup)",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            [
+              "ready",
+              null
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "initialization can restart after shutdown and after a failed acquisition (test line 185)",
+      "attempts": 3,
+      "steps": [
+        {
+          "label": "init (the first attempt fails)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "first attempt failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "error",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "first attempt failed",
+                "props": {}
+              }
+            ],
+            [
+              "advertise",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "label": "init again",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "label": "init after stop",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "explicit shutdown reports cleanup failures and clears readiness (test line 203)",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (shutdown throws)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "database close failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "service shutdown closes a real listener while runtime initialization is pending (test line 216)",
+      "steps": [
+        {
+          "label": "init with the runtime pending and a real listener bound, then stop()",
+          "initOutcome": {
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "memory service stopping",
+              "props": {}
+            }
+          },
+          "serverListeningAfterStop": false,
+          "connectAfterStop": "ECONNREFUSED",
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "listen",
+            [
+              "advertise",
+              "<port>"
+            ],
+            "withdraw",
+            [
+              "error",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "memory service stopping",
+                "props": {}
+              }
+            ],
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shutdown stops workers before waiting for requests that depend on those workers (test line 234)",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop: the workers are stopped before the request drain ends, storage closes last",
+          "order": [
+            "listener-closing",
+            "workers-stopped",
+            "storage-closed"
+          ],
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "listener-closing",
+            "workers-stopped",
+            "storage-closed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shutdown releases independent resources after withdraw fails (test line 250)",
+      "failingStep": "withdraw",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (withdraw throws)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "withdraw failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "cleanupOrder": [
+            "withdraw",
+            "closeListener",
+            "stopBackgroundWork",
+            "shutdown"
+          ],
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "shutdown releases independent resources after closeListener fails (test line 250)",
+      "failingStep": "closeListener",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (closeListener throws)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "closeListener failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "cleanupOrder": [
+            "withdraw",
+            "closeListener",
+            "stopBackgroundWork",
+            "shutdown"
+          ],
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "shutdown releases independent resources after stopBackgroundWork fails (test line 250)",
+      "failingStep": "stopBackgroundWork",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (stopBackgroundWork throws)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "stopBackgroundWork failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "cleanupOrder": [
+            "withdraw",
+            "closeListener",
+            "stopBackgroundWork",
+            "shutdown"
+          ],
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "shutdown releases independent resources after shutdown fails (a further shape: the test loop has three steps) (test line 250)",
+      "failingStep": "shutdown",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (shutdown throws)",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "shutdown failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "cleanupOrder": [
+            "withdraw",
+            "closeListener",
+            "stopBackgroundWork",
+            "shutdown"
+          ],
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "failed worker shutdown still drains active requests before storage closes (test line 282)",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "the worker stop failed while the request drain is still open",
+          "stopSettled": false,
+          "storageClosed": false,
+          "state": {
+            "initialized": true,
+            "stopping": true,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "withdraw",
+            "listener-closing",
+            "workers-stop-throws"
+          ]
+        },
+        {
+          "label": "the drain ends",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "worker termination failed",
+            "props": {}
+          },
+          "errorIsTheInjectedObject": true,
+          "storageClosed": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "storage-closed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "multiple shutdown failures remain available after every cleanup is attempted (test line 310)",
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (listener close and shutdown both throw)",
+          "error": {
+            "error": {
+              "$exact": "error",
+              "name": "AggregateError",
+              "message": "memory service shutdown failed",
+              "props": {}
+            },
+            "members": [
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "listener close failed",
+                "props": {}
+              },
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "database close failed",
+                "props": {}
+              }
+            ]
+          },
+          "aggregateHoldsTheInjectedErrorsInOrder": true,
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "at quit the last client leaves and the memory stop fails: what the memory process writes (memory-daemon-lifecycle.mjs:60-74)",
+      "quits": [
+        {
+          "failing": "storage",
+          "logs": [
+            "[memory-service] daemon client grace elapsed (last client deregistered); shutting down\n",
+            "[memory-service] daemon client-grace shutdown failed: database close failed\n"
+          ],
+          "exitCodes": [
+            1
+          ],
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "failing": "worker stop and storage",
+          "logs": [
+            "[memory-service] daemon client grace elapsed (last client deregistered); shutting down\n",
+            "[memory-service] daemon client-grace shutdown failed: memory service shutdown failed\n"
+          ],
+          "exitCodes": [
+            1
+          ],
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stopBackgroundWork",
+            "shutdown"
+          ]
+        }
+      ]
+    }
+  ]
+}

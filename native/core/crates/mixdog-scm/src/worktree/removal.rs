@@ -767,7 +767,7 @@ impl Worktrees {
         }
         let started = std::time::Instant::now();
         let child = cancel.child_token();
-        let status = tokio::time::timeout(
+        let status = mixdog_rt::time::timeout(
             timeout,
             self.scm().git.outcome(&child, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &no_index_refresh()),
         )
@@ -793,7 +793,7 @@ impl Worktrees {
         }
         let left = timeout.saturating_sub(started.elapsed());
         let checks = async { (self.modified_include_copies(record, cancel).await, self.unreproducible_ignored(record, ignored, artefacts, cancel).await) };
-        match tokio::time::timeout(left, checks).await {
+        match mixdog_rt::time::timeout(left, checks).await {
             Err(_) => Ok(Some(kept("busy"))),
             Ok((Err(ScmFailure::Cancelled), _)) | Ok((_, Err(ScmFailure::Cancelled))) => Err(ScmFailure::Cancelled),
             Ok((Ok(modified), Ok(unreproducible))) => {

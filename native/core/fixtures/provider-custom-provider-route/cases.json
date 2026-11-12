@@ -1,0 +1,107 @@
+{
+  "set": "provider-custom-provider-route",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "default-provider-validation-gets-saved-config",
+      "source": "src/runtime/agent/orchestrator/runtime-core/custom-provider-route.test.mjs:5",
+      "input": {
+        "config": {
+          "default": "main",
+          "presets": [
+            {
+              "id": "main",
+              "provider": "custom-test",
+              "model": "m1"
+            }
+          ],
+          "providers": {
+            "custom-test": {
+              "type": "custom",
+              "enabled": true
+            }
+          }
+        },
+        "request": {
+          "model": "m2"
+        }
+      },
+      "result": {
+        "defaultProvider": "custom-test",
+        "route": {
+          "provider": "custom-test",
+          "model": "m2",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {},
+          "contextPercent": {
+            "$exact": "undefined"
+          }
+        },
+        "validatorCalls": [
+          {
+            "id": "custom-test",
+            "config": {
+              "default": "main",
+              "presets": [
+                {
+                  "id": "main",
+                  "provider": "custom-test",
+                  "model": "m1"
+                }
+              ],
+              "providers": {
+                "custom-test": {
+                  "type": "custom",
+                  "enabled": true
+                }
+              }
+            },
+            "sameConfigObject": true
+          },
+          {
+            "id": "custom-test",
+            "config": {
+              "default": "main",
+              "presets": [
+                {
+                  "id": "main",
+                  "provider": "custom-test",
+                  "model": "m1"
+                }
+              ],
+              "providers": {
+                "custom-test": {
+                  "type": "custom",
+                  "enabled": true
+                }
+              }
+            },
+            "sameConfigObject": true
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs.makeResolveDefaultProvider",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs.makeResolveRoute",
+          "args": [
+            {
+              "callback": "resolveDefaultProvider"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

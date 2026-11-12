@@ -106,6 +106,16 @@ pub trait RouteSession: Send + Sync {
     fn write_statusline(&self, thread: &ThreadId, route: &Route);
     /// `invalidateContextStatusCache`.
     fn invalidate_context_status(&self, thread: &ThreadId);
+    /// Whether the thread's runtime is up (loaded): Node's deferred pick lives in its runtime's `setRoute` closure
+    /// (`set-route.mjs:398-399`) and ends with it.
+    fn loaded(&self, _thread: &ThreadId) -> bool {
+        true
+    }
+}
+
+/// A failure that a retry cannot mend: the thread is gone, or the pick or the caller is refused for good.
+fn permanent(error: &PortError) -> bool {
+    matches!(error, PortError::NotFound { .. } | PortError::Invalid { .. } | PortError::Denied(_) | PortError::Refused { .. })
 }
 
 /// The truthiness of a JS value.
@@ -426,17 +436,25 @@ impl SessionRoutes {
         let route = self.live.route(thread);
         let key = thread.as_str().to_owned();
         if options.defer_until_next_turn {
-            self.pending_lock().insert(key, token);
+            {
+                // One pick per loaded thread, as Node holds one per runtime: the picks of threads no longer loaded go (their
+                // record's `pendingRoute` still applies it when the thread is loaded again).
+                let mut pending = self.pending_lock();
+                pending.retain(|id, _| *id == key || self.session.loaded(&ThreadId::from(id.as_str())));
+                pending.insert(key, token);
+            }
             // Held on the session too, so a restart before the next turn still applies it.
             let mut set = Map::new();
             set.insert("pendingRoute".into(), Value::Object(held_route_pick(&route)));
             self.threads.patch_header(thread, set, Vec::new()).await?;
             return Ok(Followed::default());
         }
-        self.pending_lock().remove(&key);
+        // A held pick this selection replaces is dropped from memory only once its record is: a failed write leaves the
+        // selection for the next turn, which applies the live route (this one).
         if header.contains_key("pendingRoute") {
             self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
         }
+        self.pending_lock().remove(&key);
         let same_model = text(&route, "provider") == text(&header, "provider") && text(&route, "model") == text(&header, "model");
         if self.route_committed(thread).await? {
             if !options.switch_established() {
@@ -464,30 +482,55 @@ impl SessionRoutes {
 
     /// `setRoute.applyPendingRoute`: the model pick held for the next turn takes effect. The
     /// recorded boundary, or `None` when nothing switched.
+    /// The held pick is taken off (memory and record) only once it took effect, or was superseded: a failed switch, or a
+    /// record write that failed, leaves it in place for the next turn. A failure no retry mends (the thread is gone, the
+    /// pick or the thread refused for good) takes it off as Node does, whose `applyPendingRoute` drops the pick before it
+    /// switches (`set-route.mjs:457-462`) and whose pick ends with a runtime that is gone.
     pub async fn apply_pending(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
-        let mut header = self.threads.header(thread).await?;
-        let held = header.get("pendingRoute").and_then(Value::as_object).cloned();
-        if held.is_some() {
-            self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
-            header.shift_remove("pendingRoute");
+        let applied = self.try_apply_pending(thread).await;
+        if let Err(error) = &applied
+            && permanent(error)
+        {
+            self.pending_lock().remove(thread.as_str());
+            // Best effort: a gone thread has no record to clear.
+            let _ = self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await;
         }
-        let selection = self.pending_lock().remove(thread.as_str());
-        match (selection, &held) {
-            (Some(token), _) => {
-                // The live route is the latest selection: effort/Fast tuned after the deferred
-                // model choice replace it.
-                if token != Some(self.session.generation(thread)) {
-                    return Ok(None);
-                }
-            }
+        applied
+    }
+
+    async fn try_apply_pending(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
+        let mut header = self.threads.header(thread).await?;
+        let stored = header.shift_remove("pendingRoute");
+        let held = stored.as_ref().and_then(Value::as_object).cloned();
+        let selection = self.pending_lock().get(thread.as_str()).copied();
+        let adopt = match (selection, &held) {
+            // The live route is the latest selection: effort/Fast tuned after the deferred
+            // model choice replace it.
+            (Some(token), _) => token == Some(self.session.generation(thread)),
             (None, Some(held)) if truthy(held.get("provider")) && truthy(held.get("model")) => {
                 // Held by an earlier process: the saved pick becomes the live route again.
                 self.live.adopt_held(thread, held);
+                true
             }
-            _ => return Ok(None),
+            _ => false,
+        };
+        let model_switch = if adopt {
+            let switched = self.switch_in_place(thread, &header).await?;
+            self.session.invalidate_context_status(thread);
+            switched
+        } else {
+            None
+        };
+        {
+            let mut pending = self.pending_lock();
+            // A pick made meanwhile is the next turn's.
+            if pending.get(thread.as_str()).copied() == selection {
+                pending.remove(thread.as_str());
+            }
         }
-        let model_switch = self.switch_in_place(thread, &header).await?;
-        self.session.invalidate_context_status(thread);
+        if stored.is_some() {
+            self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
+        }
         Ok(model_switch)
     }
 
@@ -600,6 +643,8 @@ async fn futures_lite_join<F: std::future::Future>(futures: impl Iterator<Item =
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use serde_json::json;
 
     use super::*;
@@ -622,13 +667,28 @@ mod tests {
     struct Threads {
         header: Mutex<Header>,
         calls: Arc<Calls>,
+        /// The thread was deleted: every read and write of it is `NotFound`.
+        gone: std::sync::atomic::AtomicBool,
+    }
+    impl Threads {
+        fn new(header: Value, calls: Arc<Calls>) -> Self {
+            Self { header: Mutex::new(obj(header)), calls, gone: Default::default() }
+        }
+        fn found(&self) -> Result<(), PortError> {
+            if self.gone.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(PortError::NotFound { target: "thread".into(), message: "deleted".into() });
+            }
+            Ok(())
+        }
     }
     #[async_trait]
     impl ThreadState for Threads {
         async fn header(&self, _: &ThreadId) -> Result<Header, PortError> {
+            self.found()?;
             Ok(self.header.lock().unwrap().clone())
         }
         async fn patch_header(&self, _: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {
+            self.found()?;
             let mut header = self.header.lock().unwrap();
             self.calls.log(format!("patch {} -{}", Value::Object(set.clone()), unset.join(",")));
             header.extend(set);
@@ -664,11 +724,23 @@ mod tests {
     struct Session {
         calls: Arc<Calls>,
         generation: u64,
+        /// The next route update fails with this (a session write that did not go through, or a refusal).
+        fail_update: Mutex<Option<PortError>>,
+        /// The threads whose runtime is down.
+        unloaded: Mutex<HashSet<String>>,
+    }
+    impl Session {
+        fn new(calls: Arc<Calls>, fail_update: Option<PortError>) -> Self {
+            Self { calls, generation: 3, fail_update: Mutex::new(fail_update), unloaded: Mutex::default() }
+        }
     }
     #[async_trait]
     impl RouteSession for Session {
         fn generation(&self, _: &ThreadId) -> u64 {
             self.generation
+        }
+        fn loaded(&self, thread: &ThreadId) -> bool {
+            !self.unloaded.lock().unwrap().contains(thread.as_str())
         }
         async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
             Ok(Vec::new())
@@ -677,6 +749,9 @@ mod tests {
             messages.iter().any(|m| m["role"] == "user")
         }
         async fn update_route(&self, _: &ThreadId, fields: Route, cross: bool) -> Result<bool, PortError> {
+            if let Some(error) = self.fail_update.lock().unwrap().take() {
+                return Err(error);
+            }
             self.calls.log(format!("update {} cross={cross}", fields["model"]));
             Ok(true)
         }
@@ -699,10 +774,69 @@ mod tests {
 
     fn routes(header: Value, messages: Vec<Value>, live: Value) -> (SessionRoutes, Arc<Calls>) {
         let calls = Arc::new(Calls::default());
-        let threads = Threads { header: Mutex::new(obj(header)), calls: calls.clone() };
-        let session = Session { calls: calls.clone(), generation: 3 };
+        let threads = Threads::new(header, calls.clone());
+        let session = Session::new(calls.clone(), None);
         let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(messages)), Arc::new(session), Arc::new(Live(obj(live))));
         (routes, calls)
+    }
+
+    /// A held pick with no runtime to take it any more goes, as Node's ends with its runtime (`set-route.mjs:398-399`) and is
+    /// dropped before its switch (`set-route.mjs:457-462`): a deleted thread's pick on its next apply, a pick refused for good
+    /// (and its record) on that apply, and the picks of threads no longer loaded when another is held (one per loaded thread).
+    #[tokio::test]
+    async fn a_held_pick_no_runtime_can_take_goes_and_one_is_held_per_loaded_thread() {
+        let live = json!({"provider": "anthropic", "model": "claude-x"});
+        let header = json!({"provider": "openai", "model": "gpt-a"});
+        let defer = FollowOptions { switch_established: true, defer_until_next_turn: true, lease: Some(3), ..FollowOptions::default() };
+        let held = |routes: &SessionRoutes| routes.pending_lock().keys().cloned().collect::<HashSet<String>>();
+
+        // Deleted: the apply finds no thread, and the pick is gone with it.
+        let calls = Arc::new(Calls::default());
+        let threads = Arc::new(Threads::new(header.clone(), calls.clone()));
+        let routes = SessionRoutes::new(threads.clone(), Arc::new(Messages(established())), Arc::new(Session::new(calls.clone(), None)), Arc::new(Live(obj(live.clone()))));
+        routes.follow(&thread(), &defer).await.unwrap();
+        threads.gone.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(matches!(routes.apply_pending(&thread()).await, Err(PortError::NotFound { .. })));
+        assert_eq!(held(&routes), HashSet::new(), "the deleted thread's pick is gone");
+
+        // Refused for good: the pick and its record go; the next turn has nothing to apply.
+        let calls = Arc::new(Calls::default());
+        let refused = PortError::Invalid { field: "model".into(), reason: "unknown model".into() };
+        let session = Session::new(calls.clone(), Some(refused.clone()));
+        let routes = SessionRoutes::new(Arc::new(Threads::new(header.clone(), calls.clone())), Arc::new(Messages(established())), Arc::new(session), Arc::new(Live(obj(live.clone()))));
+        routes.follow(&thread(), &defer).await.unwrap();
+        assert_eq!(routes.apply_pending(&thread()).await, Err(refused));
+        assert_eq!(held(&routes), HashSet::new());
+        assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"), "its record is cleared");
+        assert_eq!(routes.apply_pending(&thread()).await, Ok(None));
+
+        // Bounded: holding a pick lets the picks of threads no longer loaded go.
+        let calls = Arc::new(Calls::default());
+        let session = Arc::new(Session::new(calls.clone(), None));
+        let routes = SessionRoutes::new(Arc::new(Threads::new(header, calls.clone())), Arc::new(Messages(established())), session.clone(), Arc::new(Live(obj(live))));
+        for id in ["t1", "t2", "t3"] {
+            routes.follow(&ThreadId::from(id), &defer).await.unwrap();
+        }
+        session.unloaded.lock().unwrap().extend(["t1".to_owned(), "t2".to_owned()]);
+        routes.follow(&ThreadId::from("t4"), &defer).await.unwrap();
+        assert_eq!(held(&routes), HashSet::from(["t3".to_owned(), "t4".to_owned()]));
+    }
+
+    /// A pick held by an earlier process (`pendingRoute` on the record, nothing in memory after the restart) whose switch fails
+    /// is still held: the next turn adopts it, and only then is it taken off.
+    #[tokio::test]
+    async fn a_held_pick_whose_switch_failed_is_kept_for_the_next_turn() {
+        let calls = Arc::new(Calls::default());
+        let header = json!({"provider": "openai", "model": "gpt-a", "pendingRoute": {"provider": "anthropic", "model": "claude-x"}});
+        let threads = Threads::new(header, calls.clone());
+        let session = Session::new(calls.clone(), Some(PortError::Failed { capability: "session".into(), message: "index-write-failed".into() }));
+        let live = json!({"provider": "anthropic", "model": "claude-x"});
+        let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(established())), Arc::new(session), Arc::new(Live(obj(live))));
+        assert!(routes.apply_pending(&thread()).await.is_err(), "the switch failed");
+        assert!(routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"), "the held pick is still held");
+        let switched = routes.apply_pending(&thread()).await.unwrap().expect("the retry switches");
+        assert_eq!(switched["modelId"], "claude-x");
+        assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"));
     }
 
     fn thread() -> ThreadId {
