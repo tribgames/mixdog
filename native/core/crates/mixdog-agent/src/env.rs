@@ -495,6 +495,12 @@ pub trait TranscriptSink: Send + Sync {
     /// Resolves once the save of the message of `ticket` (and every one before it) has ended. A save that failed does not fail
     /// the running turn: Node gates only the next turn's open on durability (`turn-durability.mjs`). Cancel-safe.
     async fn durable(&self, ticket: Ticket);
+
+    /// Resolves once everything the run handed over so far has been stored or has failed: its rows and what the owner drafted
+    /// from its events, the mark of a send about to leave (`RunEvent::ProviderSendStarted`) among it. The request leaves after
+    /// it, so a process killed with that request on the wire recovers knowing the request was sent; a request that left
+    /// first would be recovered as a turn still in its tool run. Cancel-safe. A sink with nothing stored has nothing to wait for.
+    async fn drafted(&self) {}
 }
 
 // ---------------------------------------------------------------------------
