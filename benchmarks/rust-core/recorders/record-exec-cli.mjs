@@ -28,6 +28,7 @@ import { gunzipSync } from 'node:zlib';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, patchedProductIdentity, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 // The child's tap (loaded there with --import); imported here so the manifest lists it.
 import './lib/exec-cli-tap.mjs';
+import { useOwnPatchedTree } from './lib/own-tree.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 
 const recorder = 'benchmarks/rust-core/recorders/record-exec-cli.mjs';
@@ -414,16 +415,12 @@ async function runCase(tree, name, runtimeSource, asset) {
 async function main() {
   if (process.platform !== 'win32') throw new Error('the CLI recording sends console control events: Windows only');
   const args = parseArgs();
+  // --apply-patch <file>[,<file>…]: the recorder exports the commit afresh into a tree of its own (removed when it ends), applies
+  // those Node changes to that, in that order, and records from it; the tree it was given is never changed. The identity is the commit plus them.
+  useOwnPatchedTree(args);
   const tree = resolveTree(args);
-  // `--apply-patch <file>[,<file>…]`: the tree must be the exact export of the commit; those Node changes are applied to it, in
-  // that order, before anything is loaded from it, and the identity is the commit plus them.
   const patchFiles = (args.get('apply-patch') ?? '').split(',').filter(Boolean).map((file) => resolve(file));
-  let identity = exactProductIdentity(tree, args.get('commit'));
-  for (const file of patchFiles) {
-    const applied = spawnSync('git', ['apply', file], { cwd: tree, encoding: 'utf8', timeout: 120_000, windowsHide: true });
-    if (applied.status !== 0) throw new Error(`${file} does not apply to ${tree}: ${applied.stderr}`);
-  }
-  if (patchFiles.length) identity = patchedProductIdentity(tree, args.get('commit'), patchFiles);
+  const identity = patchFiles.length ? patchedProductIdentity(tree, args.get('commit'), patchFiles) : exactProductIdentity(tree, args.get('commit'));
   const finalDir = join(FIXTURES_ROOT, 'exec-cli');
   const stage = stageSet(finalDir);
   const runtimeSource = args.get('runtime') ?? process.env.MIXDOG_PG_RUNTIME;
@@ -437,7 +434,10 @@ async function main() {
     if (only && !only.includes(name)) cpSync(join(finalDir, `${name}.json`), join(stage, `${name}.json`));
     else writeJson(join(stage, `${name}.json`), await runCase(tree, name, runtimeSource, asset));
   }
-  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}${args.get('apply-patch') ? ` --apply-patch ${args.get('apply-patch')}` : ''}${only ? ` --only ${only.join(',')}` : ''}`, identity, extra: { exact: true, ...(patchFiles.length ? { patchesApplied: `the recorder applied the patches of product.patches, in that order, to a tree it first verified to be the exact export of ${args.get('commit')}` } : {}), ...recorderProvenance(import.meta.url), besideDaemon: 'the beside-daemon case starts Node\'s daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case\'s data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon\'s own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended', exclusions: EXCLUSIONS, stderrNotCompared: STDERR_NOT_COMPARED, othersNotCompared: OTHERS_NOT_COMPARED } });
+  // A partial run is a working aid: it carries over recordings other runs made, so it cannot name one recorder and tree as their
+  // maker. It leaves the set without a manifest (manifest-check fails) until a whole run writes one.
+  if (only) rmSync(join(stage, 'MANIFEST.json'), { force: true });
+  else writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}${args.get('apply-patch') ? ` --apply-patch ${args.get('apply-patch')}` : ''}${only ? ` --only ${only.join(',')}` : ''}`, identity, extra: { exact: true, ...(patchFiles.length ? { patchesApplied: `the recorder applied the patches of product.patches, in that order, to a tree it first verified to be the exact export of ${args.get('commit')}` } : {}), ...recorderProvenance(import.meta.url), besideDaemon: 'the beside-daemon case starts Node\'s daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case\'s data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon\'s own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended', exclusions: EXCLUSIONS, stderrNotCompared: STDERR_NOT_COMPARED, othersNotCompared: OTHERS_NOT_COMPARED } });
   commitStage(stage, finalDir);
 }
 await main();
