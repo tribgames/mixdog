@@ -6,7 +6,7 @@
 // (`mixdog-core-review`, `turn_review::store_tests`) and must write the same lines and read the same
 // records, so either side can take over the other's data directory.
 //
-//   node benchmarks/rust-core/recorders/record-turn-change-store.mjs [--tree C:/Project/mixdog] [--work <dir>]
+//   node benchmarks/rust-core/recorders/record-turn-change-store.mjs --tree <export of b6f10295a with node_modules> --patch D:/mixdog-build/tmp/node-patches/node-fix-turn-change-store.patch [--work <dir>]
 //
 // The recording runs the real module with `Date.now` replaced by a counter: timestamps are the one
 // thing the replay normalises (a core stamps real time).
@@ -14,8 +14,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, stageSet, commitStage, writeSetManifest, writeText } from './lib/common.mjs';
+import { FIXTURES_ROOT, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, commitStage, writeSetManifest, writeText } from './lib/common.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
+
+// The reference Node, with the fix of the per-turn change-record file (Node e882cd63c: `<hash>.jsonl`, appended): a clear Node
+// defect fixed on both sides, so the recording is made from the reference tree with `node-fix-turn-change-store.patch` applied.
+const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -99,8 +103,8 @@ writeText(join(stage, 'scenarios.json'), `${JSON.stringify(scenarios, null, 1)}\
 writeSetManifest(stage, {
   set: 'turn-change-store',
   recorder: 'benchmarks/rust-core/recorders/record-turn-change-store.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-turn-change-store.mjs --tree <product tree with node_modules>',
-  identityTree: tree,
+  command: `node benchmarks/rust-core/recorders/record-turn-change-store.mjs --tree <export of ${REF} with node_modules> --patch ${args.get('patch').replaceAll('\\', '/')}`,
+  identity: nodeTreeIdentity(args, tree, REF),
   extra: {
     ...recorderProvenance(import.meta.url),
     normalised: { reason: 'Date.now is a counter in the recording; a core stamps real time', fields: ['createdAt', 'updatedAt'] },
