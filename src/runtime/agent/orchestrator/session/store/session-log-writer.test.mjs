@@ -966,6 +966,31 @@ for (const foreign of [false, true]) {
   });
 }
 
+test('a batch whose fsync failed and that was written again leaves its log known, as do the batches after it', async () => {
+  const { id, logPath } = paths();
+  const session = { id, generation: 1, messages: [msg('a')] };
+  const rec = await createSessionLog({ logPath, session, claim: fakeClaim() });
+  const io = _sessionLogIoForTest();
+  const realFsync = io.fsync;
+  io.fsync = (_fd, done) => {
+    io.fsync = realFsync;
+    done(Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' }));
+  };
+  try {
+    await assert.rejects(rec.record({ ...session, generation: 2 }), { code: 'EIO' });
+  } finally {
+    io.fsync = realFsync;
+  }
+  assert.equal(rec.knownGeneration(stampOf(logPath)), null, 'whether the batch reached the file is not known');
+  // The same bytes again at the same offset, with the next record behind them.
+  await rec.record({ ...session, generation: 3 });
+  assert.equal((await replayed(logPath)).generation, 3);
+  assert.equal(rec.knownGeneration(stampOf(logPath)), 3);
+  await rec.record({ ...session, generation: 4 });
+  assert.equal(rec.knownGeneration(stampOf(logPath)), 4);
+  await rec.close();
+});
+
 test('a claim lost without a write noticing it no longer vouches for the log, even if it comes back', async () => {
   const { id, logPath } = paths();
   const claim = fakeClaim();
