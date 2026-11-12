@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use crate::providers::file_text::{FileKind, file_decoded_text, file_fallback_text, file_kind};
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DocumentSource;
@@ -131,6 +132,20 @@ fn data_url_parts(url: &str) -> Option<(&str, &str)> {
     Some((mime, data))
 }
 
+/// `normalizeAnthropicPart` for a file: a PDF is a base64 document block, a text file a text document block, any other
+/// file its extracted text or its description.
+fn file_block(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
+    let mut block = match file_kind(mime_type, data, filename) {
+        FileKind::Pdf => json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": data } }),
+        FileKind::Text => json!({ "type": "document", "source": { "type": "text", "media_type": "text/plain", "data": file_decoded_text(data) } }),
+        _ => return json!({ "type": "text", "text": file_fallback_text(filename, mime_type, data) }),
+    };
+    if let Some(title) = filename.filter(|t| !t.is_empty()) {
+        block["title"] = Value::String(title.to_owned());
+    }
+    block
+}
+
 fn part_to_block(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
@@ -157,20 +172,7 @@ fn part_to_block(part: &ContentPart) -> Value {
         } => {
             use mixdog_core_api::domain::provider::BinarySource;
             match source {
-                BinarySource::Base64(data) if mime_type == "application/pdf" => {
-                    let mut block = json!({
-                        "type": "document",
-                        "source": { "type": "base64", "media_type": "application/pdf", "data": data },
-                    });
-                    if let Some(title) = filename {
-                        block["title"] = Value::String(title.clone());
-                    }
-                    block
-                }
-                BinarySource::Base64(_) => json!({
-                    "type": "text",
-                    "text": format!("[file: {} ({mime_type})]", filename.as_deref().unwrap_or("unnamed")),
-                }),
+                BinarySource::Base64(data) => file_block(filename.as_deref(), mime_type, data),
                 // The product path reads a stored file before the request is built; one still a
                 // reference here could not be (`unavailableAttachmentText`).
                 BinarySource::AttachmentRef(_) => {
@@ -180,25 +182,23 @@ fn part_to_block(part: &ContentPart) -> Value {
                 }
             }
         }
-        ContentPart::Document { source, title } => {
-            let source = match source {
-                DocumentSource::Base64 { media_type, data } => {
-                    json!({ "type": "base64", "media_type": media_type, "data": data })
-                }
-                DocumentSource::Text { media_type, data } => json!({
-                    "type": "text",
-                    "media_type": media_type.as_deref().unwrap_or("text/plain"),
-                    "data": data,
-                }),
-                DocumentSource::Content(content) => json!({ "type": "content", "content": content }),
-            };
-            let mut block = json!({ "type": "document", "source": source });
-            if let Some(title) = title {
-                block["title"] = Value::String(title.clone());
-            }
-            block
+        ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } => file_block(title.as_deref(), media_type, data),
+        ContentPart::Document { source: DocumentSource::Text { media_type, data }, title } => document_block(
+            json!({ "type": "text", "media_type": media_type.as_deref().unwrap_or("text/plain"), "data": data }),
+            title.as_deref(),
+        ),
+        ContentPart::Document { source: DocumentSource::Content(content), title } => {
+            document_block(json!({ "type": "content", "content": content }), title.as_deref())
         }
     }
+}
+
+fn document_block(source: Value, title: Option<&str>) -> Value {
+    let mut block = json!({ "type": "document", "source": source });
+    if let Some(title) = title {
+        block["title"] = Value::String(title.to_owned());
+    }
+    block
 }
 
 fn normalize_content(content: &Content) -> WireContent {
