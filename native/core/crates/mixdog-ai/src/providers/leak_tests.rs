@@ -131,23 +131,42 @@ fn chat_replays_node_s_leaked_calls() {
             assert!(decoder.finish().is_err(), "{label}");
             continue;
         }
+        let recorded = &scenario["result"];
+        let held = recorded["toolCalls"].as_array().is_some_and(|calls| !calls.is_empty());
+        let cut = match recorded["stopReason"].as_str().expect("stop") {
+            "content_filter" => Some("content_filter"),
+            "length" if held => Some("length"),
+            _ => None,
+        };
+        if let Some(finish) = cut {
+            // A turn cut at the token limit (with calls) or filtered never runs a call it leaked: Node's
+            // `normalizeCompatChatResponse` rejects the collector's result with a `ProviderIncompleteError` that holds the
+            // recovered call, so the turn fails and the call does not reach the executor. The recorded `stored` side of
+            // these scenarios drives the loop with the collector's raw result, which the product's send never hands it,
+            // so it is not compared here.
+            let mut events = Vec::new();
+            for event in scenario["wire"].as_array().expect("wire") {
+                events.extend(decoder.feed(&sse_unit(event)).expect("feed"));
+            }
+            let err = decoder.finish().expect_err(&label);
+            assert_eq!(err.code.as_deref(), Some("PROVIDER_INCOMPLETE"), "{label}");
+            assert_eq!(err.message, format!("response incomplete: finish_reason={finish}"), "{label}");
+            assert_eq!(text_of(&events), recorded["content"].as_str().expect("content"), "{label}: content");
+            assert!(calls_of(&events).is_empty(), "{label}: nothing dispatched");
+            super::leak_golden::assert_calls(&label, &recorded["toolCalls"], &err.partial_tool_calls);
+            continue;
+        }
         let steps = run(&mut decoder, &scenario, sse_unit);
         let all: Vec<StreamEvent> = steps.iter().flatten().cloned().collect();
         let stop = all.iter().rev().find_map(|event| match event {
             StreamEvent::Completed { stop, .. } => stop.clone(),
             _ => None,
         });
-        match scenario["result"]["stopReason"].as_str().expect("stop") {
-            // A turn cut at the token limit or filtered never runs a call it leaked: Node returns the call and
-            // rejects the response, so the call must not reach the executor.
-            cut @ ("length" | "content_filter") => {
-                assert_eq!(text_of(&all), scenario["result"]["content"].as_str().expect("content"), "{label}: content");
-                // Nothing runs live, but the returned list holds the recovered call and the loop runs it
-                // (the recorded stored transcript shows the tool ran).
+        match recorded["stopReason"].as_str().expect("stop") {
+            "length" => {
+                assert_eq!(text_of(&all), recorded["content"].as_str().expect("content"), "{label}: content");
                 assert!(calls_of(&all).is_empty(), "{label}: nothing dispatched live");
-                super::leak_golden::assert_calls(&label, &scenario["result"]["toolCalls"], &super::leak_golden::returned_of(&all));
-                let want = if cut == "length" { StopReason::MaxTokens } else { StopReason::ContentFilter };
-                assert_eq!(stop, Some(want), "{label}");
+                assert_eq!(stop, Some(StopReason::MaxTokens), "{label}");
             }
             // Node dispatches a recovered chat call at the end of a normally finished turn, not as the text arrives.
             _ => {

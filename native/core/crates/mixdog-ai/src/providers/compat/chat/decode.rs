@@ -498,6 +498,33 @@ impl ChatDecoder {
         out.push(StreamEvent::ReturnedCalls(leak::dedupe_list(all)));
     }
 
+    /// `normalizeCompatChatResponse`: a turn cut by `length` while it holds calls, or stopped by a content filter, is a
+    /// `ProviderIncompleteError` that carries the calls (`partialToolCalls`) and is never retried: the turn fails and
+    /// none of them runs.
+    fn incomplete_failure(&self, finish: &str) -> Option<ProviderError> {
+        if !(finish == "content_filter" || finish == "length") {
+            return None;
+        }
+        let calls: Vec<ToolCall> = if self.leaked.is_empty() {
+            self.natives.clone()
+        } else {
+            leak::dedupe_list(self.natives.iter().chain(&self.leaked).cloned().collect())
+        };
+        if finish == "length" && calls.is_empty() {
+            return None;
+        }
+        let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        err.code = Some("PROVIDER_INCOMPLETE".into());
+        err.message = format!("response incomplete: finish_reason={finish}");
+        err.exposure = Exposure { text_emitted: self.text_emitted, ..Exposure::default() };
+        err.partial_tool_calls = calls;
+        if let Some(raw) = &self.usage {
+            err.partial_usage = Some(Box::new(usage_from(raw, self.profile.chat.cost)));
+            err.partial_model = Some(self.served.as_str()).filter(|m| !m.is_empty()).map(Box::from);
+        }
+        Some(err)
+    }
+
     fn in_band_error(&self, chunk: &JsonValue) -> ProviderError {
         let mut err = classify_parts(&self.profile, None, &[], chunk, SystemTime::now());
         if self.profile.chat.in_band_invalid_request_retryable && err.kind == ErrorKind::InvalidRequest {
@@ -544,6 +571,9 @@ impl ChatDecoder {
         // The stream ended: nothing is held back any more.
         let tail = self.leak.flush();
         self.relay_leak(tail, out);
+        if let Some(err) = self.incomplete_failure(&finish) {
+            return Err(err);
+        }
         self.return_calls(out);
         let saw_reasoning = self.reasoning_source.is_some();
         // An empty completion is a normal `Completed`; the retry policy's
