@@ -756,8 +756,9 @@ async fn authorize(
                     // hook to work around, and the turn may now wait on them.
                     guards.note_user_wait();
                     let given = match &other {
-                        // A person's denial with no reason of its own is "denied by user" (`lifecycle.mjs:74`, `held-requests.mjs:198`).
-                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone().filter(|reason| !reason.is_empty()).or_else(|| Some("denied by user".to_owned())),
+                        // The loop words the reason it is given; "denied by user" is filled in by the human layer
+                        // (`lifecycle.mjs:74`, `held-requests.mjs:198`), not here (tool-pool dispatch.json "denied with no reason").
+                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
                         // `finishToolApproval(entry.id, false, 'approval timed out')` (tool-approval.mjs:77).
                         ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
                         _ => None,

@@ -478,9 +478,8 @@ impl ToolPolicy {
                 decision.remember,
                 device,
                 decision.edited_args,
-                // A person's answer with no reason of its own is "denied by user" / "approved by user" (`lifecycle.mjs:74`,
-                // `held-requests.mjs:198`).
-                decision.reason.filter(|reason| !reason.is_empty()).unwrap_or_else(|| if decision.approved { "approved by user" } else { "denied by user" }.to_owned()),
+                // "denied by user" is filled in by the human layer (`lifecycle.mjs:74`, `held-requests.mjs:198`), not here.
+                decision.reason.unwrap_or_default(),
                 false,
             ),
             ApprovalResolution::TimedOut { .. } => (
@@ -995,7 +994,7 @@ mod tests {
         assert_eq!(err.code, ToolErrorCode::PermissionDenied);
         assert_eq!(
             err.message_for_model,
-            "Error: tool \"github\" was not approved: denied by user. Do not retry it or reach the same result another way; report it."
+            "Error: tool \"github\" was not approved: This sends or posts outside Mixdog; it needs your approval. Do not retry it or reach the same result another way; report it."
         );
         assert_eq!(
             h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
