@@ -268,6 +268,7 @@ impl ProviderAdapter for AccountedAdapter {
     }
 
     async fn settle_send(&self, group: &str, end: SendEnd) {
+        self.inner.settle_send(group, end).await;
         let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
         let Some(Held { mut accounting, failed }) = held else { return };
         match end {

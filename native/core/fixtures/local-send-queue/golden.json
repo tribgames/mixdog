@@ -228,6 +228,99 @@
       }
     },
     {
+      "case": "a retry keeps the slot while a second send waits",
+      "observed": {
+        "model": "local-retried",
+        "scripts": {
+          "A#1": [
+            {
+              "status": 500
+            }
+          ],
+          "A#2": [
+            {
+              "advance": 10
+            },
+            {
+              "progress": "text"
+            },
+            {
+              "hold": "a"
+            },
+            {
+              "advance": 50
+            },
+            {
+              "result": {
+                "inputTokens": 2,
+                "outputTokens": 5
+              }
+            }
+          ],
+          "B#1": [
+            {
+              "advance": 20
+            },
+            {
+              "progress": "text"
+            },
+            {
+              "advance": 30
+            },
+            {
+              "result": {
+                "inputTokens": 4,
+                "outputTokens": 9
+              }
+            }
+          ]
+        },
+        "retryDelayMs": 1000,
+        "reachedBeforeBackoffEnds": [
+          "A#1"
+        ],
+        "stateInBackoff": {
+          "state": "running",
+          "queueWaitMs": 0
+        },
+        "reachedWhileHeld": [
+          "A#1",
+          "A#2",
+          "A#2 holds"
+        ],
+        "duringHold": {
+          "state": "running",
+          "queueWaitMs": 0
+        },
+        "elapsedWhileHeld": 700,
+        "outcomes": [
+          {
+            "returned": "ok"
+          },
+          {
+            "returned": "ok"
+          }
+        ],
+        "wireOrder": [
+          "A#1",
+          "A#2",
+          "A#2 holds",
+          "B#1"
+        ],
+        "inference": {
+          "state": "complete",
+          "at": "2027-01-15T08:00:00.000Z",
+          "queueWaitMs": 760,
+          "firstResponseMs": 20,
+          "durationMs": 50,
+          "outputTokens": 9,
+          "inputTokens": 4,
+          "tokensPerSecond": 266.7,
+          "error": null
+        }
+      }
+    },
+    {
       "case": "the cached model info is the installed model's row at every moment",
       "observed": {
         "registered": [

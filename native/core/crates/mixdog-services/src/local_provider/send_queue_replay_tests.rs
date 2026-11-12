@@ -65,6 +65,8 @@ enum Step {
     Snapshot(String),
     Hold,
     Fail,
+    /// The request is answered with this status and an error body.
+    Status(u16),
     Result { input: u64, output: u64 },
 }
 
@@ -76,6 +78,8 @@ fn steps_of(recorded: &Value) -> Vec<Step> {
         .map(|step| {
             if let Some(ms) = step.get("advance") {
                 Step::Advance(ms.as_u64().unwrap())
+            } else if let Some(status) = step.get("status") {
+                Step::Status(status.as_u64().unwrap() as u16)
             } else if let Some(kind) = step.get("progress") {
                 Step::Progress(kind.as_str().unwrap().into())
             } else if let Some(name) = step.get("snapshot") {
@@ -103,6 +107,8 @@ struct Shared {
     /// A script holds at its `Hold` step until the test releases it; `held` tells the test one arrived.
     held: tokio::sync::Notify,
     release: tokio::sync::Notify,
+    /// Requests in the order they reached the wire (`A#1`), and the holds among them, for the scripts that name requests.
+    order: Mutex<Vec<String>>,
 }
 
 /// The wire: each send takes the next script and answers it as an event stream (a `progress` of text is a content chunk, the
@@ -110,6 +116,19 @@ struct Shared {
 struct Wire {
     shared: Arc<Shared>,
     scripts: Mutex<VecDeque<(String, Vec<Step>)>>,
+    /// Scripts by request name, `<sender>#<n>`: the sender is the text of the message the request carries, n counts its requests.
+    named: Mutex<std::collections::HashMap<String, Vec<Step>>>,
+    counts: Mutex<std::collections::HashMap<String, usize>>,
+}
+
+/// One chunk, then the end.
+struct Once(Option<Bytes>);
+
+#[async_trait]
+impl BodyStream for Once {
+    async fn next(&mut self) -> Option<Result<Bytes, p::TransportFault>> {
+        self.0.take().map(Ok)
+    }
 }
 
 struct Body {
@@ -131,8 +150,11 @@ impl BodyStream for Body {
                     let state = self.shared.runtime.catalog.state.get(&self.shared.model);
                     self.shared.snapshots.lock().unwrap().insert(name, state["inference"].clone());
                 }
+                // The status answers the head; nothing follows it.
+                Step::Status(_) => {}
                 Step::Hold => {
                     self.shared.reached.lock().unwrap().push(format!("{} holds", self.name));
+                    self.shared.order.lock().unwrap().push(format!("{} holds", self.name));
                     self.shared.held.notify_one();
                     self.shared.release.notified().await;
                 }
@@ -148,8 +170,27 @@ impl BodyStream for Body {
 
 #[async_trait]
 impl HttpSend for Wire {
-    async fn send(&self, _: p::WireRequest, _: Exchange) -> Result<HttpResponse, p::ProviderError> {
-        let (name, steps) = self.scripts.lock().unwrap().pop_front().expect("a script for each send");
+    async fn send(&self, wire: p::WireRequest, _: Exchange) -> Result<HttpResponse, p::ProviderError> {
+        let named = !self.named.lock().unwrap().is_empty();
+        let (name, steps) = if named {
+            let body: Value = serde_json::from_slice(&wire.body).unwrap();
+            let who = body["messages"].as_array().unwrap().last().unwrap()["content"].as_str().unwrap().to_owned();
+            let n = {
+                let mut counts = self.counts.lock().unwrap();
+                *counts.entry(who.clone()).or_default() += 1;
+                counts[&who]
+            };
+            let name = format!("{who}#{n}");
+            self.shared.order.lock().unwrap().push(name.clone());
+            let steps = self.named.lock().unwrap().remove(&name).unwrap_or_else(|| panic!("a script for {name}"));
+            (name, steps)
+        } else {
+            self.scripts.lock().unwrap().pop_front().expect("a script for each send")
+        };
+        if let Some(Step::Status(status)) = steps.first() {
+            let body = Bytes::from_static(br#"{"error":{"message":"boom"}}"#);
+            return Ok(HttpResponse { status: *status, headers: vec![("content-type".into(), "application/json".into())], body: Box::new(Once(Some(body))) });
+        }
         Ok(HttpResponse { status: 200, headers: vec![("content-type".into(), "text/event-stream".into())], body: Box::new(Body { shared: self.shared.clone(), name, steps: steps.into() }) })
     }
 }
@@ -157,20 +198,27 @@ impl HttpSend for Wire {
 struct World {
     shared: Arc<Shared>,
     adapter: Arc<RegisteredAdapter>,
+    wire: Arc<Wire>,
     _dir: tempfile::TempDir,
 }
 
 fn world(model: &str, scripts: Vec<(&str, Vec<Step>)>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let runtime = super::provider::tests::provider(dir.path());
-    let shared = Arc::new(Shared { model: model.into(), runtime: runtime.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
-    let wire = Arc::new(Wire { shared: shared.clone(), scripts: Mutex::new(scripts.into_iter().map(|(name, steps)| (name.to_owned(), steps)).collect()) });
-    let adapter = Arc::new(RegisteredAdapter::new(wire, Arc::new(Injected(ManagedRuntime(runtime)))));
-    World { shared, adapter, _dir: dir }
+    let shared = Arc::new(Shared { model: model.into(), runtime: runtime.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() });
+    let wire = Arc::new(Wire { shared: shared.clone(), scripts: Mutex::new(scripts.into_iter().map(|(name, steps)| (name.to_owned(), steps)).collect()), named: Mutex::default(), counts: Mutex::default() });
+    let adapter = Arc::new(RegisteredAdapter::new(wire.clone(), Arc::new(Injected(ManagedRuntime(runtime)))));
+    World { shared, adapter, wire, _dir: dir }
 }
 
 fn request(model: &str) -> Arc<p::ModelRequest> {
-    Arc::new(p::ModelRequest { model: model.into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() })
+    request_of(model, "hi", None)
+}
+
+/// A request carrying `text`, of the send group `group` (the loop's logical send, whose attempts it replays).
+fn request_of(model: &str, text: &str, group: Option<&str>) -> Arc<p::ModelRequest> {
+    let options = p::RequestOptions { send_group: group.map(str::to_owned), ..p::RequestOptions::default() };
+    Arc::new(p::ModelRequest { model: model.into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text(text.into()))], tools: Vec::new(), options })
 }
 
 /// One send, drained: what it returned, or the error that ended it.
@@ -266,6 +314,73 @@ async fn a_second_send_waits_for_the_first_and_its_queue_wait_is_measured() {
     assert_eq!(settled(&state["inference"], None), recorded_inference(&node));
 }
 
+/// One logical send as the loop makes it: every attempt carries the send's group; a failed attempt is retried after the
+/// backoff `delay_ms` (the clock moves by it), and a send that ends on a failure settles its group. Returns the send's end and
+/// what the wire had seen, and the inference showed, when the first backoff was over.
+async fn send_retrying(adapter: &RegisteredAdapter, shared: &Shared, model: &str, who: &str, delay_ms: u64) -> (Result<(), String>, Option<(Vec<String>, Value)>) {
+    let group = format!("group-{who}");
+    let mut after_backoff = None;
+    loop {
+        let attempt = p::ProviderAdapter::attempt(adapter, request_of(model, who, Some(&group))).await;
+        let mut stream = match attempt {
+            Ok(stream) => stream,
+            Err(_) if after_backoff.is_none() => {
+                tokio::time::advance(Duration::from_millis(delay_ms)).await;
+                after_backoff = Some((shared.order.lock().unwrap().clone(), shared.runtime.catalog.state.get(model)["inference"].clone()));
+                continue;
+            }
+            Err(error) => {
+                p::ProviderAdapter::settle_send(adapter, &group, p::SendEnd::Surfaced).await;
+                return (Err(error.message), after_backoff);
+            }
+        };
+        while let Some(event) = stream.next().await {
+            if let Err(error) = event {
+                return (Err(error.message), after_backoff);
+            }
+        }
+        return (Ok(()), after_backoff);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_retry_keeps_the_slot_while_a_second_send_waits() {
+    let node = recorded("a retry keeps the slot while a second send waits");
+    let model = node["model"].as_str().unwrap();
+    let delay = node["retryDelayMs"].as_u64().unwrap();
+    let world = world(model, Vec::new());
+    for (name, steps) in node["scripts"].as_object().unwrap() {
+        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
+    }
+    let spawn = |who: &'static str| {
+        let (adapter, shared, model) = (world.adapter.clone(), world.shared.clone(), model.to_owned());
+        tokio::spawn(async move { send_retrying(&adapter, &shared, &model, who, delay).await })
+    };
+    let mut a = spawn("A");
+    let b = spawn("B");
+    // No timer here (see the queued test): the wait ends when A's retry holds the slot or A can no longer do so.
+    tokio::select! {
+        () = world.shared.held.notified() => {}
+        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
+    }
+    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
+    assert_eq!(world.shared.runtime.catalog.state.get(model)["inference"], node["duringHold"]);
+    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
+    world.shared.release.notify_one();
+    let ((a_end, backoff_over), (b_end, _)) = (a.await.unwrap(), b.await.unwrap());
+    assert_eq!((a_end, b_end), (Ok(()), Ok(())));
+    let (reached, state) = backoff_over.expect("the first request failed and was retried");
+    assert_eq!((reached, state), (strings(&node["reachedBeforeBackoffEnds"]), node["stateInBackoff"].clone()));
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
+    // Node's measurement clock does not move with its timers, Rust's is the one clock: the wait of the send that queued
+    // behind the retry also holds the backoff.
+    let mut expected = recorded_inference(&node);
+    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + delay);
+    let state = world.shared.runtime.catalog.state.get(model);
+    assert_eq!(settled(&state["inference"], None), expected);
+}
+
 /// `getCachedModelInfo` is `installedLocalProviderModels().find(id) || null`, read now (Node reads the disk on every call): at each
 /// moment the adapter answers the row the runtime lists for the id, or nothing, for a model installed, not downloaded, removed
 /// and one that was never registered.
@@ -281,7 +396,7 @@ async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
     }
     let dir = tempfile::tempdir().unwrap();
     let provider = super::provider::tests::provider(dir.path());
-    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() }), scripts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
+    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
     let mut rows = provider.installed_rows();
     let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
     let ids = [first.as_str(), second.as_str(), "never-registered"];
@@ -299,6 +414,25 @@ async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
     provider.delete_model(&token).await.unwrap();
     wait_for_rows(&mut rows, &[&second]).await;
     assert_eq!(answers(&adapter), [None, Some(json!(second)), None]);
+}
+
+/// A read after an operation on the models has completed sees it, with no wait on the change signal: Node reads the catalog on
+/// every call, and the refreshed rows are published before the operation returns.
+#[tokio::test]
+async fn a_cached_read_right_after_an_operation_sees_its_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let provider = super::provider::tests::provider(dir.path());
+    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
+    let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
+    let ids = [first.as_str(), second.as_str()];
+    let cached = |adapter: &RegisteredAdapter| ids.map(|id| adapter.cached_row(id).map(|row| row["id"].clone()));
+    // The models are placed and an operation completes: a read returns what it left.
+    provider.set_context(&first, Some(16_384)).await.unwrap();
+    assert_eq!(cached(&adapter), [Some(json!(first)), Some(json!(second))]);
+    // The removal completes: the removed model has no row.
+    let token = provider.model_details(&first).await.unwrap()["confirmationToken"].as_str().unwrap().to_owned();
+    provider.delete_model(&token).await.unwrap();
+    assert_eq!(cached(&adapter), [None, Some(json!(second))]);
 }
 
 /// Registers model `n` with the digest of `content` and puts `content` where its weights are: an installed model.
