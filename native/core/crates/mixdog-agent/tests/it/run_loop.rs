@@ -1704,6 +1704,37 @@ async fn identical_read_only_calls_in_one_turn_run_once() {
     assert!(dumped[3].contains("tool_use_id=c1"));
 }
 
+/// Counts the new read epochs the loop announces to the tool-result cache (`resetReadStateAfterCompaction`).
+#[derive(Default)]
+struct Epochs(std::sync::atomic::AtomicUsize);
+#[async_trait]
+impl ResultReuse for Epochs {
+    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+        None
+    }
+    async fn store(&self, _call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {}
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+    fn after_compaction(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn a_compaction_that_replaces_the_transcript_starts_a_new_read_epoch_and_one_that_does_not_keeps_it() {
+    for (skip, epochs) in [(false, 1), (true, 0)] {
+        let reuse = Arc::new(Epochs::default());
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { skip, ..Default::default() }));
+        h.reuse = Some(reuse.clone());
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        let mut messages: Vec<AgentMessage> = (0..10).map(|i| AgentMessage::user(format!("m{i}"))).collect();
+        messages.push(AgentMessage::user("latest"));
+        finish(h.run(cfg, vec![], messages)).await;
+        assert_eq!(reuse.0.load(std::sync::atomic::Ordering::SeqCst), epochs, "skip = {skip}");
+    }
+}
+
 #[tokio::test]
 async fn compaction_runs_at_the_request_boundary_and_resets_the_epoch() {
     let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);

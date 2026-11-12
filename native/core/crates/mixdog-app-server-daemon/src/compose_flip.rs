@@ -543,6 +543,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // `<data>/read-snapshots`. NOT here: `FileSnapshotPersist::sweep_stale` (30-day sweep, blocking `std::fs`): it must run once at boot as a lane job.
     let snapshot_persist = Arc::new(mixdog_core::run_host::read_snapshots::FileSnapshotPersist::new(&b.data_dir));
     let read_state = Arc::new(mixdog_tools::fs::ReadState::new(Some(mixdog_tools::fs::read_state::Persistence::new(snapshot_persist.clone(), b.tokens.durability_io))));
+    // The sessions' result caches (Node's `read-cache.mjs` maps): they live as long as the session, so one value serves every run, the manual
+    // compaction and the workspace change; a session the read state releases or forgets loses them.
+    let reuses: Arc<mixdog_core::run_host::result_reuse::LiveReuses> = Arc::default();
+    reuses.bind(&read_state);
     let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
     let process = ProcessServices::production(ProcessInputs {
         attachment_facts: attachment_facts.clone(),
@@ -2007,6 +2011,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             io: mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io },
             data_dir: b.data_dir.clone(),
             blobs: store_blobs.clone(),
+            reuses: reuses.clone(),
         }));
     let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
@@ -2069,6 +2074,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         approvals: Arc::new(crate::held_requests::HeldGates(held_requests.clone())),
         liveness: liveness.clone(),
         search_usage,
+        reuses: reuses.clone(),
         tokens: b.tokens.clone(),
         clock: clock_agent.clone(),
         paths: mixdog_store::paths::Paths { plugin_root: b.package_root.join("src"), data_dir: b.data_dir.clone() },
