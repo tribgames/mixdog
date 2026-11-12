@@ -51,7 +51,7 @@ pub struct McpParts {
 /// `observer` is the hook event log (`createHookEventLog`) the bus emits every hook event into; `HookStatus` (the doctor, the `hooks` status) reads the same one.
 pub fn build_mcp(tokens: &LaneTokens, data_dir: &Path, processes: Arc<dyn ProcessManager>, observer: Arc<dyn mixdog_mcp::hook_bus::HookObserver>) -> McpParts {
     let hub = McpHub::new(
-        McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+        McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
         data_dir.join("tool-results"),
         OutputPolicy::default(),
     );

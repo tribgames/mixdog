@@ -33,10 +33,17 @@ struct FakeProcesses {
     limited: Mutex<std::collections::HashSet<ProcessHandle>>,
     /// Every spawn request, in order.
     seen: Mutex<Vec<(CommandSpec, EnvSpec)>>,
+    /// Every script fed on stdin, in order.
+    fed: Mutex<Vec<String>>,
     /// The `echo X; Start-Sleep 30` command prints nothing at spawn; the test prints later.
     quiet: std::sync::atomic::AtomicBool,
     /// A kill that cannot be sent (the process manager refuses it).
     refuse_kill: std::sync::atomic::AtomicBool,
+    /// A write to a process's input that fails (its pipe broke).
+    refuse_write: std::sync::atomic::AtomicBool,
+    /// Every handle whose input was closed, and every handle killed, in order.
+    closed: Mutex<Vec<ProcessHandle>>,
+    killed: Mutex<Vec<ProcessHandle>>,
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -61,68 +68,10 @@ impl ProcessManager for FakeProcesses {
         };
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
-        let exit = |status, killed| ProcessExit { status, killed };
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
-        if script == "run-limited" {
-            self.limited.lock().unwrap().insert(request.handle.clone());
-        } else if let Some(tee) = script
-            .split("-FilePath '")
-            .nth(1)
-            .filter(|_| script.contains("Tee-Object"))
-            .and_then(|rest| rest.split('\'').next())
-        {
-            // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
-            std::fs::write(tee, "boom\n").unwrap();
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
-        } else if script == "echo begin; Start-Sleep 30" {
-            let bytes = b"begin\n".to_vec();
-            send(&tx, &mut seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
-        } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
-        } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
-            let bytes = format!("{word}\n").into_bytes();
-            send(&tx, &mut seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
-        } else if script == "echo done-out" {
-            // Silent until the test prints and ends it, as Node's process had printed nothing when
-            // the task was promoted.
-        } else if let Some(rest) = script.strip_prefix("echo ") {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: format!("{rest}\n").into_bytes(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script.starts_with("grep ") {
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
-        } else if script == "korean" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: vec![0xC7, 0xD1, 0xB1, 0xDB, 0x20, 0xC3, 0xE2, 0xB7, 0xC2, 0x0A],
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script == "repeat" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: "tick\n".repeat(200).into_bytes(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script == "fail" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stderr,
-                bytes: b"boom\n".to_vec(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
-        } else if script == "timeout" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
+        // A script fed on stdin acts when it arrives.
+        if !request.stdin_piped {
+            self.act(script, &request.handle, &tx, &mut seq);
         }
         self.senders.lock().unwrap().insert(request.handle.clone(), (tx, seq));
         self.receivers.lock().unwrap().insert(request.handle.clone(), rx);
@@ -138,11 +87,21 @@ impl ProcessManager for FakeProcesses {
         Ok(Box::new(ChanSource(rx)))
     }
 
-    async fn write_stdin(&self, _: &ProcessHandle, _: Vec<u8>) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        if self.refuse_write.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(ProcessError::Io { os_code: Some(232) });
+        }
+        let script = String::from_utf8(bytes).unwrap();
+        self.fed.lock().unwrap().push(script.clone());
+        let mut senders = self.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
+        let tx = tx.clone();
+        self.act(&script, handle, &tx, seq);
+        Ok(())
     }
-    fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.closed.lock().unwrap().push(handle.clone());
+        Ok(())
     }
     fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
         Err(ProcessError::NotPty)
@@ -151,6 +110,7 @@ impl ProcessManager for FakeProcesses {
         if self.refuse_kill.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(ProcessError::UnknownHandle);
         }
+        self.killed.lock().unwrap().push(handle.clone());
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let reason = if self.limited.lock().unwrap().contains(handle) { KillReason::TimeLimit } else { KillReason::Requested };
@@ -162,6 +122,74 @@ impl ProcessManager for FakeProcesses {
     }
     fn list(&self) -> Vec<ProcessInfo> {
         Vec::new()
+    }
+}
+
+impl FakeProcesses {
+    /// What the process of `script` prints and how it ends.
+    fn act(&self, script: &str, handle: &ProcessHandle, tx: &Chan, seq: &mut u64) {
+        let exit = |status, killed| ProcessExit { status, killed };
+        if script == "run-limited" {
+            self.limited.lock().unwrap().insert(handle.clone());
+        } else if let Some(tee) = script
+            .split("-FilePath '")
+            .nth(1)
+            .filter(|_| script.contains("Tee-Object"))
+            .and_then(|rest| rest.split('\'').next())
+        {
+            // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
+            std::fs::write(tee, "boom\n").unwrap();
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+        } else if script == "echo begin; Start-Sleep 30" {
+            let bytes = b"begin\n".to_vec();
+            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+            send(tx, seq,|seq| ProcessEvent::Exited {
+                seq,
+                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
+            });
+        } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
+        } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
+            let bytes = format!("{word}\n").into_bytes();
+            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+        } else if script == "echo done-out" {
+            // Silent until the test prints and ends it, as Node's process had printed nothing when
+            // the task was promoted.
+        } else if let Some(rest) = script.strip_prefix("echo ") {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: format!("{rest}\n").into_bytes(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script.starts_with("grep ") {
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+        } else if script == "korean" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: vec![0xC7, 0xD1, 0xB1, 0xDB, 0x20, 0xC3, 0xE2, 0xB7, 0xC2, 0x0A],
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "repeat" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: "tick\n".repeat(200).into_bytes(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "fail" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stderr,
+                bytes: b"boom\n".to_vec(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
+        } else if script == "timeout" {
+            send(tx, seq,|seq| ProcessEvent::Exited {
+                seq,
+                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
+            });
+        }
     }
 }
 
@@ -245,6 +273,7 @@ fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, noti
         script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
         powershell: false,
+        warm_standby: false,
         now_ms: Arc::new(golden_ms),
     });
     let processes = Arc::new(FakeProcesses::default());
@@ -306,6 +335,164 @@ async fn echo_matches_the_golden_fixture() {
     let golden = fixture("shell", "shell-echo");
     let text = body(rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()).await);
     assert_eq!(text, golden["text"].as_str().unwrap());
+}
+
+/// The first job of a runtime removes the logs of ended jobs older than a week (`sweepExpiredShellOutput`), beside
+/// the command and never on its path: the command completes while the sweep is held. Only logs whose ownership
+/// record shows their job ended are taken: a running job's week-silent logs (another process's) and a user's file named
+/// like a log stay. Later jobs sweep nothing, and a job's own record shows it ended once it has.
+#[tokio::test]
+async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_the_command() {
+    let rig = rig();
+    let logs = rig.dir.path().join("l");
+    std::fs::create_dir_all(&logs).unwrap();
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let aged_with = |name: &str, body: &str, age: std::time::Duration| {
+        let path = logs.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
+        path
+    };
+    let aged = |name: &str, age| aged_with(name, "", age);
+    let job = |id: &str, state: &str, age| {
+        [
+            aged(&format!("{id}.stdout.log"), age),
+            aged(&format!("{id}.stderr.log"), age),
+            aged_with(&format!("{id}.owner.json"), &format!(r#"{{"pid":1,"state":"{state}"}}"#), age),
+        ]
+    };
+    let expired = job("task-old", "finished", day * 8);
+    let recent = job("task-recent", "finished", day * 6);
+    let live = job("task-live-elsewhere", "running", day * 8);
+    let users = aged("task-my-personal-notes.stdout.log", day * 8);
+    let foreign = aged("notes.txt", day * 8);
+    let gate = super::spill::sweep_gate::hold(&logs);
+    let golden = fixture("shell", "shell-echo");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()))
+        .await
+        .expect("the command completes while the log sweep is held")
+        .unwrap();
+    assert!(expired.iter().all(|p| p.exists()), "the held sweep has removed nothing yet");
+    gate.notify_one();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(expired.iter().all(|p| !p.exists()), "the ended job's week-old logs and record went");
+    assert!(recent.iter().all(|p| p.exists()), "the newer ones stayed");
+    assert!(live.iter().all(|p| p.exists()), "a running job's silent logs stay");
+    assert!(users.exists() && foreign.exists(), "files with no ownership record stay");
+    let later = job("task-later", "finished", day * 8);
+    rig.shell.call(&ctx(&rig, "c2"), golden["input"].clone()).await.unwrap();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(later.iter().all(|p| p.exists()), "the sweep runs once per runtime");
+}
+
+/// A job's logs are created after their ownership record, which shows the job running until it is marked ended.
+#[tokio::test]
+async fn a_jobs_log_record_shows_it_running_until_it_ends() {
+    let rig = rig();
+    let (out, err) = (rig.dir.path().join("task-r.stdout.log"), rig.dir.path().join("task-r.stderr.log"));
+    let writer = super::spill::LogWriter::new(rig.runtime.config.lanes.pty, &out, &err);
+    writer.open().await;
+    writer.close(super::spill::LOG_STALL).await;
+    let record = || std::fs::read_to_string(rig.dir.path().join("task-r.owner.json")).unwrap();
+    assert!(out.exists() && err.exists() && record().contains(r#""state":"running""#), "{}", record());
+    writer.mark_finished(super::spill::LOG_STALL).await;
+    assert!(record().contains(r#""state":"finished""#), "{}", record());
+}
+
+/// A job's first drain is held before it creates the logs (a stalled disk) while the job ends: the close gives the
+/// writer up and the end is marked with no record to mark yet. The held creation, when it runs, records the job as
+/// ended: a record left saying running after the job's end would keep its logs from every sweep. Real io-pty threads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_creation_held_past_the_jobs_end_records_the_job_as_ended() {
+    let minute = std::time::Duration::from_secs(60);
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("d.stdout.log"), dir.path().join("d.stderr.log")];
+    let owner = dir.path().join("d.owner.json");
+    let gate = super::spill::write_gate::arm(dir.path());
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    mixdog_rt::time::timeout(minute, writer.open()).await.expect("the drain starts");
+    let reached = gate.clone();
+    tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
+    mixdog_rt::time::timeout(minute, writer.close(std::time::Duration::ZERO)).await.expect("closing returns while the creation is held");
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the mark ends while the creation is held");
+    assert!(!owner.exists(), "the held creation has written no record, and the mark creates none");
+    gate.open();
+    mixdog_rt::time::timeout(minute, writer.idle()).await.expect("the held creation ends");
+    let record = std::fs::read_to_string(&owner).unwrap();
+    assert!(record.contains(r#""state":"finished""#), "{record}");
+}
+
+/// The end of a job is marked on its logs' own lane and within a deadline: with the only io-pty thread held, the mark
+/// waits in io-pty's queue, the marking returns at its deadline with the record unchanged, and the mark is written
+/// once a thread is free.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn marking_a_jobs_end_waits_on_the_logs_lane_and_returns_at_its_deadline() {
+    use mixdog_rt::LaneToken;
+    let minute = std::time::Duration::from_secs(60);
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.pty_max_live = 1;
+    let (executors, tokens) = mixdog_rt::exec::boot(config).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("m.stdout.log"), dir.path().join("m.stderr.log")];
+    let record = || std::fs::read_to_string(dir.path().join("m.owner.json")).unwrap();
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    mixdog_rt::time::timeout(minute, writer.open()).await.expect("the drain starts");
+    let closed = mixdog_rt::time::timeout(minute, writer.close(minute)).await.expect("the logs are created");
+    assert_eq!(closed, super::spill::LogsClosed::Complete);
+    let (started, held_started) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let holder = tokens
+        .pty_io
+        .submit(&CancellationToken::new(), move |_| {
+            started.send(()).unwrap();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(60));
+        })
+        .expect("io-pty takes the holder");
+    held_started.recv_timeout(minute).expect("the only io-pty thread is held");
+    let pty_queue = || executors.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::PtyIo).unwrap().queue_depth;
+    mixdog_rt::time::timeout(minute, writer.mark_finished(std::time::Duration::ZERO)).await.expect("marking returns at its deadline");
+    assert_eq!(pty_queue(), 1, "the mark waits in io-pty's queue");
+    assert!(record().contains(r#""state":"running""#), "{}", record());
+    drop(release);
+    mixdog_rt::time::timeout(minute, holder).await.expect("the holder ends").unwrap();
+    // A second mark queues behind the first: when it has run, so has the first.
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the marks run once a thread is free");
+    assert!(record().contains(r#""state":"finished""#), "{}", record());
+}
+
+/// A running job whose log another process's sweep removed keeps spilling: its next append recreates the log.
+#[tokio::test]
+async fn an_append_recreates_a_log_another_sweep_removed() {
+    let rig = rig();
+    let log = rig.dir.path().join("task-live.stdout.log");
+    let writer = super::spill::LogWriter::new(rig.runtime.config.lanes.pty, &log, &rig.dir.path().join("task-live.stderr.log"));
+    writer.push(0, b"first\n".to_vec()).await;
+    assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete);
+    std::fs::remove_file(&log).unwrap();
+    writer.push(0, b"later\n".to_vec()).await;
+    assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete, "the stream still spills");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "later\n");
+}
+
+/// A hoisted script stays while its command runs; one whose tree never settled is removed when
+/// the runtime shuts down (Node's exit hook, `foreground-artifact-lifecycle.test.mjs:66`).
+#[tokio::test]
+async fn a_hoisted_script_of_a_tree_that_never_settled_is_removed_at_shutdown() {
+    let rig = rig();
+    let started = body(
+        rig.shell
+            .call(&ctx(&rig, "c1"), serde_json::json!({"command": "node -e \"console.log(1)\"", "background": true}))
+            .await,
+    );
+    assert!(started.starts_with("background task\n"), "{started}");
+    let (spec, _) = rig.processes.seen.lock().unwrap().last().cloned().unwrap();
+    let CommandSpec::Shell { script, .. } = spec else { unreachable!() };
+    let path = script.rsplit('"').nth(1).map(std::path::PathBuf::from).expect("the command runs a hoisted file");
+    assert!(path.exists(), "the running command still uses {}", path.display());
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(!path.exists(), "the shutdown removed {}", path.display());
 }
 
 /// The `task` goldens were recorded from today's Node product (`executeTaskTool`); every text is
@@ -1124,6 +1311,56 @@ fn windows_powershell_rig() -> (Rig, ShellTool) {
     (rig, shell)
 }
 
+/// A script whose write to PowerShell's input fails is never run in part: its input is left open (the bootstrap reads
+/// to the end before it compiles, so it runs nothing), the tree is ended, and the call fails.
+#[tokio::test]
+async fn a_script_that_could_not_be_written_whole_is_ended_unrun_and_the_call_fails() {
+    let (rig, shell) = windows_powershell_rig();
+    rig.processes.refuse_write.store(true, std::sync::atomic::Ordering::SeqCst);
+    let error = shell.call(&ctx(&rig, "w1"), serde_json::json!({"command": "echo hi"})).await.unwrap_err();
+    assert_eq!(
+        error.message_for_model,
+        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run"
+    );
+    let handle = ProcessHandle::from("task-w1");
+    assert!(rig.processes.closed.lock().unwrap().is_empty(), "the input of a part-written script is never closed");
+    assert_eq!(*rig.processes.killed.lock().unwrap(), [handle]);
+}
+
+/// The bootstrap runs a script only when all of it arrived: an input that ends after half of the script (a pipe that broke
+/// part way) runs nothing of it, not even the statement the half carries whole, and exits 1; the whole script runs.
+#[cfg(windows)]
+#[test]
+fn the_bootstrap_runs_nothing_of_a_script_that_arrived_in_part() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("first-half-ran");
+    let script = format!("New-Item -ItemType File -Path '{}' | Out-Null\n# {}\nWrite-Output whole", marker.display(), "x".repeat(400));
+    let framed = super::invocation::frame_powershell_script(&script);
+    let run = |input: &str| {
+        let mut child = std::process::Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let half = &framed[..framed.len() / 2];
+    assert!(half.contains("Out-Null\n# x"), "the half carries the first statement whole");
+    let cut = run(half);
+    assert!(!marker.exists(), "the first half of a script that arrived in part ran");
+    assert_eq!(cut.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&cut.stderr).trim(), "the command arrived incomplete and was not run");
+    assert_eq!(String::from_utf8_lossy(&cut.stdout), "");
+    let whole = run(&framed);
+    assert!(marker.exists(), "the whole script ran");
+    assert_eq!((whole.status.code(), String::from_utf8_lossy(&whole.stdout).trim()), (Some(0), "whole"));
+}
+
 #[tokio::test]
 async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (rig, shell) = windows_powershell_rig();
@@ -1131,13 +1368,14 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (spec, _) = rig.processes.seen.lock().unwrap()[0].clone();
     let CommandSpec::Shell { script, shell: Some(program) } = spec else { panic!("{spec:?}") };
     assert_eq!(program, "powershell.exe");
+    assert_eq!(script, super::invocation::POWERSHELL_BOOTSTRAP);
     assert_eq!(
-        script,
-        format!(
+        rig.processes.fed.lock().unwrap()[0],
+        super::invocation::frame_powershell_script(&format!(
             "{}\n{}\necho hi",
             super::invocation::POWERSHELL_UTF8_PREFIX,
             super::invocation::render_powershell_skill_function(&skill_runtime())
-        )
+        ))
     );
     // The launcher files exist for this installation and their directory leads PATH.
     let launchers = rig.dir.path().join("data/skill-launchers");
@@ -1265,8 +1503,7 @@ async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consum
         text,
         "[exit code: 1]\n\n(no output)\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\nboom\n"
     );
-    let (spec, _) = rig.processes.seen.lock().unwrap()[0].clone();
-    let CommandSpec::Shell { script, .. } = spec else { panic!() };
+    let script = rig.processes.fed.lock().unwrap()[0].clone();
     let tee = script.split("-FilePath '").nth(1).and_then(|r| r.split('\'').next()).unwrap().to_owned();
     assert!(!std::path::Path::new(&tee).exists(), "the tee file is deleted");
 }
@@ -1329,7 +1566,7 @@ async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
         let rig = &rig;
         async move { body(rig.shell.call(&ctx(rig, &format!("m{i}")), serde_json::json!({"command": format!("echo out{i}")})).await) }
     });
-    let texts = tokio::time::timeout(std::time::Duration::from_secs(60), futures::future::join_all(calls))
+    let texts = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), futures::future::join_all(calls))
         .await
         .expect("30 shell calls finish while io-maintenance is held");
     for (i, text) in texts.iter().enumerate() {
@@ -1367,7 +1604,7 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
 
     let (stream, bytes) = chunk(0);
     expected[stream].extend_from_slice(&bytes);
-    tokio::time::timeout(std::time::Duration::from_secs(60), writer.push(stream, bytes)).await.expect("the drain starts");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.push(stream, bytes)).await.expect("the drain starts");
     gate.wait_reached(1);
     let mut accepted = 1;
     let blocked = loop {
@@ -1393,7 +1630,7 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
         assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete);
     };
     gate.open();
-    tokio::time::timeout(std::time::Duration::from_secs(60), producer).await.expect("the writer takes and writes every chunk");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), producer).await.expect("the writer takes and writes every chunk");
     assert_eq!(writer.unwritten(), 0);
     for (stream, log) in logs.iter().enumerate() {
         assert!(std::fs::read(log).unwrap() == expected[stream], "log {stream} holds every chunk in order");
@@ -1472,7 +1709,7 @@ async fn a_log_drain_that_panics_leaves_the_writer_ended_not_hung() {
         writer.push(1, b"late\n".to_vec()).await;
         writer.close(super::spill::LOG_STALL).await
     };
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain panicked");
+    let closed = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain panicked");
     assert_eq!(writer.unwritten(), 0);
     // Nothing reached either log: both say so from their first byte.
     assert_eq!(closed, super::spill::LogsClosed::Incomplete);
@@ -1492,7 +1729,7 @@ async fn a_refused_log_drain_leaves_the_writer_ended_not_hung() {
         writer.push(0, b"refused\n".to_vec()).await;
         writer.close(super::spill::LOG_STALL).await;
     };
-    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain was refused");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain was refused");
     assert_eq!(writer.unwritten(), 0);
     assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Incomplete);
     assert_eq!(writer.gaps(), [Some(0), None], "the refused output is recorded as missing from byte 0");
@@ -1566,7 +1803,7 @@ async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
     });
     assert!(futures::FutureExt::now_or_never(&mut run).is_none(), "the writer waits for an io-pty thread");
     drop(release);
-    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the log is written once the thread frees");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the log is written once the thread frees");
     assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "kept\n");
 }
 
@@ -1600,7 +1837,7 @@ impl ExitSignal {
             return;
         }
         let filled = self.inner.output_blocked(handle);
-        tokio::time::timeout(std::time::Duration::from_secs(60), futures::future::select(Box::pin(filled), ended))
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), futures::future::select(Box::pin(filled), ended))
             .await
             .expect("the child fills its replay ring or exits while the caller is held");
     }
@@ -1671,7 +1908,7 @@ async fn output_written_while_the_log_creation_is_held_is_not_lost() {
         exit_seen.recv_timeout(std::time::Duration::from_secs(60)).expect("the child wrote everything and exited");
         gate.open();
     });
-    let outcome = tokio::time::timeout(
+    let outcome = mixdog_rt::time::timeout(
         std::time::Duration::from_secs(120),
         rig.shell.call(&ctx(&rig, "ring"), serde_json::json!({ "command": command })),
     )
@@ -1703,7 +1940,7 @@ async fn output_written_before_the_job_is_scheduled_is_not_lost() {
     } else {
         (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES))
     };
-    let outcome = tokio::time::timeout(
+    let outcome = mixdog_rt::time::timeout(
         std::time::Duration::from_secs(120),
         rig.shell.call(&ctx(&rig, "late"), serde_json::json!({ "command": command })),
     )
@@ -1725,12 +1962,12 @@ async fn closing_a_stalled_log_writer_returns_at_its_deadline_and_names_the_miss
     let logs = [dir.path().join("c.stdout.log"), dir.path().join("c.stderr.log")];
     let gate = super::spill::write_gate::arm(dir.path());
     let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
-    tokio::time::timeout(std::time::Duration::from_secs(60), writer.push(0, b"held\n".to_vec()))
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.push(0, b"held\n".to_vec()))
         .await
         .expect("the drain starts");
     let reached = gate.clone();
     tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
+    let closed = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
         .await
         .expect("closing returns while the write is held");
     assert_eq!(closed, super::spill::LogsClosed::Incomplete);
@@ -1767,15 +2004,15 @@ async fn a_log_drain_waiting_for_a_thread_leaves_the_queue_when_the_writer_is_gi
     let mut push = Box::pin(writer.push(0, b"never\n".to_vec()));
     assert!(futures::FutureExt::now_or_never(&mut push).is_none(), "the drain waits for an io-pty thread");
     assert_eq!(pty_queue(), 1);
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
+    let closed = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
         .await
         .expect("closing returns while the drain waits");
     assert_eq!(closed, super::spill::LogsClosed::Incomplete);
-    tokio::time::timeout(std::time::Duration::from_secs(60), push).await.expect("the waiting drain is withdrawn");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), push).await.expect("the waiting drain is withdrawn");
     assert_eq!(pty_queue(), 0, "the drain left the lane's queue");
     assert_eq!(writer.gaps(), [Some(0), None]);
     drop(release);
-    tokio::time::timeout(std::time::Duration::from_secs(60), holder).await.expect("the holder ends").unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), holder).await.expect("the holder ends").unwrap();
     assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "", "nothing is written after the writer was given up");
 }
 
