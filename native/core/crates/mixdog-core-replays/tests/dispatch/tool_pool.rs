@@ -56,6 +56,9 @@ use mixdog_core::run_host::tool_pool::session_port::AiTitleSetting;
 use mixdog_core::run_host::tool_pool::session_port::LiveWork;
 use mixdog_core::run_host::tool_pool::session_port::ThreadCatalog;
 use mixdog_core::run_host::tool_pool::session_port::BotIds;
+use mixdog_core::run_host::tool_pool::session_port::BotRow;
+use mixdog_core::run_host::tool_pool::session_port::BotWorld;
+use mixdog_core::run_host::tool_pool::session_port::SessionWork;
 use mixdog_core::run_host::tool_pool::session_port::DirectorySessionPort;
 use mixdog_core::run_host::tool_pool::session_port::ProjectList;
 use mixdog_core::run_host::tool_pool::session_port::SessionPortParts;
@@ -421,6 +424,28 @@ impl ThreadCatalog for NoCatalog {
     fn live(&self) -> LiveWork {
         LiveWork::default()
     }
+    fn work_of(&self, _: &str) -> SessionWork {
+        SessionWork::default()
+    }
+}
+
+/// No bots, routines, held requests or watches: the tests that do not read `session bots`.
+struct NoBotWorld;
+
+#[async_trait]
+impl BotWorld for NoBotWorld {
+    async fn bots(&self) -> Result<Vec<BotRow>, String> {
+        Ok(Vec::new())
+    }
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+    async fn held_requests(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
 }
 
 struct NoProjects;
@@ -496,6 +521,8 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         bots: Arc::new(Bots(vec!["ann"])),
         suggestions: suggested.clone(),
         catalog: Arc::new(NoCatalog),
+        world: Arc::new(NoBotWorld),
+        quota: mixdog_core_session::session::testing::Rig::new().quota.clone(),
         clock: Arc::new(Now),
         io: mixdog_rt::testing::tokens().interactive_io,
     }));
@@ -906,13 +933,16 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
     }
 }
 
-// --- `session action=list|send|create` (`fixtures/session-control-cases`) ---------------------------------------------------
+// --- `session action=list|send|create|status|bots` (`fixtures/session-control-cases`) ------------------------------------------
 
-/// The catalog a case scripts: the pages in the order they are asked for, the rows read by id, the live sessions.
+/// The catalog a case scripts: the pages in the order they are asked for, the rows read by id, the live sessions. The catalog is
+/// the index of stored sessions (what Node's recording scripted as `listSessions`); every session itself is real.
 struct ScriptedCatalog {
     pages: Mutex<std::collections::VecDeque<Value>>,
     rows: HashMap<String, Value>,
     live: LiveWork,
+    approvals: HashSet<String>,
+    directory: Arc<mixdog_core_session::session::SessionDirectory>,
     log: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -928,71 +958,55 @@ impl ThreadCatalog for ScriptedCatalog {
         Ok(self.rows.get(id).cloned())
     }
     fn live(&self) -> LiveWork {
-        self.live.clone()
+        // The sessions running a turn are the directory's own; the agents they work for are the case's.
+        let mut live = self.live.clone();
+        live.own.extend(self.directory.loaded_ids().into_iter().filter(|id| self.directory.thread_busy(id)).map(|id| id.as_str().to_owned()));
+        live
+    }
+    fn work_of(&self, id: &str) -> SessionWork {
+        SessionWork { handed_by: Vec::new(), awaiting_approval: self.approvals.contains(id) }
     }
 }
 
-/// The thread requests a case's send and create make: what Node's runtime was handed (`runtime.submitAsync`) and the session
-/// a create started.
-struct ScriptedRequests {
-    log: Arc<Mutex<Vec<Value>>>,
-    caller: String,
-    turn: (u32, Vec<String>),
+struct ListedBots {
+    ids: Vec<String>,
+    mixy: Option<String>,
 }
-
-#[async_trait]
-impl ThreadRequests for ScriptedRequests {
-    async fn request(&self, _: &ThreadId, method: &'static str, _: Value) -> Result<Value, CoreError> {
-        panic!("a thread request {method} that no recorded case makes");
-    }
-    fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
-        panic!("an interrupt that no recorded case makes");
-    }
-    fn compact_after_turn(&self, _: &ThreadId) -> Result<(), CoreError> {
-        panic!("a compaction that no recorded case makes");
-    }
-    async fn transcript(&self, _: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
-        panic!("a transcript read that no recorded case makes");
-    }
-    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError> {
-        let mut meta = json!({ "sender": "lead" });
-        if let Some(agent) = from_agent {
-            meta["fromAgent"] = json!(agent);
-        }
-        if hop > 0 {
-            meta["hop"] = json!(hop);
-        }
-        if !chain.is_empty() {
-            meta["botChain"] = json!(chain);
-        }
-        // Node names the submission of a bot's send and of a create; a plain sender's it does not name.
-        let mut options = serde_json::Map::new();
-        if id.starts_with("atask_") {
-            options.insert("id".into(), json!(id));
-        }
-        options.insert("mode".into(), json!("prompt"));
-        options.insert("transcriptMeta".into(), meta);
-        self.log.lock().expect("log").push(json!(["runtime.submitAsync", thread.as_str(), content, options]));
-        Ok(true)
-    }
-    async fn start(&self, params: Value) -> Result<Value, CoreError> {
-        self.log.lock().expect("log").push(json!(["start", params]));
-        Ok(json!({ "thread": { "id": "sess_created" } }))
-    }
-    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
-        if thread.as_str() == self.caller { self.turn.clone() } else { (0, Vec::new()) }
-    }
-}
-
-struct ListedBots(Vec<String>);
 
 #[async_trait]
 impl BotIds for ListedBots {
     async fn ids(&self) -> Result<Vec<String>, String> {
-        Ok(self.0.clone())
+        Ok(self.ids.clone())
     }
     async fn name(&self, id: &str) -> String {
-        format!("Agent {id}")
+        match (&self.mixy, id) {
+            (Some(name), "lead") => name.clone(),
+            _ => format!("Agent {id}"),
+        }
+    }
+}
+
+/// The bots, routines, held requests and report watches a case's world holds.
+struct ScriptedBotWorld {
+    bots: Vec<BotRow>,
+    routines: Result<Vec<Value>, String>,
+    held: Vec<Value>,
+    watches: Vec<Value>,
+}
+
+#[async_trait]
+impl BotWorld for ScriptedBotWorld {
+    async fn bots(&self) -> Result<Vec<BotRow>, String> {
+        Ok(self.bots.clone())
+    }
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        self.routines.clone()
+    }
+    async fn held_requests(&self) -> Result<Vec<Value>, String> {
+        Ok(self.held.clone())
+    }
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        Ok(self.watches.clone())
     }
 }
 
@@ -1013,13 +1027,139 @@ impl mixdog_agent::env::Clock for At {
     }
 }
 
-/// `session action=list|send|create` over the port, case by case from Node's recording: the same arguments in the same world
-/// (its `input`), and the answer or refusal of the tool and the requests below it compared whole. A created session's id, a
-/// create's request id and the caller's folder are the recorder's placeholders.
-#[tokio::test]
-async fn list_send_and_create_answer_as_the_node_session_tool_does() {
+/// What the runs of a world saw, in the order they started: each run's thread and the input row it was handed.
+struct Runs {
+    inputs: Mutex<Vec<(String, Value)>>,
+    started: tokio::sync::Notify,
+    /// A turn whose prompt is `hold` stays in flight until this is given permits.
+    release: tokio::sync::Semaphore,
+}
+
+/// The prompts the world's own seeding sends: a turn held in flight, and one that fails on the provider's quota.
+const HOLD: &str = "hold";
+const QUOTA: &str = "quota";
+
+impl Runs {
+    fn prompts(&self) -> Vec<(String, Value)> {
+        self.inputs.lock().expect("runs").iter().filter(|(_, body)| !matches!(body["content"].as_str(), Some(HOLD | QUOTA))).cloned().collect()
+    }
+}
+
+/// The session directory over the real thread store (SQLite index and files under a temp folder) with scripted runs: the
+/// threads, their records, the turns and the thread requests are the product's own.
+struct World {
+    directory: Arc<mixdog_core_session::session::SessionDirectory>,
+    runs: Arc<Runs>,
+    quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
+    _rig: mixdog_core_session::session::testing::Rig,
+    _data: tempfile::TempDir,
+}
+
+async fn real_store(data: &std::path::Path) -> Arc<dyn mixdog_core_session::session::ThreadStore> {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &CancellationToken::new(), move |lane| SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root))
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+    Arc::new(mixdog_core_session::session::StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"))
+}
+
+async fn world(quota_reset: u64) -> World {
+    use mixdog_core_session::session::RunOutcome;
+    use mixdog_core_session::session::testing::Rig;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let runs = Arc::new(Runs { inputs: Mutex::default(), started: tokio::sync::Notify::new(), release: tokio::sync::Semaphore::new(0) });
+    let seen = runs.clone();
+    rig.set_script(Arc::new(move |run| {
+        let runs = seen.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("the input is durable");
+            runs.inputs.lock().expect("runs").push((run.thread.as_str().to_owned(), run.input_body.clone()));
+            runs.started.notify_waiters();
+            match run.input_body["content"].as_str() {
+                Some(HOLD) => {
+                    runs.release.acquire().await.expect("open").forget();
+                    RunOutcome::Completed(Box::default())
+                }
+                Some(QUOTA) => RunOutcome::Failed(mixdog_core_session::session::testing::quota_error(quota_reset)),
+                _ => RunOutcome::Completed(Box::default()),
+            }
+        })
+    }));
+    let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(rig.deps_on(store)));
+    World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data }
+}
+
+impl World {
+    /// A stored session under `id` with `record` as its header (the session record Node's world held, bar its own id and the
+    /// fields only Node's stub runtime read).
+    async fn open(&self, id: &str, record: &Value) {
+        let mut header: Header = record.as_object().cloned().unwrap_or_default();
+        for key in ["id", "messages", "turnHop", "turnBotChain"] {
+            header.remove(key);
+        }
+        self.directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the session is created");
+    }
+
+    /// A turn the world holds in flight in `id` (at bot-to-bot depth `hop`, in `chain`) until it is released.
+    async fn hold(&self, id: &str, prompt: &str, hop: u32, chain: &[String]) {
+        let thread = ThreadId::from(id);
+        assert!(self.directory.submit_chained_turn(&thread, &json!(prompt), &format!("seed-{id}-{prompt}"), hop, chain, "").await, "{id} takes its turn");
+        let (runs, handle) = (self.runs.clone(), self.directory.handle(&thread).expect("loaded"));
+        mixdog_core_session::session::testing::eventually_on_awaiting(
+            || format!("the {prompt} turn of {id} to start"),
+            &[&runs.started, handle.stepped()],
+            || runs.inputs.lock().expect("runs").iter().any(|(thread, body)| thread == id && body["content"] == json!(prompt)).then_some(()),
+        )
+        .await;
+    }
+
+    async fn read(&self, id: &str) -> Value {
+        ThreadRequests::request(&*self.directory, &ThreadId::from(id), "thread/read", json!({ "threadId": id })).await.expect("thread/read")
+    }
+}
+
+/// A quota resume of `id` is queued once its failed turn has settled (the queue is written on the store's own lane: the store tells when).
+async fn wait_for_quota_resume(world: &World, id: &str) {
+    let changed = Arc::new(tokio::sync::Notify::new());
+    let wake = changed.clone();
+    let _subscription = world.quota.subscribe(move |_| wake.notify_waiters());
+    mixdog_core_session::session::testing::awaiting(
+        || format!("the quota resume of {id} to be queued"),
+        async {
+            loop {
+                let changed = changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if world.quota.entry(id).is_some() {
+                    return;
+                }
+                changed.await;
+            }
+        },
+    )
+    .await;
+}
+fn nodes_row(id: &str, at: i64) -> Value {
+    json!({ "id": id, "title": format!("Title of {id}"), "status": "idle", "cwd": "/project", "lastUsedAt": 1_700_000_000_000_i64 + at * 1000, "updatedAt": 1_700_000_000_000_i64 + at * 1000 })
+}
+
+/// `session action=list|send|create|status|bots` through the tool, the port, the thread requests and a real directory, case by
+/// case from Node's recording: the same arguments in the same world (its `input`). What is compared is the answer or refusal
+/// of the tool whole, and the effects Node's recording lists: the catalog pages asked for, the session a create made (read from
+/// the created session's stored record: its folder, place and origin) and the prompts delivered (read from the input row of each
+/// turn the prompt started in the session that took it). A refused call made no session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_control_answers_as_the_node_session_tool_does_over_real_sessions() {
     let g = golden(mixdog_testkit::fixture!("../../fixtures/session-control-cases/golden.json"));
-    let now = g["clock"]["dateNow"].as_i64().expect("the recorded clock");
     let dir = tempfile::tempdir().expect("a folder");
     let work = mixdog_testkit::canonical(dir.path()).to_string_lossy().trim_start_matches(r"\\?\").to_owned();
     mixdog_testkit::create_dir_all(std::path::Path::new(&work).join("site"));
@@ -1029,15 +1169,13 @@ async fn list_send_and_create_answer_as_the_node_session_tool_does() {
     let quoted = serde_json::to_string(escaped).expect("json");
     let quoted = quoted[1..quoted.len() - 1].to_owned();
     let request = fancy_regex::Regex::new("atask_[0-9a-f-]{36}").expect("a pattern");
-    let names = |value: &Value| -> Value {
-        let text = serde_json::to_string(value).expect("json").replace(&quoted, "<WORK>").replace(escaped, "<WORK>").replace("sess_created", "<created>");
-        serde_json::from_str(&request.replace_all(&text, "<request>")).expect("json")
-    };
+    let mut failures: Vec<String> = Vec::new();
     for case in g["cases"].as_array().expect("cases") {
         let name = case["case"].as_str().expect("name");
+        eprintln!("case: {name}");
         let (args, options) = (case["input"]["args"].clone(), &case["input"]["options"]);
-        let list = |key: &str| -> Vec<String> { options[key].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default() };
-        let archived = list("archived");
+        let ids = |key: &str| -> Vec<String> { options[key].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default() };
+        let archived = ids("archived");
         let mark = |row: &Value| -> Value {
             let mut row = row.clone();
             if archived.iter().any(|id| row["id"] == json!(id)) {
@@ -1046,42 +1184,93 @@ async fn list_send_and_create_answer_as_the_node_session_tool_does() {
             row
         };
         let log = Arc::new(Mutex::new(Vec::new()));
-        let pages = options["pages"].as_array().map(|pages| pages.iter().map(|page| json!({ "sessions": page["sessions"].as_array().map(|rows| rows.iter().map(&mark).collect::<Vec<_>>()), "nextCursor": page["nextCursor"] })).collect()).unwrap_or_default();
+        let pages: std::collections::VecDeque<Value> = if let Some(spec) = options.get("scanPages") {
+            // The catalog Node generated for the scan cap: `pages` pages of `per` rows, each continuing (the last too when `more`).
+            let (count, per) = (spec["pages"].as_u64().expect("pages"), spec["per"].as_u64().expect("per"));
+            (0..count)
+                .map(|page| {
+                    let rows: Vec<Value> = (0..per).map(|i| nodes_row(&format!("sess_gen_{page}_{i}"), 1000 - (page * per + i) as i64)).collect();
+                    json!({ "sessions": rows, "nextCursor": if page < count - 1 || spec["more"] == json!(true) { json!(format!("gen_{page}")) } else { Value::Null } })
+                })
+                .collect()
+        } else {
+            options["pages"].as_array().map(|pages| pages.iter().map(|page| json!({ "sessions": page["sessions"].as_array().map(|rows| rows.iter().map(&mark).collect::<Vec<_>>()), "nextCursor": page["nextCursor"] })).collect()).unwrap_or_default()
+        };
         let rows: HashMap<String, Value> = options["rows"].as_object().map(|rows| rows.iter().map(|(id, row)| (id.clone(), mark(row))).collect()).unwrap_or_default();
-        let live = LiveWork { own: options["live"]["own"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default(), agents: options["live"]["agents"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default() };
+        let mut live = LiveWork { own: ids_of(&options["live"]["own"]), agents: ids_of(&options["live"]["agents"]) };
+        // The agents a session handed work to are still working: the catalog's live work.
+        live.agents.extend(ids("pending"));
         let caller_record = options.get("callerSession").cloned().unwrap_or_else(|| json!({ "id": "caller", "sourceType": "lead" }));
         let caller_id = caller_record["id"].as_str().expect("caller id").to_owned();
-        let threads = Arc::new(Threads::default());
-        {
-            let mut held = threads.0.lock().expect("threads");
-            let mut add = |id: &str, header: &Value| {
-                held.insert(id.to_owned(), header.as_object().cloned().unwrap_or_default());
-            };
-            for id in options["sessions"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect::<Vec<_>>()).unwrap_or_else(|| vec!["target".to_owned()]) {
-                add(&id, &json!({}));
+        let snapshots = options["snapshots"].as_object().cloned().unwrap_or_default();
+        let quota_reset = snapshots.values().find_map(|snapshot| snapshot["quotaResume"]["resetAt"].as_u64()).unwrap_or(5000);
+        let world = world(quota_reset).await;
+        // The sessions of the world: the stored ones, those with a route or title of their own, and the caller.
+        let mut sessions = if options.get("sessions").is_some() { ids("sessions") } else { vec!["target".to_owned()] };
+        sessions.extend(snapshots.keys().cloned());
+        sessions.extend(options["titles"].as_object().into_iter().flat_map(|titles| titles.keys().cloned()));
+        sessions.push(caller_id.clone());
+        let mut seen = HashSet::new();
+        for id in sessions.into_iter().filter(|id| seen.insert(id.clone())) {
+            let mut record = if id == caller_id { caller_record.clone() } else { rows.get(&id).map(|row| json!({ "taskOrigin": row["taskOrigin"], "title": row["title"] })).unwrap_or_else(|| json!({})) };
+            if let Some(snapshot) = snapshots.get(&id) {
+                for key in ["cwd", "provider", "model", "effort", "autoEffort", "fast"] {
+                    if let Some(value) = snapshot.get(key) {
+                        record[key] = value.clone();
+                    }
+                }
             }
-            for (id, row) in options["rows"].as_object().into_iter().flatten() {
-                add(id, row);
+            if let Some(title) = options["titles"][id.as_str()].as_str() {
+                record["title"] = json!(title);
             }
-            add("sess_created", &json!({}));
-            add(&caller_id, &caller_record);
+            world.open(&id, &record).await;
         }
+        // The turn the caller is in carries its bot-to-bot depth and chain; a busy session runs a turn.
+        let (hop, chain) = (caller_record["turnHop"].as_u64().unwrap_or(0) as u32, caller_record["turnBotChain"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect::<Vec<_>>()).unwrap_or_default());
+        if hop > 0 || !chain.is_empty() {
+            world.hold(&caller_id, HOLD, hop, &chain).await;
+        }
+        for id in ids("busy") {
+            world.hold(&id, HOLD, 0, &[]).await;
+        }
+        for (id, snapshot) in &snapshots {
+            if !snapshot["quotaResume"].is_null() {
+                world.hold(id, QUOTA, 0, &[]).await;
+                wait_for_quota_resume(&world, id).await;
+            }
+        }
+        let first = world.directory.loaded_ids();
+        let threads: Arc<dyn ThreadState> = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone()));
         let marks = HeartbeatSessions::new();
         if options["heartbeat"] == json!(true) {
             marks.mark(&caller_id);
         }
         let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, UnattendedRunRegistry::new(Arc::new(NoStamps))));
-        let turn = (caller_record["turnHop"].as_u64().unwrap_or(0) as u32, caller_record["turnBotChain"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default());
+        let bot_ids = if options.get("bots").is_some() { ids("bots") } else { vec!["ann".to_owned()] };
+        let bot_rows = bot_ids.iter().map(|id| BotRow { id: id.clone(), name: options["botRows"][id.as_str()]["name"].as_str().unwrap_or(id).to_owned(), disabled: options["botRows"][id.as_str()]["disabled"] == json!(true) }).collect();
+        let routines = match options["routinesError"].as_str() {
+            Some(error) => Err(error.to_owned()),
+            // The kind a routine is listed under is the store it came from (`channelSetup`'s schedules and webhooks).
+            None => Ok(options["routines"].as_array().map(|rows| rows.iter().map(|row| {
+                let mut row = row.clone();
+                row["kind"] = json!(if row["webhook"] == json!(true) { "webhook" } else { "schedule" });
+                row.as_object_mut().expect("a routine").remove("webhook");
+                row
+            }).collect()).unwrap_or_default()),
+        };
+        let now = options["now"].as_i64().unwrap_or_else(|| g["clock"]["dateNow"].as_i64().expect("the recorded clock"));
         let port = Arc::new(DirectorySessionPort::new(SessionPortParts {
             callers: callers.clone(),
             threads: threads.clone(),
-            requests: Arc::new(ScriptedRequests { log: log.clone(), caller: caller_id.clone(), turn }),
+            requests: world.directory.clone(),
             titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(threads.clone(), Arc::new(Messages), Arc::new(Now))),
             ai_titles: Arc::new(Titles(true)),
             projects: Arc::new(ListedProjects(options["projects"].as_array().map(|rows| rows.iter().map(|row| mixdog_tools::orch::session::ProjectRow { name: row["name"].as_str().expect("name").to_owned(), path: row["path"].as_str().expect("path").to_owned() }).collect()).unwrap_or_default())),
-            bots: Arc::new(ListedBots(options["bots"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_else(|| vec!["ann".to_owned()]))),
+            bots: Arc::new(ListedBots { ids: bot_ids.clone(), mixy: options["mixy"].as_str().map(str::to_owned) }),
+            quota: world.quota.clone(),
+            world: Arc::new(ScriptedBotWorld { bots: bot_rows, routines, held: options["held"].as_array().cloned().unwrap_or_default(), watches: options["watches"].as_array().cloned().unwrap_or_default() }),
             suggestions: Arc::new(Suggested::default()),
-            catalog: Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, log: log.clone() }),
+            catalog: Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, approvals: ids("approvals").into_iter().collect(), directory: world.directory.clone(), log: log.clone() }),
             clock: Arc::new(At(now)),
             io: mixdog_rt::testing::tokens().interactive_io,
         }));
@@ -1091,38 +1280,84 @@ async fn list_send_and_create_answer_as_the_node_session_tool_does() {
             Some(other) => ToolContext { thread_id: ThreadId::from(other), surface: SurfaceKind::Agent, cwd: AbsPath::new(&work).expect("absolute"), ..ctx() },
             None => ToolContext { thread_id: ThreadId::from(caller_id.as_str()), cwd: AbsPath::new(&work).expect("absolute"), ..ctx() },
         };
-        let mut observed = match answer(&tool, &context, args).await {
+        let answered = answer(&tool, &context, args).await;
+        let created: Option<String> = answered.as_ref().ok().and_then(|text| serde_json::from_str::<Value>(text).ok()).and_then(|out| out["session_id"].as_str().map(str::to_owned)).filter(|id| !first.iter().any(|known| known.as_str() == id));
+        let mut observed = match &answered {
             Ok(text) => json!({ "answer": text }),
             Err(error) => json!({ "error": error }),
         };
-        // The session a create started is what Node's service was asked to create: its folder, its place and its origin.
-        let calls: Vec<Value> = log
-            .lock()
-            .expect("log")
-            .iter()
-            .map(|call| {
-                if call[0] != "start" {
-                    return call.clone();
+        let mut calls: Vec<Value> = log.lock().expect("log").clone();
+        let created_threads: Vec<_> = world.directory.loaded_ids().into_iter().filter(|id| !first.contains(id)).collect();
+        match &created {
+            Some(id) => {
+                assert_eq!(created_threads.iter().map(|id| id.as_str()).collect::<Vec<_>>(), [id.as_str()], "{name}: the create made one session");
+                // The session a create started is what Node's service was asked to create: its folder, its place and its origin.
+                let header = threads.header(&ThreadId::from(id.as_str())).await.expect("the created session");
+                assert_eq!(header["sourceName"], json!(format!("agent:{}@home", header["taskOrigin"]["agentId"].as_str().expect("agent"))), "{name}: the task is tagged with where it came from");
+                calls.push(json!(["service.createSession", { "cwd": header["cwd"], "desktopSession": header["desktopSession"], "sessionProfile": { "taskOrigin": header["taskOrigin"] } }]));
+            }
+            None => assert!(created_threads.is_empty(), "{name}: a call that created nothing made sessions {created_threads:?}"),
+        }
+        // The prompts the sessions took: each starts its first turn (or, behind a running turn, a later one) with the prompt as
+        // its input row, stamped with the sender, the hop and the chain.
+        let mut want = case["observed"].clone();
+        let recorded = want["calls"].as_array().expect("calls").iter().filter(|call| call[0] == "runtime.submitAsync").count();
+        world.runs.release.add_permits(10_000);
+        let runs = world.runs.clone();
+        mixdog_core_session::session::testing::eventually_on_awaiting(|| format!("{name}: {recorded} prompts to start a turn"), &[&runs.started], || (runs.prompts().len() >= recorded).then_some(())).await;
+        assert_eq!(runs.prompts().len(), recorded, "{name}: the prompts delivered");
+        for (thread, body) in runs.prompts() {
+            let meta = &body["meta"]["transcript"];
+            assert_eq!(body["role"], json!("user"), "{name}: a prompt is the user's row");
+            let mut transcript = Map::new();
+            for key in ["sender", "fromAgent", "hop", "botChain"] {
+                if !meta[key].is_null() {
+                    transcript.insert(key.to_owned(), meta[key].clone());
                 }
-                let header = threads.header_of("sess_created");
-                let cwd = call[1]["projectPath"].clone();
-                let place = header.get("desktopSession").cloned().unwrap_or_else(|| json!({ "classification": "project", "projectPath": cwd }));
-                json!(["service.createSession", { "cwd": cwd, "desktopSession": place, "sessionProfile": { "taskOrigin": header["taskOrigin"] } }])
-            })
-            .collect();
+            }
+            // The plain sender's submission is named here only so its queue entry can carry the message's meta; Node names the
+            // submission of a bot's send and of a create only.
+            let id = meta["submissionIds"][0].as_str().expect("the submission id");
+            let mut options = Map::new();
+            if id.starts_with("atask_") {
+                options.insert("id".to_owned(), json!(id));
+            }
+            options.insert("mode".to_owned(), json!("prompt"));
+            options.insert("transcriptMeta".to_owned(), Value::Object(transcript));
+            calls.push(json!(["runtime.submitAsync", thread, body["content"], options]));
+        }
         observed["calls"] = json!(calls);
         observed["delivered"] = json!([]);
+        // The quota resume a status reads is the failed turn's own: its turn key, provider and model are the run's.
+        if let (Some(answer), Some(snapshot)) = (observed["answer"].as_str(), snapshots.values().find(|snapshot| !snapshot["quotaResume"].is_null())) {
+            let mut out: Value = serde_json::from_str(answer).expect("the answer");
+            for key in ["state", "resetAt", "attempts"] {
+                assert_eq!(out["quotaResume"][key], snapshot["quotaResume"][key], "{name}: quotaResume.{key}");
+            }
+            out["quotaResume"] = snapshot["quotaResume"].clone();
+            observed["answer"] = json!(serde_json::to_string(&out).expect("json"));
+        }
+        let names = |value: &Value| -> Value {
+            let mut text = serde_json::to_string(value).expect("json").replace(&quoted, "<WORK>").replace(escaped, "<WORK>");
+            if let Some(created) = &created {
+                text = text.replace(created.as_str(), "<created>");
+            }
+            serde_json::from_str(&request.replace_all(&text, "<request>")).expect("json")
+        };
         // Node's own route of a task (the Lead route of its config) is the route service's here.
-        let mut want = case["observed"].clone();
         for call in want["calls"].as_array_mut().expect("calls") {
             if call[0] == "service.createSession" {
                 call[1].as_object_mut().expect("input").retain(|key, _| key != "provider" && key != "model");
             }
         }
-        assert_eq!(names(&observed), want, "{name}");
-        if let Some(created) = threads.0.lock().expect("threads").get("sess_created").filter(|header| header.contains_key("taskOrigin")) {
-            // The task session is tagged with where it came from, `sourceName` filing it in the Agents list.
-            assert_eq!(created["sourceName"], json!(format!("agent:{}@home", created["taskOrigin"]["agentId"].as_str().expect("agent"))), "{name}");
+        let got = names(&observed);
+        if got != want {
+            failures.push(format!("{name}: {}\n  got:  {got}\n  want: {want}", case["input"]["args"]));
         }
     }
+    assert!(failures.is_empty(), "{} cases differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+fn ids_of(value: &Value) -> Vec<String> {
+    value.as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default()
 }

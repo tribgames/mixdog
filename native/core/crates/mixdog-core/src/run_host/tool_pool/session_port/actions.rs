@@ -84,11 +84,14 @@ fn is_session_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// `requestCaller`: a request without a valid calling session is refused.
+pub(super) fn caller_required(call: &ControlCall) -> Result<(), PortError> {
+    if is_session_id(call.caller_thread.as_str()) { Ok(()) } else { Err(failed("session: caller session is required")) }
+}
+
 /// Throws as Node does on a caller that is no session, a missing or self target and paging out of range.
 pub(super) fn target_request(call: &ControlCall, action: &str) -> Result<Target, PortError> {
-    if !is_session_id(call.caller_thread.as_str()) {
-        return Err(failed("session: caller session is required"));
-    }
+    caller_required(call)?;
     let id = call.args.get("session_id").and_then(Value::as_str).map(js_trim).unwrap_or_default().to_owned();
     if TARGET_ACTIONS.contains(&action) && !is_session_id(&id) {
         return Err(invalid("session_id", &format!("session: session_id is required for action={action}")));
@@ -288,12 +291,7 @@ impl DirectorySessionPort {
         }
         // Scoped like bots (`scopedBot`): the human's sessions list everything with previews, a bot (or its unattended run) the
         // same rows but only its own with the bot, activity, preview and working state, a background run none.
-        let own: Option<String> = match self.parts.callers.scope(&call.caller_thread).await {
-            CallerScope::Human => Some(String::new()),
-            CallerScope::Agent { agent_id, .. } if !agent_id.is_empty() => Some(agent_id),
-            CallerScope::RoomMember => room_member_of_session(call.caller_thread.as_str()).map(|member| member.agent_id).filter(|id| !id.is_empty()),
-            CallerScope::Agent { .. } | CallerScope::Headless => None,
-        };
+        let own = self.scoped_bot(&call.caller_thread).await;
         let flag = |key: &str| call.args.get(key) == Some(&Value::Bool(true));
         let (with_agents, with_archived) = (flag("include_agents"), flag("include_archived"));
         let keep = |row: &Value| (with_agents || !is_agent_only(row)) && (with_archived || row.get("archived") != Some(&Value::Bool(true)));
@@ -348,14 +346,30 @@ impl DirectorySessionPort {
         .map_err(failed)
     }
 
-    /// `scanCatalog`: the catalog rows `keep` admits, newest first, from `cursor` on, in pages of `SCAN_PAGE`; it stops at
-    /// `want` rows or after `SCAN_ROWS` scanned. The cursor continues after the last row looked at.
+    /// `scopedBot(callerScope)`: `""` for the human's scope (every bot), the one bot a bot's scope sees, `None` for none (a
+    /// background run).
+    pub(super) async fn scoped_bot(&self, thread: &ThreadId) -> Option<String> {
+        match self.parts.callers.scope(thread).await {
+            CallerScope::Human => Some(String::new()),
+            CallerScope::Agent { agent_id, .. } if !agent_id.is_empty() => Some(agent_id),
+            CallerScope::RoomMember => room_member_of_session(thread.as_str()).map(|member| member.agent_id).filter(|id| !id.is_empty()),
+            CallerScope::Agent { .. } | CallerScope::Headless => None,
+        }
+    }
+
+    /// [`Self::scan_rows`] of a list: at most `SCAN_ROWS` rows looked at.
     async fn scan(&self, keep: &(dyn Fn(&Value) -> bool + Sync), cursor: Option<&str>, want: usize) -> Result<(Vec<Value>, Option<String>), PortError> {
+        self.scan_rows(keep, cursor, want, SCAN_ROWS).await
+    }
+
+    /// `scanCatalog`: the catalog rows `keep` admits, newest first, from `cursor` on, in pages of `SCAN_PAGE`; it stops at
+    /// `want` rows or after `max_rows` scanned. The cursor continues after the last row looked at.
+    pub(super) async fn scan_rows(&self, keep: &(dyn Fn(&Value) -> bool + Sync), cursor: Option<&str>, want: usize, max_rows: usize) -> Result<(Vec<Value>, Option<String>), PortError> {
         let mut rows = Vec::new();
         let mut scanned = 0;
         let mut next: Option<String> = cursor.map(str::to_owned);
         loop {
-            let page = self.parts.catalog.page(next.as_deref(), SCAN_PAGE.min(SCAN_ROWS - scanned)).await.map_err(super::core)?;
+            let page = self.parts.catalog.page(next.as_deref(), SCAN_PAGE.min(max_rows - scanned)).await.map_err(super::core)?;
             let list = page.sessions;
             next = if list.is_empty() { None } else { page.next_cursor };
             for (index, row) in list.iter().enumerate() {
@@ -369,7 +383,7 @@ impl DirectorySessionPort {
                     return Ok((rows, more.then(|| catalog_cursor_of(row))));
                 }
             }
-            if next.is_none() || scanned >= SCAN_ROWS {
+            if next.is_none() || scanned >= max_rows {
                 return Ok((rows, next));
             }
         }

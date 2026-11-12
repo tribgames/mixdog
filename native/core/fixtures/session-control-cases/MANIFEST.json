@@ -1,9 +1,10 @@
 {
-  "cases": 65,
+  "cases": 96,
   "command": "node benchmarks/rust-core/recorders/record-session-control-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": "workspace-tools.mjs createWorkspaceToolHandlers().session (the session tool, actions list, send and create) over daemon-session-control.mjs createSessionControl, agent-task-sessions.mjs createAgentTaskSessions and the real session-service.mjs createSessionService on a stub runtime factory; seams: the catalog pages, the bot list, the live work, the archived flags, the report watches (refusing) and the projects",
   "exclusions": {
     "a group room": "a send to a room's log goes through the desktop room host; the core has none for the session tool and refuses it",
+    "agent work a session waits on": "a status' agentsWorking is the sessions with an agent turn in flight (the catalog's live work); the agent pool rows, the owed agent results and the background agent tasks Node's taskSessionPendingWork also reads (store-agent-worker-rows.mjs, pending-messages.mjs, background-tasks.mjs) have no store in the core and read as none, the case's `pending` seam being the live agent work",
     "attached files": "a file forwarded with send/create needs the caller's conversation files; the core refuses attachments in this runtime (session_port.rs resolve_attachments)",
     "model, effort, worktree": "create and send with model, effort or worktree need the model catalog and the worktree host through the session service; the core refuses them",
     "random names": "a created session id (sess_daemon_<ms>_<32 hex>) is <created>, a create's request id (atask_<uuid>) is <request> and the caller's folder (a temporary directory) is <WORK>",
@@ -14,9 +15,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 114667,
+      "bytes": 318040,
       "path": "golden.json",
-      "sha256": "e9d688875d4e45911caf5aceb0e9598b40d086b20e7849ab5134031ceb91d70f"
+      "sha256": "0581a2f457044bb7a426857b56f1773d7f4a2df4db886ac291ae83d8ecd64659"
     }
   ],
   "inputs": [
@@ -72,13 +73,16 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-control-cases.mjs",
-  "recorderSha256": "c0cc0d0c785ab8411a95575c20d4889cfcf591c43330eb9f7d8f24da36fbefc5",
+  "recorderSha256": "dd01952ed49b1fb040b0683cacba4a59331cc5cf878d9d0ce2e6c5d46a76240a",
   "replay": {
-    "compare": "SessionTool::call over DirectorySessionPort (the tool answer or refusal of each case, and the requests the port makes of the session catalog and the thread requests)",
+    "compare": "SessionTool::call over DirectorySessionPort over a real SessionDirectory on the real thread store (the tool answer or refusal of each case; the catalog pages the port asks for; the session a create made read from its stored record; the prompts delivered read from the input row of the turn each started in the session that took it)",
     "entry": "Drive these public items on o1: mixdog-core/src/run_host/tool_pool/session_port.rs:1 DirectorySessionPort::control.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [],
-    "normalised": {},
+    "normalised": {
+      "quotaResume": "status: the waiting resume comes from a real failed turn of the session: its state, resetAt and attempts are compared, its turnKey, provider and model are the run's own and are taken from the recording",
+      "service.createSession provider, model": "the route of a task is the route service's here"
+    },
     "protocolMethods": [],
     "rustTargets": [
       {
@@ -90,6 +94,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-control-cases",
-  "totalBytes": 114667,
+  "totalBytes": 318040,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

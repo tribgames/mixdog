@@ -459,6 +459,87 @@ impl mixdog_core::run_host::tool_pool::session_port::ThreadCatalog for LateListC
     fn live(&self) -> mixdog_core::run_host::tool_pool::session_port::LiveWork {
         self.0.get().map(|catalog| catalog.live()).unwrap_or_default()
     }
+
+    fn work_of(&self, id: &str) -> mixdog_core::run_host::tool_pool::session_port::SessionWork {
+        self.0.get().map(|catalog| catalog.work_of(id)).unwrap_or_default()
+    }
+}
+
+/// What `session bots` reads besides the catalog, over the stores the daemon composes: the contact bots (off the roster when
+/// the config disables them), the schedules and webhooks (`channelSetup`), the held requests of unattended runs
+/// (`pendingHeldRequests`) and the report watches of task turns (`agentTaskWatches`, the home delivery, built after the pool
+/// this sits in).
+pub struct DaemonBotWorld {
+    pub bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
+    pub config: mixdog_core_config::config::Config,
+    pub admin: Arc<mixdog_services::channels::ChannelAdmin>,
+    pub held: Arc<crate::held_requests::HeldRequests>,
+    delivery: OnceLock<Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>>,
+}
+
+impl DaemonBotWorld {
+    pub fn new(
+        bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
+        config: mixdog_core_config::config::Config,
+        admin: Arc<mixdog_services::channels::ChannelAdmin>,
+        held: Arc<crate::held_requests::HeldRequests>,
+    ) -> Self {
+        Self { bots, config, admin, held, delivery: OnceLock::new() }
+    }
+
+    pub fn bind(&self, delivery: Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>) -> Result<(), &'static str> {
+        self.delivery.set(delivery).map_err(|_| "bot world delivery")
+    }
+}
+
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_port::BotWorld for DaemonBotWorld {
+    async fn bots(&self) -> Result<Vec<mixdog_core::run_host::tool_pool::session_port::BotRow>, String> {
+        let agent = self.config.agent();
+        let mut rows = Vec::new();
+        for id in self.bots.ids().await? {
+            let name = self.bots.name(&id).await;
+            let disabled = mixdog_core_config::config::agent_disabled(&agent, &id);
+            rows.push(mixdog_core::run_host::tool_pool::session_port::BotRow { id, name, disabled });
+        }
+        Ok(rows)
+    }
+
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        let setup = self.admin.get_channel_setup().await.map_err(|error| error.to_string())?;
+        let mut rows = Vec::new();
+        for (key, kind) in [("schedules", "schedule"), ("webhooks", "webhook")] {
+            for row in setup.get(key).and_then(Value::as_array).into_iter().flatten() {
+                let mut row = row.clone();
+                if let Some(row) = row.as_object_mut() {
+                    row.insert("kind".to_owned(), Value::String(kind.to_owned()));
+                }
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+
+    async fn held_requests(&self) -> Result<Vec<Value>, String> {
+        self.held.pending().iter().map(|held| serde_json::to_value(held).map_err(|error| error.to_string())).collect()
+    }
+
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        match self.delivery.get() {
+            Some(delivery) => delivery.task_watches().await,
+            None => Err("the report queue is not bound".to_owned()),
+        }
+    }
+}
+
+impl Bound for DaemonBotWorld {
+    fn cell(&self) -> &'static str {
+        "bot world delivery"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.delivery.get().is_some()
+    }
 }
 
 impl Bound for LateListCatalog {
