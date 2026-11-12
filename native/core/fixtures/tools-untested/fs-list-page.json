@@ -71,6 +71,33 @@
       },
       "text": "entry-000.txt\tfile\nentry-001.txt\tfile\nentry-002.txt\tfile\nentry-003.txt\tfile\nentry-004.txt\tfile\nentry-005.txt\tfile\nentry-006.txt\tfile\nentry-007.txt\tfile\nentry-008.txt\tfile\nentry-009.txt\tfile\nentry-010.txt\tfile\nentry-011.txt\tfile\nentry-012.txt\tfile\nentry-013.txt\tfile\nentry-014.txt\tfile\nentry-015.txt\tfile\nentry-016.txt\tfile\nentry-017.txt\tfile\nentry-018.txt\tfile\nentry-019.txt\tfile\nentry-020.txt\tfile\nentry-021.txt\tfile\nentry-022.txt\tfile\nentry-023.txt\tfile\nentry-024.txt\tfile\nentry-025.txt\tfile\nentry-026.txt\tfile\nentry-027.txt\tfile\nentry-028.txt\tfile\nentry-029.txt\tfile\nentry-030.txt\tfile\nentry-031.txt\tfile\nentry-032.txt\tfile\nentry-033.txt\tfile\nentry-034.txt\tfile\nentry-035.txt\tfile\nentry-036.txt\tfile\nentry-037.txt\tfile\nentry-038.txt\tfile\nentry-039.txt\tfile\nentry-040.txt\tfile\nentry-041.txt\tfile\nentry-042.txt\tfile\nentry-043.txt\tfile\nentry-044.txt\tfile\nentry-045.txt\tfile\nentry-046.txt\tfile\nentry-047.txt\tfile\nentry-048.txt\tfile\nentry-049.txt\tfile\nentry-050.txt\tfile\nentry-051.txt\tfile\nentry-052.txt\tfile\nentry-053.txt\tfile\nentry-054.txt\tfile\nentry-055.txt\tfile\nentry-056.txt\tfile\nentry-057.txt\tfile\nentry-058.txt\tfile\nentry-059.txt\tfile\nentry-060.txt\tfile\nentry-061.txt\tfile\nentry-062.txt\tfile\nentry-063.txt\tfile\nentry-064.txt\tfile\nentry-065.txt\tfile\nentry-066.txt\tfile\nentry-067.txt\tfile\nentry-068.txt\tfile\nentry-069.txt\tfile\nentry-070.txt\tfile\nentry-071.txt\tfile\nentry-072.txt\tfile\nentry-073.txt\tfile\nentry-074.txt\tfile\nentry-075.txt\tfile\nentry-076.txt\tfile\nentry-077.txt\tfile\nentry-078.txt\tfile\nentry-079.txt\tfile\nentry-080.txt\tfile\nentry-081.txt\tfile\nentry-082.txt\tfile\nentry-083.txt\tfile\nentry-084.txt\tfile\nentry-085.txt\tfile\nentry-086.txt\tfile\nentry-087.txt\tfile\nentry-088.txt\tfile\nentry-089.txt\tfile\nentry-090.txt\tfile\nentry-091.txt\tfile\nentry-092.txt\tfile\nentry-093.txt\tfile\nentry-094.txt\tfile\nentry-095.txt\tfile\nentry-096.txt\tfile\nentry-097.txt\tfile\nentry-098.txt\tfile\nentry-099.txt\tfile\n[entries 1-100 of 101; offset:100 for more]",
       "isError": false
+    },
+    {
+      "input": {
+        "path": "<ROOT>/missing"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/missing' Not found; under \".\" try: \"entry-000.txt\", \"entry-001.txt\", \"entry-002.txt\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
+      "isError": false
+    },
+    {
+      "input": {
+        "path": "<ROOT>",
+        "hidden": true,
+        "limit": 10,
+        "offset": 95
+      },
+      "text": "entry-095.txt\tfile\nentry-096.txt\tfile\nentry-097.txt\tfile\nentry-098.txt\tfile\nentry-099.txt\tfile\nentry-100.txt\tfile",
+      "isError": false
+    },
+    {
+      "input": {
+        "path": "<ROOT>",
+        "hidden": true,
+        "head_limit": 5,
+        "limit": 10
+      },
+      "text": "entry-000.txt\tfile\nentry-001.txt\tfile\nentry-002.txt\tfile\nentry-003.txt\tfile\nentry-004.txt\tfile\n[entries 1-5 of 101; offset:5 for more]",
+      "isError": false
     }
   ]
 }

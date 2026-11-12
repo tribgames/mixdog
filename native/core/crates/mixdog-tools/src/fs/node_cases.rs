@@ -73,7 +73,7 @@ async fn list_pages_as_node_pages_it() {
     let mut failures = Vec::new();
     for call in doc["calls"].as_array().unwrap() {
         let args: Value = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", &fwd)).unwrap();
-        let (is_error, text) = super::tests::text_of(list.call(&ctx, super::tests::schema_args("list", args)).await);
+        let (is_error, text) = super::tests::text_of(list.call(&ctx, args).await);
         let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
         if text != call["text"].as_str().unwrap() || is_error != call["isError"].as_bool().unwrap() {
             failures.push(format!("{}:\n  Node ({}) {:?}\n  here ({is_error}) {text:?}", call["input"], call["isError"], call["text"]));
