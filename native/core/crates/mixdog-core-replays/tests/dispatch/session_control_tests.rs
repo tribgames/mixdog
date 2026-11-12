@@ -357,7 +357,7 @@ fn masked_value(value: &Value) -> Value {
 /// Node's recorder keeps it; a scenario's `send.watch` makes the watch store refuse. Woken on each
 /// report and each dropped record of work.
 #[derive(Default)]
-struct HomeRecords {
+pub(super) struct HomeRecords {
     refuse: Option<mixdog_services::bots::delivery::queue::WatchError>,
     watches: Mutex<Vec<Value>>,
     unwatched: Mutex<Vec<Value>>,
@@ -365,6 +365,13 @@ struct HomeRecords {
     disowned: Mutex<Vec<Value>>,
     delivered: Mutex<Vec<(String, String)>>,
     settled: tokio::sync::Notify,
+}
+
+impl HomeRecords {
+    /// A home whose watch store refuses every watch with `error`.
+    pub(super) fn refusing(error: mixdog_services::bots::delivery::queue::WatchError) -> Self {
+        Self { refuse: Some(error), ..Self::default() }
+    }
 }
 
 /// A process token and time as the recording names them.
@@ -417,7 +424,7 @@ impl mixdog_services::task_reports::host::HomeQueue for HomeRecords {
 }
 
 /// Node's recorder: no agent work is pending for a task session.
-struct NothingPending;
+pub(super) struct NothingPending;
 
 #[async_trait]
 impl mixdog_services::task_reports::host::AgentRegistry for NothingPending {
@@ -441,7 +448,7 @@ impl mixdog_services::task_reports::host::AgentRegistry for NothingPending {
     }
 }
 
-struct Named(Vec<Value>);
+pub(super) struct Named(pub(super) Vec<Value>);
 
 #[async_trait]
 impl mixdog_core::run_host::tool_pool::session_send::AgentNames for Named {
@@ -471,7 +478,7 @@ impl mixdog_core::run_host::tool_pool::session_send::SessionEffort for Efforts {
     }
 }
 
-struct NoRebind;
+pub(super) struct NoRebind;
 
 #[async_trait]
 impl mixdog_core::run_host::tool_pool::session_send::Rebind for NoRebind {

@@ -426,11 +426,17 @@ impl SessionSend {
             let rows = self.catalog.rows().await?;
             level = Some(check_effort(effort, &clean(target.get("provider")), &clean(target.get("model")), &rows)?);
         }
+        // The effort goes on first, then the service takes the prompt: a session it does not hold is refused there
+        // (`submitSession`), after the effort check.
+        let in_room = room.is_some();
         let apply_effort = |level: Option<Option<String>>| async move {
-            match level {
-                Some(level) => self.effort.set_effort(&ThreadId::from(session_id), level.as_deref()).await,
-                None => Ok(()),
+            if let Some(level) = level {
+                self.effort.set_effort(&ThreadId::from(session_id), level.as_deref()).await?;
             }
+            if !in_room && self.header(session_id).await.is_none() {
+                return Err(format!("session {session_id} is not available"));
+            }
+            Ok(())
         };
         let turn_hop = self.chains.hop(caller);
         if let Some(origin) = origin.as_mut() {

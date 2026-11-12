@@ -995,6 +995,93 @@ impl ThreadCatalog for ScriptedCatalog {
     }
 }
 
+/// Node's recorder: the agent work that is pending is the owners the case names; none is in flight.
+struct PendingOwners(HashSet<String>);
+
+#[async_trait]
+impl mixdog_services::task_reports::host::AgentRegistry for PendingOwners {
+    async fn owed_results(&self, _: &str) -> Vec<mixdog_services::task_reports::chain::Owed> {
+        Vec::new()
+    }
+    fn in_flight(&self) -> mixdog_services::task_reports::host::InFlight {
+        Default::default()
+    }
+    fn agent_task_owners(&self) -> HashSet<String> {
+        self.0.clone()
+    }
+    fn agent_tasks(&self) -> Vec<mixdog_services::task_reports::chain::AgentTask> {
+        Vec::new()
+    }
+    async fn stored_workers(&self, _: &HashSet<String>) -> Vec<Value> {
+        Vec::new()
+    }
+    async fn settle_restart_failures(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The store's listing over a case's scripted catalog: its pages in order, its rows by id and the live work laid over.
+struct ScriptedListing {
+    catalog: Arc<ScriptedCatalog>,
+    now: i64,
+}
+
+fn listed(row: Value) -> mixdog_core::run_host::tool_pool::session_control::ListedRow {
+    let archived = row["archived"] == json!(true);
+    mixdog_core::run_host::tool_pool::session_control::ListedRow { row: row.as_object().cloned().unwrap_or_default(), archived }
+}
+
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_control::SessionListing for ScriptedListing {
+    async fn page(&self, limit: usize, cursor: Option<&str>) -> Result<mixdog_core::run_host::tool_pool::session_control::ListingPage, String> {
+        let page = self.catalog.page(cursor, limit).await.map_err(|error| format!("{error:?}"))?;
+        Ok(mixdog_core::run_host::tool_pool::session_control::ListingPage { rows: page.sessions.into_iter().map(listed).collect(), next_cursor: page.next_cursor })
+    }
+    async fn row(&self, id: &str) -> Result<Option<mixdog_core::run_host::tool_pool::session_control::ListedRow>, String> {
+        Ok(self.catalog.row(id).await.map_err(|error| format!("{error:?}"))?.map(listed))
+    }
+    async fn live_sources(&self) -> Result<mixdog_core::run_host::tool_pool::session_control::LiveSources, String> {
+        let live = self.catalog.live();
+        Ok(mixdog_core::run_host::tool_pool::session_control::LiveSources { working: live.own, agent_working: live.agents, pool: Vec::new(), now: self.now })
+    }
+}
+
+/// What `session action=bots` reads besides the catalog: the case's bots, watches, held requests and routines.
+struct ScriptedBotSources {
+    bots: Vec<Value>,
+    watches: Vec<Value>,
+    held: Vec<Value>,
+    routines: Result<Vec<Value>, String>,
+    mixy: String,
+    approvals: HashSet<String>,
+    now: i64,
+}
+
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_bots::BotSources for ScriptedBotSources {
+    async fn bots(&self) -> Result<Vec<Value>, String> {
+        Ok(self.bots.clone())
+    }
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        Ok(self.watches.clone())
+    }
+    async fn held(&self) -> Result<Vec<Value>, String> {
+        Ok(self.held.clone())
+    }
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        self.routines.clone()
+    }
+    async fn mixy_name(&self) -> Result<String, String> {
+        Ok(self.mixy.clone())
+    }
+    fn awaiting_approval(&self, session_id: &str) -> bool {
+        self.approvals.contains(session_id)
+    }
+    fn now_ms(&self) -> i64 {
+        self.now
+    }
+}
+
 struct ListedBots {
     ids: Vec<String>,
     mixy: Option<String>,
@@ -1079,6 +1166,10 @@ struct World {
     runs: Arc<Runs>,
     quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
     _rig: mixdog_core_session::session::testing::Rig,
+    config: mixdog_core_config::config::Config,
+    routes: Arc<dyn mixdog_core_domains::domains::ai_admin::chain::RouteContext>,
+    service: Arc<mixdog_core_domains::domains::ai_admin::route_service::RouteService>,
+    models: Arc<mixdog_core_domains::domains::ai_admin::model_list::ModelListService>,
     _data: tempfile::TempDir,
     _config: tempfile::TempDir,
 }
@@ -1241,9 +1332,11 @@ async fn world(quota_reset: u64, lead: &Value) -> World {
     };
     let follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads, adapter.clone(), cell.clone()));
     let writer = Arc::new(mixdog_core_ports::ports::route_write::LiveRouteWriter { cell, session: adapter, config: config.clone(), catalog, readiness, usage: Arc::new(NoUsage) });
-    let service = mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow, models, controls: directory.clone() };
-    assert!(late.bind(Arc::new(service)).is_ok(), "one route service");
-    World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data, _config: config_dir }
+    let routes: Arc<dyn mixdog_core_domains::domains::ai_admin::chain::RouteContext> = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext { config: config.clone(), facts: facts.clone() });
+    let (saved, listed) = (config.clone(), models.clone());
+    let service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow, models, controls: directory.clone() });
+    assert!(late.bind(service.clone()).is_ok(), "one route service");
+    World { directory, runs, quota: rig.quota.clone(), _rig: rig, _data: data, _config: config_dir, config: saved, routes, service, models: listed }
 }
 
 impl World {
@@ -1407,7 +1500,7 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
         }
         let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, UnattendedRunRegistry::new(Arc::new(NoStamps))));
         let bot_ids = if options.get("bots").is_some() { ids("bots") } else { vec!["ann".to_owned()] };
-        let bot_rows = bot_ids.iter().map(|id| BotRow { id: id.clone(), name: options["botRows"][id.as_str()]["name"].as_str().unwrap_or(id).to_owned(), disabled: options["botRows"][id.as_str()]["disabled"] == json!(true) }).collect();
+        let bot_rows: Vec<BotRow> = bot_ids.iter().map(|id| BotRow { id: id.clone(), name: options["botRows"][id.as_str()]["name"].as_str().unwrap_or(id).to_owned(), disabled: options["botRows"][id.as_str()]["disabled"] == json!(true) }).collect();
         let routines = match options["routinesError"].as_str() {
             Some(error) => Err(error.to_owned()),
             // The kind a routine is listed under is the store it came from (`channelSetup`'s schedules and webhooks).
@@ -1419,22 +1512,89 @@ async fn session_control_answers_as_the_node_session_tool_does_over_real_session
             }).collect()).unwrap_or_default()),
         };
         let now = options["now"].as_i64().unwrap_or_else(|| g["clock"]["dateNow"].as_i64().expect("the recorded clock"));
+        let projects = Arc::new(ListedProjects(options["projects"].as_array().map(|rows| rows.iter().map(|row| mixdog_tools::orch::session::ProjectRow { name: row["name"].as_str().expect("name").to_owned(), path: row["path"].as_str().expect("path").to_owned() }).collect()).unwrap_or_default()));
+        let catalog = Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, approvals: ids("approvals").into_iter().collect(), directory: world.directory.clone(), log: log.clone() });
+        // The catalog the tool lists through is the case's scripted one, as the store's listing hands it over.
+        let listing = Arc::new(ScriptedListing { catalog: catalog.clone(), now });
+        let bot_sources = Arc::new(ScriptedBotSources {
+            bots: bot_rows.iter().map(|bot: &BotRow| if bot.disabled { json!({ "id": bot.id, "name": bot.name, "disabled": true }) } else { json!({ "id": bot.id, "name": bot.name }) }).collect(),
+            watches: options["watches"].as_array().cloned().unwrap_or_default(),
+            held: options["held"].as_array().cloned().unwrap_or_default(),
+            routines: routines.clone(),
+            mixy: options["mixy"].as_str().unwrap_or("Mixy").to_owned(),
+            approvals: ids("approvals").into_iter().collect(),
+            now,
+        });
+        // The send's intake as the product binds it: the turn a prompt starts is taken by the real directory, a create makes a real
+        // session on the Lead route of the config, and a bot's send reports through the task-report host.
+        let queue = Arc::new(mixdog_core_session::session::pending_read::PendingQueue::new(world.directory.clone(), Arc::new(mixdog_core_session::session::delivered::DeliveredCompletions::new(world._rig.clock.clone()))));
+        let host = mixdog_services::task_reports::host::TaskReportHost::new(
+            // Node's recorder ran no report queue: a watch is refused, and the send says its report could not be recorded.
+            Arc::new(replay::HomeRecords::refusing(mixdog_services::bots::delivery::queue::WatchError::Failed("the report queue is not available in this runtime".into()))),
+            Arc::new(mixdog_core::run_host::task_report_store::DirectoryReportSessions {
+                directory: world.directory.clone(),
+                queue,
+                completions: Arc::new(mixdog_core_session::session::agent_registry::flow::SessionCompletions::new(world.directory.clone())),
+                lane: mixdog_rt::testing::tokens().durability_io,
+                data_dir: world._data.path().to_path_buf(),
+                scopes: Vec::new(),
+            }),
+            Arc::new(PendingOwners(ids("pending").into_iter().collect())),
+            Arc::new(mixdog_services::task_reports::host::BotWork::new(Arc::new(|_: &str| {}))),
+            Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
+        );
+        let tasks = mixdog_services::task_reports::send::TaskSends::with_timing(
+            host,
+            Arc::new(mixdog_core::run_host::tool_pool::session_send::DirectorySubmit(world.directory.clone())),
+            "process".into(),
+            Arc::new(|| 0),
+            std::time::Duration::ZERO,
+            mixdog_services::task_reports::follow::FINAL_POLL,
+            Vec::new(),
+        );
+        let (caller_row, turn_of, row_of) = (caller_record.clone(), caller_id.clone(), caller_id.clone());
+        let (turn_hop, turn_bots) = (hop, chain.clone());
+        let send = Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default());
+        send.bind(Arc::new(mixdog_core::run_host::tool_pool::session_send::SessionSend {
+            rooms: Arc::new(mixdog_core_rooms::rooms::room_hosts::RoomHostRegistry::default()),
+            directory: world.directory.clone(),
+            tasks,
+            chains: mixdog_core::run_host::tool_pool::session_send::CallerChains {
+                record: Arc::new(move |id: &str| (id == row_of).then(|| caller_row.clone())),
+                turn: Arc::new(move |id: &str| if id == turn_of { (turn_hop, turn_bots.clone()) } else { (0, Vec::new()) }),
+            },
+            // A bot is named `Agent <id>` and Mixy by her display name, as the world's bot list names them.
+            names: Arc::new(replay::Named(bot_ids.iter().map(|id| json!({ "id": id, "name": format!("Agent {id}") })).chain([json!({ "id": "lead", "name": options["mixy"].as_str().unwrap_or("Agent lead") })]).collect())),
+            catalog: Arc::new(mixdog_core::run_host::tool_pool::session_send::ModelListRows(world.models.clone())),
+            effort: Arc::new(mixdog_core::run_host::tool_pool::session_send::RouteEffort(world.service.clone())),
+            rebind: Arc::new(replay::NoRebind),
+            create: Arc::new(mixdog_core::run_host::tool_pool::session_create::DirectoryCreate {
+                directory: world.directory.clone(),
+                projects: projects.clone(),
+                config: world.config.clone(),
+                routes: world.routes.clone(),
+                listing: listing.clone(),
+                data_dir: world._data.path().to_path_buf(),
+                io: mixdog_rt::testing::tokens().interactive_io,
+            }),
+        }))
+        .expect("one send");
         let port = Arc::new(DirectorySessionPort::new(SessionPortParts {
             callers: callers.clone(),
             threads: threads.clone(),
             requests: Arc::new(mixdog_core::run_host::tool_pool::session_port::SettingsRequests::new(world.directory.clone(), Arc::new(built.settings))),
             titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(threads.clone(), Arc::new(Messages), Arc::new(Now))),
             ai_titles: Arc::new(Titles(true)),
-            projects: Arc::new(ListedProjects(options["projects"].as_array().map(|rows| rows.iter().map(|row| mixdog_tools::orch::session::ProjectRow { name: row["name"].as_str().expect("name").to_owned(), path: row["path"].as_str().expect("path").to_owned() }).collect()).unwrap_or_default())),
+            projects,
             bots: Arc::new(ListedBots { ids: bot_ids.clone(), mixy: options["mixy"].as_str().map(str::to_owned) }),
             quota: world.quota.clone(),
             world: Arc::new(ScriptedBotWorld { bots: bot_rows, routines, held: options["held"].as_array().cloned().unwrap_or_default(), watches: options["watches"].as_array().cloned().unwrap_or_default() }),
             suggestions: Arc::new(Suggested::default()),
-            catalog: Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, approvals: ids("approvals").into_iter().collect(), directory: world.directory.clone(), log: log.clone() }),
+            catalog,
             clock: Arc::new(At(now)),
-            listing: Arc::new(replay::Fixture::default()),
-            send: Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default()),
-            bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
+            listing,
+            send,
+            bot_sources,
             io: mixdog_rt::testing::tokens().interactive_io,
         }));
         let tool = mixdog_tools::orch::session::SessionTool::new(port, callers);

@@ -25,6 +25,7 @@ use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::support::{FsFailure, FsStep, io_failure};
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
+use mixdog_core_base::rooms::ids::room_id_of_session;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
@@ -448,6 +449,11 @@ impl DirectorySessionPort {
         let caller = call.caller_thread.as_str();
         let target = session_control::target_request(&call.args, action, caller).map_err(failed)?;
         let thread = ThreadId::from(target.session_id.as_str());
+        // The service refuses a cancel or delete of a session it does not hold (`abortSession`, `configureSession`); a group room's log
+        // is the room host's. A send is checked where it reaches the service ([`SessionSend::send`]), after its effort.
+        if matches!(action, "cancel" | "delete") && room_id_of_session(&target.session_id).is_none() && self.parts.callers.header(&thread).await?.is_none() {
+            return Err(failed(format!("session {} is not available", target.session_id)));
+        }
         match action {
             "list" => {
                 let own = session_control::scoped_bot(&self.parts.callers.scope(&call.caller_thread).await, caller);
@@ -465,10 +471,9 @@ impl DirectorySessionPort {
                     return Err(failed(format!("session {} is not available", target.session_id)));
                 };
                 // `service.readSession(...).full`: whether a turn runs (the runtime's in-flight activity) and what quota resume
-                // waits (the runtime projection).
+                // waits (the queue's entry, as `session bots` reads it).
                 let busy = self.parts.listing.live_sources().await.map_err(failed)?.working.iter().any(|id| id == thread.as_str());
-                let read = self.parts.requests.request(&thread, "thread/read", json!({ "threadId": thread.as_str(), "window": { "lastItems": 1 } })).await.map_err(core)?;
-                let quota_resume = read.pointer("/state/quotaResume").cloned().unwrap_or(Value::Null);
+                let quota_resume = self.parts.quota.entry(thread.as_str()).map_or(Value::Null, |entry| entry.public());
                 // `taskSessionPendingWork(sessionId)`.
                 let send = self.parts.send.get().map_err(failed)?;
                 let agents_working = mixdog_services::task_reports::follow::FollowHost::pending_work(&**send.tasks.host(), thread.as_str(), None).await;
