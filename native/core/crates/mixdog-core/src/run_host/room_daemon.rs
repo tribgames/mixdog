@@ -23,17 +23,43 @@ pub struct DirectoryRoomDaemon {
     directory: Arc<SessionDirectory>,
     log: SessionRoomLog,
     republish_catalog: RepublishCatalog,
+    /// Run between the opening of a room log and the post into it (a replay releases the log there, as a daemon's detach does).
+    #[cfg(any(test, feature = "test-support"))]
+    between_open_and_post: Option<BetweenOpenAndPost>,
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub type BetweenOpenAndPost = Arc<dyn Fn(ThreadId) -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
 
 impl DirectoryRoomDaemon {
     /// `republish_catalog` is the room summaries' publish (wp-session-32 `RoomSummaries::republish`).
     pub fn new(directory: Arc<SessionDirectory>, republish_catalog: RepublishCatalog) -> Self {
-        Self { log: SessionRoomLog::new(directory.clone()), directory, republish_catalog }
+        Self {
+            log: SessionRoomLog::new(directory.clone()),
+            directory,
+            republish_catalog,
+            #[cfg(any(test, feature = "test-support"))]
+            between_open_and_post: None,
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_between_open_and_post(mut self, hook: BetweenOpenAndPost) -> Self {
+        self.between_open_and_post = Some(hook);
+        self
     }
 }
 
 fn failed(error: impl std::fmt::Debug) -> String {
     format!("{error:?}")
+}
+
+/// A refused post as the rooms log it: Node's `String(error)`, `Error: <message>` (`agent-rooms.ts:476`).
+fn node_error(error: mixdog_core_api::CoreError) -> String {
+    match error {
+        mixdog_core_api::CoreError::DomainError { message: Some(message), .. } => format!("Error: {message}"),
+        other => failed(other),
+    }
 }
 
 /// The model content of a room prompt: its text, or its parts.
@@ -47,7 +73,14 @@ fn content_of(prompt: &RoomPrompt) -> Value {
 #[async_trait]
 impl RoomDaemon for DirectoryRoomDaemon {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<(), String> {
-        self.log.append_rows(session_id, messages).await.map(drop).map_err(failed)
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(hook) = &self.between_open_and_post {
+            // The product's own open and post, in its two steps, with the hook between them.
+            let handle = mixdog_core_session::session::room_log::open_for_post(&self.directory, session_id).await.map_err(node_error)?;
+            hook(ThreadId::from(session_id)).await;
+            return mixdog_core_session::session::room_log::post_on_opened(&handle, messages).await.map(drop).map_err(node_error);
+        }
+        self.log.append_rows(session_id, messages).await.map(drop).map_err(node_error)
     }
 
     async fn room_rows(&self, session_id: &str) -> Result<Vec<Value>, String> {
@@ -71,6 +104,10 @@ impl RoomDaemon for DirectoryRoomDaemon {
 
     fn republish_catalog(&self) {
         (self.republish_catalog)();
+    }
+
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(session_id), text)
     }
 }
 

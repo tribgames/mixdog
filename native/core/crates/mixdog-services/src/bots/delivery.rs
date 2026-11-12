@@ -102,7 +102,7 @@ impl RoutineRuntime {
         }
         let rt = Arc::clone(self);
         tokio::spawn(async move {
-            tokio::time::sleep(DELIVERY_RETRY).await;
+            mixdog_rt::time::sleep(DELIVERY_RETRY).await;
             rt.retry_armed.store(false, Ordering::SeqCst);
             if let Err(error) = rt.recover_routine_deliveries().await {
                 mixdog_rt::node_stderr!("mixdog routines: delivery retry failed: {error}");

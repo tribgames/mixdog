@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use sha2::Digest;
 use sha2::Sha256;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::locks::path_key;
 use crate::repo::hex;
@@ -71,9 +72,12 @@ fn trim_slug(value: &str, max: usize) -> String {
 /// A short, Windows-safe folder name and branch suffix derived from the task's first message.
 pub fn slug_from_hint(hint: &str) -> String {
     let mut slug = String::new();
+    // `normalize('NFKD')`, the combining marks (U+0300..U+036F) dropped, lower-cased, then every run of anything else a space.
     let lowered: String = hint
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .nfkd()
+        .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+        .flat_map(char::to_lowercase)
+        .map(|c| if c.is_ascii_lowercase() || c.is_ascii_digit() { c } else { ' ' })
         .collect();
     for word in lowered.split_whitespace() {
         let next = if slug.is_empty() { word.to_owned() } else { format!("{slug}-{word}") };
@@ -129,5 +133,47 @@ mod tests {
         assert_eq!(unique_slug("task", |c| taken.iter().any(|t| t == c)), "task-3");
         assert!(name_error("a..b").is_some());
         assert!(name_error("ok-name_1.2").is_none());
+    }
+
+    fn golden() -> serde_json::Value {
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/worktree-slug/golden.json")).unwrap()
+    }
+
+    /// `<prefix>-` and exactly eight lowercase hex digits.
+    fn is_random_suffixed(candidate: &str, prefix: &str) -> bool {
+        candidate.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('-')).is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    }
+
+    #[test]
+    fn slugs_are_those_nodes_slug_from_hint_makes() {
+        let golden = golden();
+        assert_eq!(golden["slugMax"].as_u64().unwrap() as usize, SLUG_MAX_LENGTH);
+        for case in golden["slugs"].as_array().unwrap() {
+            let hint = case["hint"].as_str().unwrap();
+            let slug = slug_from_hint(hint);
+            assert_eq!(slug, case["slug"].as_str().unwrap(), "{hint:?}");
+            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap(), "{hint:?}");
+        }
+    }
+
+    #[test]
+    fn a_taken_slug_gets_the_numeric_then_the_random_suffix_nodes_unique_slug_gives() {
+        let golden = golden();
+        for case in golden["unique"].as_array().unwrap() {
+            let taken: Vec<&str> = case["taken"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
+            let base = case["base"].as_str().unwrap();
+            let slug = unique_slug(base, |candidate| taken.contains(&candidate));
+            assert_eq!(slug, case["slug"].as_str().unwrap(), "{base:?} with {taken:?} taken");
+            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap(), "{base:?}");
+        }
+        // After fifty numeric candidates the answer is `<base>-<8 hex digits>`; only that shape is accepted, as in the recording.
+        for case in golden["random"].as_array().unwrap() {
+            let base = case["base"].as_str().unwrap();
+            let prefix = trim_slug(base, SLUG_MAX_LENGTH - 9);
+            let slug = unique_slug(base, |candidate| !is_random_suffixed(candidate, &prefix));
+            assert!(is_random_suffixed(&slug, &prefix), "{slug}");
+            assert_eq!(slug.len() as u64, case["length"].as_u64().unwrap());
+            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap());
+        }
     }
 }

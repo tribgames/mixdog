@@ -33,6 +33,8 @@ mod oauth_credentials_tests;
 #[cfg(test)]
 mod oauth_status_tests;
 #[cfg(test)]
+mod policy_replay_tests;
+#[cfg(test)]
 mod production_tests;
 #[cfg(test)]
 mod keychain_live_tests;

@@ -92,7 +92,7 @@ pub fn build_with(
             codex_parity: codex,
             native_tool_search: caps.native_tool_search,
             custom_tools: true,
-            replay_reasoning: caps.reasoning,
+            replay_reasoning: caps.reasoning && !config.context.flag("MIXDOG_OAI_DISABLE_REASONING_REPLAY"),
             tool_search_replay: ToolSearchReplay::Downgrade,
             phase: true,
             system_in_input: false,
@@ -137,10 +137,17 @@ pub fn build_with(
     // No continuation here: the first-party routes carry history through the
     // ordered provider replay (Node keeps no slot of its own for them), and a
     // slot on top would send the same reasoning twice.
-    // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keeps
-    // the key the request names.
-    let derive = |prefix: &cache_key::Prefix<'_>| cache_key::codex_prompt_cache_key(&request.options, &|name| config.context.var(name), prefix);
-    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: codex.then_some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
+    // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keys the
+    // named namespace with a hash of the prefix and the session (`buildStableProviderPromptCacheKey`).
+    let derive = |prefix: &cache_key::Prefix<'_>| {
+        let var = |name: &str| config.context.var(name);
+        if codex {
+            cache_key::codex_prompt_cache_key(&request.options, &var, prefix)
+        } else {
+            cache_key::public_prompt_cache_key(&request.options, &var, prefix)
+        }
+    };
+    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: Some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }

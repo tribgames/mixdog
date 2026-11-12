@@ -51,4 +51,5 @@ pub use pipeline::PreToolHook;
 pub use pipeline::ToolPolicy;
 pub use pipeline::ToolResolver;
 pub use run_policy::RunKind;
+pub use session_grants::SessionGrantRegistry;
 pub use session_grants::SessionGrants;

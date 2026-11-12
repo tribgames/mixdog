@@ -5,7 +5,7 @@
 # C:\Users\tempe\.mixdog\data\scratch\rust-core\k1\rehearsal.md. apps/desktop/scripts/verify-staged-package.mjs fails a
 # package that packs any of them.
 
-## DELETE (4164)
+## DELETE (4162)
 native/mixdog-supervisor/Cargo.lock
 native/mixdog-supervisor/Cargo.toml
 native/mixdog-supervisor/src/main.rs
@@ -82,8 +82,6 @@ scripts/root-search-bench.mjs
 scripts/run-office-live-tests.mjs
 scripts/run-office-live-tests.test.mjs
 scripts/runtime-turn-contract-test.mjs
-scripts/rust-core/k1-lanes.mjs
-scripts/rust-core/k1-lanes.test.mjs
 scripts/search-io-bench.mjs
 scripts/session-context-bench.mjs
 scripts/session-diag.mjs

@@ -12,6 +12,7 @@
 //
 //   node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -24,11 +25,14 @@ for (const name of ['MIXDOG_HOME', 'MIXDOG_DATA_DIR', 'HOME', 'USERPROFILE', 'AP
   mkdirSync(process.env[name], { recursive: true });
 }
 
-const { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, stageSet, importFrom, nodeTreeIdentity, parseArgs, resolveTree, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const args = parseArgs();
 const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
+// `--patch <file>[,<file>…]`: the tree is the reference commit with those Node changes applied; the manifest names them.
+const BASE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const tree = resolveTree(args);
+const patched = args.get('patch');
 const U = (rel) => importFrom(tree, `src/${rel}`);
 
 const access = await U('session-runtime/services/schedule-access.mjs');
@@ -397,5 +401,7 @@ commitStage(stage, OUT);
 writeSetManifest(OUT, {
   set: 'tool-pool',
   recorder: 'benchmarks/rust-core/recorders/record-tool-pool.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>',
+  command: 'node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>' + (patched ? ` --patch ${patched}` : ''),
+  ...(patched ? { identity: nodeTreeIdentity(args, tree, BASE_COMMIT) } : {}),
+  extra: { ...recorderProvenance(import.meta.url) },
 });

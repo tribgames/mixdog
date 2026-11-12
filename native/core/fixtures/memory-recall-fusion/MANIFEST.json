@@ -1,0 +1,63 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-recall-fusion.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "nothing beyond the module",
+    "runs": "recallLaneRanks, recallRrfScore, recallEvidenceKind, isSemanticOnlyRecall, rankRecallCandidates (recall-fusion.mjs)"
+  },
+  "exclusions": "the probes named under replay whose rows no PostgreSQL row can carry; the last case holds extra probes the test file does not run",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 21662,
+      "path": "golden.json",
+      "sha256": "37a1997b88317ee39bb4c085aed5da5fcf96c31efee5e066878890b63edd8933"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "values": "every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-recall-fusion.mjs",
+  "recorderSha256": "ef346ba64dc24654a213d9a62673990bfe1d4b34dc77889f979c94f127b71bf1",
+  "replay": "mixdog-services memory/recall/ranking.rs, the ranking step of Recall::recall (the `memory/recall` request): lane_ranks, rrf_score and rrf_score_with_k, evidence_kind, is_semantic_only, rank_candidates and rank_candidates_with_k (memory/replays/recall_fusion.rs). Compared: every row probe's laneRanks, rrf, rrfK10 (rrf_score_with_k at k 10) and evidence; every ranked probe whole in returned order, at the default k and the explicit k (rank_candidates_with_k); the evidence and semanticOnly probes. Not compared (reported by name in the replay): the probes whose rows no PostgreSQL row can carry, the rows typed by the core's Row: semanticOnly 3-5 (rows null, a string, a null row) and, in the last case, the row probes stringRanks, badRanks, nanId, row null, row undefined and the ranked probe 'string ids and ranks'",
+  "set": "memory-recall-fusion",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 21662,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

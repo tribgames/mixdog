@@ -3,8 +3,10 @@
 pub(crate) mod common;
 mod edit;
 mod edit_plan;
+mod grep_context;
 mod hints;
 mod list;
+mod not_found;
 mod patch;
 mod patch_guard;
 mod patch_hunk;
@@ -24,11 +26,14 @@ pub mod read_state;
 mod search;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod node_cases;
 
 pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub(crate) use read::normalize_input_path;
 pub use read_state::FileVersion;
 pub use read_state::Persistence;
 pub use read_state::ReadState;
@@ -52,3 +57,4 @@ pub fn read_state_key(path: &std::path::Path) -> String {
 pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;
+pub use search::SearchTimer;

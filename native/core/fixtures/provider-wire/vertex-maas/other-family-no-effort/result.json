@@ -1,0 +1,51 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "m",
+    "stopReason": "stop",
+    "usage": {
+      "inputTokens": 200,
+      "outputTokens": 5,
+      "cachedTokens": 800,
+      "cacheWriteTokens": 0,
+      "promptTokens": 1000,
+      "raw": {
+        "prompt_tokens": 1000,
+        "completion_tokens": 5,
+        "total_tokens": 1005,
+        "prompt_tokens_details": {
+          "cached_tokens": 800
+        }
+      }
+    },
+    "generationMs": 0,
+    "pricingModel": "qwen/qwen3-coder-480b-a35b-instruct-maas"
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer is 42."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    }
+  ]
+}

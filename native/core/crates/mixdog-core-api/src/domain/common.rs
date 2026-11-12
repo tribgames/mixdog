@@ -11,6 +11,10 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait EventSource<T: Send>: Send {
     async fn next(&mut self) -> Option<T>;
+
+    /// Ends the source early: returns once nothing of its producer still runs. A source with no producer of its own
+    /// has nothing to wait for.
+    async fn close(&mut self) {}
 }
 
 /// An absolute path. Relative paths are resolved by the caller against the

@@ -16,7 +16,8 @@
 // The reports are always checked against the job's own accounting, whatever was left: the job's TotalProcesses at its end must be
 // the joins reported, and its ActiveProcesses read just after the program's exit must not exceed what the members' lifetimes give at
 // that instant (a member that started or ended while the count was read, or within one clock tick of it since process times are kept
-// at tick precision, counts on either side). A disagreement means a report was lost,
+// at tick precision, counts on either side), plus the members whose exit was already reported (a process is counted while it is
+// torn down). A disagreement means a report was lost,
 // so membership at the program's exit is unknown: the report says so and `readJobReport` fails the run. The job is made with
 // KILL_ON_JOB_CLOSE, so ending the host (a caller's deadline, a failure) ends the whole tree.
 //
@@ -192,6 +193,24 @@ public static class JobRun {
       Marshal.FreeHGlobal(info);
     }
   }
+  /** The ids of the processes the job holds (JOBOBJECT_BASIC_PROCESS_ID_LIST, class 3): two counts, then one id per pointer. */
+  static long[] Listed() {
+    for (int room = 64; ; room *= 4) {
+      int size = 8 + room * 8;
+      IntPtr info = Marshal.AllocHGlobal(size);
+      try {
+        if (QueryInformationJobObject(job, 3, info, (uint)size, IntPtr.Zero)) {
+          long[] ids = new long[Marshal.ReadInt32(info, 4)];
+          for (int i = 0; i < ids.Length; i++) ids[i] = Marshal.ReadInt64(info, 8 + i * 8);
+          return ids;
+        }
+        int error = Marshal.GetLastWin32Error();
+        if (error != 234) throw new Exception("QueryInformationJobObject (process ids) failed: " + error);
+      } finally {
+        Marshal.FreeHGlobal(info);
+      }
+    }
+  }
   static long Now() { long now; GetSystemTimePreciseAsFileTime(out now); return now; }
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetSystemTimeAdjustment(out uint adjustment, out uint increment, out bool disabled);
   /** The clock's tick in 100 ns units: how far a coarse system time may lie behind the precise one. */
@@ -242,6 +261,9 @@ public static class JobRun {
       if (since.ElapsedMilliseconds > endDeadlineMs) throw new Exception("the job's reports did not run out within " + endDeadlineMs + " ms of the program's exit (" + joins + " joins reported)");
     }
     long before = Now();
+    // The list only names the members in the failure message: an exiting process can leave the list while the job still counts it.
+    long exitsBeforeCount = exits;
+    long[] listedAtExit = Listed();
     long[] atExit = Accounting();
     long after = Now();
     if (!TerminateJobObject(job, 1)) throw new Exception("TerminateJobObject failed: " + Marshal.GetLastWin32Error());
@@ -256,6 +278,7 @@ public static class JobRun {
     // member whose recorded exit is within one increment before 'before' may still have been counted.
     long increment = TimeIncrement();
     long surely = 0, possibly = 0;
+    HashSet<long> counted = new HashSet<long>();
     List<long> left = new List<long>();
     List<string> problems = new List<string>();
     foreach (long pid in joined) {
@@ -263,12 +286,12 @@ public static class JobRun {
       if (members.TryGetValue(pid, out member)) {
         long[] life = Lifetime(member);
         if (life[0] <= before - increment && life[1] > after) surely++;
-        if (life[0] <= after && life[1] > before - increment) possibly++;
+        if (life[0] <= after && life[1] > before - increment) { possibly++; counted.Add(pid); }
         if (pid != Program && life[0] <= programExit && life[1] >= programExit) left.Add(pid);
       } else {
         long order;
         bool gone = exitOrder.TryGetValue(pid, out order) && order < programExitOrder;
-        if (!gone) possibly++;
+        if (!gone) { possibly++; counted.Add(pid); }
         if (pid != Program && !gone) problems.Add("member " + pid + " had gone when its join was read, and its exit was not reported before the program's: whether it outlived the program is unknown");
       }
     }
@@ -276,8 +299,26 @@ public static class JobRun {
     if (atEnd[1] != 0) problems.Add("the job reported no member left but counts " + atEnd[1] + " active");
     // Only the upper bound: a member the job counts and the host did not see (a lost join) makes the count exceed it. The lower bound
     // does not hold: the job stops counting an exiting member before its exit time is recorded (a full recording counted 1 where the
-    // lifetimes gave 2), so a member may look alive past the read and not be counted.
-    if (atExit[1] > possibly) problems.Add("the job counted " + atExit[1] + " active members after the program's exit, its reported members' lifetimes give " + (surely == possibly ? surely.ToString() : surely + " to " + possibly));
+    // lifetimes gave 2), so a member may look alive past the read and not be counted. Nor does the job stop counting a member when
+    // it exits: it keeps listing and counting it while the process is torn down, after its exit report was posted and its handle
+    // signalled (a replay counted mixdogd 79.5 ms after its reported exit, and another counted it while the list no longer held
+    // it). Such a member was seen joining and leaving, so it is no lost report: every member whose exit report was read before the
+    // count adds to what the lifetimes give, listed or not. A lost join still shows: its member was never seen joining.
+    long lingering = 0;
+    foreach (long pid in joined) {
+      long order;
+      if (exitOrder.TryGetValue(pid, out order) && order <= exitsBeforeCount && !counted.Contains(pid)) lingering++;
+    }
+    if (atExit[1] > possibly + lingering) {
+      List<string> held = new List<string>();
+      foreach (long pid in listedAtExit) {
+        IntPtr member; long order;
+        string state = !joined.Contains(pid) ? "never reported joining" : !members.TryGetValue(pid, out member) ? "no handle" : "exited " + ((Lifetime(member)[1] == long.MaxValue) ? "never" : ((before - Lifetime(member)[1]) / 10000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms before the read");
+        state += exitOrder.TryGetValue(pid, out order) ? ", exit report " + order + " (the program's " + programExitOrder + ")" : ", no exit report";
+        held.Add(pid + " " + (NameOf(pid) ?? "?") + " (" + state + ")");
+      }
+      problems.Add("the job counted " + atExit[1] + " active members after the program's exit, its reported members' lifetimes give " + (surely == possibly ? surely.ToString() : surely + " to " + possibly) + "; it listed [" + string.Join(", ", held.ToArray()) + "]");
+    }
     Unreported = problems.Count == 0 ? null : string.Join("; ", problems.ToArray());
     return left.ToArray();
   }
@@ -334,12 +375,17 @@ export function spawnInJob(file, args, { env, cwd, stdio, report, testHooks = {}
   return spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { env: hostEnv, cwd, stdio, windowsHide: true });
 }
 
-/** The host's report: the program's exit code and the members it left behind. A missing or incomplete report is a failure of the host. */
-export function readJobReport(report) {
+/**
+ * The host's report: the program's exit code and the members it left behind. A missing or incomplete report is a failure of the host.
+ * With `membership: false`, for a caller that reads only the exit code (the job serves it only to end the whole tree), the members are
+ * not returned, so a membership the reports leave unknown is no failure.
+ */
+export function readJobReport(report, { membership = true } = {}) {
   if (!existsSync(report)) throw new Error(`the job host wrote no report (${report}): it failed before the program's members were listed`);
   const parsed = JSON.parse(readFileSync(report, 'utf8').replace(/^\uFEFF/, ''));
   if (parsed.error) throw new Error(`the job host failed: ${parsed.error}`);
   if (parsed.complete !== true || !Array.isArray(parsed.left)) throw new Error(`the job host's report is incomplete: ${JSON.stringify(parsed)}`);
+  if (!membership) return { exitCode: parsed.exitCode, program: parsed.program };
   if (parsed.unreported) throw new Error(`the job's membership at the program's exit is unknown: ${parsed.unreported}`);
   return { exitCode: parsed.exitCode, program: parsed.program, left: parsed.left };
 }

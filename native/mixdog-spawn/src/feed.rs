@@ -41,6 +41,8 @@ struct State {
     stored: usize,
     /// Events below this sequence number were handed to a subscriber (or lie before a [`Feed::mark`]) and are never merged into.
     handed_seq: u64,
+    /// The last event ends where a change waits for the pump (see [`Feed::admit`]): nothing is merged into it.
+    sealed: bool,
     paused: bool,
     /// Tests only: the reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
     #[cfg(feature = "core-test")]
@@ -75,6 +77,7 @@ impl Feed {
                 base: 0,
                 stored: 0,
                 handed_seq: 0,
+                sealed: false,
                 paused: false,
                 #[cfg(feature = "core-test")]
                 blocked: false,
@@ -100,13 +103,17 @@ impl Feed {
     /// Output that arrives after the exit event (a descendant holding the pipe past the drain
     /// bound) is dropped: the exit is the last event.
     pub(crate) fn push_output(&self, stream: OutputStream, bytes: &[u8]) {
-        self.admit(stream, bytes, || ());
+        self.admit(stream, bytes, || false);
     }
 
     /// [`Self::push_output`] for a chunk a filter made: `admitted` runs once the gate lets the chunk in, under the feed's lock and before
     /// the chunk is appended, so what it does (a terminal tab applies the chunk's markers) happens exactly when the bytes enter the feed:
     /// never for a chunk the gate holds back or that comes after the exit. A chunk with no bytes (only markers) passes the gate too.
-    pub(crate) fn admit(&self, stream: OutputStream, bytes: &[u8], admitted: impl FnOnce()) {
+    /// When `admitted` says a change now waits for the pump to take this chunk, the chunk is an event of its own, merged neither into
+    /// the event before it nor with the output after it: Node took each PTY read on its own (the text into its 16 ms relay buffer, then
+    /// the read's markers, terminal-manager.ts `pty.onData`), so a read before a marker's could be sent alone, and output after the
+    /// marker's read never went before its change; a merged event would take them all at once and send the change after them.
+    pub(crate) fn admit(&self, stream: OutputStream, bytes: &[u8], admitted: impl FnOnce() -> bool) {
         let mut state = self.lock();
         loop {
             if state.done {
@@ -132,15 +139,20 @@ impl Feed {
                 state.blocked = false;
             }
         }
-        admitted();
-        self.append(state, stream, bytes);
+        let alone = admitted();
+        self.append(state, stream, bytes, alone);
     }
 
-    /// Appends `bytes` (admitted) to the feed, merged into the last event when no subscriber has taken it, and wakes the subscribers.
-    fn append(&self, mut state: MutexGuard<'_, State>, stream: OutputStream, bytes: &[u8]) {
+    /// Appends `bytes` (admitted) to the feed, merged into the last event when no subscriber has taken it and neither that event nor
+    /// these bytes stand `alone` (see [`Self::admit`]), and wakes the subscribers.
+    fn append(&self, mut state: MutexGuard<'_, State>, stream: OutputStream, bytes: &[u8], alone: bool) {
         if bytes.is_empty() {
+            // Only markers: their change waits at the end of the last event.
+            state.sealed |= alone;
             return;
         }
+        let mergeable = !alone && !state.sealed;
+        state.sealed = alone;
         state.pushed += bytes.len() as u64;
         state.stored += bytes.len();
         let end = state.pushed;
@@ -154,7 +166,7 @@ impl Feed {
                         bytes: last,
                     },
                 end: last_end,
-            }) if *seq >= handed && *last_stream == stream && last.len() + bytes.len() <= MERGE_LIMIT => {
+            }) if mergeable && *seq >= handed && *last_stream == stream && last.len() + bytes.len() <= MERGE_LIMIT => {
                 last.extend_from_slice(bytes);
                 *last_end = end;
                 true
@@ -235,7 +247,7 @@ impl Feed {
         }
         state.handed_seq = state.next_seq;
         let bytes = make();
-        self.append(state, stream, &bytes);
+        self.append(state, stream, &bytes, false);
     }
 
     /// Resolves once the exit is in the feed. Tests only.

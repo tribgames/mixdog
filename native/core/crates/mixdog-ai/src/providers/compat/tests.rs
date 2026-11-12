@@ -597,7 +597,10 @@ fn a_gateway_failure_in_the_stream_is_typed() {
             "data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
         );
         let mut decoder = codec.decoder(&base_request("m"));
-        let err = decoder.feed(sse.as_bytes()).expect_err(reason);
+        // The text decoded before the failure in the same chunk is delivered first; the failure ends the stream.
+        let first = decoder.feed(sse.as_bytes()).expect(reason);
+        assert!(first.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "{reason}");
+        let err = decoder.finish().expect_err(reason);
         assert_eq!(err.kind, ErrorKind::Transient, "{reason}");
         assert_eq!(err.status, status, "{reason}");
         assert!(err.exposure.text_emitted);
@@ -620,10 +623,15 @@ fn a_cut_or_filtered_turn_never_dispatches_its_tool_calls() {
     let sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"k\"}}]}}]}\n\n\
                data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
     let mut decoder = codec.decoder(&base_request("m"));
-    let events = decoder.feed(sse.as_bytes()).unwrap();
-    assert!(tool_calls_of(&events).is_empty());
-    assert_eq!(stop_of(&events), StopReason::MaxTokens);
-    assert!(decoder.exposure().tool_input_cut);
+    // `normalizeCompatChatResponse` fails the turn; the call (its cut arguments ride as the invalid-arguments marker) is
+    // held by the error and never dispatched.
+    decoder.feed(sse.as_bytes()).unwrap();
+    let err = decoder.finish().expect_err("a cut turn that holds a call fails");
+    assert_eq!((err.kind, err.code.as_deref()), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE")));
+    assert_eq!(err.partial_tool_calls.len(), 1);
+    assert_eq!(err.partial_tool_calls[0].name, "lookup");
+    assert_eq!(err.partial_tool_calls[0].arguments["__rawArguments"], "{\"k");
+    assert!(!err.exposure.tool_dispatched);
 }
 
 /// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the
@@ -1299,11 +1307,9 @@ mod responses_heads {
         assert_eq!(body("grok-4.3", "HIGH", None)["reasoning"], json!({"effort": "high"}));
         assert!(body("grok-4-fast", "high", None).get("reasoning").is_none());
         assert!(body("grok-4.3", "none", None).get("reasoning").is_none());
-        let forced = body("grok-4.3", "low", Some("Read"));
-        assert_eq!(forced["tool_choice"], json!({"type": "function", "name": "Read"}));
-        let keys: Vec<_> = forced.as_object().unwrap().keys().cloned().collect();
-        let at = |k: &str| keys.iter().position(|x| x == k).unwrap();
-        assert!(at("parallel_tool_calls") < at("tool_choice") && at("tool_choice") < at("reasoning"), "{keys:?}");
+        // xAI's Responses send forces no choice (`applyCompatToolChoice(params, opts)` without a wire context,
+        // openai-compat-xai-send.mjs:58; recorded in fixtures/provider-wire/hosted-search/grok-oauth).
+        assert!(body("grok-4.3", "low", Some("Read")).get("tool_choice").is_none());
     }
 
     /// Golden recorded from Node's real xAI send path (`sendXaiResponses`) and

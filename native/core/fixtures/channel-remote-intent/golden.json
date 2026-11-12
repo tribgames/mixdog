@@ -1,0 +1,905 @@
+{
+  "frozenNow": 1700000000000,
+  "reads": [
+    {
+      "name": "valid",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "valid without cwd",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"updatedAt\":5}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": null,
+        "updatedAt": 5
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"updatedAt\":5}"
+      }
+    },
+    {
+      "name": "valid with null cwd",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":null,\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": null,
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":null,\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "valid with numeric cwd",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":7,\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "7",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":7,\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "valid without updatedAt",
+      "before": {
+        "kind": "file",
+        "text": "{\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\"}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\"}"
+      }
+    },
+    {
+      "name": "updatedAt as a numeric string",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":\"456\"}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 456
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":\"456\"}"
+      }
+    },
+    {
+      "name": "updatedAt zero",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":0}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":0}"
+      }
+    },
+    {
+      "name": "updatedAt not a number",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":\"soon\"}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":\"soon\"}"
+      }
+    },
+    {
+      "name": "padded session and transcript",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"  sess_saved \",\"transcriptPath\":\" /work/sess_saved.jsonl\\n\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"  sess_saved \",\"transcriptPath\":\" /work/sess_saved.jsonl\\n\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "transcript with two extensions",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved.jsonl\",\"transcriptPath\":\"/work/sess_saved.jsonl.bak\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "transcript without extension",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved",
+        "cwd": "/work",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "transcript with a trailing slash",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl/\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl/",
+        "cwd": "/work",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl/\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "numeric session id",
+      "before": {
+        "kind": "file",
+        "text": "{\"sessionId\":42,\"transcriptPath\":\"/work/42.jsonl\"}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "42",
+        "transcriptPath": "/work/42.jsonl",
+        "cwd": null,
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"sessionId\":42,\"transcriptPath\":\"/work/42.jsonl\"}"
+      }
+    },
+    {
+      "name": "extra keys dropped",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123,\"ownerLeadPid\":99,\"extra\":true}"
+      },
+      "intent": {
+        "version": 1,
+        "sessionId": "sess_saved",
+        "transcriptPath": "/work/sess_saved.jsonl",
+        "cwd": "/work",
+        "updatedAt": 123
+      },
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123,\"ownerLeadPid\":99,\"extra\":true}"
+      }
+    },
+    {
+      "name": "absent",
+      "before": {
+        "kind": "absent"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "invalid JSON",
+      "before": {
+        "kind": "file",
+        "text": "{"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "non-object content",
+      "before": {
+        "kind": "file",
+        "text": "null"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "an array",
+      "before": {
+        "kind": "file",
+        "text": "[1]"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "missing transcript",
+      "before": {
+        "kind": "file",
+        "text": "{\"sessionId\":\"sess_saved\"}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "invalid session id",
+      "before": {
+        "kind": "file",
+        "text": "{\"sessionId\":\"../other\",\"transcriptPath\":\"other.jsonl\"}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "mismatched transcript",
+      "before": {
+        "kind": "file",
+        "text": "{\"sessionId\":\"sess_saved\",\"transcriptPath\":\"sess_other.jsonl\"}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "empty session id",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "a byte order mark",
+      "before": {
+        "kind": "file",
+        "text": "﻿{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "NUL-filled",
+      "before": {
+        "kind": "file",
+        "text": "\u0000\u0000\u0000\u0000"
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "empty file",
+      "before": {
+        "kind": "file",
+        "text": ""
+      },
+      "intent": null,
+      "after": {
+        "kind": "absent"
+      }
+    },
+    {
+      "name": "a directory",
+      "before": {
+        "kind": "directory"
+      },
+      "threw": "EISDIR",
+      "after": {
+        "kind": "directory"
+      }
+    },
+    {
+      "name": "EACCES",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "threw": "EACCES",
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "EBUSY",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "threw": "EBUSY",
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    },
+    {
+      "name": "EIO",
+      "before": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      },
+      "threw": "EIO",
+      "after": {
+        "kind": "file",
+        "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+      }
+    }
+  ],
+  "transport": [
+    {
+      "name": "boot restores the saved session",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_saved",
+            "transcriptPath": "/work/sess_saved.jsonl",
+            "restore": true
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_saved"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": "sess_saved",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "boot restore answered with a soft error",
+      "restored": false,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_saved",
+            "transcriptPath": "/work/sess_saved.jsonl",
+            "restore": true
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restore failed session=sess_saved: bridge unavailable"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "boot restore whose call fails",
+      "restored": false,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_saved",
+            "transcriptPath": "/work/sess_saved.jsonl",
+            "restore": true
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restore failed session=sess_saved: boom"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "boot without an intent",
+      "restored": false,
+      "calls": [],
+      "logs": [],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "boot with an invalid intent",
+      "restored": false,
+      "calls": [],
+      "logs": [],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "boot with an unreadable intent",
+      "restored": false,
+      "calls": [],
+      "logs": [
+        "channel remote intent unreadable, starting unpinned: EISDIR: illegal operation on a directory, read"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "directory"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "directory"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a second restore after the first",
+      "restored": [
+        true,
+        true
+      ],
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_saved",
+            "transcriptPath": "/work/sess_saved.jsonl",
+            "restore": true
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_saved"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": "sess_saved",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": "sess_saved",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manual ON then OFF",
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on",
+            "transcriptPath": "/work/sess_on.jsonl"
+          }
+        },
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": false,
+            "sessionId": "sess_on"
+          }
+        }
+      ],
+      "logs": [
+        "remote intent cleared (explicit Remote OFF)"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_on\",\"transcriptPath\":\"/work/sess_on.jsonl\",\"cwd\":null,\"updatedAt\":1700000000000}\n"
+          }
+        },
+        {
+          "at": "off",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manual ON over a restored session",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_saved",
+            "transcriptPath": "/work/sess_saved.jsonl",
+            "restore": true
+          }
+        },
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on",
+            "transcriptPath": "/work/sess_on.jsonl"
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_saved"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_saved",
+          "remoteSession": "sess_saved",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_on\",\"transcriptPath\":\"/work/sess_on.jsonl\",\"cwd\":null,\"updatedAt\":1700000000000}\n"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manual ON whose transcript names another session",
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on",
+            "transcriptPath": "/work/other.jsonl"
+          }
+        }
+      ],
+      "logs": [
+        "remote intent not persisted: session/transcript mismatch session=sess_on"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_saved",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_saved\",\"transcriptPath\":\"/work/sess_saved.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manual ON without a transcript",
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on"
+          }
+        }
+      ],
+      "logs": [
+        "remote intent not persisted: session/transcript mismatch session=sess_on"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manual ON answered with a soft error",
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on",
+            "transcriptPath": "/work/sess_on.jsonl"
+          }
+        }
+      ],
+      "logs": [],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "restore after a manual ON",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_on",
+            "transcriptPath": "/work/sess_on.jsonl"
+          }
+        }
+      ],
+      "logs": [],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        },
+        {
+          "at": "on",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_on\",\"transcriptPath\":\"/work/sess_on.jsonl\",\"cwd\":null,\"updatedAt\":1700000000000}\n"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_on",
+          "remoteSession": "sess_on",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_on\",\"transcriptPath\":\"/work/sess_on.jsonl\",\"cwd\":null,\"updatedAt\":1700000000000}\n"
+          }
+        }
+      ]
+    }
+  ]
+}

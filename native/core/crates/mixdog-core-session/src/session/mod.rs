@@ -34,13 +34,11 @@ mod stop;
 mod resumed_tools_tests;
 #[cfg(test)]
 mod room_questions_tests;
-#[cfg(test)]
-pub(crate) mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
-#[cfg(test)]
-mod sub_agent_retention_tests;
 #[cfg(test)]
 mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
@@ -83,6 +81,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod durability_settled_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
@@ -119,8 +119,6 @@ pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
-#[cfg(test)]
-mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
@@ -139,6 +137,7 @@ pub mod notices;
 mod seams;
 mod state;
 pub mod store;
+mod mark_journal;
 mod surface;
 pub mod terminal_host;
 mod turn_gate;
@@ -172,14 +171,38 @@ mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 #[cfg(test)]
-mod tests;
+mod sensitive_record_tests;
+#[cfg(test)]
+mod items_tail_tests;
+#[cfg(test)]
+mod sensitive_carry_tests;
+#[cfg(test)]
+mod message_sanitize_replay;
+#[cfg(test)]
+mod address_replay;
+#[cfg(test)]
+mod switch_replay;
+#[cfg(test)]
+mod lifecycle_replay;
+#[cfg(test)]
+mod sequence_replay;
 #[cfg(test)]
 mod goal_lane_tests;
+#[cfg(test)]
+mod goal_snapshot_replay_tests;
+#[cfg(test)]
+mod client_chain_replay_tests;
+#[cfg(test)]
+mod idle_state_replay_tests;
 #[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
+#[cfg(test)]
+mod offload_prune_order_tests;
 #[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
@@ -189,7 +212,15 @@ mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
 #[cfg(test)]
+mod session_reentry_tests;
+#[cfg(test)]
+mod task_notification_envelope_tests;
+#[cfg(test)]
+mod message_attachments_tests;
+#[cfg(test)]
 mod new_task_tests;
+#[cfg(test)]
+mod store_burst_tests;
 
 use std::sync::Arc;
 
@@ -200,6 +231,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+#[cfg(any(test, feature = "test-support"))]
+pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
@@ -304,6 +337,8 @@ pub struct SessionDeps {
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
     pub attachments: user_facts::AttachmentStore,
+    /// The process's "Allow for this session" grants (`processSessionGrants`): one bound over every session.
+    pub session_grants: Arc<mixdog_tools::policy::SessionGrantRegistry>,
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
@@ -322,6 +357,8 @@ pub struct SessionDeps {
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
     pub notices: Arc<dyn notices::SessionNotices>,
+    /// Announces a settings scope changed to every client (`notifySettingsChanged(scope)`): `ui/settings/changed`.
+    pub settings_changed: Arc<dyn Fn(&str) + Send + Sync>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.
@@ -346,8 +383,15 @@ pub struct SessionDeps {
     /// The agent tool's status for a session, published as its `agents` section when a job of
     /// the session is added or finishes (`agent_activity.rs`).
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
+    /// The context gauge (`thread/contextStatus`) the load's status pass reads for the display fields
+    /// (`syncContextStats` → `syncContextDisplayFields`).
+    pub context_status: Arc<dyn thread_context::ContextStatusHost>,
+    /// The session's live workspace (`getLiveWorkspace`), published by the load's pass and after its `cwd`/`workspace` move.
+    pub live_workspace: Arc<dyn worktree::LiveWorkspace>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
+    /// The session's shell-job strip at load (`shell_jobs::ShellStrips`).
+    pub shell_strips: Arc<dyn shell_jobs::ShellStrips>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
@@ -405,13 +449,21 @@ pub struct SessionLanes {
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
 pub trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
+
+    /// Resolves once this clock reads `at_ms` or later. The process clock waits on the core ticker; a virtual clock
+    /// resolves when it is advanced past `at_ms`.
+    fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let wait = std::time::Duration::from_millis(u64::try_from(at_ms.saturating_sub(self.now_ms())).unwrap_or(0));
+        Box::pin(mixdog_rt::ticker::ticker().wait_until(std::time::Instant::now() + wait))
+    }
 }
 
 pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        let since = std::time::SystemTime::now()
+        // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
+        let since = mixdog_rt::wall_clock!()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -480,7 +532,7 @@ fn new_session_id(now_ms: i64) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
     let counter = NEXT
-        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .get_or_init(|| AtomicU64::new(mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
         .fetch_add(1, Ordering::Relaxed);
     format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }

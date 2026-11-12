@@ -185,6 +185,7 @@ impl CompatResponsesCodec {
             profile.tools = ToolLowering::ServerSearch;
         }
         if self.profile.responses != ResponsesShape::Muse
+            && self.profile.chat.effort != EffortDialect::OpenRouter
             && let Some(effort) = self.wire_effort(request, info)
         {
             let requested = mixdog_js::js_trim(request.options.effort.as_deref().unwrap_or_default()).to_lowercase();
@@ -266,7 +267,18 @@ impl CompatResponsesCodec {
     }
 
     /// A forced `tool_choice`, placed where the key order says it goes.
-    fn adjust(&self, request: &ModelRequest, body: JsonObject) -> JsonObject {
+    fn adjust(&self, request: &ModelRequest, mut body: JsonObject) -> JsonObject {
+        // OpenRouter's Responses wire takes the same reasoning control and provider routing as its Chat wire
+        // (`openRouterResponsesParams`), after everything the builder places.
+        if self.profile.chat.effort == EffortDialect::OpenRouter {
+            body.shift_remove("reasoning");
+            if let Some(reasoning) = super::chat::openrouter_reasoning(request) {
+                body.insert("reasoning".into(), reasoning);
+            }
+            if let Some(provider) = super::chat::openrouter_provider(request) {
+                body.insert("provider".into(), provider);
+            }
+        }
         if !body.contains_key("tools") || self.profile.responses == ResponsesShape::Muse {
             return body;
         }
@@ -275,7 +287,9 @@ impl CompatResponsesCodec {
             Some("" | "none" | "auto") | None => None,
             Some(name) => Some(json!({"type": "function", "name": name})),
         };
-        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly;
+        // xAI's Responses send applies `applyCompatToolChoice(params, opts)` with no wire context
+        // (openai-compat-xai-send.mjs:58): only `none` reaches its body, whatever the chat dialect forces.
+        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly && self.profile.responses != ResponsesShape::Xai;
         let Some(forced) = forced.filter(|_| allowed) else {
             return body;
         };
@@ -296,11 +310,14 @@ impl CompatResponsesCodec {
         out
     }
 
-    fn headers(&self) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest) -> Vec<(String, String)> {
         let mut headers: Vec<(String, String)> = Vec::new();
         if !self.is_socket() {
             headers.push(("content-type".into(), "application/json".into()));
-            headers.push(("accept".into(), "text/event-stream".into()));
+            // The OpenAI SDK's `accept` (`application/json`); Muse Code asks for the stream by name
+            // (`muse-code-oauth.mjs` `send`: `Accept: text/event-stream`).
+            let accept = if self.profile.responses == ResponsesShape::Muse { "text/event-stream" } else { "application/json" };
+            headers.push(("accept".into(), accept.into()));
         }
         headers.extend(
             self.profile
@@ -309,6 +326,7 @@ impl CompatResponsesCodec {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
         );
         headers.extend(self.config.extra_headers.iter().cloned());
+        headers.extend(super::session_header(&self.profile, request));
         headers
     }
 
@@ -378,7 +396,7 @@ impl WireCodec for CompatResponsesCodec {
             transport: self.transport,
             method: method.into(),
             url,
-            headers: self.headers(),
+            headers: self.headers(request),
             // A JSON object always serializes.
             body: serde_json::to_vec(&body).unwrap_or_default(),
         })

@@ -353,7 +353,7 @@ mod tests {
             if walks.load(Ordering::SeqCst) == 2 && get(FOLDER_SIZE_TTL).await.unwrap().bytes == 200 {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(get(FOLDER_SIZE_TTL).await.unwrap().bytes, 200, "the refreshed size");
         assert_eq!(walks.load(Ordering::SeqCst), 2);

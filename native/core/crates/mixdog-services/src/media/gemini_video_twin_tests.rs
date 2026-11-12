@@ -21,7 +21,7 @@ use super::gemini_video::generate_video;
 use super::image_api::ImageReference;
 use super::xai::Pacer;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-gemini-video-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-gemini-video-twin.json");
 
 struct Script {
     queue: Mutex<VecDeque<Value>>,
@@ -88,7 +88,7 @@ impl PublicFetch for NeverFetched {
 
 #[tokio::test]
 async fn the_gemini_video_adapter_answers_as_nodes_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let start = golden["clock"].as_i64().unwrap();
     for case in golden["scenarios"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();

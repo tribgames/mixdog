@@ -24,6 +24,7 @@ use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::CallOptions;
+use mixdog_core_api::domain::tool::EditOccurrence;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::domain::tool::ProgressSink;
@@ -254,9 +255,21 @@ pub struct ToolEnv {
 // Signatures and the repeat-failure guards
 // ---------------------------------------------------------------------------
 
-/// Key-sorted JSON, independent of the map type the build selects.
+/// `_intraTurnSig`: the arguments as JSON with their top-level keys sorted; nested objects keep the order they came in.
 pub(crate) fn call_signature(name: &str, args: &JsonValue) -> String {
-    format!("{name}:{}", mixdog_js::json_stringify_sorted(args))
+    let body = match args {
+        JsonValue::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            let members: Vec<String> = keys
+                .into_iter()
+                .map(|key| format!("{}:{}", mixdog_js::json_stringify(&JsonValue::String(key.clone())), mixdog_js::json_stringify(&map[key])))
+                .collect();
+            format!("{{{}}}", members.join(","))
+        }
+        other => mixdog_js::json_stringify(other),
+    };
+    format!("{name}:{body}")
 }
 
 const FAILURE_PATH_KEYS: [&str; 9] = [
@@ -301,7 +314,12 @@ fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
     if value.is_empty() || has_scheme {
         return value.to_owned();
     }
-    let mut out = resolve_lexically(value, cwd);
+    // An absolute value (on Windows also one rooted without a drive, `/x`) is normalized where it stands, not placed under `cwd`.
+    let mut out = if mixdog_js::nodepath::is_absolute_host(value) {
+        mixdog_js::nodepath::normalize_host(value)
+    } else {
+        mixdog_js::nodepath::resolve_host(&[&cwd.to_string_lossy(), value])
+    };
     if cfg!(windows) {
         out = out.to_lowercase();
     }
@@ -518,7 +536,8 @@ pub(crate) struct Executed {
     pub(crate) message: AgentMessage,
     pub(crate) failed: bool,
     pub(crate) arg_failure: bool,
-    /// The tool reported an ambiguous edit (`Conflict`).
+    /// The tool reported an ambiguous edit (`Conflict` with two matches or more: `isAmbiguousEditFailure`'s
+    /// `old_string found N times`, never the `Conflict` of an anchor not found).
     pub(crate) conflict: bool,
     pub(crate) follow_ups: Vec<AgentMessage>,
     /// Served from the result cache: the id of the call that first delivered
@@ -533,6 +552,9 @@ pub(crate) struct Executed {
     /// Dispatch to settle in ms (Node's `toolEndedAt - toolStartedAt`, the failure log's `tool_ms`); 0 for a
     /// call that did not run.
     pub(crate) tool_ms: i64,
+    /// Every run of the call as (started, completed) ms when it ran more than once (Node's `executionIntervals`: an
+    /// ambiguous edit's batch-group retry adds its run, failed or not); empty for one run, whose interval is its timing's.
+    pub(crate) execution_intervals: Vec<(i64, i64)>,
 }
 
 impl Executed {
@@ -547,7 +569,16 @@ impl Executed {
             output: None,
             returned: false,
             tool_ms: 0,
+            execution_intervals: Vec::new(),
         }
+    }
+
+    /// The (started, completed) ms of each run of the call.
+    pub(crate) fn intervals(&self) -> Vec<(i64, i64)> {
+        if !self.execution_intervals.is_empty() {
+            return self.execution_intervals.clone();
+        }
+        self.message.tool_timing.map(|t| vec![(t.execution_started_at, t.execution_completed_at)]).unwrap_or_default()
     }
 
     /// A call skipped, not run, because the earlier mutation it depends on failed (`waitForPreceding`).
@@ -576,6 +607,8 @@ pub(crate) struct CallEnv {
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
+    /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
+    pub(crate) prepared: bool,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -628,11 +661,17 @@ pub(crate) fn is_invalid_args_marker(arguments: &JsonValue) -> bool {
 /// Policy, approval wait, then the tool task. Awaiting the approval is a
 /// cancel-safe wait: the run's token ends it from outside.
 pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+    execute_call_occupying(call, env, None).await
+}
+
+/// `execute_call` with the caller's `options.editOccurrence` (a same-anchor batch retry), passed beside the model's arguments as
+/// Node passes it, never through them.
+pub(crate) async fn execute_call_occupying(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     // A `call_tool` whose arguments did not parse is a projection failure (`tool-call-resolution.mjs:43`): refused before dispatch, so
     // it is no completed call and has no timing.
     let refused_before_dispatch = call.name == "call_tool" && is_invalid_args_marker(&call.arguments);
-    let executed = execute_call_inner(call, Arc::clone(&env)).await;
+    let executed = execute_call_inner(call, Arc::clone(&env), edit_occurrence).await;
     if refused_before_dispatch { executed } else { stamp_timing(executed, dispatch_started_at, env.clock.as_ref()) }
 }
 
@@ -645,7 +684,7 @@ pub(crate) fn stamp_timing(mut executed: Executed, dispatch_started_at: i64, clo
     executed
 }
 
-async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
     // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
     if is_invalid_args_marker(&call.arguments) {
@@ -657,7 +696,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>) -> Executed {
         );
     }
     let started = env.clock.now_ms();
-    let mut executed = execute_gated(&call, &env).await;
+    let mut executed = execute_gated(&call, &env, edit_occurrence).await;
     executed.tool_ms = (env.clock.now_ms() - started).max(0);
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.
@@ -811,7 +850,7 @@ pub async fn run_nested(
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
-    let mut running = Box::pin(tool.call(&nested, args));
+    let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
         .cancel(&ctx.cancel)
         .deadline(nested.deadline)
@@ -846,6 +885,73 @@ const TOOL_GRACE: Duration = Duration::from_millis(1_500);
 /// The tools Node runs inside `runReadOnlyIoWithDeadline` (`READ_ONLY_IO_TOOL_NAMES`, `tool-exec/read-only-deadline.mjs:6`).
 const READ_ONLY_IO_TOOL_NAMES: [&str; 12] = ["read", "head", "tail", "wc", "summary", "hex", "grep", "glob", "find", "find_files", "list", "tree"];
 
+/// `READ_ONLY_IO_TIMEOUT_MS` (`read-only-deadline.mjs:20`).
+const READ_ONLY_IO_TIMEOUT: Duration = Duration::from_millis(20_000);
+
+/// The deadline every run's read-only I/O calls get (`runReadOnlyIoWithDeadline`): `READ_ONLY_IO_TIMEOUT`, or what
+/// `MIXDOG_IO_TOOL_TIMEOUT_MS` sets, read at each call as Node reads it (`readOnlyIoTimeoutMs`, `read-only-deadline.mjs:27-32`):
+/// `0` is no deadline, a positive number its whole milliseconds (at least 1), anything else the default. Other tools have none.
+pub fn read_only_io_deadline() -> DeadlineFn {
+    Arc::new(|spec: &ToolSpec| {
+        if !READ_ONLY_IO_TOOL_NAMES.contains(&spec.name.as_str()) {
+            return None;
+        }
+        let raw = std::env::var_os("MIXDOG_IO_TOOL_TIMEOUT_MS").map(|raw| raw.to_string_lossy().into_owned()).unwrap_or_default();
+        io_timeout_from(&raw)
+    })
+}
+
+/// The largest delay a JavaScript timer keeps (`setTimeout` fires a longer one after 1 ms).
+const TIMER_MAX_MS: f64 = 2_147_483_647.0;
+
+/// `readOnlyIoTimeoutMs` on the variable's text. A value past the timer's range departs from Node: Node's `setTimeout` fires
+/// such a timer after 1 ms (a `TimeoutOverflowWarning`), so every read-only call times out; here it is no deadline, as the
+/// deadline instant would overflow.
+fn io_timeout_from(raw: &str) -> Option<Duration> {
+    let raw = mixdog_js::js_trim(raw);
+    if raw == "0" {
+        return None;
+    }
+    let configured = mixdog_js::string_to_number(raw);
+    if !(configured.is_finite() && configured > 0.0) {
+        return Some(READ_ONLY_IO_TIMEOUT);
+    }
+    let ms = configured.floor().max(1.0);
+    (ms <= TIMER_MAX_MS).then(|| Duration::from_millis(ms as u64))
+}
+
+/// `runReadOnlyIoWithDeadline`'s timeout error: the text a read-only I/O call gives when it has nothing to hand back past its deadline.
+fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
+    ToolError::new(
+        ToolErrorCode::DeadlineExceeded { partial: false },
+        format!(
+            "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
+            timeout.map_or(0, |t| t.as_millis())
+        ),
+    )
+}
+
+/// What a read-only I/O call that settled inside the grace after its deadline gives back (`read-only-deadline.mjs:99-107`): a result
+/// with text, that text and the deadline notice (`withReadOnlyIoDeadlineNotice`); a structured result (one with an image) as it is;
+/// an empty result or a failure, the timeout.
+fn graced(outcome: ToolOutcome, name: &str, timeout: Option<Duration>) -> ToolOutcome {
+    let mut output = outcome.map_err(|_| read_only_io_timeout(name, timeout))?;
+    if output.parts.iter().any(|part| matches!(part, ToolPart::Image { .. })) {
+        return Ok(output);
+    }
+    let Content::Text(text) = render_output(std::mem::take(&mut output.parts)) else {
+        unreachable!("a result without images renders as text");
+    };
+    if text.is_empty() {
+        return Err(read_only_io_timeout(name, timeout));
+    }
+    let ms = timeout.map_or(0, |t| t.as_millis());
+    output.parts = vec![ToolPart::Text(format!(
+        "{text}\n[warning] read-only I/O tool \"{name}\" hit the {ms}ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+    ))];
+    Ok(output)
+}
+
 /// A hook runs even once the run is cancelled, as in Node (best effort): a PostToolUseFailure
 /// hook is how an aborted call is reported. A hook still running `TOOL_GRACE` after the cancel is dropped.
 async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) -> Option<T> {
@@ -856,14 +962,8 @@ async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) ->
 /// The failure of a call that gave nothing back after the dispatcher ended the wait: its run was
 /// cancelled (`cancelled` is that text), or the tool's deadline passed (Node `runReadOnlyIoWithDeadline`'s timeout text).
 fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>, cancelled: String) -> ToolError {
-    match (ended, timeout) {
-        (Scoped::DeadlineExceeded, timeout) => ToolError::new(
-            ToolErrorCode::DeadlineExceeded { partial: false },
-            format!(
-                "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
-                timeout.map_or(0, |t| t.as_millis())
-            ),
-        ),
+    match ended {
+        Scoped::DeadlineExceeded => read_only_io_timeout(name, timeout),
         _ => ToolError::new(ToolErrorCode::Cancelled, cancelled),
     }
 }
@@ -884,7 +984,7 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     let call = call.clone();
     let name = call.name.clone();
@@ -894,7 +994,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
     // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
     // answers once the turn is cancelled.
-    if let Some(mcp) = &env.mcp
+    if !env.prepared
+        && let Some(mcp) = &env.mcp
         && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
         return cancelled();
@@ -963,7 +1064,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         approvals: Arc::clone(&env.tool_env.approvals),
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
-        options: CallOptions { notify: env.tool_env.notify.clone(), ..CallOptions::default() },
+        options: CallOptions {
+            notify: env.tool_env.notify.clone(),
+            edit_occurrence,
+            // Only `shell` asks which tools replace what it would run.
+            offered_tools: (spec.name == "shell").then(|| {
+                Arc::new(mixdog_tools::exec::COVERING_TOOLS.iter().filter(|name| env.tools.resolve(name).is_some()).map(|name| (*name).to_owned()).collect())
+            }),
+        },
         review: env.tool_env.review.clone(),
     };
     // Node: arguments are coerced to the declared schema before the tool sees
@@ -978,23 +1086,28 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         return cancelled();
     }
     let execution_started_at = env.clock.now_ms();
+    // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
+    let label = mixdog_rt::tool_label(&spec.name);
     let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
-        tool.call(&ctx, args).await
+        mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await
     });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
-    // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected. Every other tool runs
-    // outside that wrapper: the abort reaches it through its own token (a child of the run's) and the call waits for the tool to
-    // settle, however long it takes to honour that.
+    // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected, which an abort then no
+    // longer ends (the tool's signal has already fired). Every other tool runs outside that wrapper: the abort reaches it through its
+    // own token (a child of the run's) and the call waits for the tool to settle, however long it takes to honour that.
+    let mut past_deadline = false;
     let waited = if read_only_io {
-        match Scope::new()
-            .cancel(&env.cancel)
-            .run(Scope::new().deadline(deadline).run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel()))
-            .await
-        {
-            Scoped::Done(waited) => waited,
-            Scoped::Cancelled => Scoped::Cancelled,
-            Scoped::DeadlineExceeded => Scoped::DeadlineExceeded,
+        match Scope::new().cancel(&env.cancel).deadline(deadline).run(&mut handle).await {
+            Scoped::DeadlineExceeded => {
+                past_deadline = true;
+                tool_cancel.cancel();
+                match Scope::new().within(TOOL_GRACE).run(&mut handle).await {
+                    Scoped::Done(waited) => Scoped::Done(waited),
+                    _ => Scoped::DeadlineExceeded,
+                }
+            }
+            ended => ended,
         }
     } else {
         Scope::new().deadline(deadline).run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel()).await
@@ -1008,7 +1121,9 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         result_completed_at: env.clock.now_ms(),
     };
     let outcome: ToolOutcome = match waited {
+        Scoped::Done(Ok(outcome)) if past_deadline => graced(outcome, &name, timeout),
         Scoped::Done(Ok(outcome)) => outcome,
+        Scoped::Done(Err(_)) if past_deadline => Err(read_only_io_timeout(&name, timeout)),
         Scoped::Done(Err(_)) => Err(ToolError::new(
             ToolErrorCode::Internal {
                 incident_id: "tool-task".to_owned(),
@@ -1057,13 +1172,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                 output: Some(output),
                 returned: false,
                 tool_ms: 0,
+                execution_intervals: Vec::new(),
             }
         }
         Err(error) => {
             let mut executed = Executed::error(&call.id, error.message_for_model);
             executed.message.tool_timing = Some(timing(execution_completed_at));
             executed.arg_failure = matches!(error.code, ToolErrorCode::InvalidArgs { .. });
-            executed.conflict = matches!(error.code, ToolErrorCode::Conflict { .. });
+            executed.conflict = matches!(error.code, ToolErrorCode::Conflict { matches } if matches >= 2);
             executed
         }
     }
@@ -1157,7 +1273,18 @@ impl Run {
         }
         // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
         let (execution, _, _) = self.execution_view(&calls);
-        self.emit(RunEvent::ToolBatch(tool_batch(self.iterations, &execution)));
+        // Node's serial loop is at the first call once the response is in; it does not wait, as the tools here do, for the
+        // assistant item to be on disk, so an ambiguous first edit settling during that wait finds the batch at it.
+        if let Some(first) = execution.first() {
+            self.reach_call(first, &crate::batch::edit_groups(&execution));
+        }
+        self.settle_gate.send_replace(true);
+        let batch = tool_batch(self.iterations, &execution);
+        if let Some(log) = &self.env.failures {
+            log.batch(&batch);
+        }
+        self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
@@ -1168,6 +1295,8 @@ impl Run {
         // The tools start only once the assistant item that carries their
         // calls is on disk.
         self.until_durable(ticket).await?;
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Started));
+        let tools_started_ms = self.env.clock.now_ms();
         let results_from = self.messages.len();
         self.process_tool_batch(&calls, allowed).await?;
         // A turn recovered from a stream cut that dropped an in-flight tool
@@ -1176,12 +1305,20 @@ impl Run {
             self.push(notice).await?;
         }
         self.settle_turn_limits(overrun).await?;
+        let elapsed_ms = u64::try_from(self.env.clock.now_ms() - tools_started_ms).unwrap_or(0);
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        // The batch completes after its results are shown: a result reaches the thread through the sink's own queue and this
+        // event through the observer's, so only a result already on disk (and with it accepted, in order) is ahead of the
+        // event. The next request waits for the same ticket before it is sent.
+        if let Some(ticket) = self.unsaved.take() {
+            self.until_durable(ticket).await?;
+        }
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
 
@@ -1193,6 +1330,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
+#[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1354,6 +1495,7 @@ mod tests {
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
+            prepared: false,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),
@@ -1490,6 +1632,86 @@ mod tests {
         let _ = dropped.await;
     }
 
+    /// `runReadOnlyIoWithDeadline` (`read-only-deadline.mjs:96-104`): a tool that hands back text within the grace after its deadline
+    /// keeps it, with the deadline notice after it.
+    #[tokio::test(start_paused = true)]
+    async fn a_read_only_io_tool_that_answers_its_deadline_keeps_its_partial_output_with_the_notice() {
+        let held = stuck_env(Some(Duration::from_millis(20_000)), true, "grep");
+        let call = tokio::spawn(execute_call(stuck_call("grep"), Arc::new(held.env)));
+        held.started.notified().await;
+        tokio::time::advance(Duration::from_millis(20_000)).await;
+        let executed = call.await.unwrap();
+        assert!(!executed.failed);
+        assert_eq!(
+            executed.message.text(),
+            "partial\n[warning] read-only I/O tool \"grep\" hit the 20000ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+        );
+    }
+
+    /// Fails as ambiguous until it is called as a same-anchor batch member, then edits.
+    struct AmbiguousUntilOccupied {
+        spec: ToolSpec,
+        seen: std::sync::Mutex<Vec<Option<EditOccurrence>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for AmbiguousUntilOccupied {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, ctx: &ToolContext, _: JsonValue) -> ToolOutcome {
+            self.seen.lock().unwrap().push(ctx.options.edit_occurrence);
+            match ctx.options.edit_occurrence {
+                Some(_) => Ok(ToolOutput { parts: vec![ToolPart::Text("Updated a.txt (1 replacement)".into())], ..ToolOutput::default() }),
+                None => Err(ToolError::new(ToolErrorCode::Conflict { matches: 2 }, "Error: edit failed (old_string found 2 times)")),
+            }
+        }
+    }
+
+    struct Ticking(std::sync::atomic::AtomicI64);
+    impl crate::env::Clock for Ticking {
+        fn now_ms(&self) -> i64 {
+            self.0.fetch_add(10, std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    /// `rerunAmbiguousEdit` (`tool-batch/execute-call.mjs:219,263`): the retry is told how many occurrences remain through the call's
+    /// options, and the call keeps the run that failed as ambiguous beside the retry's.
+    #[tokio::test]
+    async fn an_ambiguous_edit_retried_in_its_group_keeps_both_runs() {
+        let mut held = stuck_env(None, false, "edit");
+        let tool = Arc::new(AmbiguousUntilOccupied { spec: plain("edit", "edit", true, None).spec().clone(), seen: Default::default() });
+        held.env.tools = ToolSet::new(vec![tool.clone() as Arc<dyn Tool>]);
+        held.env.clock = Arc::new(Ticking(std::sync::atomic::AtomicI64::new(0)));
+        let env = Arc::new(held.env);
+        let call = stuck_call("edit");
+        let first = execute_call(call.clone(), Arc::clone(&env)).await;
+        assert!(first.conflict);
+        let group: crate::batch::EditGroup = Arc::new(std::sync::Mutex::new((2, 0)));
+        let executed = crate::batch::retry_in_group(call, env, Some(group), first).await;
+        assert!(!executed.failed);
+        assert_eq!(*tool.seen.lock().unwrap(), [None, Some(EditOccurrence { expected: 2 })]);
+        let runs = executed.intervals();
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert!(runs[0].1 <= runs[1].0, "the failed run, then the retry: {runs:?}");
+    }
+
+    /// `readOnlyIoTimeoutMs` on the variable's text: `0` none, a negative or non-numeric value the default, a positive one its whole
+    /// ms; a value past a JavaScript timer's range is none, not a deadline whose instant overflows.
+    #[test]
+    fn the_io_timeout_variable_is_read_as_node_reads_it() {
+        assert_eq!(io_timeout_from(""), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from(" 0 "), None);
+        assert_eq!(io_timeout_from("-5"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("abc"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("Infinity"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("0.4"), Some(Duration::from_millis(1)));
+        assert_eq!(io_timeout_from("1500.9"), Some(Duration::from_millis(1500)));
+        assert_eq!(io_timeout_from("2147483647"), Some(Duration::from_millis(2_147_483_647)));
+        assert_eq!(io_timeout_from("2147483648"), None);
+        assert_eq!(io_timeout_from("1e30"), None);
+    }
+
     #[test]
     fn repeat_failure_cycles_are_detected() {
         let h = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
@@ -1511,10 +1733,41 @@ mod tests {
         assert!(guards.skip("read", "read:{}", "read:{}").is_none());
     }
 
+    /// Node's repeat-failure signatures and cycle detection (`tool-classify.mjs`), recorded on Windows, where the path
+    /// values fold case: `fixtures/tools-untested/agent-repeat-signature.json`, whole and in the recorded order.
+    #[cfg(windows)]
     #[test]
-    fn signatures_ignore_key_order() {
+    fn repeat_failure_signatures_and_cycles_equal_nodes() {
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-repeat-signature.json")).unwrap();
+        let mut failures = Vec::new();
+        for call in doc["signatures"].as_array().unwrap() {
+            let name = call["name"].as_str().unwrap();
+            let got = failure_signature(name, &call["args"], std::path::Path::new(call["cwd"].as_str().unwrap()));
+            if got != call["repeatFailureSig"].as_str().unwrap() {
+                failures.push(format!("{name} {} in {}:\n  Node {}\n  here {got}", call["args"], call["cwd"], call["repeatFailureSig"]));
+            }
+        }
+        for call in doc["shapes"].as_array().unwrap() {
+            let name = call["name"].as_str().unwrap();
+            let (sig, shape) = (call_signature(name, &call["args"]), format!("{name}:{}", arg_shape(&call["args"])));
+            if sig != call["intraTurnSig"].as_str().unwrap() || shape != call["argShapeSig"].as_str().unwrap() {
+                failures.push(format!("{name} {}:\n  Node {} {}\n  here {sig} {shape}", call["args"], call["intraTurnSig"], call["argShapeSig"]));
+            }
+        }
+        for call in doc["continues"].as_array().unwrap() {
+            let history: Vec<String> = call["history"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect();
+            let got = pattern_would_continue(&history, call["signature"].as_str().unwrap(), call["limit"].as_u64().unwrap() as u32);
+            if got as u64 != call["cycle"].as_u64().unwrap() {
+                failures.push(format!("{} signatures, limit {}, next {}: Node cycle {}, here {got}", history.len(), call["limit"], call["signature"], call["cycle"]));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn signatures_ignore_top_level_key_order() {
         let a = serde_json::json!({"b": 1, "a": [1, {"y": 2, "x": 3}]});
-        let b = serde_json::json!({"a": [1, {"x": 3, "y": 2}], "b": 1});
+        let b = serde_json::json!({"a": [1, {"y": 2, "x": 3}], "b": 1});
         assert_eq!(call_signature("t", &a), call_signature("t", &b));
         assert_eq!(arg_shape(&a), "{a:array[number,{x:number,y:number}],b:number}");
     }

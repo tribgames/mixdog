@@ -307,7 +307,7 @@ async fn a_cancel_ends_an_attempt_in_flight() {
     let cancel = CancellationToken::new();
     let trip = cancel.clone();
     let canceller = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(5)).await;
         trip.cancel();
     });
     let start = tokio::time::Instant::now();

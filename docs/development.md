@@ -35,7 +35,6 @@ accumulate and take disk space beyond the 40 completed backups.
 
 Useful environment variables:
 
-- `MIXDOG_TUI_MOUSE=0` — use terminal-native mouse behavior.
 - `MIXDOG_DISABLE_MODEL_PREFETCH=1` — disable provider model prefetch.
 - `MIXDOG_MODE=ship|dev` — select shipping or development diagnostics.
 - `MIXDOG_DIAGNOSTICS=1` — force diagnostic trace and log output.
@@ -44,8 +43,7 @@ Useful environment variables:
 
 | Layer | Stack |
 | --- | --- |
-| Shared agent runtime | Node.js and ECMAScript modules, shared by CLI and Desktop |
-| Terminal UI | React and Ink |
+| Shared agent runtime | Rust core (`mixdogd`), shared by headless exec and Desktop |
 | Desktop workspace | Electron, React, TypeScript, Monaco, and xterm.js |
 | Native code tools | Rust, tree-sitter, and embedded ast-grep for parsing, structural queries, and rule-based checks |
 | Browser automation | Chromium and the Chrome DevTools Protocol (CDP) |
@@ -61,16 +59,11 @@ for how they work with prompt management and compaction.
 
 ```bash
 npm install
-npm start
 
-npm run smoke
-npm run smoke:all
 npm test                       # discovered fast-lane tests
-npm test -- src/runtime/memory  # narrow to one path
+npm test -- src/runtime/office  # narrow to one path
 npm run test:slow              # *.slow.test.mjs
 npm run test:live              # built-artifact or live-system checks
-npm run build:tui
-npm run audit:models
 ```
 
 For desktop development, install the root dependencies above, then:
@@ -102,13 +95,12 @@ live checks need their corresponding built artifacts or services. See
 Main directories:
 
 ```text
-src/            CLI, TUI, runtime, workflows, agents, and rules
+src/            skills, workflows, agents, rules, and the extension host
 apps/desktop/   desktop app
 apps/relay/     remote web app and relay
-native/         native process, search, graph, patch, and support binaries
+native/         Rust core (`native/core`), search, graph, patch, and support binaries
 scripts/        tests, diagnostics, benchmarks, and build scripts
 benchmarks/     reproducible benchmark harnesses, results, and raw artifacts
-src/vendor/     vendored runtime components
 ```
 
 ## macOS signing and notarization

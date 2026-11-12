@@ -1,0 +1,97 @@
+{
+  "cases": 1,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-lane-backlog-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "The SSE response is a scripted writer: every write the real session frame stream makes is recorded whole, in order (the wire text); the decoder parses the data events from those writes.",
+    "notRun": "no HTTP server; the stream's interval timer is the mocked one",
+    "runs": "createSessionFrameStream (attachSse, broadcast, drain handling) with a scripted SSE response (EventEmitter; the first write returns true, later ones false when more than one string has been written), the snapshot delta encoder/decoder"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 902143,
+      "path": "golden.json",
+      "sha256": "998a6446b5772f3e40a1fbf033733ba6504f450492049365023c40e793b50775"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-lane-backlog-cases.mjs",
+  "recorderSha256": "7a65d6fad9e92595fc16b7e24d968c9b889163077a3db1ec9faafcf632b42370",
+  "replay": {
+    "compare": "mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot",
+    "entry": "A built mixdogd over its real WebSocket listener, two desktop protocol clients (packages/protocol-client connect, sessionReducer, sessionStateOf) on one thread: benchmarks/rust-core/recorders/replay-session-lane-backlog.mjs --mixdogd <exe>. Client A stops reading its socket while the opening turn (the 300 000-character row) and the live turn complete; client B, reading, must show both meanwhile; then A reads and must show each recorded publication in order. The core's slow-consumer lane is mixdog-core-base feed/mod.rs CoreFeed::publish (a full connection budget lags that connection's lane, no wait; resumed with one snapshot), covered by feed/tests.rs a_slow_consumer_lags_only_its_own_lanes.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {
+      "writes": "Node's SSE wire text (writeHead, ': attached', data events) is the desktop's own HTTP stream; K1's desktop takes the thread over the core's WebSocket JSON-RPC, so the user-visible content is compared through `decoded` (what the desktop decoder applied) instead",
+      "writesAfterOpen": "the count of Node's SSE writes, see writes",
+      "writesAfterLive": "the count of Node's SSE writes, see writes",
+      "writesTotal": "the count of Node's SSE writes, see writes",
+      "maxPendingBytes": "Node's SSE pending cap (8 MiB); the core bounds a connection by its event budget (CoreFeed lanes lag past it), asserted by the feed seam test",
+      "decoded[].snapshot.items[].id": "the core mints its own item ids; rows are compared by text in order",
+      "compaction": "Node's recording has no turn and no runtime (record-session-lane-backlog-cases.mjs:30-34: two snapshots broadcast through the frame stream), so compaction was not part of it either way. The replay's turns exist only to produce the recorded rows and its configuration turns the core's automatic compaction off, so the 300 000-character row does not add a summary row no recorded publication has.",
+      "promptRows": "the core writes rows only through turns, so each recorded row is the answer of a turn with prompt `open`/`live`; the prompt rows and turn markers are not compared"
+    },
+    "replayedBy": {
+      "a backed-up session stream still delivers a lane the desktop decoder can apply": "node benchmarks/rust-core/recorders/replay-session-lane-backlog.mjs --mixdogd <exe>"
+    },
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "session-lane-backlog-cases",
+  "totalBytes": 902143,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

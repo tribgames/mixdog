@@ -1,0 +1,63 @@
+{
+  "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-index.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL for cases 44 and 94 (SQLite stand-in of the test file); the test file's editCoreImpl/deleteCoreImpl/refresh stand-ins of case 125 (the product's own run instead)",
+    "runs": "syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall(\"memory\") (memory-action-handlers.mjs); case 125 with the real editCore/deleteCore (core-memory-store.mjs) and the real snapshot refresh on Node's opened memory database (a private bundled PostgreSQL cluster, statements recorded at pg.Client.prototype.query)"
+  },
+  "exclusions": "none: case 94 asserts parseMemoryCoreRows (the TUI parser, deleted in Rust); it is recorded as a Node round trip, `roundTrip` in the list steps: formatted text, the whole parsed rows (ids, project, summary, index revision) and per entry whether they equal the listed entry. The Rust side proves the same property by parsing its own formatted text with whatever reads it there and comparing the same fields",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 113406,
+      "path": "golden.json",
+      "sha256": "4d6376c01ad0488f05b9e103ecfb2d4ad9302688940b44c576b681b8f065cbfb"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "clock": "Date.now() fixed at clock.dateNowMs"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-index.mjs",
+  "recorderSha256": "3f02953df1adf6e340a7a28bbe79367eeceeb1459f6611abb17f72052147a8f0",
+  "replay": "mixdog-services memory/core/index.rs: pub async fn sync (:38) and resolve (:115); memory/core/list.rs: pub async fn list (:65) and pub fn format (:144); memory/core/action.rs: pub async fn run (:119, the public mutations). The TUI parser round trip (`roundTrip`): Rust proves the same property by reading its own formatted text with whatever reads it there (the structured list result is the source) and comparing id, project, summary and index revision per entry. A replay compares results, statements in order and the meta/core_entries tables after each step",
+  "set": "memory-core-index",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 113406,
+  "uuidsNormalised": "golden.json: 18 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

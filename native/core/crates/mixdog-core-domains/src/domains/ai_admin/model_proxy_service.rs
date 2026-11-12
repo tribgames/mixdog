@@ -11,6 +11,7 @@
 //!   `capabilities.modelProxy`, as the broker's [`ModelProxyTransport`].
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -23,7 +24,7 @@ use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, Domain
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::model_proxy::{ProxyEvents, ProxyRunner};
+use super::model_proxy::{ProxyEvents, ProxyRunner, busy, request_too_large};
 
 const RUN: &str = "modelProxy/run";
 const EVENT: &str = "model/proxy/event";
@@ -83,18 +84,115 @@ pub struct ModelProxyService {
     notifier: Arc<dyn ConnectionNotifier>,
     /// The runs in flight by asking connection and run id, so modelProxy/cancel can stop one.
     runs: Mutex<HashMap<(ConnectionId, String), CancellationToken>>,
+    /// `maxRequestBytes` and `maxInflightBytes` of the host's admission (model-proxy-host.ts).
+    bounds: Bounds,
+    /// The payload characters of the runs in flight (`inflight.bytes`).
+    held: Mutex<usize>,
     /// Woken when a run leaves `runs`: `close` waits on it.
     settled: tokio::sync::Notify,
+    /// Set by `close`: a run it aborts answers that the app is closing.
+    closing: AtomicBool,
+}
+
+/// `appClosingError()` (model-proxy-host.ts `dispose`): what a run aborted by the closing app answers.
+const APP_CLOSING: &str = "The desktop app is closing.";
+
+/// What this PC accepts of a server's calls, in payload characters: one call (`MODEL_PROXY_MAX_REQUEST_BYTES`, room for 64 MiB
+/// of inlined attachments as base64 plus the transcript) and all the calls in flight together (`MODEL_PROXY_MAX_INFLIGHT_BYTES`).
+/// There is no cap on how many calls run: Node's host refuses by these sizes alone.
+#[derive(Clone, Copy)]
+struct Bounds {
+    max_request: usize,
+    max_inflight: usize,
+}
+
+const MIB: usize = 1024 * 1024;
+
+/// `JSON.stringify(value).length`: the UTF-16 length of the value's compact JSON text as JavaScript writes it, counted without
+/// building the text. It is what Node's host measures of the string a server claimed (`payload.length`, `admitPayload`): the
+/// text of a call the server's JavaScript wrote is exactly this, and a Rust sender's differs from it in no way that matters
+/// (the whitespace it leaves out, and its number forms, which JavaScript spells its own way: `1e+21`, a whole 1e20 in full).
+pub fn claimed_chars(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(true) => 4,
+        Value::Bool(false) => 5,
+        // A JSON number is a double to JavaScript, whose `String(number)` is the text.
+        Value::Number(number) => mixdog_js::number_to_string(number.as_f64().expect("a JSON number is finite")).len(),
+        Value::String(text) => quoted_len(text),
+        Value::Array(items) => 2 + items.len().saturating_sub(1) + items.iter().map(claimed_chars).sum::<usize>(),
+        Value::Object(fields) => 2 + fields.len().saturating_sub(1) + fields.iter().map(|(key, field)| quoted_len(key) + 1 + claimed_chars(field)).sum::<usize>(),
+    }
+}
+
+/// The length of a string as `JSON.stringify` writes it: quoted, with `"`, `\` and the control characters escaped.
+fn quoted_len(text: &str) -> usize {
+    2 + text
+        .chars()
+        .map(|c| match c {
+            '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+            c if c < ' ' => 6,
+            c => c.len_utf16(),
+        })
+        .sum::<usize>()
+}
+
+/// The payload a run holds until it ends; dropping it gives the share back.
+struct Held<'a> {
+    service: &'a ModelProxyService,
+    chars: usize,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        *self.service.held.lock().unwrap_or_else(PoisonError::into_inner) -= self.chars;
+    }
 }
 
 impl ModelProxyService {
     pub fn new(runner: Arc<ProxyRunner>, host: Arc<dyn HostChannel>, notifier: Arc<dyn ConnectionNotifier>) -> Self {
-        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()), settled: tokio::sync::Notify::new() }
+        Self {
+            runner,
+            host,
+            notifier,
+            runs: Mutex::new(HashMap::new()),
+            bounds: Bounds { max_request: 128 * MIB, max_inflight: 256 * MIB },
+            held: Mutex::new(0),
+            settled: tokio::sync::Notify::new(),
+            closing: AtomicBool::new(false),
+        }
+    }
+
+    /// The bound of all calls in flight together, in payload characters (Node's `maxInflightBytes` option).
+    pub fn with_inflight_bound(mut self, max_inflight: usize) -> Self {
+        self.bounds.max_inflight = max_inflight;
+        self
+    }
+
+    /// The bound of one call, in payload characters (Node's `maxRequestBytes` option).
+    pub fn with_request_bound(mut self, max_request: usize) -> Self {
+        self.bounds.max_request = max_request;
+        self
+    }
+
+    /// `admitPayload`: a payload past one call's bound is refused as too large, one that would take the data held past the
+    /// in-flight bound as busy. The check and the claim of the share are one step.
+    fn admit(&self, chars: usize) -> Result<Held<'_>, w::ProxyFailure> {
+        if chars > self.bounds.max_request {
+            return Err(request_too_large());
+        }
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if *held + chars > self.bounds.max_inflight {
+            return Err(busy());
+        }
+        *held += chars;
+        Ok(Held { service: self, chars })
     }
 
     /// `modelProxyBridge.close` (daemon.mjs:302), the first step of Node's shutdown: every relayed model call is aborted, then this waits for the calls to settle, before
     /// anything they depend on goes away.
     pub async fn close(&self) {
+        self.closing.store(true, Ordering::SeqCst);
         for token in self.runs.lock().unwrap_or_else(PoisonError::into_inner).values() {
             token.cancel();
         }
@@ -125,7 +223,14 @@ impl DomainService for ModelProxyService {
         let Caller::Connection(to) = req.ctx.caller else {
             return Err(invalid("caller", "a connection: the events of the run go to it"));
         };
+        // The payload is sized as the server claimed it (`payload.length`), not as the typed call it decodes to, which leaves out
+        // what the type does not read; before the run is registered or any provider is looked up.
+        let chars = req.params.get("call").map_or(0, claimed_chars);
         let ModelProxyRunParams { run_id, call, allowed_providers } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
+        let _held = match self.admit(chars) {
+            Ok(held) => held,
+            Err(failure) => return Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result: w::ProxyAnswer::Failed { failure } }).expect("a typed result serializes"))),
+        };
         let cancel = req.ctx.cancel.child_token();
         self.runs.lock().unwrap_or_else(PoisonError::into_inner).insert((to, run_id.clone()), cancel.clone());
         let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id: run_id.clone() };
@@ -134,7 +239,12 @@ impl DomainService for ModelProxyService {
         self.settled.notify_waiters();
         let result = match ran {
             Ok(answer) => answer,
-            Err(failure) => w::ProxyAnswer::Failed { failure },
+            Err(mut failure) => {
+                if cancel.is_cancelled() && self.closing.load(Ordering::SeqCst) {
+                    failure.message = APP_CLOSING.into();
+                }
+                w::ProxyAnswer::Failed { failure }
+            }
         };
         Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result }).expect("a typed result serializes")))
     }

@@ -301,6 +301,7 @@ mod through_the_registry {
         fn delivery(&self) -> DeliveryState {
             DeliveryState::Accepted
         }
+        fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
     }
 
     struct Provider {
@@ -313,6 +314,7 @@ mod through_the_registry {
 
     #[async_trait]
     impl ProviderAdapter for Provider {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             &self.id
         }
@@ -611,7 +613,7 @@ mod through_the_registry {
 
         // Before the stream exists: the attempt future is dropped while the provider connects.
         let (adapter, sink) = adapter_for(quiet, vec![vec![]]).await;
-        let pending = tokio::time::timeout(std::time::Duration::from_millis(1), async {
+        let pending = mixdog_rt::time::timeout(std::time::Duration::from_millis(1), async {
             std::future::pending::<()>().await;
             adapter.attempt(request_for(quiet, None)).await
         })

@@ -115,6 +115,16 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
 }
 
 fn main() {
+    // `MOCK_STARTS`: a file that gets one line per start. `MOCK_DOWN_WHILE`: while that file
+    // exists, the server exits at once (a start that fails with an unchanged configuration).
+    if let Ok(starts) = std::env::var("MOCK_STARTS") {
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(starts).unwrap();
+        writeln!(file, "start").unwrap();
+    }
+    if std::env::var("MOCK_DOWN_WHILE").is_ok_and(|path| std::path::Path::new(&path).exists()) {
+        eprintln!("down on purpose");
+        std::process::exit(1);
+    }
     let shared = Arc::new(Shared {
         out: Mutex::new(std::io::stdout()),
         cancels: AtomicUsize::new(0),
@@ -124,12 +134,29 @@ fn main() {
         fixture_calls: AtomicUsize::new(0),
         fixture_args: Mutex::new(Vec::new()),
     });
+    // `MOCK_SCENARIO`: `{tools, results}` — lists `tools` and answers `tools/call {name, {i}}`
+    // with `results[name][i]` (a recorded case of `record-mcp-output-schema.mjs`). `MOCK_SCENARIO_FILE`: the same, in a
+    // file (a scenario larger than an environment variable holds).
+    let scenario: Option<Value> = std::env::var("MOCK_SCENARIO")
+        .ok()
+        .or_else(|| std::env::var("MOCK_SCENARIO_FILE").ok().map(|path| std::fs::read_to_string(path).unwrap()))
+        .map(|raw| serde_json::from_str(&raw).unwrap());
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let method = message["method"].as_str().map(str::to_owned);
         let id = message.get("id").cloned();
         match (method.as_deref(), id) {
+            (Some("tools/list"), Some(id)) if scenario.is_some() => {
+                let tools = scenario.as_ref().map(|s| s["tools"].clone()).unwrap_or_default();
+                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools}}));
+            }
+            (Some("tools/call"), Some(id)) if scenario.is_some() => {
+                let params = &message["params"];
+                let index = params["arguments"]["i"].as_u64().unwrap_or_default() as usize;
+                let result = scenario.as_ref().map(|s| s["results"][params["name"].as_str().unwrap_or_default()][index].clone());
+                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            }
             (Some("initialize"), Some(id)) => send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {"tools": {"listChanged": true}},

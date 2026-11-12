@@ -26,6 +26,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 const MAX_ERROR_TEXT: usize = 16 * 1024;
+/// A stage or exclusion detail string (model-proxy-host.ts `scalarDetail`: `redactedText(entry, 2_000)`).
+const MAX_DETAIL_TEXT: usize = 2_000;
 
 /// A wire request that cannot be run.
 #[derive(Debug, PartialEq)]
@@ -131,6 +133,7 @@ fn message_out(m: &p::Message) -> w::ProxyMessage {
         }),
         turn_reminder: m.turn_reminder.clone(),
         provider_replay: m.provider_replay().iter().map(replay_out).collect(),
+        account_routing: m.account_routing.as_ref().map(|r| w::ProxyAccountRouting { provider: r.provider.clone(), account_id: r.account_id.clone(), session_account_id: r.session_account_id.clone() }),
     }
 }
 
@@ -175,6 +178,7 @@ fn options_out(o: &p::RequestOptions) -> w::ProxyOptions {
             .collect(),
         shared_cache_prefix_count: o.shared_cache_prefix_count.map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
         provider_state: o.provider_state.as_ref().map(p::ProviderState::to_json),
+        forked_transport_scope: o.transport_scope.is_some(),
     }
 }
 
@@ -269,6 +273,7 @@ fn message_in(m: w::ProxyMessage) -> Result<p::Message, Invalid> {
         w::ProxyMessageSource::TailReminder => p::MessageSource::TailReminder,
     });
     out.turn_reminder = m.turn_reminder;
+    out.account_routing = m.account_routing.map(|r| p::AccountRouting { provider: r.provider, account_id: r.account_id, session_account_id: r.session_account_id });
     for r in m.provider_replay {
         out.push_replay(p::ProviderReplay { owner: r.owner.as_str().into(), items: plain_json(r.items)? });
     }
@@ -282,6 +287,9 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         transport_scope: None,
         effort: o.effort,
         model_max_output_tokens: None,
+        // The proxy wire does not carry the session's wire pin (Node's `options.session.wireRoute`): this PC's
+        // gateway routes the model afresh.
+        wire_pin: None,
         max_output_tokens_override: o.max_output_tokens_override,
         fast: o.fast,
         tool_choice: o.tool_choice,
@@ -402,8 +410,19 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
         E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
-        E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
+        E::Notice { message, warn } => w::ProxyEvent::Notice { message: redacted_text(message, MAX_DETAIL_TEXT), warn: *warn },
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
+        E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
+        E::ResponseId(id) => w::ProxyEvent::ResponseId { id: id.clone() },
+        E::AccountRouting(r) => w::ProxyEvent::AccountRouting {
+            provider: r.provider.clone(),
+            account_id: r.account_id.clone(),
+            session_account_id: r.session_account_id.clone(),
+        },
+        E::AccountStage(p::AccountStage::Switching { message }) => w::ProxyEvent::AccountSwitching { message: redacted_text(message, MAX_DETAIL_TEXT) },
+        E::AccountStage(p::AccountStage::Changed { provider, at, .. }) => w::ProxyEvent::AccountChanged { provider: provider.clone(), at: *at },
+        E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
+        E::OutputStarted => w::ProxyEvent::OutputStarted,
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -425,6 +444,8 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
 #[derive(Debug, PartialEq)]
 pub enum Incoming {
     Event(p::StreamEvent),
+    /// A tool the PC's adapter left out: for the request's own `on_tool_excluded`.
+    Excluded(p::ToolExclusionReport),
     Discard,
     Abandoned(p::Usage, Option<String>),
 }
@@ -462,6 +483,19 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
         w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
         w::ProxyEvent::ServedModel { model } => E::ServedModel(model),
+        w::ProxyEvent::ProviderMetadata { value } => E::ProviderMetadata(value),
+        w::ProxyEvent::ResponseId { id } => E::ResponseId(id),
+        w::ProxyEvent::AccountRouting { provider, account_id, session_account_id } => {
+            E::AccountRouting(p::AccountRouting { provider, account_id, session_account_id })
+        }
+        w::ProxyEvent::AccountSwitching { message } => E::AccountStage(p::AccountStage::Switching { message }),
+        // The PC keeps its account id: the server learns the provider and the time.
+        w::ProxyEvent::AccountChanged { provider, at } => E::AccountStage(p::AccountStage::Changed { provider, account_id: String::new(), at }),
+        w::ProxyEvent::ToolExcluded { name, index, pointer, reason, message } => {
+            return Ok(Incoming::Excluded(p::ToolExclusionReport { name, index: usize::try_from(index).unwrap_or(usize::MAX), pointer, reason, message }));
+        }
+        w::ProxyEvent::WireRerouted { route } => E::WireRerouted(route),
+        w::ProxyEvent::OutputStarted => E::OutputStarted,
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,
@@ -840,17 +874,40 @@ pub struct ProxyRunner {
     pub catalog: Arc<mixdog_ai::catalog::CatalogService>,
 }
 
-struct EventSink<'a>(&'a dyn ProxyEvents);
+/// The events of a send, with the tools its adapter left out (reported to the request's sink while it encodes)
+/// sent ahead of the next event, in the order they happened.
+struct EventSink<'a> {
+    events: &'a dyn ProxyEvents,
+    excluded: std::sync::mpsc::Receiver<p::ToolExclusionReport>,
+}
+
+impl EventSink<'_> {
+    fn flush_excluded(&self) {
+        while let Ok(report) = self.excluded.try_recv() {
+            let text = |value: &str| redacted_text(value, MAX_DETAIL_TEXT);
+            self.events.emit(w::ProxyEvent::ToolExcluded {
+                name: text(&report.name),
+                index: report.index as u64,
+                pointer: text(&report.pointer),
+                reason: text(&report.reason),
+                message: text(&report.message),
+            });
+        }
+    }
+}
 
 impl AttemptSink for EventSink<'_> {
     fn event(&mut self, event: p::StreamEvent) {
-        self.0.emit(event_out(&event));
+        self.flush_excluded();
+        self.events.emit(event_out(&event));
     }
     fn discard(&mut self) {
-        self.0.emit(w::ProxyEvent::AttemptDiscarded);
+        self.flush_excluded();
+        self.events.emit(w::ProxyEvent::AttemptDiscarded);
     }
     fn abandoned(&mut self, usage: &p::Usage, model: Option<&str>) {
-        self.0.emit(w::ProxyEvent::AttemptAbandoned { usage: usage_out(usage), model: model.map(str::to_owned) });
+        self.flush_excluded();
+        self.events.emit(w::ProxyEvent::AttemptAbandoned { usage: usage_out(usage), model: model.map(str::to_owned) });
     }
 }
 
@@ -859,6 +916,26 @@ fn refusal(code: &str, message: String, kind: p::ErrorKind) -> w::ProxyFailure {
     error.code = Some(code.to_owned());
     error.message = message;
     failure_out(&error, w::ProxyOutcome::Provider)
+}
+
+/// `refusal(message, code, status)` of the host's admission (model-proxy-host.ts `admitPayload`): an `Error` with a code and an
+/// HTTP status, which the sender reads as the kind that status means.
+fn refusal_with_status(code: &str, message: &str, kind: p::ErrorKind, status: u16) -> w::ProxyFailure {
+    let mut error = p::ProviderError::new(kind, p::DeliveryState::NotSent);
+    error.code = Some(code.to_owned());
+    error.status = Some(status);
+    error.message = message.to_owned();
+    failure_out(&error, w::ProxyOutcome::Provider)
+}
+
+/// A call whose payload is past what this PC accepts from a server (`MODEL_PROXY_REQUEST_TOO_LARGE`, 413).
+pub fn request_too_large() -> w::ProxyFailure {
+    refusal_with_status("MODEL_PROXY_REQUEST_TOO_LARGE", "The model call is larger than this PC accepts from a server.", p::ErrorKind::RequestTooLarge, 413)
+}
+
+/// A call that would take the data this PC holds for the server past its bound (`MODEL_PROXY_BUSY`, 429).
+pub fn busy() -> w::ProxyFailure {
+    refusal_with_status("MODEL_PROXY_BUSY", "This PC is already holding as much model-call data for this server as it accepts; try again shortly.", p::ErrorKind::RateLimited, 429)
 }
 
 /// A call that failed with a plain `Error` (no code, no status): the record Node answers with.
@@ -924,7 +1001,7 @@ impl ProxyRunner {
                 Ok(w::ProxyAnswer::Route { route })
             }
             w::ProxyCall::ListModels { provider, refresh } => {
-                self.adapter(&provider).await?;
+                let adapter = self.adapter(&provider).await?;
                 if refresh {
                     self.catalog.refresh().await;
                 }
@@ -934,16 +1011,39 @@ impl ProxyRunner {
                 if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), snapshot.status.get(&id)) {
                     return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
                 }
-                Ok(w::ProxyAnswer::Models { models: models.iter().map(catalog_model_out).collect() })
+                // The budget depends on the model, so it rides with the model's own row (host.ts `catalog`).
+                let budget = |id: &str| {
+                    adapter.first_response_budget(id, None).and_then(|b| {
+                        Some(w::ProxyBudget { transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?, semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)? })
+                    })
+                };
+                Ok(w::ProxyAnswer::Models {
+                    models: models.iter().map(|m| w::ProxyModel { first_response_budget: budget(&m.id), ..catalog_model_out(m) }).collect(),
+                })
             }
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
-                let request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+                let forked = request.options.forked_transport_scope;
+                let mut request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+                // A request the server forked from a session gets a scope allocated here (`forkTransportScope(sessionId || name,
+                // 'proxy')`), released when it ends whatever the outcome (`disposeTransportScope`).
+                let scope = forked.then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
+                request.options.transport_scope.clone_from(&scope);
+                // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
+                let (excluded, reports) = std::sync::mpsc::channel();
+                request.options.on_tool_excluded = Some(p::ToolExclusionSink(Arc::new(move |report| {
+                    let _ = excluded.send(report);
+                })));
                 let key = LaneKey::new(provider.as_str().into(), "default");
                 let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
                 let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
-                let mut sink = EventSink(events);
-                match self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await {
+                let mut sink = EventSink { events, excluded: reports };
+                let sent = self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await;
+                if let Some(scope) = &scope {
+                    adapter.release_transport_scope(scope);
+                }
+                sink.flush_excluded();
+                match sent {
                     Ok(attempts) => Ok(w::ProxyAnswer::Sent { attempts }),
                     Err(SendError::Provider(e)) => Err(failure_out(&e, w::ProxyOutcome::Provider)),
                     Err(SendError::Exhausted(e)) => Err(failure_out(&e, w::ProxyOutcome::Exhausted)),
@@ -1005,10 +1105,16 @@ pub async fn remote_send(
         .map_err(|e| SendError::Provider(transient(&e, p::DeliveryState::NotSent)))?;
     let call = w::ProxyCall::Send { provider: provider.to_owned(), request: Box::new(request_out(&request)) };
     let call = serde_json::to_value(&call).map_err(|e| SendError::Provider(transient(&e.to_string(), p::DeliveryState::NotSent)))?;
+    let excluded = request.options.on_tool_excluded.clone();
     let mut on_event = |value: Value| {
         // An event this core cannot read is dropped: deltas are hints and the terminal event decides.
         match serde_json::from_value::<w::ProxyEvent>(value).ok().map(event_in) {
             Some(Ok(Incoming::Event(event))) => sink.event(event),
+            Some(Ok(Incoming::Excluded(report))) => {
+                if let Some(excluded) = &excluded {
+                    excluded.report(report);
+                }
+            }
             Some(Ok(Incoming::Discard)) => sink.discard(),
             Some(Ok(Incoming::Abandoned(usage, model))) => sink.abandoned(&usage, model.as_deref()),
             _ => {}

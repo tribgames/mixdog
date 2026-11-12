@@ -1,0 +1,37 @@
+{
+  "provider": "command-code-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "command-code-oauth.json",
+    "document": {
+      "apiKey": "fixture-key",
+      "userId": "u1",
+      "userName": "fixture"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "cc-fixture",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

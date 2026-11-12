@@ -87,17 +87,7 @@ live reproduction of that session:
    the child and rejects **all** pending requests assigned to that child.
    Thus a timed-out accessibility request can also fail the bounds request,
    rather than merely leaving a usable pixel-only observation.
-4. `error-recovery.mjs` returns `timeoutRecovery` for
-   `computer_command_timeout` before the `menu_` branch. A read-only action
-   (`capture`, `list`, `diagnose`, `verify`) is told to capture again with
-   `mode="state"` or `"som"`: the read sent no input, so no cleanup or
-   user-control guard applies, and pixels and OCR stay usable while that
-   window's accessibility provider is slow. Any other timed-out command is
-   told to diagnose the host first — it may have executed — and not to repeat
-   it or switch delivery until cleanup and user-control guards clear and a
-   fresh capture shows the effect. Menu failures stay on their own path:
-   capture again, and empty accessibility uses OCR.
-5. Snapshot timeout may include worker startup or earlier queued work; the
+4. Snapshot timeout may include worker startup or earlier queued work; the
    existing evidence does not distinguish these from an unresponsive UIA
    provider. Increasing the deadline is not yet justified.
 

@@ -225,6 +225,9 @@ const desktopBootScenario = String(process.env.MIXDOG_BOOT_SCENARIO || '')
   .replace(/[^A-Za-z0-9_.:-]/g, '')
   .slice(0, 80);
 const DESKTOP_WINDOW_SHOW_DEADLINE_MS = 3_000;
+// Start checks (app-start.electron.test.mjs) run the whole app with its window held off every display: the boot, the
+// renderer handshake and the core connection happen as usual, only the show step is skipped.
+const desktopWindowHeldHidden = process.env.MIXDOG_DESKTOP_HIDDEN_WINDOW === '1';
 let launchFollowsUpdate: Promise<boolean> | null = null;
 const launchVersionPath = () => join(app.getPath('userData'), LAUNCH_VERSION_FILE);
 const launchRecordWriteFailure = (error: unknown) =>
@@ -267,6 +270,11 @@ if (process.env.MIXDOG_DESKTOP_USER_DATA) {
 // probes must never register electron.exe under the installed sender identity.
 const desktopBrand = desktopIdentity(app.isPackaged ? 'installed' : 'development');
 const desktopUserData = app.getPath('userData');
+// With no window to close, a start check ends the app by creating this file in its profile.
+if (desktopWindowHeldHidden) {
+  const quitRequest = join(desktopUserData, 'quit-request');
+  setInterval(() => existsSync(quitRequest) && app.quit(), 250);
+}
 app.setName(desktopBrand.name);
 app.setPath('userData', desktopUserData);
 
@@ -2027,6 +2035,10 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
     shown = true;
     if (showDeadline) clearTimeout(showDeadline);
     showDeadline = null;
+    if (desktopWindowHeldHidden) {
+      diagnostics?.write('window-held-hidden', { durationMs: Date.now() - startupStartedAt, forced: force, reason });
+      return;
+    }
     window.show();
     diagnostics?.write('window-shown', {
       durationMs: Date.now() - startupStartedAt,

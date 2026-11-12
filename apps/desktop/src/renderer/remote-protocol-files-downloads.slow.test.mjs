@@ -12,7 +12,7 @@ const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w25-target\\debu
 test('the files adapter replays every call of the downloads recording over a real core', () => {
   const child = spawnSync(process.execPath, [...process.execArgv, recorder, '--replay', BIN], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
   assert.equal(child.status, 0, `replay failed (${child.status}):\n${child.stdout.slice(-6000)}\n${child.stderr.slice(-2000)}`);
-  const match = child.stdout.match(/file-downloads replay .*: \d+ calls compared, \d+ held calls, \d+ handle counts, (\d+) asset ids sent past the adapter, 0 unexpected, not run on this system: (.*)/);
+  const match = child.stdout.match(/file-downloads replay .*: \d+ calls compared, \d+ held calls, \d+ handle counts, \d+ staged counts, (\d+) asset ids sent past the adapter, 0 unexpected, not run on this system: (.*)/);
   assert.ok(match, child.stdout.slice(-2000));
   // The ids Node's table refuses (`a b`, empty, 129 characters) also reach the core straight, which must refuse them as Node did.
   assert.equal(Number(match[1]), 3, 'every refused asset id of the recording was sent past the adapter');

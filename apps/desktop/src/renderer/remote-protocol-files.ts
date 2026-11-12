@@ -44,7 +44,8 @@ export function failure(error: unknown): unknown {
   if (!data) return error;
   if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost') return new TypeError(DESKTOP_UNAVAILABLE);
   // A refused argument names its sentence (Node's TypeError text); a stale save is Node's one sentence for it.
-  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected) return new TypeError(data.expected);
+  // The core's error stays reachable as the cause (its code and data, whole).
+  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected) return new TypeError(data.expected, { cause: error });
   if (data.reason === 'preconditionFailed') return new Error(FILE_CHANGED);
   if (data.reason !== 'domainError') return error;
   const text = data.message;
@@ -58,7 +59,7 @@ export function failure(error: unknown): unknown {
   return rebuilt;
 }
 
-const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
+export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
   try {
     // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
     // answered as Node's plain `Error`, not the core's permission refusal.
@@ -195,13 +196,15 @@ async function searchFiles(host: PhoneProtocolHost, root: string, query: string,
   let files: string[] = [];
   let finish!: () => void;
   const completed = new Promise<void>((resolve) => (finish = resolve));
+  // The core echoes the query with each unpaired surrogate read as U+FFFD (decisions.md "frame-lone-surrogate" (a)).
+  const echoed = query.replace(/[\ud800-\udfff]/gu, '\ufffd');
   const off = client.on((event) => {
     if (event.type !== 'notification') return;
     const { method, params } = event.notification as { method: string; params?: { sessionId?: string; query?: string; files?: Array<{ path: string; matchType: string }> } };
     if (params?.sessionId !== sessionId) return;
     // A folder's path ends with a slash, as Node's file search names it.
-    if (method === 'search/updated' && params.query === query) files = (params.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
-    else if (method === 'search/completed' && params.query === query) finish();
+    if (method === 'search/updated' && params.query === echoed) files = (params.files ?? []).map((row) => (row.matchType === 'directory' ? `${row.path}/` : row.path));
+    else if (method === 'search/completed' && params.query === echoed) finish();
   });
   try {
     await rpc(host, 'search/start', { sessionId, roots: [root], limit, includeIgnored: ignored, includeDirectories: directories });

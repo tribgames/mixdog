@@ -12,6 +12,7 @@ import {
 import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { resolveAction } from '../../../../../packages/protocol-client/src/actions/action-route.mjs';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
+import { SESSION_READ_ACTION_SET } from '../../../../../packages/protocol-client/src/actions/session-protocol.mjs';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -19,6 +20,8 @@ import type {
   DesktopCapabilityResult,
   SessionSnapshot,
 } from '../../shared/contract';
+import { remoteSessionIdOf, withRemoteSession } from '../../shared/blank-snapshot';
+import { SCHEDULE_RENAME_UNCERTAIN } from '../../shared/schedule-error-codes';
 import { normalizeSessionTitle } from '../../shared/session-title.mjs';
 import { isSessionId } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
@@ -173,6 +176,25 @@ const hasRpcReason = (error: unknown, ...reasons: string[]): boolean => {
 
 const isThreadNotFound = (error: unknown): boolean => hasRpcReason(error, 'threadNotFound');
 
+/** Whether a `saveSchedule` entry renames its schedule: Node's `saveSchedule` (`channel-admin.mjs:344-345`) renames when
+ *  `newName`, trimmed, is not empty and is not the trimmed `name`. */
+const renamesSchedule = (entry: unknown): boolean => {
+  const { name, newName } = (entry ?? {}) as { name?: unknown; newName?: unknown };
+  const to = newName == null ? '' : String(newName).trim();
+  return to !== '' && to !== String(name || '').trim();
+};
+
+/** The client library's failure for an op whose outcome its reconciliation could not learn (`opOutcomeUnknown`). */
+const isOutcomeUnknown = (error: unknown): boolean =>
+  (error as { detail?: { kind?: unknown } } | null)?.detail?.kind === 'opOutcomeUnknown';
+
+/** Node's `scheduleRenameUncertainError(cause)` (`channels/lib/schedule-errors.mjs`), raised by its `renameSchedule` when the
+ *  call to the scheduler went unanswered (`session-runtime/channel-config-api.mjs:63`). */
+const scheduleRenameUncertain = (cause: string): Error =>
+  Object.assign(new Error(`The rename may or may not have applied (the scheduler did not answer: ${cause}). Check the schedule list.`), {
+    code: SCHEDULE_RENAME_UNCERTAIN,
+  });
+
 /** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
  *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
  *  (`OVERRIDE_THREAD_SOURCE`, `DESKTOP_OVERRIDE_THREAD_SOURCE`). Node sends every call that names no session to the control
@@ -230,7 +252,22 @@ export function createCapabilityLane({
     });
     return pending;
   };
+  /** A call of the control session (`invokeControlResult`, session-host-transport.ts): one that fails drops the control thread, and
+   *  a read (the session read set) is sent once more on a new one; a mutation is not (it may have committed before its reply failed). */
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
+    for (let attempt = 0; ; attempt += 1) {
+      // The thread's creation is outside the retry, as Node's `ensureControlSession` is: a failed start goes to the caller at once.
+      const thread = await controlThread();
+      try {
+        return await sendOnce(capability, args, thread);
+      } catch (error) {
+        control = null;
+        if (!SESSION_READ_ACTION_SET.has(capability) || attempt > 0) throw error;
+      }
+    }
+  };
+  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
     // session-api wrapper answers it `{ ok: true }`.
     if (capability === 'noteUserInput') {
@@ -295,6 +332,14 @@ export function createCapabilityLane({
         }
       );
     }
+    // A rename whose op was sent and whose outcome the reconciliation could not learn (the connection cut after sending and
+    // `op/status` failing, or the op record gone): the user is told, as Node told them when its scheduler did not answer,
+    // that the rename may or may not have applied.
+    if (capability === 'saveSchedule' && renamesSchedule(args[0])) {
+      return request(method, params).catch((error: unknown) => {
+        throw isOutcomeUnknown(error) ? scheduleRenameUncertain((error as Error).message) : error;
+      });
+    }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {
       throw isThreadNotFound(error) ? new Error('session is not the active session') : error;
@@ -302,17 +347,29 @@ export function createCapabilityLane({
   };
   const stateOf = async (threadId: string): Promise<SessionSnapshot> => {
     const read = await request('thread/read', { threadId, window: { none: true } });
-    const hostShellJobs = protocol.snapshot().entries.find((entry) => entry.section === 'hostShellJobs')?.value;
-    return desktopSessionState(
-      sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      pendingApprovals() as Parameters<typeof desktopSessionState>[1],
-      hostShellJobs as Parameters<typeof desktopSessionState>[2]
+    const { entries } = protocol.snapshot();
+    const hostShellJobs = entries.find((entry) => entry.section === 'hostShellJobs')?.value;
+    const remoteSession = entries.find((entry) => entry.section === 'hostState' && entry.key === 'remoteSession')?.value;
+    // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
+    return withRemoteSession(
+      desktopSessionState(
+        sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
+        pendingApprovals() as Parameters<typeof desktopSessionState>[1],
+        hostShellJobs as Parameters<typeof desktopSessionState>[2]
+      ),
+      remoteSessionIdOf(remoteSession)
     ) as unknown as SessionSnapshot;
   };
   return {
     async invoke<T>(capability: DesktopCapability, args: unknown[] = [], sessionId?: string) {
-      const value = (await send(capability, args, sessionId)) as T;
-      return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      try {
+        const value = (await send(capability, args, sessionId)) as T;
+        return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      } catch (error) {
+        // Node sent a call naming its session to that session (`session-host-lifecycle.ts` `invokeCapability` -> the daemon's
+        // `session-action.mjs`), which answers a session it does not have with its own text; the core answers `threadNotFound`.
+        throw sessionId && isThreadNotFound(error) ? new Error(`session ${sessionId} is not available`) : error;
+      }
     },
     async setSessionFavorite(sessionId, favorite) {
       await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), favorite });

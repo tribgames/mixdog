@@ -8,9 +8,9 @@ use crate::catalog::rosters::Rosters;
 pub const LITELLM: &str = include_str!("../../../fixtures/catalog-lookup/litellm.json");
 pub const MODELS_DEV: &str = include_str!("../../../fixtures/catalog-lookup/modelsdev.json");
 pub const ROSTERS: &str = include_str!("../../../fixtures/catalog-lookup/rosters.json");
-pub const GOLDEN: &str = include_str!("../../../fixtures/catalog-lookup/golden.json");
+pub const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/catalog-lookup/golden.json");
 pub const PRICING_EXTRA: &str = include_str!("../../../fixtures/catalog-lookup/pricing-extra-litellm.json");
-pub const PRICING_GOLDEN: &str = include_str!("../../../fixtures/catalog-lookup/pricing-golden.json");
+pub const PRICING_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("fixtures/catalog-lookup/pricing-golden.json");
 
 pub fn json(text: &str) -> Value {
     serde_json::from_str(text).expect("a fixture")

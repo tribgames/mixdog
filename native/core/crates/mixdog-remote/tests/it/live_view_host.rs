@@ -45,7 +45,7 @@ use mixdog_remote::webrtc::signal::parse_ice_servers;
 use serde_json::Value;
 use serde_json::json;
 
-const HOST: &str = include_str!("../../../../fixtures/live-view-host/host.json");
+const HOST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view-host/host.json");
 
 type Settle = oneshot::Sender<Result<(), String>>;
 
@@ -408,7 +408,7 @@ fn run_scenario(scenario: &Value) {
 
 #[test]
 fn the_host_behaves_as_nodes_did_in_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(HOST).unwrap();
+    let recorded: Value = serde_json::from_str(&HOST).unwrap();
     let scenarios = recorded["scenarios"].as_array().unwrap();
     assert_eq!(scenarios.len(), 30);
     scenarios.iter().for_each(run_scenario);

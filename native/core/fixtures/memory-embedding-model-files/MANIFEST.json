@@ -1,0 +1,64 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the Hugging Face Hub: globalThis.fetch is a scripted endpoint (status and body per URL), recorded with every request",
+    "runs": "ensureModelFile and ensureModelGraph (embedding-model-files.mjs) over a real temp cache directory, with the real atomic-file/file-has-data helpers"
+  },
+  "exclusions": "request init is recorded as passed (null: Node passes none, so no header is sent)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 18394,
+      "path": "golden.json",
+      "sha256": "3b14848416bc23439e796339a584a370399655c20f7a65635c14198227a0cdf7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "partial file name": "process id in \"<file>.<pid>.part\" written as <pid> (no partial remains after a step)",
+    "temp cache dir": "paths are relative to the cache dir"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs",
+  "recorderSha256": "e382172aad35882b90e048450d8248a55ce6f5504b5bd4d0e6422d7ad1b1afcc",
+  "replay": "mixdog-services memory/embed/install.rs (pub): ensure_model_file / ensure_model_graph for the test file's steps, and install (what EmbeddingProvider::install runs) for the worker's sequence of case 4. A replay (memory/replays/model_files.rs) serves the recorded hub answers from a local server and compares every request as it arrives (url, method, headers, body) in order, the result or error, and the files left in the cache",
+  "set": "memory-embedding-model-files",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 18394,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

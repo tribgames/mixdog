@@ -18,7 +18,7 @@ use crate::rooms::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use crate::rooms::turn_prompt::RoomPrompt;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-exchange/golden.json"))).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/room-exchange/golden.json")).unwrap()
 }
 
 type Log = Arc<Mutex<Vec<Value>>>;
@@ -244,7 +244,7 @@ impl RoomExchangeHost for World {
         self.push(json!(["decideTurn", {
             "roomName": step.room_name,
             "members": step.members.iter().map(|member| json!({ "id": member.id, "name": member.name, "description": member.description })).collect::<Vec<_>>(),
-            "rows": step.rows.iter().map(|row| json!(row.id)).collect::<Vec<_>>(),
+            "rows": step.rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>(),
             "turns": turns,
             "mustPick": step.decide.must_pick,
             "last": step.decide.last,

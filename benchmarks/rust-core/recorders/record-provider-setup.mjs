@@ -20,7 +20,7 @@ import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, recordingProvenance, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'provider-setup');
@@ -159,5 +159,5 @@ for (const scenario of SCENARIOS) {
   for (const id of Object.keys(stored)) await cfg.deleteSecretAsync(account(id));
 }
 writeJson(join(stage, 'golden.json'), { scenarios: results });
-writeSetManifest(stage, { set: 'provider-setup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, { set: 'provider-setup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']) });
 commitStage(stage, finalDir);

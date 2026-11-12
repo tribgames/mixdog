@@ -18,7 +18,6 @@ use futures::stream::FuturesUnordered;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_rt::TaskClass;
-use serde_json::json;
 
 use mixdog_core_api::domain::tool::ToolOutput;
 
@@ -102,6 +101,11 @@ fn output_is_complete(output: &ToolOutput) -> bool {
         .unwrap_or(true)
 }
 
+/// The `meta` object a tool left for the call's trace row under `key` (Node's `resultTelemetry` / `localSearchTelemetry`).
+fn output_meta(output: Option<&ToolOutput>, key: &str) -> Option<serde_json::Value> {
+    output?.meta.as_ref()?.get(key).cloned()
+}
+
 fn is_edit_progress(name: &str, read_only: bool) -> bool {
     if read_only {
         return false;
@@ -127,14 +131,83 @@ fn dedup_stub(name: &str, first_iteration: u32, stuck: bool) -> String {
     s
 }
 
-type EditGroup = Arc<Mutex<(u32, u32)>>;
+pub(crate) type EditGroup = Arc<Mutex<(u32, u32)>>;
+
+/// A streamed edit's group retry (`retryAmbiguousEdit`) and its place at the file lock. Node's retry reaches the lock once the
+/// batch is at the call (every call before it collected) and the streamed run has settled as ambiguous, whichever comes later:
+/// the same-file edit that settlement lets go (`barriers.mjs:96`) reaches the lock first, unless the batch was already waiting
+/// for the call, whose resumption is queued ahead of that edit's barrier.
+pub(crate) struct Settle {
+    /// The call's file (`None`: not an edit, or one that names no file).
+    key: Option<String>,
+    locks: crate::barriers::EditLocks,
+    /// The batch is at the call and its group has occurrences left.
+    retry_due: bool,
+    /// The streamed run settled as an ambiguous edit.
+    ambiguous: bool,
+    /// The retry's place at the lock, once it reached it.
+    turn: Option<crate::barriers::EditTurn>,
+}
+
+pub(crate) type SettleSlot = Arc<Mutex<Settle>>;
+
+impl Settle {
+    fn reach_lock(&mut self, st: &mut crate::barriers::LockState) {
+        if self.retry_due
+            && self.ambiguous
+            && self.turn.is_none()
+            && let Some(key) = &self.key
+        {
+            self.turn = Some(st.take(key));
+        }
+    }
+}
+
+/// `settle_gate`: Node acts on a streamed edit's ambiguous settlement in a later turn of its event loop than every response
+/// byte already received, so the settlement finds the batch at the call when the response ended in those bytes, and lets
+/// the edits behind it go first when the response is still waiting for more. The core's run settles on another thread at
+/// any instant; it waits until the stream is waiting for bytes it has not received (open) or, once the response is
+/// complete, until the batch has taken its place at its first call (open again).
+///
+/// Settles a streamed call when its task ends, by finishing or by being dropped (a cancel, a panic), before its barrier
+/// lets the calls behind it go.
+struct Settler {
+    id: String,
+    slot: SettleSlot,
+    /// The run settled as an ambiguous edit.
+    ambiguous: bool,
+    finished: tokio::sync::watch::Sender<bool>,
+}
+
+impl Drop for Settler {
+    fn drop(&mut self) {
+        {
+            let mut s = self.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            s.ambiguous = self.ambiguous;
+            let locks = s.locks.clone();
+            // The retry's place (when the batch already waits for the call) and the places of the edits the barrier is about
+            // to let go are taken here, in one step, before `finished` wakes them (`EditLocks::settle`).
+            locks.settle(&self.id, |st| s.reach_lock(st));
+        }
+        self.finished.send_replace(true);
+    }
+}
+
+/// The batch answered the call without its run: no retry is due, and a place the retry took is given up.
+fn passed(slots: &HashMap<String, SettleSlot>, id: &str) {
+    if let Some(slot) = slots.get(id) {
+        let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        s.retry_due = false;
+        s.turn = None;
+    }
+}
 
 /// One assistant turn issuing N `edit` calls with the same file and
 /// `old_string` (not replace-all) and N distinct `new_string`s is
 /// unambiguous as a whole: the k-th call takes the k-th occurrence. Members
 /// run in order; an ambiguity-rejected member re-runs once with the remaining
 /// count.
-fn edit_groups(calls: &[ToolCall]) -> HashMap<String, EditGroup> {
+pub(crate) fn edit_groups(calls: &[ToolCall]) -> HashMap<String, EditGroup> {
     let mut counts: HashMap<String, (u32, HashSet<String>)> = HashMap::new();
     for call in calls.iter().filter(|c| c.name == "edit") {
         let Some(a) = call.arguments.as_object() else {
@@ -177,7 +250,13 @@ fn edit_key(call: &ToolCall) -> Option<String> {
 }
 
 async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) -> Executed {
-    let mut executed = execute_call(call.clone(), Arc::clone(&env)).await;
+    let executed = execute_call(call.clone(), Arc::clone(&env)).await;
+    retry_in_group(call, env, group, executed).await
+}
+
+/// `retryAmbiguousEdit` (`tool-batch/execute-call.mjs:229`): run after a call's result is in, whether it ran in the batch or
+/// streamed ahead of it (`executeToolCall` calls it after `executeLive` either way).
+pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>, mut executed: Executed) -> Executed {
     let Some(group) = group else {
         return executed;
     };
@@ -186,19 +265,17 @@ async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) ->
         g.0.saturating_sub(g.1)
     };
     if remaining >= 1 && executed.conflict {
-        let mut retry = call;
-        if remaining >= 2
-            && let Some(args) = retry.arguments.as_object_mut()
-        {
-            args.insert("editOccurrence".into(), json!({ "expected": remaining }));
-        }
-        let rerun = execute_call(retry, env).await;
+        let occurrence = (remaining >= 2).then_some(mixdog_core_api::domain::tool::EditOccurrence { expected: remaining });
+        let rerun = crate::tools::execute_call_occupying(call, env, occurrence).await;
+        // Node traces every run, the retry whether it succeeded or not (`rerunAmbiguousEdit`'s `finally`).
+        let intervals: Vec<(i64, i64)> = executed.intervals().into_iter().chain(rerun.intervals()).collect();
         if !rerun.failed {
             // Node keeps the first run's start and takes the retry's end.
             let span = executed.tool_ms + rerun.tool_ms;
             executed = rerun;
             executed.tool_ms = span;
         }
+        executed.execution_intervals = intervals;
     }
     if !executed.failed {
         group.lock().unwrap_or_else(std::sync::PoisonError::into_inner).1 += 1;
@@ -207,7 +284,8 @@ async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) ->
 }
 
 /// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
-/// (builtin), the `mcp__` prefix, a tool of the surface that is not a builtin (an internal tool), else builtin.
+/// (builtin), the `mcp__` prefix, a tool the session runs that is not a builtin (an internal tool: Node's scope
+/// provider registers the deferred tools too, so one reached through the registry, as `browser`, is internal), else builtin.
 fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     if matches!(name, "Skill" | "skills_list" | "skill_view") {
         "skill"
@@ -215,7 +293,7 @@ fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
         "builtin"
     } else if name.starts_with("mcp__") {
         "mcp"
-    } else if tools.get(name).is_some() && !tools.builtin_names().contains(&name) {
+    } else if tools.resolve(name).is_some() && !tools.builtin_names().contains(&name) {
         "internal"
     } else {
         "builtin"
@@ -234,6 +312,20 @@ pub(crate) fn is_single_call_per_turn_tool(name: &str) -> bool {
     name == "computer"
 }
 impl Run {
+    /// The batch is at `call` (`executeBatchCall`): its group retry is due if its group has occurrences left.
+    pub(crate) fn reach_call(&self, call: &ToolCall, groups: &HashMap<String, EditGroup>) {
+        if let Some(slot) = self.eager_settles.get(&call.id) {
+            let due = edit_key(call).and_then(|k| groups.get(&k)).is_some_and(|g| {
+                let g = g.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                g.0 > g.1
+            });
+            let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            s.retry_due = due;
+            let locks = s.locks.clone();
+            locks.with(|st| s.reach_lock(st));
+        }
+    }
+
     pub(crate) fn call_env(&self) -> Arc<CallEnv> {
         Arc::new(CallEnv {
             tools: self.tools.clone(),
@@ -246,6 +338,7 @@ impl Run {
             signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
+            prepared: false,
         })
     }
 
@@ -313,7 +406,7 @@ impl Run {
                 return;
             }
         }
-        let env = self.call_env();
+        let mut env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
@@ -321,19 +414,64 @@ impl Run {
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
+        // A call with nothing to wait for reaches `prepareToolCall`'s refresh before the stream goes on (Node runs it in
+        // the eager start's own microtasks, `call-prep.mjs:70`), so the tool phase projects the batch against the
+        // snapshot that refresh left.
+        if preceding.none()
+            && let Some(mcp) = &self.env.mcp
+            && crate::env::or_cancelled(&self.cancel, mcp.refresh()).await.is_some()
+        {
+            Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
+        }
         let (finished, done) = tokio::sync::watch::channel(false);
+        let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
+        let locks = self.barriers.locks.clone();
+        let slot: SettleSlot = Arc::new(Mutex::new(Settle {
+            key: key.clone(),
+            locks: locks.clone(),
+            retry_due: false,
+            ambiguous: false,
+            turn: None,
+        }));
+        self.eager_settles.insert(id.clone(), Arc::clone(&slot));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
+        // An edit reaches its file's lock the moment its barriers let it go (`withEditTargetLock`): its place is taken by the
+        // settlement that lets it go, not when its task is next polled.
+        let place = key.as_deref().map(|key| locks.enqueue(key, preceding.ids()));
+        let mut settler = Settler { id: id.clone(), slot, ambiguous: false, finished };
+        let mut gate = self.settle_gate.subscribe();
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
             let dispatch_started_at = env.clock.now_ms();
             let executed = match preceding.wait(&exec.name).await {
                 Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), dispatch_started_at, env.clock.as_ref()),
-                None => execute_call(exec, env).await,
+                None => {
+                    #[cfg(feature = "test-support")]
+                    if let Some(key) = &key {
+                        crate::test_hooks::edit_start(key, &exec.id).await;
+                    }
+                    let mut turn = place.map(|place| {
+                        place.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("the settlement that let the edit go handed it its place")
+                    });
+                    if let Some(turn) = &mut turn {
+                        turn.ready().await;
+                    }
+                    execute_call(exec, env).await
+                }
             };
+            if executed.conflict {
+                #[cfg(feature = "test-support")]
+                if let Some(key) = &key {
+                    crate::test_hooks::at_gate(key, &early_id, *gate.borrow());
+                }
+                // A closed gate: the run is gone, and nothing waits for the order.
+                let _ = gate.wait_for(|open| *open).await;
+            }
             failed.store(executed.failed, std::sync::atomic::Ordering::Release);
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
-            finished.send_replace(true);
+            settler.ambiguous = executed.conflict;
+            drop(settler);
             executed
         });
         self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
@@ -343,11 +481,13 @@ impl Run {
     /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
     /// is not stopped, as Node leaves it (its cancel token ends it with the run).
     pub(crate) fn drop_eager(&mut self) {
+        self.settle_gate.send_replace(true);
         for (id, handle) in self.eager.drain() {
             if self.eager_started.iter().any(|e| e.id == id && e.read_only) {
                 handle.abort();
             }
         }
+        self.eager_settles.clear();
         self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
@@ -360,7 +500,9 @@ impl Run {
     /// left to finish and tell the host it settled: Node stops none of them (a call waiting for its hook, its approval or
     /// a barrier ends itself with the abort's text, `execute_gated`), and its result is never stored.
     fn release_eager(&mut self) {
+        self.settle_gate.send_replace(true);
         self.eager.clear();
+        self.eager_settles.clear();
         self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
@@ -565,6 +707,7 @@ impl Run {
         let mut recorded = 0usize;
         let mut was_executed = vec![false; n];
         let mut tool_ms = vec![0i64; n];
+        let mut intervals: Vec<Vec<(i64, i64)>> = vec![Vec::new(); n];
         let mut cacheable = vec![false; n];
         let mut outputs: Vec<Option<ToolOutput>> = (0..n).map(|_| None).collect();
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
@@ -573,6 +716,9 @@ impl Run {
         // The calls whose streamed run already told the host (`EarlyResult`); the rest tell it as they settle.
         let mut streamed: HashSet<usize> = HashSet::new();
         let mut aborted = false;
+        // The call Node's serial loop is at: every call before it is collected.
+        let (reach_tx, reach_rx) = tokio::sync::watch::channel(0usize);
+        let mut reached: Option<usize> = None;
 
         loop {
             // 1. Decide, in call order.
@@ -583,6 +729,7 @@ impl Run {
                 let call = &calls[j];
                 if (j as u64) >= allowed || wrap_up.is_some_and(|at| self.env.clock.now_ms() >= at) {
                     staged[j] = Some(limits::refusal(&call.id));
+                    passed(&self.eager_settles, &call.id);
                     evaluated[j] = true;
                     finished[j] = true;
                     continue;
@@ -605,6 +752,7 @@ impl Run {
                 match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
+                        passed(&self.eager_settles, &call.id);
                         finished[j] = true;
                         skipped[j] = true;
                     }
@@ -624,6 +772,7 @@ impl Run {
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     tool_ms[recorded] = result.tool_ms;
+                    intervals[recorded] = result.intervals();
                     follow_ups.extend(result.follow_ups.iter().cloned());
                     staged[recorded] = Some(result.message);
                 }
@@ -631,6 +780,11 @@ impl Run {
             }
             if recorded == n {
                 break;
+            }
+            if evaluated[recorded] && !finished[recorded] && reached != Some(recorded) {
+                reached = Some(recorded);
+                self.reach_call(&calls[recorded], &groups);
+                reach_tx.send_replace(recorded);
             }
             // 3. Start what is ready. The first live call starts the rest of the batch, as a provider that streamed
             // nothing leaves it to the batch (`startEagerRun`, `tool-batch/execute-call.mjs:112`): the calls after it do not
@@ -668,6 +822,7 @@ impl Run {
                     served.message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
                     served.failed = false;
                     served.cache_hit = Some(hit.first_tool_use_id);
+                    passed(&self.eager_settles, &call.id);
                     executed[j] = Some(served);
                     finished[j] = true;
                     continue;
@@ -679,17 +834,37 @@ impl Run {
                 }
                 // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
                 let eager = eager.filter(|_| kept);
+                let group = edit_key(&call).and_then(|k| groups.get(&k).cloned());
                 if let Some(handle) = eager {
                     streamed.insert(j);
                     let id = call.id.clone();
+                    let env = Arc::clone(&env);
+                    let slot = self.eager_settles.get(&id).cloned();
+                    let mut reach = reach_rx.clone();
                     running.push(Box::pin(async move {
                         let result = handle.await.unwrap_or_else(|_| {
                             Executed::error(&id, "Error: tool task failed".to_owned())
                         });
-                        (j, result)
+                        // A group member is collected, and retried at its place at the file lock, once the batch is at it
+                        // (`plan.mjs:61-64`, `executeBatchCall`).
+                        let mut turn = None;
+                        if group.is_some() {
+                            let _ = reach.wait_for(|at| *at >= j).await;
+                            if let Some(slot) = slot {
+                                let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                turn = s.turn.take();
+                                #[cfg(feature = "test-support")]
+                                if let (Some(turn), Some(key)) = (&turn, &s.key) {
+                                    crate::test_hooks::retry_queued(key, &id, turn.waits());
+                                }
+                            }
+                        }
+                        if let Some(turn) = &mut turn {
+                            turn.ready().await;
+                        }
+                        (j, retry_in_group(call, env, group, result).await)
                     }));
                 } else {
-                    let group = edit_key(&call).and_then(|k| groups.get(&k).cloned());
                     let env = Arc::clone(&env);
                     running.push(Box::pin(async move { (j, run_one(call, env, group).await) }));
                 }
@@ -736,7 +911,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &cacheable, &outputs).await;
+        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, &cacheable, &outputs).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
@@ -775,6 +950,7 @@ impl Run {
         staged: &mut [Option<AgentMessage>],
         executed: &[bool],
         tool_ms: &[i64],
+        intervals: &mut [Vec<(i64, i64)>],
         cacheable: &[bool],
         outputs: &[Option<ToolOutput>],
     ) {
@@ -837,25 +1013,34 @@ impl Run {
                 }
             }
         }
-        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (an error call's row of the
-        // failure log, on the result the transcript holds) and then `writeCaches` (a normal call's reusable body).
+        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (the call's trace rows and,
+        // for an error call, its failure row, on the result the transcript holds) and then `writeCaches` (a normal call's
+        // reusable body).
         for i in indices {
             let Some(m) = &staged[i] else {
                 continue;
             };
-            if m.tool_kind == Some(ToolKind::Error) {
-                if let Some(log) = &self.env.failures {
-                    log.failed(crate::env::FailedCall {
-                        iteration: self.iterations,
-                        tool_name: calls[i].name.clone(),
-                        tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
-                        tool_ms: tool_ms[i],
-                        tool_args: calls[i].arguments.clone(),
-                        model: self.model.clone(),
-                        result_text: trace_text(&m.message.content),
-                    });
-                }
-            } else if cacheable[i]
+            let error = m.tool_kind == Some(ToolKind::Error);
+            if let Some(log) = &self.env.failures {
+                log.tool(crate::env::TracedCall {
+                    iteration: self.iterations,
+                    tool_call_id: calls[i].id.clone(),
+                    tool_name: calls[i].name.clone(),
+                    tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
+                    tool_ms: tool_ms[i],
+                    tool_args: calls[i].arguments.clone(),
+                    model: self.model.clone(),
+                    result_kind: if error { "error" } else { "normal" },
+                    result: trace_result(&m.message.content),
+                    result_text: trace_text(&m.message.content),
+                    timing: m.tool_timing,
+                    execution_intervals: std::mem::take(&mut intervals[i]),
+                    result_telemetry: output_meta(outputs[i].as_ref(), "resultTelemetry"),
+                    local_search: output_meta(outputs[i].as_ref(), "localSearchTelemetry"),
+                });
+            }
+            if !error
+                && cacheable[i]
                 && let (Some(reuse), Some(output)) = (&self.env.reuse, &outputs[i])
             {
                 reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
@@ -876,6 +1061,21 @@ fn trace_text(content: &Content) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+    }
+}
+
+/// The result `traceAgentTool` is given: a text as a string, a structured result as its text parts (`{type, text}`; the trace
+/// reads nothing else of it).
+fn trace_result(content: &Content) -> serde_json::Value {
+    match content {
+        Content::Text(text) => serde_json::Value::String(text.clone()),
+        Content::Parts(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(serde_json::json!({ "type": "text", "text": text })),
+                _ => None,
+            })
+            .collect(),
     }
 }
 

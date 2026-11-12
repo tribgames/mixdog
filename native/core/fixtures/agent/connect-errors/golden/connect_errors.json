@@ -2476,5 +2476,160 @@
         "message": "Cursor stream was aborted"
       }
     }
-  }
+  },
+  "refreshAnswers": [
+    {
+      "name": "plain-text",
+      "status": 200,
+      "body": "not json",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unexpected token 'o', \"not json\" is not valid JSON). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "html-page",
+      "status": 200,
+      "body": "<html><body><h1>502 Bad Gateway</h1></body></html>",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unexpected token '<', \"<html><bod\"... is not valid JSON). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "empty-200",
+      "status": 200,
+      "body": "",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unexpected end of JSON input). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "empty-204",
+      "status": 204,
+      "body": null,
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unexpected end of JSON input). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "truncated-in-string",
+      "status": 200,
+      "body": "{\"access_token\":\"a",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unterminated string in JSON at position 18 (line 1 column 19)). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "truncated-after-value",
+      "status": 200,
+      "body": "{\"access_token\":\"abc\",\"refresh_token\":\"r2\"",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Expected ',' or '}' after property value in JSON at position 42 (line 1 column 43)). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "byte-order-mark-then-brace",
+      "status": 200,
+      "body": "﻿{",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Expected property name or '}' in JSON at position 1 (line 1 column 2)). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "non-ascii-text",
+      "status": 200,
+      "body": "é maintenance",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Unexpected token 'é', \"é maintenance\" is not valid JSON). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "array-empty",
+      "status": 200,
+      "body": "[]",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "array-of-token-object",
+      "status": 200,
+      "body": "[{\"access_token\":\"a\"}]",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "json-null",
+      "status": 200,
+      "body": "null",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (Cannot read properties of null (reading 'access_token')). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "json-string",
+      "status": 200,
+      "body": "\"x\"",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "json-number",
+      "status": 200,
+      "body": "0",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "object-empty",
+      "status": 200,
+      "body": "{}",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "object-without-token",
+      "status": 200,
+      "body": "{\"refresh_token\":\"r2\",\"expires_in\":3600}",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "token-empty-string",
+      "status": 200,
+      "body": "{\"access_token\":\"\"}",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    },
+    {
+      "name": "token-null",
+      "status": 200,
+      "body": "{\"access_token\":null}",
+      "thrown": {
+        "name": "Error",
+        "message": "OpenAI OAuth token refresh failed (refresh returned null). Re-authenticate via provider login."
+      }
+    }
+  ]
 }

@@ -1,0 +1,78 @@
+{
+  "id": "reset-beside-a-stuck-leg",
+  "auth": "openai-direct",
+  "script": [
+    "stuck",
+    "reset"
+  ],
+  "until": 16000,
+  "events": [
+    {
+      "t": 0,
+      "on": "dial",
+      "conn": 1
+    },
+    {
+      "t": 0,
+      "on": "upgrade",
+      "conn": 1,
+      "action": "stuck"
+    },
+    {
+      "t": 3000,
+      "on": "dial",
+      "conn": 2
+    },
+    {
+      "t": 3000,
+      "on": "upgrade",
+      "conn": 2,
+      "action": "reset"
+    },
+    {
+      "t": 3000,
+      "on": "closed",
+      "conn": 2
+    },
+    {
+      "t": 6000,
+      "on": "dial",
+      "conn": 3
+    },
+    {
+      "t": 6000,
+      "on": "upgrade",
+      "conn": 3,
+      "action": "stuck"
+    },
+    {
+      "t": 9000,
+      "on": "dial",
+      "conn": 4
+    },
+    {
+      "t": 9000,
+      "on": "upgrade",
+      "conn": 4,
+      "action": "stuck"
+    },
+    {
+      "t": 12000,
+      "on": "dial",
+      "conn": 5
+    },
+    {
+      "t": 12000,
+      "on": "upgrade",
+      "conn": 5,
+      "action": "stuck"
+    }
+  ],
+  "outcome": {
+    "ok": false,
+    "t": 15000,
+    "message": "OpenAI WS acquire timed out before open (15000ms)",
+    "code": "EWSACQUIRETIMEOUT",
+    "httpStatus": null
+  }
+}

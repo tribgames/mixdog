@@ -147,6 +147,37 @@ async fn a_dead_grant_asks_for_a_new_login_and_a_transient_failure_coasts() {
     assert!(!err.reauth_required && err.kind == ErrorKind::Transient);
 }
 
+/// A token endpoint that answers every request with one status and the bytes as they are.
+struct RawEndpoint(u16, Vec<u8>);
+
+#[async_trait]
+impl HttpSend for RawEndpoint {
+    async fn send(&self, _request: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Ok(HttpResponse { status: self.0, headers: vec![], body: Box::new(OneChunk((!self.1.is_empty()).then(|| Bytes::from(self.1.clone())))) })
+    }
+}
+
+/// After a 401 the refresh is answered 2xx with no usable token: the text the caller gets is the one the real Node
+/// refresh threw for the same answer (`connect-errors/record.mjs --only refreshAnswers`), whole.
+#[tokio::test]
+async fn a_refresh_answer_that_is_no_token_reads_as_nodes_whole() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let answers = golden["refreshAnswers"].as_array().unwrap();
+    assert!(answers.len() >= 17);
+    for answer in answers {
+        let name = answer["name"].as_str().unwrap();
+        let body = answer["body"].as_str().unwrap_or_default().as_bytes().to_vec();
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        file.save(&stored("a1", now_ms() + 3_600_000)).await.unwrap();
+        let oauth = OpenAiOAuth::new(file, Arc::new(RawEndpoint(answer["status"].as_u64().unwrap() as u16, body)));
+        let rejected = oauth.current().await.unwrap();
+        let error = oauth.after_rejection(&rejected).await.expect_err(name);
+        assert_eq!(error.message, answer["thrown"]["message"].as_str().unwrap(), "{name}");
+    }
+}
+
 #[tokio::test]
 async fn no_stored_login_needs_a_login() {
     let dir = tempfile::tempdir().unwrap();

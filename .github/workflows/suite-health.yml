@@ -54,9 +54,11 @@ jobs:
         with:
           packages: xvfb
 
-      # smoke and boot-smoke import the gitignored TUI bundle.
-      - name: Build TUI
-        run: npm run build:tui
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
+        run: node scripts/stage-native-tools.mjs
 
       # Same runner provisioning as the release gate's Office-bearing jobs.
       - name: Install fonts and LibreOffice for the Office suites

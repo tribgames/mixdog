@@ -1,0 +1,63 @@
+{
+  "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-management.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (SQLite stand-in of the test file)",
+    "runs": "listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:\"core\", op:\"list\"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories"
+  },
+  "exclusions": "none: the TUI parser parseMemoryCoreRows (test line 77) is recorded as a Node round trip, `roundTrip` in every step that formats a list: the formatted text, the whole parsed rows (_id, _projectId, _summary, _element, _indexRevision, value, label, meta...) and per entry whether id, project, summary and index revision come back equal. The TUI is deleted in Rust; the Rust side proves the same property by parsing its own formatted text with whatever reads it there (the app-server list result is the structured source) and compares the same fields",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 40367,
+      "path": "golden.json",
+      "sha256": "390d14345648bbe9f561381782ab034b7734281f794f83f883b070368d2653b3"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "temp project root": "every occurrence (exact, JSON-escaped, forward slashes) written as <root>; the replay creates its own folders with the stated project ids"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-management.mjs",
+  "recorderSha256": "0c8024aa12e461523ef28d94ba288ee6a8ae372a8d5f9350792234c86cf49133",
+  "replay": "mixdog-services memory/core/list.rs: pub async fn list (:65) and pub fn format (:144); memory/core/action.rs: pub async fn run (:119) with project_paths. The TUI parser round trip (`roundTrip`) is proven on the Rust side the same way as in memory-core-index. A replay compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call and the ordered statements",
+  "set": "memory-core-management",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 40367,
+  "uuidsNormalised": "golden.json: 3 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

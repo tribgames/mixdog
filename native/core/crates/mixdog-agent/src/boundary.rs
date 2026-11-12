@@ -277,6 +277,8 @@ impl Run {
                 self.fixed_surface = None;
                 self.provider_state = None;
                 self.baseline = None;
+                // The migration's tagged cache break (`TOOL_SURFACE_MIGRATION_INTENT`).
+                self.cache_break_intent = Some("tool_surface_bridge_migration".to_owned());
             }
             mcp.refresh().await;
             if let Some(live) = mcp.tools().await.map_err(AgentError::RequestTools)? {
@@ -295,6 +297,7 @@ impl Run {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
                 self.cross_turn.clear();
+                self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
@@ -346,6 +349,8 @@ impl Run {
                 trigger: trigger_kind.clone(),
                 require_reduction,
                 reference_latest_attachments: false,
+                active_turn: true,
+                latest_user_prefix: "",
             };
             should = compactor.reduces(&request).await;
         }
@@ -396,6 +401,8 @@ impl Run {
             trigger: trigger_kind.clone(),
             require_reduction,
             reference_latest_attachments: reactive,
+            active_turn: true,
+            latest_user_prefix: "",
         };
         let outcome = or_cancelled(&self.cancel, compactor.compact(request))
             .await
@@ -404,7 +411,9 @@ impl Run {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
             Err(error) => {
-                let (CompactError::Overflow(message) | CompactError::Failed(message)) = &error else { return Err(AgentError::Aborted) };
+                let (CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) = &error else {
+                    return Err(AgentError::Aborted);
+                };
                 self.emit(pass(PassStage::Failed { message: message.clone(), duration_ms: duration(&*self.env.clock) }));
                 self.emit(RunEvent::Compact(event(CompactStatus::Failed, before, pressure, duration(&*self.env.clock), 0, None)));
                 // Agent mode retries a failed compaction quietly once per
@@ -412,7 +421,7 @@ impl Run {
                 // the next send's pass compacts again.
                 if self.config.agent_mode
                     && !self.quiet_compact_retry_used
-                    && matches!(error, CompactError::Failed(_))
+                    && matches!(error, CompactError::Failed(_) | CompactError::RouteFailed(..))
                 {
                     self.quiet_compact_retry_used = true;
                     return Ok(false);
@@ -460,6 +469,12 @@ impl Run {
         self.baseline = None;
         // Receipts point at tool results compaction just removed from context.
         self.cross_turn.clear();
+        // Cached read results and the read snapshots would answer a read with a body or a receipt the model no longer holds.
+        if let Some(reuse) = &self.env.reuse {
+            reuse.after_compaction();
+        }
+        // The next send intentionally starts a new transcript shape: a tagged break, not an unexplained mismatch.
+        self.cache_break_intent = Some("automatic_compaction".to_owned());
         // Compaction starts a new loop epoch: iteration indices count from the
         // compacted transcript.
         self.iterations = 0;
@@ -491,6 +506,13 @@ impl Run {
                 stage: "pre_send",
                 provider,
                 model: self.model.clone(),
+                cause,
+            })),
+            // `agentCompactFailedError`: the route that failed, not necessarily the conversation's.
+            CompactError::RouteFailed(cause, route) => AgentError::CompactFailed(Box::new(CompactFailure {
+                stage: "pre_send",
+                provider: route.provider,
+                model: route.model,
                 cause,
             })),
         }
@@ -553,7 +575,7 @@ mod tests {
     /// sent follows the candidate by `adoptDynamicToolChanges`.
     #[test]
     fn the_request_tools_adopt_changes_as_node_does() {
-        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/request-tools/golden.json"))).unwrap();
+        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/request-tools/golden.json")).unwrap();
         let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
             list.as_array()
                 .unwrap()

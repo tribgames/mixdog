@@ -1,0 +1,52 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-execution-tail.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "chaining": "a step whose input is `<previous>` or `{previous, append}` takes the previous step's output (plus the appended rows), as the test does",
+    "clock": "prune ages files by an hour through utimes, as the test does",
+    "diagnostics": "steps[op=fresh].output.diagnostics is recorded and not compared: the core's fresh_context_compact_messages returns no diagnostics (FreshResult: messages, fresh_context). Node writes it to its debug log (compact/runner.mjs:1024) and to the pre-send compaction's event details (pre-send-compact.mjs:330, :509); it includes the wall-clock durationMs",
+    "firstCase": ":21 is recorded by record-compact-node-cases.mjs"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6008570,
+      "path": "golden.json",
+      "sha256": "0885f62e2ba39e8e982b1c611ff1abe48d9c16621e09bfb6fe04a28a9fc32d19"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-execution-tail.mjs",
+  "recorderSha256": "04873239ffee5197742b9bd5c26e9f2cdd65f40a5021c0a0fd1907049218e5f2",
+  "set": "execution-tail",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/compact/execution-tail.test.mjs (:74, :116, :142, :158, :190, :218, :249, :302, :353, :368, :425, :466, :494, :520, :549, :569, :603, :639, :667, :711, :792, :828, :844, :858)"
+  ],
+  "totalBytes": 6008570
+}

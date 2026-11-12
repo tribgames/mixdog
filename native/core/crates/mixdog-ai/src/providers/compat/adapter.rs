@@ -76,6 +76,11 @@ pub struct CompatAdapter {
     pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
     /// The rows the last listing stored (`provider._enrichedModels`), which `getCachedModelInfo` answers.
     pub(super) rows: crate::catalog::RowStore,
+    /// The first-byte ceiling a profile's window is held to (`PROVIDER_MAX_BEFORE_WARN_MS`), from the environment as Node reads it.
+    first_byte: crate::providers::first_byte::FirstByteSettings,
+    /// The provider config's `reasoningEffort`: the effort of a send whose turn names none (`opts.effort ??
+    /// config.reasoningEffort`, on the Chat and Responses wires).
+    configured_effort: Option<String>,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -87,6 +92,10 @@ pub struct RouteInputs {
 }
 
 impl CompatAdapter {
+    pub fn profile(&self) -> &CompatProfile {
+        self.codec.profile()
+    }
+
     pub fn with_routing(mut self, routing: RouteInputs) -> Self {
         self.routing = routing;
         self
@@ -116,7 +125,21 @@ impl CompatAdapter {
             lookup: ListingLookup::new(),
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
             rows: crate::catalog::RowStore::default(),
+            first_byte: crate::providers::first_byte::FirstByteSettings::process(),
+            configured_effort: None,
         }
+    }
+
+    /// The first-byte settings of this adapter, when they are not the process environment's.
+    pub fn with_first_byte(mut self, settings: crate::providers::first_byte::FirstByteSettings) -> Self {
+        self.first_byte = settings;
+        self
+    }
+
+    /// The provider config's `reasoningEffort`, kept for the sends whose turn names no effort.
+    pub fn with_configured_effort(mut self, effort: Option<String>) -> Self {
+        self.configured_effort = effort;
+        self
     }
 
     /// The handle the catalog service publishes its tables into.
@@ -141,12 +164,12 @@ impl CompatAdapter {
         profile.credential == CredentialKind::StaticKey { reauth_on_401: false }
     }
 
-    async fn failure(&self, response: HttpResponse, key: Option<&str>) -> ProviderError {
+    async fn failure(codec: &dyn WireCodec, response: HttpResponse, key: Option<&str>) -> ProviderError {
         let body = match response.read_all().await {
             Ok(body) => body,
             Err(err) => return err,
         };
-        let mut err = self.codec.classify(&body);
+        let mut err = codec.classify(&body);
         if let Some(key) = key {
             err.message = redact_key(&err.message, key);
         }
@@ -156,6 +179,7 @@ impl CompatAdapter {
 
 #[async_trait]
 impl ProviderAdapter for CompatAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -182,6 +206,13 @@ impl ProviderAdapter for CompatAdapter {
         false
     }
 
+    /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own states the
+    /// worst case over its retry ladder; one on the shared window leaves the watchdog's default.
+    fn first_response_budget(&self, _model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+        let policy = self.first_byte.compat(self.profile().chat.first_byte?);
+        Some(crate::providers::first_byte::first_byte_budget(&policy, &self.policy.request.schedule))
+    }
+
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         // Only a gateway with a model-family table or its own inputs routes
         // models (Node's `PROFILES`); xAI's two wires are the codec's choice.
@@ -190,7 +221,23 @@ impl ProviderAdapter for CompatAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let wire = self.codec.encode(&request)?;
+        self.attempt_with(&self.codec, request).await
+    }
+}
+
+impl CompatAdapter {
+    /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
+    /// Responses wire rides the same account as its Chat wire.
+    pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = match &self.configured_effort {
+            Some(effort) if request.options.effort.is_none() => {
+                let mut owned = (*request).clone();
+                owned.options.effort = Some(effort.clone());
+                Arc::new(owned)
+            }
+            _ => request,
+        };
+        let wire = codec.encode(&request)?;
         let mut key = match &self.key {
             Some(source) => Some(source.key().await?),
             None => None,
@@ -202,9 +249,9 @@ impl ProviderAdapter for CompatAdapter {
                 .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
                 .await?;
             if response.is_success() {
-                return Ok(Box::new(CompatStream::new(response.body, self.codec.decoder(&request))));
+                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request))));
             }
-            let err = self.failure(response, key.as_deref()).await;
+            let err = Self::failure(codec, response, key.as_deref()).await;
             if err.status == Some(401)
                 && !reloaded
                 && Self::reloadable(self.codec.profile())
@@ -269,15 +316,31 @@ pub(super) async fn fetch_json(
     extra_headers: &[(String, String)],
     key: Option<&str>,
 ) -> Result<serde_json::Value, ProviderError> {
-    let mut headers: Vec<(String, String)> = Vec::new();
-    headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
-    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("accept")) {
-        headers.push(("accept".into(), "application/json".into()));
+    if profile.listing.plain_fetch {
+        // `fetchCompatModelItems`: the bearer, then the client's default headers; the fetch adds its own `accept`.
+        let mut headers: Vec<(String, String)> = key.map(|key| ("authorization".to_owned(), format!("Bearer {key}"))).into_iter().collect();
+        headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+        headers.extend(extra_headers.iter().cloned());
+        return fetch_listing(http, profile, url, headers, key).await;
     }
+    // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
+    let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
+    let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
+    headers.extend(profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     headers.extend(extra_headers.iter().cloned());
     if let Some(key) = key {
         headers.push(("authorization".into(), format!("Bearer {key}")));
     }
+    fetch_listing(http, profile, url, headers, key).await
+}
+
+async fn fetch_listing(
+    http: &dyn HttpSend,
+    profile: &CompatProfile,
+    url: String,
+    headers: Vec<(String, String)>,
+    key: Option<&str>,
+) -> Result<serde_json::Value, ProviderError> {
     let response = http
         .send(
             WireRequest {
@@ -364,6 +427,9 @@ impl ModelStream for CompatStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 #[cfg(test)]

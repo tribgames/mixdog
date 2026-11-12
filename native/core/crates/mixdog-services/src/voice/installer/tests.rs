@@ -121,7 +121,7 @@ fn installer(data: &Path, manifest: &Value, platform: &str) -> ManagedVoiceInsta
     })
 }
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/services/voice-installer-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/voice-installer-twin.json");
 
 fn listing(root: &Path) -> Value {
     fn walk(root: &Path, dir: &Path, out: &mut serde_json::Map<String, Value>) {
@@ -163,7 +163,7 @@ async fn installs_match_nodes_recording() {
             other => other.clone(),
         }
     }
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().to_string_lossy().into_owned();
     let mask = |text: &str, base: &str| {

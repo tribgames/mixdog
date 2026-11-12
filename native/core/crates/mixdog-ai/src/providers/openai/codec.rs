@@ -89,10 +89,13 @@ impl OpenAiCodec {
                 } else {
                     // `_buildOpenAIHttpFallbackHeaders`: the three anchors carry the body's cache key; the thread's
                     // window and metadata ride only the WebSocket.
-                    let key = body_cache_key.unwrap_or_default().to_owned();
-                    push("session_id", key.clone());
-                    push("session-id", key.clone());
-                    push("thread-id", key);
+                    // `MIXDOG_OAI_STATELESS_HTTP` drops them (`statelessConversation`).
+                    if !ctx.flag("MIXDOG_OAI_STATELESS_HTTP") {
+                        let key = body_cache_key.unwrap_or_default().to_owned();
+                        push("session_id", key.clone());
+                        push("session-id", key.clone());
+                        push("thread-id", key);
+                    }
                     if let Some(state) = self.turn_state(request) {
                         push("x-codex-turn-state", state);
                     }
@@ -121,11 +124,9 @@ impl WireCodec for OpenAiCodec {
             Framing::Sse
         };
         // `_wsErrLabel(traceProvider)` / `httpLabel(auth)`: the route decides the label, the transport the kind.
-        let label = match (self.route(), framing) {
-            (Route::ApiKey, Framing::WebSocket) => "OpenAI WS",
-            (Route::ApiKey, Framing::Sse) => "OpenAI HTTP fallback",
-            (_, Framing::WebSocket) => "OpenAI OAuth WS",
-            (_, Framing::Sse) => "OpenAI OAuth HTTP fallback",
+        let label = match framing {
+            Framing::WebSocket => self.ws_label(),
+            Framing::Sse => self.http_label(),
         };
         Box::new(
             ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
@@ -142,6 +143,22 @@ impl WireCodec for OpenAiCodec {
 impl OpenAiCodec {
     pub fn route(&self) -> Route {
         self.config.route()
+    }
+
+    /// `_wsErrLabel`: how a WebSocket failure of this route names itself.
+    pub fn ws_label(&self) -> &'static str {
+        match self.route() {
+            Route::ApiKey => "OpenAI WS",
+            _ => "OpenAI OAuth WS",
+        }
+    }
+
+    /// `httpLabel(auth)`: how an HTTP/SSE failure of this route names itself.
+    pub fn http_label(&self) -> &'static str {
+        match self.route() {
+            Route::ApiKey => "OpenAI HTTP fallback",
+            _ => "OpenAI OAuth HTTP fallback",
+        }
     }
 
     /// The client identity of the Codex route.

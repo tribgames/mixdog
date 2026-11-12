@@ -1,0 +1,38 @@
+{
+  "provider": "vertex-ai-adc",
+  "config": {
+    "authMode": "adc",
+    "projectId": "fixture-project",
+    "location": "global"
+  },
+  "credential": {
+    "file": "adc.json",
+    "document": {
+      "type": "authorized_user",
+      "client_id": "fixture-client",
+      "client_secret": "fixture-secret",
+      "refresh_token": "fixture-refresh-token"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "qwen/qwen3-coder-480b-a35b-instruct-maas",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "effort": "high"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

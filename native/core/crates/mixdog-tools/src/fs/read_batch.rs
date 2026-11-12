@@ -52,6 +52,8 @@ pub(super) struct BEntry {
     pub needs_slice: bool,
     pub orig_offset: Option<f64>,
     pub orig_limit: Option<f64>,
+    /// `tail: N` until it is read off the file (`ReadTool::resolve_tail`).
+    pub tail: Option<u64>,
 }
 
 impl BEntry {

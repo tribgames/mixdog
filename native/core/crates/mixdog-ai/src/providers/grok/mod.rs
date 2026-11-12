@@ -66,7 +66,7 @@ pub const CLIENT_VERSION_FLOOR: &str = "1.0.70";
 const SDK_PACKAGE_VERSION: &str = "6.49.0";
 /// The Node runtime the product runs its core under (`process.version` of the desktop's Electron 43.8.4 in node mode,
 /// `x-stainless-runtime-version`), as the wire recording names it in its manifest.
-const SDK_RUNTIME_VERSION: &str = "v24.22.1";
+pub(crate) const SDK_RUNTIME_VERSION: &str = "v24.22.1";
 
 /// The platform headers Node's OpenAI client adds to every request (`detect-platform.js`) for a Node host:
 /// `process.platform`, `process.arch` and `process.version`, normalized the way the client does.
@@ -109,7 +109,7 @@ pub fn sdk_headers_for(platform: &str, arch: &str, runtime_version: &str) -> Vec
 }
 
 /// The headers for this host, spelled with the names Node's `process` has for it.
-fn sdk_headers() -> Vec<(String, String)> {
+pub(crate) fn sdk_headers() -> Vec<(String, String)> {
     let platform = match std::env::consts::OS {
         "windows" => "win32",
         "macos" => "darwin",
@@ -180,7 +180,11 @@ impl Rewriter for GrokRewriter {
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
-        add("x-grok-turn-idx", opts.iteration.to_string());
+        // Only a loop turn names its iteration (from 1, `round.nextIteration`); a send outside the loop (a hosted
+        // search) passes none and Node sends no turn index (grok-oauth-tokens.mjs:61-69).
+        if opts.iteration > 0 {
+            add("x-grok-turn-idx", opts.iteration.to_string());
+        }
         if let Some(user) = (self.user_id)() {
             add("x-grok-user-id", user);
         }

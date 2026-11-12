@@ -14,7 +14,7 @@ use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
 use mixdog_core_base::support::testing::with_op;
 
-const GOLDEN: &str = include_str!("../goldens/doctor.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/domains/goldens/doctor.json");
 
 /// The status contracts a case scripts; `{"$throw": true}` fails the reader, `{"$hang": true}`
 /// never answers, an absent key is a runtime without that status.
@@ -168,7 +168,7 @@ fn normal(mut result: Value, data: &std::path::Path) -> Value {
 
 #[tokio::test]
 async fn every_case_answers_what_the_node_doctor_answered() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let rig = rig(&golden, case).await;
@@ -192,7 +192,7 @@ async fn every_case_answers_what_the_node_doctor_answered() {
 
 #[tokio::test]
 async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let case = &golden["cases"][0];
     let rig = rig(&golden, case).await;
     value(
@@ -234,9 +234,23 @@ async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() 
     assert_eq!(busy, json!({ "busy": true }));
 }
 
+/// A config Node wrote with a profile title a phone sent cut inside an emoji
+/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs) is a valid JSON object to Node's
+/// `JSON.parse`: in place of the golden's `{}`, the doctor answers what Node's answered for a valid config.
+#[tokio::test]
+async fn a_config_node_wrote_with_half_an_emoji_is_valid_to_the_doctor() {
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "healthy/ok").unwrap();
+    let rig = rig(&golden, case).await;
+    let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    std::fs::copy(set.join("config-profile/before/mixdog-config.json"), rig.data.path().join("mixdog-config.json")).unwrap();
+    let got = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
+    assert_eq!(normal(got, rig.data.path()), normal(case["result"].clone(), std::path::Path::new("<none>")));
+}
+
 #[tokio::test]
 async fn a_repeated_op_runs_the_checks_once() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let rig = rig(&golden, &golden["cases"][0]).await;
     let params = with_op(json!({ "options": { "notice": true } }), 5);
     let first = value(

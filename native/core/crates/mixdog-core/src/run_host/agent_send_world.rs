@@ -30,7 +30,6 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::route::ChatRouteSetter;
 use mixdog_core_ports::ports::route::FollowOptions;
-use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
 use mixdog_core_run::run_host::route_chain::route_candidates;
 use mixdog_rt::CancellationToken;
@@ -118,13 +117,14 @@ pub trait HeaderWrites: Send + Sync {
     async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError>;
 }
 
-/// [`HeaderWrites`] over the thread state port.
-pub struct ThreadHeaders(pub Arc<dyn ThreadState>);
+/// [`HeaderWrites`] over the session directory's thread requests.
+pub struct ThreadHeaders(pub Arc<mixdog_core_session::session::thread_state::SessionThreads>);
 
 #[async_trait]
 impl HeaderWrites for ThreadHeaders {
     async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError> {
-        mixdog_core_session::session::close::patch_header_fenced(&*self.0, &ThreadId::from(session), expected_generation, set, Vec::new())
+        self.0
+            .patch_header_fenced(&ThreadId::from(session), expected_generation, set, Vec::new())
             .await
             .map(|_| ())
             .map_err(port_message)
@@ -170,7 +170,8 @@ impl BlobSizes for StoreBlobSizes {
     async fn size(&self, reference: &str) -> Result<Option<u64>, SendWorldError> {
         let Ok(digest) = Digest::try_from(format!("sha256:{reference}")) else { return Ok(None) };
         let blobs = self.blobs.clone();
-        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), move |lane| blobs.len(lane, &digest))
+        // The size gates an agent's send: a full lane is waited out, not a failed send.
+        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), move |lane| blobs.len(lane, &digest))
             .await
             .map_err(|error| SendWorldError::Submit(format!("{error:?}")))?
             .map_err(|error| SendWorldError::Submit(error.to_string()))

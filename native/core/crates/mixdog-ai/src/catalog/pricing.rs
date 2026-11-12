@@ -486,7 +486,7 @@ mod tests {
     async fn priced_usage_and_revision_equal_node() {
         let dir = tempfile::tempdir().unwrap();
         let pricing = warm(dir.path()).await.pricing().unwrap();
-        let golden = fixtures::json(fixtures::PRICING_GOLDEN);
+        let golden = fixtures::json(&fixtures::PRICING_GOLDEN);
         assert_eq!(pricing.revision(), golden["revision"].as_str().unwrap());
         let mut failures = Vec::new();
         let (mut priced, mut unpriced) = (0, 0);

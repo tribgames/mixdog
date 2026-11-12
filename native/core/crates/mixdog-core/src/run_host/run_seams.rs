@@ -44,11 +44,18 @@ pub struct ConfigRunSeams {
     injected_config: bool,
     /// The settings changes this process announced (`announceSettingsChange`); none for a configuration nobody follows.
     settings: Option<Arc<crate::run_host::settings_changes::SettingsChanges>>,
+    main_route: Option<Arc<dyn Fn() -> serde_json::Map<String, Value> + Send + Sync>>,
 }
 
 impl ConfigRunSeams {
     pub fn new(config: Config, agents: Arc<AgentDefinitions>, plugin_root: PathBuf, data_dir: PathBuf, env: EnvReader) -> Self {
-        Self { config, agents, plugin_root, data_dir, env, injected_config: false, settings: None }
+        Self { config, agents, plugin_root, data_dir, env, injected_config: false, settings: None, main_route: None }
+    }
+
+    /// The configured Main route (`resolveRoute(config)`), the route of a thread with no session yet.
+    pub fn with_main_route(mut self, main_route: Arc<dyn Fn() -> serde_json::Map<String, Value> + Send + Sync>) -> Self {
+        self.main_route = Some(main_route);
+        self
     }
 
     /// The announcer of this process's settings changes, which the threads follow.
@@ -264,12 +271,32 @@ impl ConfigSeams for ConfigRunSeams {
         super::compaction_follow::sync_change(header, &self.saved_compaction()).set.shift_remove("compaction")
     }
 
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        self.settings.as_ref().map(|settings| settings.subscribe())
+    fn settings_changes(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        self.settings.as_ref().map(|settings| settings.feed(thread))
     }
 
     fn route_config(&self, header: &Header) -> ThreadRoute {
-        let provider = header.get("provider").and_then(Value::as_str);
+        // `runtime.provider` / `runtime.model`: the session's route, else (no session yet: no model on the header) the configured Main
+        // route `resolveRoute` falls to (`DEFAULT_PROVIDER` 'anthropic-oauth' and `DEFAULT_MODEL` '' when none is configured).
+        let own = |key: &str| header.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
+        let (provider, model) = match (own("model"), &self.main_route) {
+            (Some(model), _) => (own("provider"), Some(model)),
+            (None, Some(main)) => {
+                let route = main();
+                let text = |key: &str| route.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+                (Some(text("provider")), Some(text("model")))
+            }
+            (None, None) => (own("provider"), None),
+        };
+        // A pick held for the next turn (`pendingRoute`) is the runtime's route already (`getRoute()`).
+        let held = |key: &str| header.get("pendingRoute").and_then(|pick| pick.get(key)).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
+        let (provider, model) = match held("model") {
+            Some(model) => (held("provider").or(provider), Some(model)),
+            None => (provider, model),
+        };
+        let route_provider = provider.clone();
+        let route_model = model;
+        let provider = provider.as_deref();
         // `normalizeSystemShellConfig(config.shell)`: the configured command, else `MIXDOG_SHELL`, else the platform's own.
         let command = self.config.get("shell.command").and_then(|command| command.as_str().map(|c| mixdog_js::js_trim(c).to_owned())).unwrap_or_default();
         let env_command = (self.env)("MIXDOG_SHELL").map(|c| mixdog_js::js_trim(&c).to_owned()).unwrap_or_default();
@@ -288,6 +315,8 @@ impl ConfigSeams for ConfigRunSeams {
             auto_clear: Some(Value::Object(mixdog_agent::compact::settings::get_auto_clear(&self.config.agent(), provider))),
             system_shell: Some(serde_json::json!({ "command": command, "effective": effective, "source": source })),
             web_search_route,
+            provider: route_provider,
+            model: route_model,
             ..Default::default()
         }
     }
@@ -367,5 +396,3 @@ pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> 
     }
 }
 
-#[cfg(test)]
-mod tests;

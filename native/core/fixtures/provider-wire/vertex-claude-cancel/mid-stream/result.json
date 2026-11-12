@@ -1,0 +1,27 @@
+{
+  "error": {
+    "name": "AbortError",
+    "message": "This operation was aborted",
+    "status": null,
+    "code": 20
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ]
+}

@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Test hooks of the spool's flush (`flush_probe`): hold a flush at its write, see another flush wait for it.
+flush-probe = []
+
 [dependencies]
 mixdog-js = { workspace = true }
 serde_json = { workspace = true }
@@ -14,7 +18,9 @@ sha2 = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
+mixdog-trace = { path = ".", features = ["flush-probe"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }

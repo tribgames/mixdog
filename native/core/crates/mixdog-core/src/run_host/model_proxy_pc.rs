@@ -4,7 +4,8 @@
 //!
 //! - [`PcProviderConfig`] is `providerConfig` (host.ts `createModelProxyRuntime().providerConfig`, then
 //!   `publicProviderConfig`): the providers config the daemon's other hosts read, applied to the registry,
-//!   plus the live adapters and each credential's presence.
+//!   plus the live adapters and each credential's presence; it is also the runner's provider lookup
+//!   (`runtime.provider`), so a call reaches only what this PC's config enables.
 //! - [`PcQuotaProbe`] is `quotaUsable` (host.ts `quotaUsable`): one measurement per provider for 60 s, concurrent
 //!   callers joining it, a failed one never kept; each model is judged against it. The measurement and the
 //!   judgement are `run_host::quota_usage::{measure, serves}`, the same code as `providerQuotaUsable`.
@@ -36,6 +37,7 @@ use mixdog_ai::service::model_proxy::public_provider_config;
 use mixdog_app_protocol::v2::model_proxy as w;
 use mixdog_core_api::domain::provider as p;
 use mixdog_core_domains::domains::ai_admin::model_proxy::ProviderConfigSource;
+use mixdog_core_domains::domains::ai_admin::model_proxy::ProviderLookup;
 use mixdog_core_domains::domains::ai_admin::model_proxy::QuotaProbe;
 use mixdog_core_domains::domains::ai_admin::model_proxy::WireRouter;
 use serde_json::Map;
@@ -154,6 +156,8 @@ pub trait PcRegistry: Send + Sync {
     async fn apply(&self, providers: &Map<String, Value>) -> Result<(), String>;
     /// `getAllProviders()`, in registration order.
     fn live(&self) -> Vec<(String, Arc<dyn p::ProviderAdapter>)>;
+    /// `getProvider(name)`.
+    async fn get(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>>;
 }
 
 #[async_trait]
@@ -167,6 +171,10 @@ impl PcRegistry for ProviderRegistry {
 
     fn live(&self) -> Vec<(String, Arc<dyn p::ProviderAdapter>)> {
         self.all()
+    }
+
+    async fn get(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
+        ProviderRegistry::get(self, name).await
     }
 }
 
@@ -232,7 +240,7 @@ fn takes_images(name: &str) -> bool {
 /// What the live adapter declares for the server's stand-in (`providerConfig`'s `modelProxy` traits).
 fn traits_of(name: &str, adapter: &dyn p::ProviderAdapter) -> Value {
     let mut traits = Map::new();
-    traits.insert("inputExcludesCache".into(), Value::Bool(input_excludes_cache(name)));
+    traits.insert("inputExcludesCache".into(), Value::Bool(adapter.input_excludes_cache().unwrap_or_else(|| input_excludes_cache(name))));
     traits.insert("nativePdf".into(), Value::Bool(adapter.native_pdf()));
     if consumes_read_windows(name) {
         traits.insert("consumesReadWindows".into(), Value::Bool(true));
@@ -299,6 +307,24 @@ impl ProviderConfigSource for PcProviderConfig {
     }
 }
 
+/// `runtime.provider(name)` (host.ts `createModelProxyRuntime`): a server reaches only a provider this PC's config
+/// enables (or whose credential probe could not run) and whose credential is not absent, after the registry has
+/// been applied from the config; a provider disabled or removed here is never reached, even while the registry
+/// keeps its instance. A credential probe that fails reads as unavailable.
+#[async_trait]
+impl ProviderLookup for PcProviderConfig {
+    async fn adapter(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
+        let available = (self.providers)();
+        let configured = available.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
+        let enabled = configured.get("enabled") == Some(&Value::Bool(true)) || configured.get("credentialProbeUnavailable") == Some(&Value::Bool(true));
+        if !enabled || self.credentials.auth_state(name, &configured).await.ok()? == "absent" {
+            return None;
+        }
+        self.registry.apply(&available).await.ok()?;
+        self.registry.get(name).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -315,10 +341,10 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
 
     fn twin() -> Value {
-        serde_json::from_str(TWIN).unwrap()
+        serde_json::from_str(&TWIN).unwrap()
     }
 
     /// A provider that is the mock but for what the case sets.
@@ -337,6 +363,7 @@ mod tests {
 
     #[async_trait]
     impl p::ProviderAdapter for Fake {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
             self.inner.id()
         }
@@ -392,6 +419,9 @@ mod tests {
         }
         fn live(&self) -> Vec<(String, Arc<dyn p::ProviderAdapter>)> {
             self.live.clone()
+        }
+        async fn get(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
+            self.live.iter().find(|(live, _)| live == name).map(|(_, adapter)| adapter.clone())
         }
     }
 

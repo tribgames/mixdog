@@ -1143,7 +1143,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Services,
         "submitToSession",
-        Target::Method("turn/start"),
+        Target::Methods(&["turn/start", "room/send"]),
     ),
     (
         InventoryList::Services,
@@ -1437,7 +1437,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "submitToSession",
-        Target::Method("turn/start"),
+        Target::Methods(&["turn/start", "room/send"]),
     ),
     (
         InventoryList::Remote,
@@ -1836,7 +1836,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "readLocalFile",
-        Target::Method("projectFs/readLocal"),
+        Target::Methods(&["projectFs/readLocal", "transfer/readRange", "transfer/endRead"]),
     ),
     (
         InventoryList::Remote,

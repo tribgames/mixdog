@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "boards": [
+    {
+      "id": "670491a4-985c-4c8c-81a2-d4a13c6bca2e",
+      "name": "Renamed board",
+      "createdAt": 1794355202000
+    },
+    {
+      "id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+      "name": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\ud83d",
+      "createdAt": 1794355201000
+    }
+  ]
+}

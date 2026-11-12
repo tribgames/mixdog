@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use mixdog_js::JsRegex;
 use mixdog_js::is_js_space;
 use mixdog_rt::LaneToken;
-use mixdog_rt::MaintenanceIo;
+use mixdog_rt::SpawnIo;
 use tokio_util::sync::CancellationToken;
 
 macro_rules! lazy_re {
@@ -296,9 +296,10 @@ pub fn disabled_by_env() -> bool {
         .is_ok_and(|raw| lazy_re!(r"^(0|false|no|off)$", "i").is_match(mixdog_js::js_trim(&raw)))
 }
 
-/// `planDirectExeSpawn`: resolves the head on a lane job.
+/// `planDirectExeSpawn`: resolves the head on a lane job. Not kept between calls: a program
+/// installed or a shim added in a PATH directory changes the answer, as Node resolves it each time.
 pub async fn plan_direct_exe(
-    lane: MaintenanceIo,
+    lane: SpawnIo,
     cancel: &CancellationToken,
     command: &str,
     windows: bool,
@@ -306,8 +307,7 @@ pub async fn plan_direct_exe(
     cwd: &Path,
     path_value: &str,
 ) -> Option<DirectExe> {
-    let tokens = direct_exe_tokens(command, windows, powershell, disabled_by_env())?;
-    let (head, cwd, path_value) = (tokens[0].clone(), cwd.to_owned(), path_value.to_owned());
+    let tokens = direct_exe_tokens(command, windows, powershell, disabled_by_env())?;    let (head, cwd, path_value) = (tokens[0].clone(), cwd.to_owned(), path_value.to_owned());
     let job = lane.submit(cancel, move |_| resolve_direct_exe_blocking(&head, &cwd, &path_value, 64)).ok()?;
     let exe = job.await.ok()??;
     Some(DirectExe { exe, argv: tokens[1..].to_vec() })
@@ -378,5 +378,27 @@ mod tests {
         assert!(direct_exe_tokens("Get-Process", true, true, false).is_none());
         assert!(direct_exe_tokens("git log | head", true, true, false).is_none());
         assert!(direct_exe_tokens("tool --% raw", true, true, false).is_none());
+    }
+
+    /// Node's `execShellCommand directArgv runs the exe without a shell wrapper` (suite-shell-direct-exe-test.mjs): a plain
+    /// native `.exe` command on a Windows PowerShell host runs through the shell tool's direct spawn, and its exit status
+    /// and stdout come back. The shell named here does not exist, so only the direct spawn can run the command. Windows
+    /// only: direct spawns exist only there (`direct_exe_tokens`).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_native_exe_runs_without_the_shell_and_returns_its_exit_status_and_stdout() {
+        use crate::exec::tests::{body, ctx, real_rig};
+        use mixdog_core_api::domain::tool::Tool;
+        let rig = real_rig();
+        let mut config = rig.runtime.config.clone_for_test();
+        config.windows = true;
+        config.powershell = true;
+        config.shell = std::sync::Arc::new(crate::exec::FixedShell("no-such-powershell.exe".into()));
+        let shell = crate::exec::ShellTool::new(crate::exec::ExecRuntime::new(config));
+        let cmd = Path::new(&std::env::var("SystemRoot").unwrap()).join("System32").join("cmd.exe");
+        let command = format!("\"{}\" /d /c \"echo ok& exit 3\"", cmd.display());
+        let text = body(shell.call(&ctx(&rig, "d1"), serde_json::json!({ "command": command })).await);
+        // `echo ok` writes the line with its line end.
+        assert_eq!(text, "[exit code: 3]\n\nok\n");
     }
 }

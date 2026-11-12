@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::memory::embed::config;
 use crate::memory::embed::engine::EmbedConfig;
 use crate::lane::on_lane;
-use crate::model_install::{DownloadError, InstallError, ProgressSink, Spec, download_to_file, fsio};
+use crate::model_install::{DownloadError, InstallError, ProgressSink, Spec, download_once, fsio};
 use mixdog_rt::CpuBulk;
 
 pub const HUB: &str = "https://huggingface.co";
@@ -98,36 +98,67 @@ async fn usable_on(lane: CpuBulk, path: &Path) -> Result<bool, InstallError> {
     on_lane(lane, move || usable(&path)).await.map_err(InstallError::io)
 }
 
-/// What one install fetches from: the hub and model, and where its bytes and cancel go.
-struct Fetch<'a> {
-    lane: CpuBulk,
-    hub: &'a str,
-    model_id: &'a str,
-    progress: Option<&'a ProgressSink>,
-    cancel: &'a CancellationToken,
+/// Where model files are fetched from: the hub, and where the bytes and the cancel go.
+pub struct Hub<'a> {
+    pub lane: CpuBulk,
+    /// The hub's origin ([`HUB`] outside tests).
+    pub url: &'a str,
+    pub progress: Option<&'a ProgressSink>,
+    pub cancel: &'a CancellationToken,
 }
 
-impl Fetch<'_> {
-    async fn file(&self, file: &str, target: &Path, optional: bool) -> Result<(), InstallError> {
-        let Fetch { lane, hub, model_id, progress, cancel } = *self;
+impl Hub<'_> {
+    /// One request, as Node's `download` (no retry); a non-ok answer fails with Node's text, except a 404 for an
+    /// optional file, which leaves it absent.
+    async fn download(&self, model_id: &str, file: &str, target: &Path, optional: bool) -> Result<(), InstallError> {
+        let Hub { lane, url: hub, progress, cancel } = *self;
         let mut partial_name = target.file_name().unwrap_or_default().to_owned();
         partial_name.push(format!(".{}.part", std::process::id()));
         let partial = target.with_file_name(partial_name);
         let url = format!("{hub}/{model_id}/resolve/main/{file}");
         let label = format!("embedding model {model_id}/{file}");
         let spec = Spec { url: &url, dest: &partial, max_bytes: MAX_FILE_BYTES, expected_bytes: 0, label: &label, lane };
-        match download_to_file(&spec, progress, cancel).await {
+        match download_once(&spec, progress, cancel).await {
             Ok(_) => fsio::rename(lane, &partial, target).await.map_err(InstallError::io),
             Err(DownloadError::Http { status: 404, .. }) if optional => Ok(()),
+            Err(DownloadError::Http { status, .. }) => {
+                Err(InstallError::Hub(format!("embedding model download failed: {model_id}/{file} HTTP {status}")))
+            }
             Err(DownloadError::Cancelled) => Err(InstallError::Cancelled),
             Err(error) => Err(error.into()),
         }
     }
 }
 
-/// Fetches what is missing or damaged: the tokenizer files, then the graph's
-/// external weights (when the model publishes them) before the graph, so a
-/// present graph implies its weights finished downloading.
+/// `ensureModelFile`: the local path of `file`, fetched first when absent or damaged.
+pub async fn ensure_model_file(hub: &Hub<'_>, cache_dir: &Path, model_id: &str, file: &str) -> Result<PathBuf, InstallError> {
+    let target = model_path(cache_dir, model_id, file);
+    if !usable_on(hub.lane, &target).await? {
+        hub.download(model_id, file, &target, false).await?;
+    }
+    Ok(target)
+}
+
+/// `ensureModelGraph`: the local path of an ONNX graph. Its external weights
+/// (when the model publishes them) are fetched before it, so a present graph
+/// implies its weights finished downloading; weights a crash left empty are
+/// fetched again even when the graph is intact.
+pub async fn ensure_model_graph(hub: &Hub<'_>, cache_dir: &Path, model_id: &str, file: &str) -> Result<PathBuf, InstallError> {
+    let lane = hub.lane;
+    let target = model_path(cache_dir, model_id, file);
+    let weights = weights_of(&target);
+    let graph_present = holds_data_on(lane, &target).await?;
+    if !graph_present || (fsio::exists(lane, &weights).await.map_err(InstallError::io)? && !holds_data_on(lane, &weights).await?) {
+        hub.download(model_id, &format!("{file}_data"), &weights, true).await?;
+    }
+    if !graph_present {
+        hub.download(model_id, file, &target, false).await?;
+    }
+    Ok(target)
+}
+
+/// Fetches what is missing or damaged, in the embedding worker's order
+/// (`embedding-worker.mjs`): the tokenizer files, then the graph.
 pub async fn install(
     config: &EmbedConfig,
     hub: &str,
@@ -135,24 +166,10 @@ pub async fn install(
     cancel: &CancellationToken,
 ) -> Result<(), InstallError> {
     let model_id = js_trim(&config.model_id);
-    let lane = config.lane;
-    let source = Fetch { lane, hub, model_id, progress, cancel };
+    let hub = Hub { lane: config.lane, url: hub, progress, cancel };
     for file in ["tokenizer.json", "tokenizer_config.json"] {
-        let target = model_path(&config.cache_dir, model_id, file);
-        if !usable_on(lane, &target).await? {
-            source.file(file, &target, false).await?;
-        }
+        ensure_model_file(&hub, &config.cache_dir, model_id, file).await?;
     }
-    let graph = required_files(config).graph;
-    let target = model_path(&config.cache_dir, model_id, &graph);
-    let weights = weights_of(&target);
-    let graph_present = holds_data_on(lane, &target).await?;
-    let weights_damaged = fsio::exists(lane, &weights).await.map_err(InstallError::io)? && !holds_data_on(lane, &weights).await?;
-    if !graph_present || weights_damaged {
-        source.file(&format!("{graph}_data"), &weights, true).await?;
-    }
-    if !graph_present {
-        source.file(&graph, &target, false).await?;
-    }
+    ensure_model_graph(&hub, &config.cache_dir, model_id, &required_files(config).graph).await?;
     Ok(())
 }

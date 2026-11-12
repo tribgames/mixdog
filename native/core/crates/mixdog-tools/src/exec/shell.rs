@@ -66,16 +66,16 @@ use super::psfix::rewrite_wmic_process;
 use super::bashism::rewrite_powershell_bashisms;
 use super::direct::plan_direct_exe;
 use super::guard::Guarded;
-use super::guard::guard_shell_call;
+use super::guard::guard_call;
 use super::hoist::plan_hoist;
 use super::hygiene::preflight_powershell_hygiene;
 use super::invocation::EVAL_SCRIPT;
+use super::invocation::POWERSHELL_BOOTSTRAP;
 use super::invocation::build_powershell_filter_tee_plan;
 use super::invocation::filter_rescue_note;
+use super::invocation::frame_powershell_script;
 use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
-use super::invocation::skill_launcher_dir;
-use super::invocation::skill_launcher_files;
 use super::invocation::wrap_with_snapshot;
 use super::snapshot::SnapshotRequest;
 use super::spill;
@@ -102,7 +102,7 @@ const BACKGROUND_GUIDANCE: &str =
 
 /// Why the command left the foreground (`promotion-results.mjs` `backgroundVerb`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PromotionReason {
+pub(super) enum PromotionReason {
     /// `background: true`.
     Background,
     /// The hold ran out.
@@ -131,7 +131,7 @@ fn background_message(reason: PromotionReason, elapsed_ms: u64) -> String {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Args {
+pub(super) struct Args {
     command: String,
     cwd: Option<String>,
     timeout_ms: Option<u64>,
@@ -216,8 +216,12 @@ fn text_output(text: String) -> ToolOutput {
     ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() }
 }
 
+fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
 /// How long the call holds (`planShellDeadlines`); 0 means it never moves to the background.
-fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
+pub(super) fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if !background_enabled {
         return 0;
     }
@@ -226,8 +230,7 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
     } else if let Some(wait) = args.wait_ms.filter(|w| *w > 0) {
         wait.clamp(SHELL_HOLD_MIN_MS, SHELL_HOLD_MAX_MS)
     } else {
-        std::env::var("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
-            .ok()
+        env("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
             .filter(|raw| !mixdog_js::js_trim(raw).is_empty())
             .map(|raw| mixdog_js::string_to_number(&raw))
             .filter(|n| n.is_finite() && *n >= 0.0)
@@ -244,26 +247,45 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
 
 /// The foreground window a run limit longer than it is cut to (`BASH_MAX_TIMEOUT_MS`, else 120 s),
 /// never shorter than the hold.
-fn foreground_cap_ms(hold: u64) -> u64 {
-    let configured = std::env::var("BASH_MAX_TIMEOUT_MS")
-        .ok()
+pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>) -> u64 {
+    let configured = env("BASH_MAX_TIMEOUT_MS")
         .and_then(|raw| parse_int_prefix(&raw))
         .filter(|n| *n > 0)
         .map_or(120_000, |n| n as u64);
     configured.max(hold)
 }
 
+/// Whether the foreground run is promoted when the foreground window ends (`promoteAtTimeout`): with no run limit, or one
+/// longer than the window, there is budget left to hand to a background task.
+pub(super) fn promotes_at_timeout(background_enabled: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> bool {
+    background_enabled && (time_limit == 0 || time_limit > foreground_cap_ms(hold, env))
+}
+
+/// What the end of the hold does, the one decision both the wait and the promotion message follow: `None` enforces the
+/// run limit (a limit at or below the hold has no budget left to hand to a background task; Node does not arm its
+/// threshold timer then, `armDeadlines`), `Some(reason)` promotes the run for that reason.
+pub(super) fn hold_end(background: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> Option<PromotionReason> {
+    if time_limit > 0 && time_limit <= hold {
+        None
+    } else if background {
+        Some(PromotionReason::Background)
+    } else if time_limit > 0 && promotes_at_timeout(true, time_limit, hold, env) && hold == foreground_cap_ms(hold, env) {
+        Some(PromotionReason::Timeout)
+    } else {
+        Some(PromotionReason::Threshold)
+    }
+}
+
 /// The run limit: an explicit `timeout_ms`, else the background safety net
 /// `MIXDOG_SHELL_BACKGROUND_MAX_MS`, else none.
-fn time_limit_ms(args: &Args, background_enabled: bool) -> u64 {
+pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if let Some(t) = args.timeout_ms.filter(|t| *t > 0) {
         return t.min(TIMER_MAX_MS);
     }
     if !background_enabled {
         return 0;
     }
-    std::env::var("MIXDOG_SHELL_BACKGROUND_MAX_MS")
-        .ok()
+    env("MIXDOG_SHELL_BACKGROUND_MAX_MS")
         .map(|raw| mixdog_js::string_to_number(&raw))
         .filter(|n| n.is_finite() && *n > 0.0)
         .map_or(0, |n| (n.floor() as u64).min(TIMER_MAX_MS))
@@ -325,6 +347,25 @@ fn spawn_failure(error: ProcessError) -> ToolError {
         ),
     };
     failed(code, format!("Error: [shell-tool-failed] [spawn failed]\n\n{detail}"))
+}
+
+/// The shell was ended by its run limit (the answer is the timeout's, as in Node, whose limit runs from the hand-off).
+fn ended_by_run_limit(job: &Job) -> bool {
+    matches!(job.exit(), Some(ProcessExit { killed: Some(KillReason::TimeLimit), .. }))
+}
+
+/// The command could not be handed to the shell whole, so it was ended unrun. Node b6f10295a discards the helper's write
+/// result (`stdinWrite`, `let _ = write_all`) and closed the input after a part, which its bootstrap ran
+/// (`node-fix-partial-script.patch` fixes both); here the call fails instead.
+fn input_failure(error: ProcessError) -> ToolError {
+    let code = match error {
+        ProcessError::Io { os_code } => ToolErrorCode::Io { os_code },
+        other => ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") },
+    };
+    failed(
+        code,
+        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run".to_owned(),
+    )
 }
 
 /// `_exitClassDiagnostic`.
@@ -399,7 +440,7 @@ async fn compaction_of(
         },
     )?;
     let data_dir = runtime.config.data_dir.as_deref()?;
-    let lane = runtime.config.lanes.maintenance;
+    let lane = runtime.config.lanes.durability;
     let mut recovery = Vec::new();
     for (stream, raw) in [("stdout", &raw_out), ("stderr", &raw_err)] {
         if raw.is_empty() {
@@ -432,12 +473,16 @@ async fn completed(
         _ => None,
     };
     let mut payload = foreground_payload(job, compaction.as_ref());
+    // The result points at the logs: say when one of them lacks part of the output.
+    if let Some(note) = job.log_note() {
+        payload.push_str(&format!("\n\n{note}"));
+    }
     // The tee file is always consumed (deleted); its tail is attached only when the run failed
     // with an empty visible capture — the `(no output)` shape that cost extra diagnostic turns.
     if let Some(tee) = tee_path {
-        let lane = runtime.config.lanes.maintenance;
-        let tail = spill::read_tee_tail(lane, &ctx.cancel, tee, 16_384).await;
-        spill::remove_file(lane, &ctx.cancel, tee).await;
+        let lanes = runtime.config.lanes;
+        let tail = spill::read_tee_tail(lanes.interactive, &ctx.cancel, tee, 16_384).await;
+        spill::remove_file(lanes.durability, &ctx.cancel, tee).await;
         let (raw_out, raw_err) = job.captured();
         let visible_empty = mixdog_js::js_trim(&strip_ansi(&raw_out)).is_empty()
             && mixdog_js::js_trim(&strip_ansi(&raw_err)).is_empty();
@@ -587,12 +632,7 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_shell_call(
-            &args.command,
-            args.cwd.as_deref(),
-            args.background == Some(true),
-            runtime.config.powershell,
-        ) {
+        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell).await {
             Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
             Guarded::Run { command, cwd, notes } => (command, cwd, notes),
         };
@@ -604,7 +644,7 @@ impl ShellTool {
         // The shell of this spawn: the setting is read now, as Node does on every spawn.
         let configured = runtime.config.shell.configured();
         let default_shell =
-            default_program(&runtime.config.shell, runtime.config.lanes.maintenance, &ctx.cancel, &configured)
+            default_program(&runtime.config.shell, runtime.config.lanes.spawn, &ctx.cancel, &configured)
                 .await
                 .map_err(|reason| {
                     failed(
@@ -675,7 +715,7 @@ impl ShellTool {
         })?;
         if let Some(plan) = planned {
             if let Some(path) = spill::write_hoist_file(
-                runtime.config.lanes.maintenance,
+                runtime.config.lanes.spawn,
                 &ctx.cancel,
                 plan.extension,
                 &plan.body,
@@ -687,11 +727,11 @@ impl ShellTool {
             }
         }
         let background_enabled = !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false);
-        let mut time_limit = time_limit_ms(&args, background_enabled);
+        let mut time_limit = time_limit_ms(&args, background_enabled, &process_env);
         if hard_cap > 0 {
             time_limit = args.timeout_ms.filter(|t| *t > 0).map_or(hard_cap, |t| t.min(hard_cap));
         }
-        let hold = hold_ms(&args, time_limit, background_enabled);
+        let hold = hold_ms(&args, time_limit, background_enabled, &process_env);
 
         let scratch = runtime
             .config
@@ -699,7 +739,7 @@ impl ShellTool {
             .as_deref()
             .and_then(|data| session_scratch_dir(data, ctx.thread_id.as_str()));
         if let Some(dir) = &scratch {
-            spill::create_dir(runtime.config.lanes.maintenance, &ctx.cancel, dir).await;
+            spill::create_dir(runtime.config.lanes.spawn, &ctx.cancel, dir).await;
         }
         let vars: Vec<(String, String)> = std::env::vars_os()
             .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
@@ -707,10 +747,7 @@ impl ShellTool {
         // The skill launchers: files written for this installation, their directory first on PATH.
         let launcher_dir: Option<PathBuf> = match (&runtime.config.skill_runtime, runtime.config.data_dir.as_deref()) {
             (Some(rt), Some(data)) => {
-                let dir = PathBuf::from(skill_launcher_dir(rt, &data.to_string_lossy()));
-                spill::ensure_launcher_dir(runtime.config.lanes.maintenance, &ctx.cancel, &dir, skill_launcher_files(rt))
-                    .await;
-                Some(dir)
+                Some(spill::ensure_launchers(runtime.config.lanes.spawn, &ctx.cancel, &runtime.launchers, rt, data).await)
             }
             _ => runtime.config.skill_launcher_dir.clone(),
         };
@@ -733,7 +770,7 @@ impl ShellTool {
             .map(|(_, v)| v.clone())
             .unwrap_or_default();
         let direct = plan_direct_exe(
-            runtime.config.lanes.maintenance,
+            runtime.config.lanes.spawn,
             &ctx.cancel,
             &command,
             runtime.config.windows,
@@ -743,6 +780,9 @@ impl ShellTool {
         )
         .await;
         let mut tee_path: Option<PathBuf> = None;
+        // A PowerShell script is fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh pwsh spawn,
+        // `shell-run-spawn.mjs`).
+        let mut fed_script: Option<String> = None;
         let spec = match direct {
             Some(direct) => CommandSpec::Argv {
                 program: direct.exe.to_string_lossy().into_owned(),
@@ -758,12 +798,11 @@ impl ShellTool {
                     let tee = build_powershell_filter_tee_plan(&command, &spill::fresh_token(), &tmp, '\\');
                     let body = tee.as_ref().map_or_else(|| command.clone(), |t| t.command.clone());
                     tee_path = tee.map(|t| PathBuf::from(t.tee_path));
-                    CommandSpec::Shell { script: prefix_powershell_utf8(&body, skill), shell: Some(shell_program) }
+                    fed_script = Some(prefix_powershell_utf8(&body, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if runtime.config.powershell {
-                    CommandSpec::Shell {
-                        script: prefix_powershell_skill_function(&command, skill),
-                        shell: Some(shell_program),
-                    }
+                    fed_script = Some(prefix_powershell_skill_function(&command, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
@@ -774,7 +813,7 @@ impl ShellTool {
                                 .snapshots
                                 .get(SnapshotRequest {
                                     processes: &ctx.processes,
-                                    lane: runtime.config.lanes.maintenance,
+                                    lane: runtime.config.lanes.spawn,
                                     cancel: &ctx.cancel,
                                     shell_path: &shell_program,
                                     data_dir: data,
@@ -807,7 +846,7 @@ impl ShellTool {
             cwd,
             env,
             pty: None,
-            stdin_piped: false,
+            stdin_piped: fed_script.is_some(),
             output: OutputMode::Separate,
             owner: ProcessOwner::Tool {
                 thread_id: ctx.thread_id.clone(),
@@ -815,56 +854,114 @@ impl ShellTool {
             },
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
+        // A PowerShell script runs in the parked warm standby when it matches (`takeStandby`, `shell-run-spawn.mjs`),
+        // fed what the hand-off sets first; any miss spawns.
+        let fresh = request.handle.clone();
+        let standby = match (&fed_script, &request.command) {
+            (Some(_), CommandSpec::Shell { shell: Some(program), .. }) if runtime.config.warm_standby => {
+                runtime.standby.take(&ctx.processes, program, &request.env)
+            }
+            _ => None,
+        };
+        let hand_off = super::standby::hand_off_prelude(&request.env, &request.cwd.as_path().to_string_lossy());
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone(), &ctx.cancel)
+            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone())
             .await;
         let job = match started {
             Ok(job) => job,
             Err(error) => {
                 if let Some(path) = &hoist_path {
-                    spill::remove_file(runtime.config.lanes.maintenance, &ctx.cancel, path).await;
+                    spill::remove_file(runtime.config.lanes.durability, &ctx.cancel, path).await;
                 }
                 return Err(spawn_failure(error));
             }
         };
+        // The whole script, of any size, then end of input, written while the call holds: Node hands the helper the
+        // whole string in one `stdinWrite` and starts its hold and run limit at once (`shell-run-spawn.mjs`), so they cover
+        // a shell that does not read its input. The bootstrap runs the script only when the length its first line declares
+        // arrived (`frame_powershell_script`), and the input is closed only once all of it was written; a write that failed
+        // ends the tree (the process manager ends it before it lets go of the input) and the call fails, unless the run
+        // limit had ended the shell already.
+        let mut input_failed = None;
+        if let Some(mut script) = fed_script {
+            if job.handle != fresh {
+                script.insert_str(0, &hand_off);
+            }
+            let framed = frame_powershell_script(&script);
+            drop(script);
+            let (failed, failure) = tokio::sync::oneshot::channel();
+            let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
+            drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
+                match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
+                    Ok(()) => {
+                        let _ = processes.close_stdin(&handle);
+                    }
+                    Err(error) => {
+                        // The failure is published before the kill: the kill settles the job, and a caller that sees the
+                        // settle must already find the failure, so a script that was not written whole always answers
+                        // with the input failure and never with the cancellation the kill looks like.
+                        let _ = failed.send(error);
+                        // A kill of a process that already exited is not an error.
+                        let _ = processes.kill(&handle);
+                    }
+                }
+            }));
+            input_failed = Some(failure);
+        }
+        let write_failed = async {
+            match input_failed {
+                Some(failure) => match failure.await {
+                    Ok(error) => error,
+                    Err(_) => std::future::pending().await,
+                },
+                None => std::future::pending().await,
+            }
+        };
+        let mut write_failed = std::pin::pin!(write_failed);
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
         if let Some(path) = hoist_path {
-            let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
-            mixdog_rt::spawn("shell-hoist-cleanup", mixdog_rt::TaskClass::Work, async move {
-                settled.settled().await;
-                spill::remove_file(lane, &cancel, &path).await;
-            });
+            runtime.remove_when_settled(&job, path, ctx.cancel.clone());
         }
 
         let reason: PromotionReason;
         if hold > 0 {
             // New user input or a notification ends the hold, the same wake `task wait` uses.
             let wait = runtime.config.wake.begin(&ctx.thread_id);
-            // A run limit at or below the hold has no budget left to hand to a background task:
-            // the limit is enforced instead of promoting.
-            let enforce_limit = time_limit > 0 && time_limit <= hold;
+            let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, &process_env);
             let hold_timer = async {
-                if enforce_limit {
+                if at_hold_end.is_none() {
                     std::future::pending::<()>().await;
                 } else {
-                    tokio::time::sleep(Duration::from_millis(hold)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
                 }
             };
             tokio::select! {
+                biased;
+                error = &mut write_failed => {
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    if ended_by_run_limit(&job) {
+                        return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                    }
+                    return Err(input_failure(error));
+                }
                 () = job.settled() => {
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
+                // Ahead of the two promotions below: a cancelled call that is also due for the background is killed, never left
+                // running behind a call that was cancelled.
+                () = ctx.cancel.cancelled() => {
+                    // A kill of a process that just exited is not an error.
+                    let _ = ctx.processes.kill(&job.handle);
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                }
                 () = hold_timer => {
-                    reason = if args.background == Some(true) {
-                        PromotionReason::Background
-                    } else if time_limit > foreground_cap_ms(hold) && hold == foreground_cap_ms(hold) {
-                        PromotionReason::Timeout
-                    } else {
-                        PromotionReason::Threshold
-                    };
+                    reason = at_hold_end.unwrap_or(PromotionReason::Threshold);
                 }
                 () = wait.released() => {
                     reason = match wait.wake().map(|w| w.reason) {
@@ -872,20 +969,21 @@ impl ShellTool {
                         _ => PromotionReason::Input,
                     };
                 }
-                () = ctx.cancel.cancelled() => {
-                    // A kill of a process that just exited is not an error.
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
-                    return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
-                }
             }
         } else {
             tokio::select! {
+                biased;
+                error = &mut write_failed => {
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    if !ended_by_run_limit(&job) {
+                        runtime.release(&job.id);
+                        return Err(input_failure(error));
+                    }
+                }
                 () = job.settled() => {}
                 () = ctx.cancel.cancelled() => {
                     let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                 }
             }
             runtime.release(&job.id);
@@ -895,11 +993,7 @@ impl ShellTool {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
-                let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
-                mixdog_rt::spawn("shell-tee-cleanup", mixdog_rt::TaskClass::Work, async move {
-                    settled.settled().await;
-                    spill::remove_file(lane, &cancel, &tee).await;
-                });
+                runtime.remove_when_settled(&job, tee, ctx.cancel.clone());
             }
             backgrounded(&job, &command, &guard_note, &background_message(reason, runtime.now_ms().saturating_sub(job.started_ms)))
         } else {

@@ -51,7 +51,7 @@ change timing, or diagnosing MCP, plugin, or built-in failures.
 | Read managed paths and obtain a deletion confirmation receipt | `local_model_details` |
 | Background checksum verification or approved redownload | `maintain_local_model` |
 | Permanently delete confirmed, unchanged, unused model files | `delete_local_model` |
-| TUI system shell | `set_system_shell` |
+| System shell | `set_system_shell` |
 | Automatic updates | `set_auto_update` |
 | Mixy's heartbeat: a regular check that wakes her only when something needs attention and only after the user had no operation for 30 minutes (no sent turn, no keyboard/mouse/wheel input in the desktop app's windows) (off by default; `status features` reports `heartbeat.enabled` and `heartbeat.intervalMinutes`) | `set_heartbeat_enabled` |
 | How often the heartbeat checks: `minutes` 30, 60 (default), 120 or 240; applies from the next tick, counted from the last check | `set_heartbeat_interval` |
@@ -348,7 +348,7 @@ markers are read with `status desktop`.
 - An HTTP/SSE MCP server that needs OAuth waits for sign-in instead of
   failing; setup rows then show it enabled, not connected, with no `error`.
   Setup cannot sign in, and `reconnect_mcp` does not log in: hand off to
-  `open mcp` (Connect/Reconnect) or the TUI `/mcp login`.
+  `open mcp` (Connect/Reconnect).
 - MCP add requires name plus command or URL. Save uses `originalName` (defaults
   to name), so changing `name` with `originalName` renames the existing server.
   Omitted fields remain unchanged. Switching transport requires a complete new
