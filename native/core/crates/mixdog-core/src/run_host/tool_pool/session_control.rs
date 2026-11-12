@@ -232,8 +232,9 @@ pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_
         "provider": text("provider"),
         "model": text("model"),
         "effort": text("effort"),
-        "autoEffort": header.get("autoEffort") != Some(&Value::Bool(false)),
-        "fast": header.get("fast") == Some(&Value::Bool(true)),
+        // `snapshot.autoEffort ?? null`, `snapshot.fast ?? null`: what the record holds, else null.
+        "autoEffort": header.get("autoEffort").cloned().unwrap_or(Value::Null),
+        "fast": header.get("fast").cloned().unwrap_or(Value::Null),
         "busy": busy,
         "agentsWorking": agents_working,
         "quotaResume": quota_resume,
