@@ -72,9 +72,25 @@ pub(crate) fn err(op: IoOp, path: &Path) -> impl FnOnce(io::Error) -> IoError + 
     }
 }
 
+/// The switch a test uses to skip the physical flushes of its process (`mixdog-fsio/src/elide.rs`).
+#[cfg(feature = "crash-hook")]
+pub use mixdog_fsio::elide::elide_syncs;
+/// The setting a durable SQLite database is opened with.
+pub use mixdog_fsio::elide::sqlite_synchronous;
+
+/// `File::sync_all` (`fsync` / `FlushFileBuffers`), for callers that report the failure in their own terms.
+pub fn flush(file: &File) -> io::Result<()> {
+    mixdog_fsio::elide::sync_all(file)
+}
+
+/// `File::sync_data` (`fdatasync`), for callers that report the failure in their own terms.
+pub fn flush_data(file: &File) -> io::Result<()> {
+    mixdog_fsio::elide::sync_data(file)
+}
+
 /// `fsync` / `FlushFileBuffers`.
 pub fn sync_file(file: &File, path: &Path) -> Result<(), IoError> {
-    file.sync_all().map_err(err(IoOp::SyncFile, path))
+    flush(file).map_err(err(IoOp::SyncFile, path))
 }
 
 /// Makes the directory's entries durable. Windows needs a write handle opened with
@@ -365,6 +381,8 @@ mod tests {
 
     #[test]
     fn publish_creates_parents_and_replaces() {
+        // The flush of a file and of a directory handle is what is tested.
+        mixdog_fsio::elide::real_syncs();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a/b/c.json");
         publish_file_unlaned(&path, b"one").unwrap();
@@ -379,6 +397,8 @@ mod tests {
     /// Paths over `MAX_PATH` (quarantine keys reach 263+): every helper, both access modes.
     #[test]
     fn helpers_work_on_paths_over_300_characters() {
+        // The flush of a file and of a directory handle is what is tested.
+        mixdog_fsio::elide::real_syncs();
         let dir = tempfile::tempdir().unwrap();
         let deep = dir.path().join("q".repeat(120)).join("%2F".repeat(40)).join("k".repeat(100));
         let file = deep.join("log.000000");

@@ -115,8 +115,7 @@ enum Invalidate {
 }
 
 /// Resolves when the login is cancelled or its deadline passes: Node's abort of the login signal.
-/// Under a test that took the seams (`seam::take_control`) it is `LOGIN_DEADLINE_MS` when set, else a fire of
-/// `seam::DEADLINE`.
+/// Under a test that took the seams (`seam::take_control`) it is a fire of `seam::DEADLINE`.
 enum Deadline {
     At(tokio::time::Instant),
     #[cfg(feature = "test-support")]
@@ -127,18 +126,14 @@ impl Deadline {
     fn start() -> Self {
         #[cfg(feature = "test-support")]
         if crate::oauth::callback::seam::controlled() {
-            let millis = crate::oauth::callback::LOGIN_DEADLINE_MS.load(std::sync::atomic::Ordering::SeqCst);
-            return match millis {
-                0 => Self::Fired(crate::oauth::callback::seam::DEADLINE.count()),
-                _ => Self::At(tokio::time::Instant::now() + std::time::Duration::from_millis(millis)),
-            };
+            return Self::Fired(crate::oauth::callback::seam::DEADLINE.count());
         }
         Self::At(tokio::time::Instant::now() + super::LOGIN_DEADLINE)
     }
 
     async fn passed(&self) {
         match self {
-            Self::At(at) => tokio::time::sleep_until(*at).await,
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
             #[cfg(feature = "test-support")]
             Self::Fired(seen) => crate::oauth::callback::seam::DEADLINE.after(*seen).await,
         }

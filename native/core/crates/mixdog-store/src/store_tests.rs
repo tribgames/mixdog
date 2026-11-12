@@ -90,6 +90,9 @@ impl LogFile for FaultFile {
         take(&mut self.1.lock().unwrap().truncate)?;
         self.0.truncate(len)
     }
+    fn size(&mut self) -> io::Result<u64> {
+        self.0.size()
+    }
 }
 
 impl WriterIo for FaultIo {
@@ -489,6 +492,755 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     assert!(opened.bytes_read <= 5 * 1024 * 1024 + MAX_FRAME_LEN as u64, "SM §11.8: ≤ 5 MiB + state");
 }
 
+// ───────────── groups (FORMAT.md §3.6): recovery takes a write whole or not at all ─────────────
+
+/// The records a forward scan of `bytes` (a file's bytes from a frame start, `ordinal` due there, to its end) returns
+/// (every frame but the anchors), and how it ended.
+fn scanned_from(bytes: &[u8], ordinal: u64) -> (Vec<(u64, Vec<u8>)>, crate::schema::frame::ScanEnd) {
+    let scan = crate::framing::scan(bytes, 0, 0, ordinal);
+    let records = scan
+        .frames
+        .iter()
+        .filter(|frame| !is_anchor_payload(frame.payload(bytes)))
+        .map(|frame| (frame.ordinal, frame.payload(bytes).to_vec()))
+        .collect();
+    (records, scan.end)
+}
+
+fn is_anchor_payload(payload: &[u8]) -> bool {
+    payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#)
+}
+
+/// A log whose last write is the group under test, from the last frame before that write (`ordinal` due there) to its
+/// end: those bytes, where the write starts in them, the records before and after it, and the positions the writer
+/// acknowledged for it (file offsets; `from` is the file offset of `bytes[0]`).
+struct Written {
+    bytes: Vec<u8>,
+    from: usize,
+    ordinal: u64,
+    write_start: usize,
+    before: Vec<(u64, Vec<u8>)>,
+    after: Vec<(u64, Vec<u8>)>,
+    acked: Vec<crate::schema::checkpoint::FramePos>,
+}
+
+/// Writes `prefix` (one write each) then `group` as the last write of a fresh session `s1`.
+async fn written(prefix: Vec<Vec<Encoded>>, group: Vec<Encoded>) -> (Env, Written) {
+    let env = Env::new();
+    let mut w = env.create("s1", None).await;
+    for batch in prefix {
+        w = env.commit(w, batch).await.0;
+    }
+    let path = env.dir("s1").join(log_name(0));
+    let write_start = std::fs::metadata(&path).unwrap().len() as usize;
+    let before_bytes = std::fs::read(&path).unwrap();
+    let (w, ack) = env.append(w, group).await;
+    let ack = ack.expect("the group is written");
+    let acked = ack.positions.clone();
+    env.store.project(ack.projection).await.unwrap();
+    drop(w);
+    let file = std::fs::read(&path).unwrap();
+    let last = crate::framing::scan(&before_bytes, 0, 0, 0).frames.last().copied().expect("a frame before the write");
+    let (from, ordinal) = (last.start, last.ordinal);
+    let (before, end) = scanned_from(&before_bytes[from..], ordinal);
+    assert_eq!(end, crate::schema::frame::ScanEnd::Clean);
+    let bytes = file[from..].to_vec();
+    let (after, end) = scanned_from(&bytes, ordinal);
+    assert_eq!(end, crate::schema::frame::ScanEnd::Clean);
+    (env, Written { bytes, from, ordinal, write_start: write_start - from, before, after, acked })
+}
+
+impl Written {
+    /// The recovered records of `bytes` are exactly those before the group or those after it, never between: which.
+    fn before_or_after(&self, what: &str, bytes: &[u8]) -> bool {
+        let (records, end) = scanned_from(bytes, self.ordinal);
+        assert!(records == self.before || records == self.after, "{what}: recovered {} records ({end:?}), before {} after {}", records.len(), self.before.len(), self.after.len());
+        records == self.after
+    }
+
+    /// The marker of the group (in `bytes`): the frame start `GROUP_MARKER_LEN + FRAME_OVERHEAD` before the first
+    /// acknowledged member.
+    fn marker(&self) -> usize {
+        self.acked[0].offset as usize - self.from - (crate::schema::frame::GROUP_MARKER_LEN + crate::schema::frame::FRAME_OVERHEAD)
+    }
+}
+
+/// Re-encodes the group's marker with `payload` (same length, a valid frame): a forged count, length or digest.
+fn with_marker(w: &Written, payload: &[u8]) -> Vec<u8> {
+    let mut bytes = w.bytes.clone();
+    let mut frame = Vec::new();
+    crate::framing::encode_into(&mut frame, w.acked[0].ordinal, payload);
+    let at = w.marker();
+    bytes[at..at + frame.len()].copy_from_slice(&frame);
+    bytes
+}
+
+fn marker_payload(w: &Written) -> Vec<u8> {
+    let at = w.marker() + crate::schema::frame::HEADER_LEN;
+    w.bytes[at..at + crate::schema::frame::GROUP_MARKER_LEN].to_vec()
+}
+
+/// Every way a group of three (and one whose write starts with a checkpoint) can be damaged, at every byte: the
+/// recovered records are exactly those before the group or after it, never some of it; the positions the writer
+/// acknowledged are where the members are found.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_group_is_recovered_whole_or_not_at_all_however_it_is_damaged() {
+    // `since_anchor` past CHECKPOINT_EVERY: the second layout's group write starts with its leading checkpoint.
+    let big: Vec<Encoded> = (0..6).map(|i| big_item(&format!("p{i}"))).collect();
+    for (layout, prefix) in [("a group of three", vec![vec![item("x")]]), ("a group of three after a leading checkpoint", vec![big])] {
+        let (_env, w) = written(prefix, vec![item("a"), item("b"), item("c")]).await;
+        assert_eq!(w.after.len(), w.before.len() + 3, "{layout}");
+        // The acknowledged positions are the members' frames.
+        let scan = crate::framing::scan(&w.bytes, 0, 0, w.ordinal);
+        let members: Vec<(u64, u64)> = scan.frames.iter().rev().take(3).rev().map(|f| (f.ordinal, (w.from + f.start) as u64)).collect();
+        assert_eq!(members, w.acked.iter().map(|p| (p.ordinal, p.offset)).collect::<Vec<_>>(), "{layout}: BatchAck agrees");
+        if layout.contains("checkpoint") {
+            assert!(w.marker() > w.write_start, "{layout}: the leading checkpoint precedes the marker");
+        }
+        let len = w.bytes.len();
+        for cut in w.write_start..=len {
+            let after = w.before_or_after(&format!("{layout}: cut at {cut}"), &w.bytes[..cut]);
+            assert_eq!(after, cut == len, "{layout}: cut at {cut}");
+            let mut zeroed = w.bytes.clone();
+            zeroed[cut..].fill(0);
+            assert_eq!(w.before_or_after(&format!("{layout}: zero from {cut}"), &zeroed), cut == len, "{layout}: zero from {cut}");
+        }
+        for at in w.write_start..len {
+            let mut flipped = w.bytes.clone();
+            flipped[at] ^= 0x01;
+            assert!(!w.before_or_after(&format!("{layout}: byte {at} flipped"), &flipped), "{layout}: byte {at} flipped");
+        }
+        // Forged markers, each a well-formed frame: count ±1, length ±1, a digest of other bytes.
+        let marker = marker_payload(&w);
+        let text = String::from_utf8(marker.clone()).unwrap();
+        let count = u64::from_str_radix(&text[7..15], 16).unwrap();
+        let bytes = u64::from_str_radix(&text[16..32], 16).unwrap();
+        for (what, forged) in [
+            ("count + 1", format!("#group {:08x}{}", count + 1, &text[15..])),
+            ("count - 1", format!("#group {:08x}{}", count - 1, &text[15..])),
+            ("length + 1", format!("{}{:016x}{}", &text[..16], bytes + 1, &text[32..])),
+            ("length - 1", format!("{}{:016x}{}", &text[..16], bytes - 1, &text[32..])),
+            ("another digest", format!("{}{}", &text[..33], "0".repeat(64))),
+        ] {
+            assert!(!w.before_or_after(&format!("{layout}: {what}"), &with_marker(&w, forged.as_bytes())), "{layout}: {what}");
+        }
+    }
+}
+
+/// A room post writes its rows and the `updatedAt` it stamps (a `meta` record) as one batch: a kill at any offset of the write
+/// (cut there, or zeroed from there) before the sync leaves the log with neither the rows nor the stamp, never the rows alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_killed_before_its_sync_recovers_neither_its_rows_nor_its_stamp() {
+    let stamp = rec(json!({"k":"meta","change":{"inline":{"set":{"updatedAt":5000u64},"unset":[]}}}));
+    let (_env, w) = written(vec![vec![item("x")]], vec![item("row1"), item("row2"), stamp]).await;
+    assert_eq!(w.after.len(), w.before.len() + 3, "the rows and the stamp");
+    let len = w.bytes.len();
+    for kill in w.write_start..=len {
+        assert_eq!(w.before_or_after(&format!("killed after {kill} bytes"), &w.bytes[..kill]), kill == len, "cut at {kill}");
+        let mut zeroed = w.bytes.clone();
+        zeroed[kill..].fill(0);
+        assert_eq!(w.before_or_after(&format!("zeroed from {kill}"), &zeroed), kill == len, "zero from {kill}");
+    }
+}
+
+/// Stale bytes after a new marker (a longer earlier write whose truncation did not last): the members the marker names
+/// are not there, so none of the stale frames completes the group.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_bytes_after_a_marker_never_complete_its_group() {
+    use crate::schema::frame::*;
+    let (_env, longer) = written(vec![vec![item("x")]], vec![item("p"), item("q"), item("r"), item("s")]).await;
+    // The new write: three other records at the same ordinals, of which only the marker landed.
+    let members: Vec<u8> = [item("a"), item("b"), item("c")]
+        .iter()
+        .enumerate()
+        .flat_map(|(i, e)| {
+            let mut out = Vec::new();
+            crate::framing::encode_into(&mut out, longer.acked[0].ordinal + i as u64, &e.payload);
+            out
+        })
+        .collect();
+    let mut stale = longer.bytes.clone();
+    let mut marker = Vec::new();
+    crate::framing::encode_into(&mut marker, longer.acked[0].ordinal, &group_marker(3, &members));
+    let at = longer.marker();
+    stale[at..at + marker.len()].copy_from_slice(&marker);
+    let (records, end) = scanned_from(&stale, longer.ordinal);
+    assert_eq!(records, longer.before, "{end:?}");
+    // The same stale bytes with the new members fully landed: the whole new group.
+    let mut landed = stale[..at + marker.len()].to_vec();
+    landed.extend_from_slice(&members);
+    let (records, end) = scanned_from(&landed, longer.ordinal);
+    assert_eq!((records.len(), end), (longer.before.len() + 3, ScanEnd::Clean));
+}
+
+/// Two groups back to back, each damaged in turn: the first damaged leaves what was before it; the second damaged
+/// leaves the first whole. A damaged group mid-log is damage (FORMAT.md §3.4, as a damaged frame always was): the
+/// session opens read-only there and nothing after it is truncated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_group_mid_log_is_damage_and_nothing_after_it_is_truncated() {
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let path = env.dir("s1").join(log_name(0));
+    let (w, first) = env.append(w, vec![item("a"), item("b"), item("c")]).await;
+    let first = first.unwrap();
+    let first_acked = first.positions.clone();
+    env.store.project(first.projection).await.unwrap();
+    let (w, second) = env.append(w, vec![item("d"), item("e"), item("f")]).await;
+    let second = second.unwrap();
+    let second_acked = second.positions.clone();
+    env.store.project(second.projection).await.unwrap();
+    drop(w);
+    let bytes = std::fs::read(&path).unwrap();
+    let marker_of = |acked: &[crate::schema::checkpoint::FramePos]| acked[0].offset as usize - (GROUP_MARKER_LEN + FRAME_OVERHEAD);
+    for (what, damaged_at, marker, rows) in [
+        ("the first group damaged", first_acked[1].offset as usize + 60, marker_of(&first_acked), 0),
+        ("the second group damaged", second_acked[1].offset as usize + 60, marker_of(&second_acked), 3),
+    ] {
+        let mut damaged = bytes.clone();
+        damaged[damaged_at] ^= 0x01;
+        std::fs::write(&path, &damaged).unwrap();
+        let opened = env.reopen("s1").await;
+        assert_eq!(opened.fold.rows, rows, "{what}");
+        assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == marker as u64), "{what}: {:?}", opened.status);
+        // Open-for-append refuses a damaged log: nothing is truncated.
+        let deps = env.deps();
+        let refused = on_lane(move |l| LogWriter::open(l, opened, deps).err()).await;
+        assert!(matches!(refused, Some(OpenAppendError::StoreDamaged(_))), "{what}");
+        assert_eq!(std::fs::read(&path).unwrap(), damaged, "{what}: the file is as it was");
+    }
+    // The policy is the one a damaged single frame always had.
+    let env = Env::new();
+    let mut w = env.create("s2", None).await;
+    for iid in ["a", "b"] {
+        w = env.commit(w, vec![item(iid)]).await.0;
+    }
+    drop(w);
+    let path = env.dir("s2").join(log_name(0));
+    let mut bytes = std::fs::read(&path).unwrap();
+    let scan = crate::framing::scan(&bytes, 0, 0, 0);
+    bytes[scan.frames[1].start + 60] ^= 0x01;
+    std::fs::write(&path, &bytes).unwrap();
+    let opened = env.reopen("s2").await;
+    assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == scan.frames[1].start as u64), "{:?}", opened.status);
+}
+
+fn sized_item(iid: &str, kib: usize) -> Encoded {
+    let body = "x".repeat(kib * 1024);
+    rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":body,"role":"user"}}}))
+}
+
+/// The whole recovered state of an open: the state a checkpoint at its end would carry (FORMAT.md §6.2), however reached.
+fn state_of(opened: &OpenedLog) -> serde_json::Value {
+    serde_json::to_value(opened.fold.checkpoint_state()).expect("state")
+}
+
+fn first_ordinal(bytes: &[u8]) -> u64 {
+    u64::from_str_radix(std::str::from_utf8(&bytes[..16]).unwrap(), 16).unwrap()
+}
+
+/// A payload the test wrote, as a reader hands its record on: what a read of it must return.
+fn as_read(payload: &[u8]) -> serde_json::Value {
+    serde_json::to_value(serde_json::from_slice::<crate::schema::record::Record>(payload).expect("a record")).expect("record")
+}
+
+/// Every record the log of `id` holds, whole and in order, as the projection rebuild reads them: forward from the
+/// `session` frame through every file (`read_forward`, 1 MiB windows); and how the read ended.
+fn recovered(env: &Env, id: &str) -> (Vec<serde_json::Value>, ForwardEnd) {
+    let dir = env.dir(id);
+    let mut pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
+    let mut records = Vec::new();
+    loop {
+        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
+        records.extend(read.frames.iter().map(|(record, _, _)| serde_json::to_value(record).expect("record")));
+        match read.next {
+            ForwardEnd::More(next) => pos = next,
+            end => return (records, end),
+        }
+    }
+}
+
+/// Whether the reader o1 shipped (vendored, `framing_o1`) opens a newest file of these bytes: it anchors at the newest
+/// `checkpoint`/`session` line its reverse scan finds, with none at the file's first frame, and opens only when the frame
+/// it anchors at is a committed `checkpoint` or `session` record (o1 `log.rs`: `read_head`, `read_tail`).
+fn o1_opens(bytes: &[u8]) -> bool {
+    use crate::schema::record::Record;
+    let first = std::str::from_utf8(bytes.get(..16).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()).unwrap_or(0);
+    let anchor = crate::framing_o1::reverse_scan(bytes, true).unwrap_or(crate::framing_o1::Anchor { start: 0, ordinal: first });
+    let scan = crate::framing_o1::scan(bytes, 0, anchor.start, anchor.ordinal);
+    scan.frames
+        .first()
+        .is_some_and(|f| matches!(serde_json::from_slice::<Record>(f.payload(bytes)), Ok(Record::Checkpoint(_) | Record::Session(_))))
+}
+
+impl Env {
+    async fn try_reopen(&self, id: &str) -> Result<OpenedLog, String> {
+        let (dir, blobs, store) = (self.dir(id), BlobStore::new(&self.data), self.store.clone());
+        on_lane(move |l| open_log(l, &dir, &blobs, &store as &dyn LineageIndex).map_err(|e| e.to_string())).await
+    }
+}
+
+/// What an open and a forward read of a session hold.
+#[derive(Debug, Clone, PartialEq)]
+struct Seen {
+    /// The open's whole state and its status; `None` when the log does not open.
+    opened: Option<(serde_json::Value, LogStatus)>,
+    /// Every record a forward read returns, and how it ended.
+    rows: Vec<serde_json::Value>,
+    read: ForwardEnd,
+}
+
+/// A session `s1` whose last file is a group file (FORMAT.md §1), `log.000002` after `log.000000`.
+struct GroupFile {
+    env: Env,
+    path: PathBuf,
+    bytes: Vec<u8>,
+    /// Where the members start: the length of the head frame.
+    head_len: usize,
+    /// The head's ordinal: its checkpoint's.
+    ordinal: u64,
+    /// The `checkpoint` record payload the head carries.
+    checkpoint: Vec<u8>,
+    /// The session with the group file whole: every member.
+    whole: Seen,
+    /// The session with the group file damaged after its head: exactly what it held before the group.
+    none: Seen,
+}
+
+impl GroupFile {
+    /// Over the group file `bytes` at `path` of `env`'s `s1`, whose records before it are `rows_before` and whose member
+    /// records are `members`. The layout is checked from the bytes; the two expected views are built from what the test
+    /// wrote, the states from an open of the head alone (checked against the segment's own state) and of the file whole.
+    async fn of(env: Env, path: PathBuf, bytes: Vec<u8>, rows_before: Vec<serde_json::Value>, members: Vec<serde_json::Value>) -> GroupFile {
+        use crate::schema::frame::*;
+        let ordinal = first_ordinal(&bytes);
+        let head_len = crate::framing::check_header(&bytes[..HEADER_LEN], ordinal).unwrap().expect("a whole header") + FRAME_OVERHEAD;
+        let head = crate::framing::check_frame(&bytes[..head_len], ordinal).expect("the head frame");
+        assert!(head.starts_with(GROUP_FILE_HEAD) && head[GROUP_MARKER_LEN] == b' ', "the file starts with a group file head");
+        let fields = std::str::from_utf8(&head[..GROUP_MARKER_LEN]).unwrap();
+        let named = (u64::from_str_radix(&fields[7..15], 16).unwrap(), u64::from_str_radix(&fields[16..32], 16).unwrap());
+        assert_eq!(named, (members.len() as u64, (bytes.len() - head_len) as u64), "the head names its members; nothing follows them");
+        let checkpoint = head[GROUP_MARKER_LEN + 1..].to_vec();
+        assert!(is_anchor_payload(&checkpoint), "the head carries the checkpoint of the state before the group");
+        let scan = crate::framing::scan(&bytes, 0, 0, ordinal);
+        assert_eq!(scan.end, ScanEnd::Clean);
+        assert!(scan.frames.iter().all(|f| !is_anchor_payload(f.payload(&bytes))), "no frame of a group file is an anchor on its own");
+
+        // Without the group file the segment before it is the newest file: the state before the group, but for the
+        // head's own ordinal.
+        std::fs::remove_file(&path).unwrap();
+        let mut segment = state_of(&env.reopen("s1").await);
+        segment["covers_ordinal"] = json!(ordinal + 1);
+        let damage = Damage { file_no: 2, offset: 0, ordinal };
+        std::fs::write(&path, &bytes[..head_len]).unwrap();
+        let before = env.reopen("s1").await;
+        assert_eq!((state_of(&before), before.status), (segment, LogStatus::Damaged(damage)), "the head alone: the group is missing");
+        std::fs::write(&path, &bytes).unwrap();
+        let after = env.reopen("s1").await;
+        assert_eq!((after.status, after.fold.rows), (LogStatus::Clean, before.fold.rows + members.len() as u64));
+        let mut rows_after = rows_before.clone();
+        rows_after.push(as_read(&checkpoint));
+        rows_after.extend(members);
+        let whole = Seen {
+            opened: Some((state_of(&after), LogStatus::Clean)),
+            rows: rows_after,
+            read: ForwardEnd::Done { file_no: 2, end: bytes.len() as u64, torn: false },
+        };
+        let none = Seen { opened: Some((state_of(&before), LogStatus::Damaged(damage))), rows: rows_before, read: ForwardEnd::Damaged(damage) };
+        GroupFile { env, path, bytes, head_len, ordinal, checkpoint, whole, none }
+    }
+
+    /// The session with a group file that has no head: it does not open; a forward read stops at the file.
+    fn no_anchor(&self) -> Seen {
+        Seen { opened: None, ..self.none.clone() }
+    }
+
+    /// The session with the group file replaced by `file`.
+    async fn seen_with(&self, file: &[u8]) -> Seen {
+        std::fs::write(&self.path, file).unwrap();
+        let opened = self.env.try_reopen("s1").await.ok().map(|o| (state_of(&o), o.status));
+        let (rows, read) = recovered(&self.env, "s1");
+        std::fs::write(&self.path, &self.bytes).unwrap();
+        Seen { opened, rows, read }
+    }
+}
+
+/// A session whose last write is a group file: one item, then `members` big items in one write.
+async fn group_file_session(members: usize) -> GroupFile {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![item("x")]).await;
+    let batch: Vec<Encoded> = (0..members).map(|i| big_item(&format!("i{i}"))).collect();
+    let member_rows = batch.iter().map(|e| as_read(&e.payload)).collect();
+    let (w, ack) = env.append(w, batch).await;
+    let ack = ack.unwrap();
+    assert!(ack.positions.iter().all(|p| p.file_no == 2), "a group over GROUP_IN_PLACE_MAX is a group file, after a gap");
+    let acked: Vec<(u64, u64)> = ack.positions.iter().map(|p| (p.ordinal, p.offset)).collect();
+    env.store.project(ack.projection).await.unwrap();
+    drop(w);
+    assert_eq!(list_logs(&env.dir("s1")).unwrap(), [0, 2]);
+    let path = env.dir("s1").join(log_name(2));
+    let bytes = std::fs::read(&path).unwrap();
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    let g = GroupFile::of(env, path, bytes, rows_before, member_rows).await;
+    let scan = crate::framing::scan(&g.bytes, 0, 0, g.ordinal);
+    assert_eq!(acked, scan.frames[1..].iter().map(|f| (f.ordinal, f.start as u64)).collect::<Vec<_>>(), "the acknowledged positions are the members' frames");
+    g
+}
+
+/// A group file (FORMAT.md §3.6 invariant G) holds no anchor a reader could use without its group and is never
+/// reverse-scanned, so a valid checkpoint line inside its members (stale or forged) is never used, wherever it lies
+/// relative to the reverse-scan windows (inside the first, across its start, between them, across the second's start,
+/// before it, before the lookback beyond it); and the file is used only whole. Whole, the session holds every member. Cut
+/// anywhere after the head — right after it too, the whole group missing — or with a member damaged, it holds exactly
+/// what it held before the group, record for record, and is damaged. With the head damaged the file has no anchor and the
+/// log does not open. With a segment after the group file the open uses that segment's checkpoint (written once the group
+/// file was durable); a damaged member then fails its positioned read and the forward read stops at the group file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
+    use crate::schema::frame::*;
+    // Members past REVERSE_SCAN_MAX + GROUP_LOOKBACK: every window class lies inside them.
+    let g = group_file_session(60).await;
+    let head_len = g.head_len;
+    let member = (head_len + g.bytes.len()) / 2;
+    // A checkpoint line as a segment holds one: a frame of its own with the head's checkpoint record.
+    let mut line = Vec::new();
+    crate::framing::encode_into(&mut line, g.ordinal, &g.checkpoint);
+    let l = line.len();
+    let splice = |file: &mut Vec<u8>, q: usize| {
+        file[q - 1] = b'\n';
+        file[q..q + l].copy_from_slice(&line);
+    };
+    let w1 = MAX_FRAME_LEN + 1;
+    let w2 = REVERSE_SCAN_MAX as usize + 1;
+    let lookback = GROUP_LOOKBACK as usize;
+    let classes = |size: usize| {
+        [
+            ("inside the first window", size - 1000 - l),
+            ("across the first window's start", size - w1 - l / 2),
+            ("between the windows", size - w1 - l - 10),
+            ("across the second window's start", size - w2 - l / 2),
+            ("before the second window", size - w2 - l - 10),
+            ("before the lookback beyond it", size - w2 - lookback - l - 10),
+        ]
+    };
+    assert_eq!(g.seen_with(&g.bytes).await, g.whole, "whole: every member");
+    assert_eq!(g.seen_with(&g.bytes[..head_len]).await, g.none, "cut right after the head: the group is missing, not absent");
+    let mut head_broken = g.bytes.clone();
+    head_broken[CRC_AT] ^= 0x01;
+    let mut member_damaged = g.bytes.clone();
+    member_damaged[member] ^= 0x01;
+    let mut both = head_broken.clone();
+    both[member] ^= 0x01;
+    let shapes: [(&str, Vec<u8>, Seen); 5] = [
+        ("as written", g.bytes.clone(), g.none.clone()),
+        ("cut inside the members", g.bytes[..g.bytes.len() - 5000].to_vec(), g.none.clone()),
+        ("a member damaged", member_damaged.clone(), g.none.clone()),
+        ("the head's checksum broken", head_broken, g.no_anchor()),
+        ("the head's checksum broken and a member damaged", both, g.no_anchor()),
+    ];
+    for (shape, base, want) in &shapes {
+        if *shape != "as written" {
+            assert_eq!(&g.seen_with(base).await, want, "{shape}");
+        }
+        for (class, q) in classes(base.len()) {
+            assert!(q > head_len, "{shape}, {class}: inside the members");
+            let mut file = base.clone();
+            splice(&mut file, q);
+            assert_eq!(&g.seen_with(&file).await, want, "{shape}, a checkpoint line {class}");
+        }
+    }
+
+    // What follows the group file: the next write starts a new segment with a checkpoint.
+    let opened = g.env.reopen("s1").await;
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let (w, _) = g.env.commit(w, vec![item("next")]).await;
+    drop(w);
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0, 2, 3]);
+    let next = state_of(&g.env.reopen("s1").await);
+    let (rows, read) = recovered(&g.env, "s1");
+    assert_eq!(rows[..g.whole.rows.len()], g.whole.rows[..], "the group's records, then the segment's");
+    assert_eq!(rows.last(), Some(&as_read(&item("next").payload)));
+    assert!(matches!(read, ForwardEnd::Done { file_no: 3, torn: false, .. }), "{read:?}");
+    std::fs::write(&g.path, &member_damaged).unwrap();
+    let opened = g.env.reopen("s1").await;
+    assert_eq!((state_of(&opened), opened.status), (next, LogStatus::Clean), "the segment after it opens from its own checkpoint");
+    assert_eq!(recovered(&g.env, "s1"), (g.none.rows.clone(), g.none.read), "a forward read stops at the damaged group file: nothing of it, nothing after it");
+    let scan = crate::framing::scan(&g.bytes, 0, 0, g.ordinal);
+    let damaged = scan.frames.iter().find(|f| f.start <= member && member < f.end()).copied().unwrap();
+    let dir = g.env.dir("s1");
+    let pos = crate::schema::checkpoint::FramePos { ordinal: damaged.ordinal, file_no: 2, offset: damaged.start as u64 };
+    let read = on_lane(move |l| read_frame_at(l, &dir, pos)).await;
+    assert!(read.is_err(), "a damaged member fails its positioned read");
+}
+
+/// Every byte of a group file (a small one: the reader decides the kind from the names, not the size): cut at every
+/// offset, zero from every offset, one byte changed at every offset. Inside the head the file has no anchor and the log
+/// does not open; anywhere after it — cut right after the head too, the whole group missing — the session holds exactly
+/// what it held before the group and is damaged; only the whole file gives the group. The open's whole state and the
+/// forward read's records (bodies, order) are compared each time: a member folded before the group failed its check is
+/// in neither. The reader o1 shipped opens none of them, the whole file included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_byte_of_a_group_file_recovers_before_or_after_the_group() {
+    use sha2::Digest;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (mut w, _) = env.commit(w, vec![item("x")]).await;
+    let log0 = env.dir("s1").join(log_name(0));
+    let segment = std::fs::read(&log0).unwrap();
+    let closed = on_lane(move |l| {
+        let ack = w.close(l).unwrap();
+        (w, ack)
+    })
+    .await;
+    drop(closed.0);
+    let with_cp = std::fs::read(&log0).unwrap();
+    std::fs::write(&log0, &segment).unwrap();
+    let cp_frame = &with_cp[segment.len()..];
+    let cp_ordinal = first_ordinal(cp_frame);
+    let checkpoint = crate::framing::check_frame(cp_frame, cp_ordinal).expect("the closing checkpoint").to_vec();
+    let records = [item("a"), item("b"), item("c")];
+    let mut members = Vec::new();
+    for (i, e) in records.iter().enumerate() {
+        crate::framing::encode_into(&mut members, cp_ordinal + 1 + i as u64, &e.payload);
+    }
+    let digest: String = sha2::Sha256::digest(&members).iter().map(|b| format!("{b:02x}")).collect();
+    let mut head = format!("#gfile {:08x} {:016x} {digest} ", records.len(), members.len()).into_bytes();
+    head.extend_from_slice(&checkpoint);
+    let mut bytes = Vec::new();
+    crate::framing::encode_into(&mut bytes, cp_ordinal, &head);
+    bytes.extend_from_slice(&members);
+    let path = env.dir("s1").join(log_name(2));
+    std::fs::write(&path, &bytes).unwrap();
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    let g = GroupFile::of(env, path, bytes, rows_before, records.iter().map(|e| as_read(&e.payload)).collect()).await;
+    let len = g.bytes.len();
+    let want = |k: usize| if k < g.head_len { g.no_anchor() } else { g.none.clone() };
+    for k in 0..=len {
+        let mut zeroed = g.bytes.clone();
+        zeroed[k..].fill(0);
+        for (what, file) in [("cut at", &g.bytes[..k]), ("zero from", &zeroed[..])] {
+            let want = if k == len { g.whole.clone() } else { want(k) };
+            assert_eq!(g.seen_with(file).await, want, "{what} {k}");
+            assert!(!o1_opens(file), "{what} {k}: the old reader opens no group file");
+        }
+    }
+    for k in 0..len {
+        let mut changed = g.bytes.clone();
+        changed[k] ^= 0x01;
+        assert_eq!(g.seen_with(&changed).await, want(k), "byte {k} changed");
+        assert!(!o1_opens(&changed), "byte {k} changed: the old reader opens no group file");
+    }
+}
+
+/// The kind of a file is its name's (FORMAT.md §1): a number after a gap is a group file. No writer path leaves a gap
+/// before a segment; a segment found after one (a file removed from outside) is not read as a segment and not taken for
+/// a group: the log does not open and a forward read returns nothing of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_segment_after_a_gap_is_damage_not_a_group() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (mut w, _) = env.commit(w, vec![item("x")]).await;
+    let log0 = env.dir("s1").join(log_name(0));
+    let segment = std::fs::read(&log0).unwrap();
+    let closed = on_lane(move |l| {
+        let ack = w.close(l).unwrap();
+        (w, ack)
+    })
+    .await;
+    drop(closed.0);
+    let with_cp = std::fs::read(&log0).unwrap();
+    std::fs::write(&log0, &segment).unwrap();
+    // A well-formed segment (a checkpoint, then a record) under the number after a gap.
+    let mut rotated = with_cp[segment.len()..].to_vec();
+    let ordinal = first_ordinal(&rotated);
+    crate::framing::encode_into(&mut rotated, ordinal + 1, &item("y").payload);
+    assert!(o1_opens(&rotated), "a segment by its bytes");
+    std::fs::write(env.dir("s1").join(log_name(2)), &rotated).unwrap();
+    assert!(env.try_reopen("s1").await.is_err(), "no group file head: no anchor");
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    assert_eq!(recovered(&env, "s1"), (rows_before, ForwardEnd::Damaged(Damage { file_no: 2, offset: 0, ordinal })));
+}
+
+/// `session.repair` of a damaged group file (FORMAT.md §3.4, §3.6) moves the file whole to quarantine, wherever in it
+/// the damage is: the session then opens clean with exactly what it held before the group, and its next write goes on
+/// from the segment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repairing_a_damaged_group_file_moves_it_whole() {
+    let g = group_file_session(11).await;
+    let mut damaged = g.bytes.clone();
+    damaged[(g.head_len + g.bytes.len()) / 2] ^= 0x01;
+    std::fs::write(&g.path, &damaged).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    let data = g.env.data.clone();
+    let quarantine = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+    assert_eq!(std::fs::read(quarantine.join(log_name(2))).unwrap(), damaged, "the whole file, as it was");
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0]);
+    let opened = g.env.reopen("s1").await;
+    // The state before the group, without the head's own ordinal.
+    let mut before = g.none.opened.clone().expect("opened").0;
+    before["covers_ordinal"] = json!(g.ordinal);
+    assert_eq!((state_of(&opened), opened.status), (before, LogStatus::Clean));
+    let (rows, read) = recovered(&g.env, "s1");
+    assert_eq!(rows, g.none.rows);
+    assert!(matches!(read, ForwardEnd::Done { file_no: 0, torn: false, .. }), "{read:?}");
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let (w, ordinals) = g.env.commit(w, vec![item("next")]).await;
+    drop(w);
+    assert_eq!((ordinals, list_logs(&g.env.dir("s1")).unwrap()), (vec![g.ordinal], vec![0]));
+}
+
+/// A place damaged again after its repair is repaired into a folder of its own (FORMAT.md §3.4): the next group file takes
+/// the number the moved one had, so its damage is reported at the same place; the first repair's file and reason stay
+/// byte for byte what they were.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_repair_of_the_same_place_keeps_the_first_repairs_evidence() {
+    let reason = crate::schema::migration::REASON_FILE;
+    let g = group_file_session(11).await;
+    let at = (g.head_len + g.bytes.len()) / 2;
+    let mut first = g.bytes.clone();
+    first[at] ^= 0x01;
+    std::fs::write(&g.path, &first).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    let place = (damage.file_no, damage.offset);
+    let data = g.env.data.clone();
+    let first_dir = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+    let first_reason = std::fs::read(first_dir.join(reason)).unwrap();
+
+    let opened = g.env.reopen("s1").await;
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let batch: Vec<Encoded> = (0..11).map(|i| big_item(&format!("i{i}"))).collect();
+    let (w, ack) = g.env.append(w, batch).await;
+    g.env.store.project(ack.unwrap().projection).await.unwrap();
+    drop(w);
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0, 2], "the next group file takes the moved file's number");
+    let mut second = std::fs::read(&g.path).unwrap();
+    second[at] ^= 0x02;
+    assert_ne!(second, first, "the two damaged files differ");
+    std::fs::write(&g.path, &second).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    assert_eq!((damage.file_no, damage.offset), place, "the same place is damaged again");
+    let data = g.env.data.clone();
+    let second_dir = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+
+    assert_ne!(second_dir, first_dir, "a folder of its own");
+    assert_eq!(std::fs::read(first_dir.join(log_name(2))).unwrap(), first, "the first repair's file, as it was");
+    assert_eq!(std::fs::read(first_dir.join(reason)).unwrap(), first_reason, "the first repair's reason, as it was");
+    assert_eq!(std::fs::read(second_dir.join(log_name(2))).unwrap(), second, "the second repair's file");
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0]);
+}
+
+/// Open cost (FORMAT.md §6.3): a log ending in a group file reads it once (in chunks); the next write starts a new
+/// segment, also after the writer was reopened, so the open after a small tail reads the window and lookback only; a long
+/// file of small writes reads the window only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
+    use crate::schema::frame::*;
+    let g = group_file_session(30).await;
+    let group = (g.bytes.len() - g.head_len) as u64;
+    let window = MAX_FRAME_LEN as u64 + 1 + GROUP_LOOKBACK + 4096;
+    let opened = g.env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 31));
+    assert!(opened.bytes_read >= group && opened.bytes_read <= g.bytes.len() as u64 + 4096, "the group once: {} of {}", opened.bytes_read, g.bytes.len());
+
+    // A small tail through a reopened writer: a new segment, the window only.
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let (w, _) = g.env.commit(w, vec![item("next")]).await;
+    drop(w);
+    let opened = g.env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows, opened.newest_file_no), (LogStatus::Clean, 32, 3));
+    assert!(opened.bytes_read <= window && opened.bytes_read < group, "{}", opened.bytes_read);
+
+    // A long file of small writes.
+    let env = Env::new();
+    let mut w = env.create("s2", None).await;
+    for n in 0..50 {
+        w = env.commit(w, (0..3).map(|i| sized_item(&format!("i{n}.{i}"), 100)).collect()).await.0;
+    }
+    drop(w);
+    let size = std::fs::metadata(env.dir("s2").join(log_name(0))).unwrap().len();
+    let opened = env.reopen("s2").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 150));
+    assert!(size > REVERSE_SCAN_MAX + window, "{size}");
+    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + window, "{} of {size}", opened.bytes_read);
+}
+
+/// The reader o1 shipped (vendored, `framing_o1`) over EVERY file of logs with groups in every position — in-place groups,
+/// a group file, the segment after it — never misreads them and truncates nothing. A segment it opens from its newest
+/// anchor: up to its first group marker it returns what this reader returns; there it stops with damage (the first member
+/// fails its ordinal; damage, not a torn tail) and the marker is no record to its record layer; a member read by position
+/// reads the same. A group file it does not open at all: no line of it is an anchor and its first frame is no record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_old_reader_never_misreads_a_log_with_groups() {
+    use crate::schema::frame::*;
+    let big = |n: usize| (0..n).map(|i| big_item(&format!("p{i}"))).collect::<Vec<_>>();
+    let layouts: Vec<(&str, Vec<Vec<Encoded>>, &[u32])> = vec![
+        ("a group first", vec![vec![item("a"), item("b")]], &[0]),
+        ("a group between single records", vec![vec![item("a")], vec![item("b"), item("c"), item("d")], vec![item("e")]], &[0]),
+        ("two groups back to back", vec![vec![item("a"), item("b")], vec![item("c"), item("d")]], &[0]),
+        ("a group, a large in-place group with a leading checkpoint, a group", vec![vec![item("a"), item("b")], big(6), vec![item("c"), item("d")], vec![item("e"), item("f")]], &[0]),
+        ("a group file last", vec![vec![item("a")], big(11)], &[0, 2]),
+        ("a group file, then a segment with an in-place group", vec![vec![item("a")], big(11), vec![item("c"), item("d")], vec![item("e")]], &[0, 2, 3]),
+        ("two group files back to back", vec![big(11), big(11)], &[0, 2, 4]),
+    ];
+    for (layout, writes, want_files) in layouts {
+        let env = Env::new();
+        let mut w = env.create("s1", None).await;
+        for batch in writes {
+            w = env.commit(w, batch).await.0;
+        }
+        drop(w);
+        let files = list_logs(&env.dir("s1")).unwrap();
+        assert_eq!(files, want_files, "{layout}");
+        let mut met = 0;
+        for &file_no in &files {
+            let path = env.dir("s1").join(log_name(file_no));
+            let bytes = std::fs::read(&path).unwrap();
+            let group_file = is_group_file(&files, file_no);
+            let what = format!("{layout}, log {file_no}{}", if group_file { " (group file)" } else { "" });
+            let first = first_ordinal(&bytes);
+            let new = crate::framing::scan(&bytes, 0, 0, first);
+            assert_eq!(new.end, ScanEnd::Clean, "{what}");
+            if group_file {
+                assert_eq!(crate::framing_o1::reverse_scan(&bytes, true), None, "{what}: no line of it is an anchor");
+                assert!(!o1_opens(&bytes), "{what}: the old reader does not open it");
+                met += 1;
+            } else {
+                assert!(o1_opens(&bytes), "{what}: a segment opens from its newest anchor");
+                let anchors = [Some(crate::framing_o1::Anchor { start: 0, ordinal: first }), crate::framing_o1::reverse_scan(&bytes, true)];
+                for anchor in anchors.into_iter().flatten() {
+                    let old = crate::framing_o1::scan(&bytes, 0, anchor.start, anchor.ordinal);
+                    let new_from: Vec<(u64, usize)> = new.frames.iter().filter(|f| f.start >= anchor.start).map(|f| (f.ordinal, f.start)).collect();
+                    let old_frames: Vec<(u64, usize)> = old.frames.iter().map(|f| (f.ordinal, f.start)).collect();
+                    match old.frames.iter().position(|f| f.payload(&bytes).starts_with(GROUP_MARKER)) {
+                        None => assert_eq!((old_frames, &old.end), (new_from, &ScanEnd::Clean), "{what} from {anchor:?}"),
+                        Some(at) => {
+                            met += 1;
+                            assert_eq!(at, old.frames.len() - 1, "{what}: the old reader stops at its first marker");
+                            assert_eq!(old_frames[..at], new_from[..at], "{what}: the same frames before it");
+                            assert!(matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }), "{what}: damage, nothing to truncate: {:?}", old.end);
+                            assert!(serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(), "{what}: the marker is no record");
+                        }
+                    }
+                }
+            }
+            for frame in &new.frames {
+                let line = &bytes[frame.start..frame.end()];
+                assert_eq!(crate::framing_o1::check_frame(line, frame.ordinal).ok(), crate::framing::check_frame(line, frame.ordinal).ok(), "{what}: a positioned read");
+            }
+        }
+        assert!(met > 0, "{layout}: the old reader met a group");
+    }
+}
+
 #[test]
 fn the_codec_moves_large_bodies_to_blobs_and_refs_them() {
     let small = crate::encode::encode_record(item("a").record().clone()).unwrap();
@@ -817,13 +1569,13 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     crate::sqlite::reconcile_seam::arm(&env.data);
     let ended = open_index(&env.data).unwrap();
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
+    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
         .await
         .expect("the reconcile the seam ended answered within 60 s");
     assert!(matches!(outcome, Err(DbError::Stopped)));
     drop(ended);
     let reopened = open_index(&env.data).unwrap();
-    let projected = tokio::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
+    let projected = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
         .await
         .expect("the reconciled cursor answered within 60 s");
     assert_eq!(projected.unwrap().unwrap().ordinal, end);
@@ -928,7 +1680,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     store.project(first).await.unwrap();
     drop(store);
     let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = tokio::time::timeout(BOUND, open(data.clone()))
+    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone()))
         .await
         .expect("the open returned within 60 s while its reconcile was held")
         .unwrap();
@@ -966,13 +1718,13 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
         })
         .expect("lane");
     let mut waiters = reopened.reconcile_waiters();
-    tokio::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
+    mixdog_rt::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
         .await
         .expect("the read, the write and the lane read waited at the gate within 60 s")
         .unwrap();
     note("released")();
     release.send(()).unwrap();
-    let ((rows, _), (laned_rows, _)) = tokio::time::timeout(BOUND, async {
+    let ((rows, _), (laned_rows, _)) = mixdog_rt::time::timeout(BOUND, async {
         let read = read.await.unwrap().unwrap();
         write.await.unwrap().unwrap();
         (read, on_lane.await.expect("job ran").unwrap())
@@ -1060,7 +1812,7 @@ fn differing_fields(key: &str, want: &serde_json::Value, got: &serde_json::Value
 
 /// Every corpus session written through the log writer (live) and projected again by
 /// `project_index` (reprojection) has the row Node's `_sessionSummary` builds.
-const SUMMARIES: &str = include_str!("../../../fixtures/migration/session-summary/summaries.json");
+const SUMMARIES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/migration/session-summary/summaries.json");
 /// Corpus sessions per test: each is written through its own log writer and projected again.
 const SESSION_CHUNK: usize = 4;
 
@@ -1084,14 +1836,14 @@ mixdog_rt::replay_chunks!(CATALOG_TESTS, #[tokio::test(flavor = "multi_thread", 
 
 #[test]
 fn every_corpus_session_has_its_catalog_test() {
-    let fixture: serde_json::Value = serde_json::from_str(SUMMARIES).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
     let entries = fixture["sessions"].as_array().unwrap();
     assert!(entries.len() > 50);
     mixdog_rt::testing::assert_chunks_registered(CATALOG_TESTS, entries.len(), SESSION_CHUNK);
 }
 
 async fn catalog_rows_chunk(chunk: usize) {
-    let fixture: serde_json::Value = serde_json::from_str(SUMMARIES).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
     let root = corpus_root();
     assert!(root.join("v145").is_dir(), "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS", root.display());
     let mut bad = Vec::new();
@@ -1818,6 +2570,262 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// The worker index revision: a load from a revision reads every session whose worker map or listing was committed since,
+/// by this store's writer or another connection; a rolled-back write and a write that changes neither leave it as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_worker_index_revision_follows_every_committed_write_of_any_connection() {
+    let env = Env::new();
+    let s = &env.store;
+    let upsert = |h: CatalogHead| async move { s.upsert(h, DirtyMark::Clear).await.unwrap() };
+    let generation = s.worker_index_since(None, Vec::new()).await.unwrap().generation;
+    let since = |rev: u64| async move {
+        let read = s.worker_index_since(Some((generation, rev)), Vec::new()).await.unwrap();
+        assert!(!read.full);
+        (read.revision, read.sessions.iter().map(|x| (x.session.clone(), x.worker.as_ref().map(|w| w["status"].clone()))).collect::<Vec<_>>())
+    };
+    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"idle"}))).await;
+    upsert(worker_head("w2", 20, json!({"tag":"b","parentSessionId":"p1","status":"idle"}))).await;
+    upsert(head("plain", "task", "t")).await;
+    let first = s.worker_index_since(None, Vec::new()).await.unwrap();
+    assert!(first.full);
+    let mut listed: Vec<&str> = first.sessions.iter().map(|x| x.session.as_str()).collect();
+    listed.sort_unstable();
+    assert_eq!(listed, ["w1", "w2"]);
+    let r1 = first.revision;
+    assert_eq!(since(r1).await, (r1, vec![]), "nothing written since");
+
+    // This store's writer; a header write that changes no worker map leaves the revision.
+    upsert(worker_head("w1", 10, json!({"tag":"a","parentSessionId":"p1","status":"running"}))).await;
+    upsert(head("plain", "task", "t2")).await;
+    let (r2, changed) = since(r1).await;
+    assert_eq!(changed, [("w1".to_owned(), Some(json!("running")))]);
+
+    // Another connection's commit.
+    s.set_worker_elsewhere("w2", Some(json!({"tag":"b","parentSessionId":"p1","status":"failed"}).as_object().unwrap()));
+    let (r3, changed) = since(r2).await;
+    assert_eq!(changed, [("w2".to_owned(), Some(json!("failed")))]);
+
+    // A write rolled back changes nothing.
+    let other = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE; UPDATE sessions SET worker = '{\"tag\":\"x\"}', worker_tag = 'x' WHERE id = 'w1'; ROLLBACK;").unwrap();
+    assert_eq!(since(r3).await, (r3, vec![]), "the rolled-back write left the revision");
+
+    // A delete unlists the row; an id asked for is read whatever its revision.
+    s.mark_deleted("w1").await.unwrap();
+    let (r4, changed) = since(r3).await;
+    assert_eq!(changed, [("w1".to_owned(), None)]);
+    let read = s.worker_index_since(Some((generation, r4)), vec!["w2".into(), "absent".into()]).await.unwrap();
+    let asked: Vec<(String, bool)> = read.sessions.iter().map(|x| (x.session.clone(), x.worker.is_some())).collect();
+    assert_eq!(asked, [("w2".to_owned(), true), ("absent".to_owned(), false)]);
+    // A revision the index never reached reads it whole.
+    assert!(s.worker_index_since(Some((generation, r4 + 1)), Vec::new()).await.unwrap().full);
+    // So does a revision of another generation.
+    assert!(s.worker_index_since(Some((generation ^ 1, r4)), Vec::new()).await.unwrap().full);
+}
+
+/// A registry's view of the worker index, fed the way the agent registry is: the listed ids of what it loaded, advanced by
+/// each read from the revision it holds.
+#[derive(Default)]
+struct IndexReader {
+    held: Option<(u64, u64)>,
+    listed: std::collections::BTreeSet<String>,
+    fulls: usize,
+}
+
+impl IndexReader {
+    async fn read(&mut self, s: &SqliteStore) {
+        let read = s.worker_index_since(self.held, Vec::new()).await.unwrap();
+        if read.full {
+            self.listed.clear();
+            self.fulls += 1;
+        }
+        for x in read.sessions {
+            if x.worker.is_some() || x.agent.is_some() {
+                self.listed.insert(x.session);
+            } else {
+                self.listed.remove(&x.session);
+            }
+        }
+        self.held = Some((read.generation, read.revision));
+    }
+
+    /// What a reload in full lists.
+    async fn whole(s: &SqliteStore) -> std::collections::BTreeSet<String> {
+        let read = s.worker_index_since(None, Vec::new()).await.unwrap();
+        read.sessions.into_iter().map(|x| x.session).collect()
+    }
+}
+
+fn agent_head(id: &str, title: &str) -> CatalogHead {
+    let mut h = head(id, "task", title);
+    h.header.insert("visibility".into(), json!("agent-only"));
+    h
+}
+
+async fn purge_all(env: &Env) {
+    std::fs::create_dir_all(env.data.join("sessions")).unwrap();
+    env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
+}
+
+/// A purge of a session already marked deleted is a removal: a reader from before both commits is told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_purge_after_the_delete_mark_reaches_a_reader_from_before_both() {
+    let env = Env::new();
+    env.store.upsert(agent_head("a1", "t"), DirtyMark::Clear).await.unwrap();
+    let mut reader = IndexReader::default();
+    reader.read(&env.store).await;
+    assert_eq!(reader.listed.len(), 1);
+    env.store.mark_deleted("a1").await.unwrap();
+    purge_all(&env).await;
+    reader.read(&env.store).await;
+    assert_eq!(reader.listed, IndexReader::whole(&env.store).await);
+    assert!(reader.listed.is_empty());
+    assert_eq!(reader.fulls, 1, "the second read was a delta");
+}
+
+/// Writes that bring a rebuilt index's counter past the revision a reader holds do not make that revision current.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rebuilt_index_is_a_new_generation_whatever_its_counter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut store = open_index(tmp.path()).unwrap();
+    for id in ["a1", "a2", "a3"] {
+        store.upsert(agent_head(id, "t"), DirtyMark::Clear).await.unwrap();
+    }
+    let mut reader = IndexReader::default();
+    reader.read(&store).await;
+    store.close();
+    let conn = rusqlite::Connection::open(tmp.path().join(INDEX_FILE)).unwrap();
+    conn.execute_batch("PRAGMA user_version = 1").unwrap();
+    drop(conn);
+    store = open_index(tmp.path()).unwrap();
+    for id in ["b1", "b2", "b3", "b4", "b5"] {
+        store.upsert(agent_head(id, "t"), DirtyMark::Clear).await.unwrap();
+    }
+    reader.read(&store).await;
+    assert_eq!(reader.listed, IndexReader::whole(&store).await);
+    assert_eq!(reader.fulls, 2, "the rebuilt index was read whole");
+    store.close();
+}
+
+/// The migration's projection is the same bytes every time (generation 0); an index the runtime creates or rebuilds is
+/// numbered afresh, never 0 (the migrated one's) and never the one it replaces.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_projected_index_has_a_fixed_generation_and_a_runtime_built_one_a_fresh_one() {
+    let generation = |db: &Path| -> i64 {
+        rusqlite::Connection::open(db).unwrap().query_row("SELECT gen FROM worker_revision", [], |r| r.get(0)).unwrap()
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let (a, b) = (tmp.path().join("a.sqlite"), tmp.path().join("b.sqlite"));
+    project_index(tmp.path(), &a, &[]).unwrap();
+    project_index(tmp.path(), &b, &[]).unwrap();
+    assert_eq!((generation(&a), generation(&b)), (0, 0));
+
+    let mut store = open_index(tmp.path()).unwrap();
+    store.close();
+    let first = generation(&tmp.path().join(INDEX_FILE));
+    assert_eq!(first & 1, 1, "a runtime-built index is numbered, not left at the migration's 0");
+    let conn = rusqlite::Connection::open(tmp.path().join(INDEX_FILE)).unwrap();
+    conn.execute_batch("PRAGMA user_version = 1").unwrap();
+    drop(conn);
+    open_index(tmp.path()).unwrap().close();
+    let second = generation(&tmp.path().join(INDEX_FILE));
+    assert!(second & 1 == 1 && second != first, "a rebuilt index is a new generation");
+}
+
+/// Removal history is bounded to the last 4096 revisions; a reader older than that is handed the whole index, never a
+/// delta that lacks a removal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reader_older_than_the_removal_history_is_handed_the_whole_index() {
+    let env = Env::new();
+    env.store.upsert(agent_head("gone", "t"), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(agent_head("busy", "t"), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(agent_head("other", "t"), DirtyMark::Clear).await.unwrap();
+    let mut reader = IndexReader::default();
+    reader.read(&env.store).await;
+    env.store.mark_deleted("gone").await.unwrap();
+    purge_all(&env).await;
+    bump_elsewhere(&env.data, "busy", 4200);
+    env.store.mark_deleted("other").await.unwrap();
+    purge_all(&env).await;
+    let removals: i64 = rusqlite::Connection::open(env.data.join(INDEX_FILE))
+        .unwrap()
+        .query_row("SELECT count(*) FROM worker_removed", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(removals, 1, "the removal older than the bound was dropped");
+    reader.read(&env.store).await;
+    assert_eq!(reader.listed, IndexReader::whole(&env.store).await);
+    assert_eq!(reader.fulls, 2, "the old reader was handed the whole index");
+}
+
+/// `n` committed writes of `session`'s list row by a connection of its own.
+fn bump_elsewhere(data: &Path, session: &str, n: usize) {
+    let mut conn = rusqlite::Connection::open(data.join(INDEX_FILE)).unwrap();
+    let tx = conn.transaction().unwrap();
+    for i in 0..n {
+        tx.execute("UPDATE sessions SET summary = ?1 WHERE id = ?2", rusqlite::params![format!("s{i}"), session]).unwrap();
+    }
+    tx.commit().unwrap();
+}
+
+/// For every sequence of writes (this store's writer and another connection's: agent-only sessions and worker maps
+/// created, changed, marked deleted, purged and created again under the same id; bursts of writes that pass a held revision
+/// and prune the removal history; rebuilds of the index), a reader fed by changes lists what one that reloads in full lists.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn readers_fed_changes_list_what_a_full_reload_lists() {
+    let mut env = Env::new();
+    let mut readers: [(usize, IndexReader); 3] = [(1, IndexReader::default()), (4, IndexReader::default()), (23, IndexReader::default())];
+    let mut state = 0x5eed_u64;
+    let mut next = |n: usize| {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((state >> 33) as usize) % n
+    };
+    let mut ops = [0usize; 9];
+    for step in 0..400 {
+        let id = format!("s{}", next(6));
+        let op = next(9);
+        ops[op] += 1;
+        match op {
+            0 | 1 => env.store.upsert(agent_head(&id, &format!("t{step}")), DirtyMark::Clear).await.unwrap(),
+            2 => env
+                .store
+                .upsert(worker_head(&id, step as u64, json!({"tag": format!("g{step}"), "parentSessionId": "p1", "status": "idle"})), DirtyMark::Clear)
+                .await
+                .unwrap(),
+            3 => env.store.mark_deleted(&id).await.unwrap(),
+            4 => purge_all(&env).await,
+            5 => env.store.set_worker_elsewhere(&id, Some(json!({"tag": "e", "status": step}).as_object().unwrap())),
+            6 => {
+                env.store.mark_deleted(&id).await.unwrap();
+                purge_all(&env).await;
+                env.store.upsert(agent_head(&id, "again"), DirtyMark::Clear).await.unwrap();
+            }
+            7 if step % 5 == 0 => {
+                env.store.upsert(agent_head("bump", "t"), DirtyMark::Clear).await.unwrap();
+                bump_elsewhere(&env.data, "bump", 4100);
+            }
+            8 if step % 7 == 0 => {
+                env.store.close();
+                let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+                conn.execute_batch("PRAGMA user_version = 1").unwrap();
+                drop(conn);
+                env.store = open_index(&env.data).unwrap();
+            }
+            _ => {}
+        }
+        let whole = IndexReader::whole(&env.store).await;
+        for (every, reader) in readers.iter_mut() {
+            if step % *every == 0 {
+                reader.read(&env.store).await;
+                assert_eq!(reader.listed, whole, "step {step}, op {op}, reader every {every}");
+            }
+        }
+    }
+    eprintln!("ops {ops:?}, full reads {:?}", readers.iter().map(|(_, r)| r.fulls).collect::<Vec<_>>());
+    assert!(ops.iter().all(|n| *n > 0));
+    assert!(readers[0].1.fulls < 50, "the reader every step was fed changes");
+    env.store.close();
+}
+
 fn worker_head(id: &str, created: u64, worker: serde_json::Value) -> CatalogHead {
     let mut h = head(id, "task", "t");
     h.header.insert("createdAt".into(), json!(created));
@@ -2038,6 +3046,57 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
 }
 
+/// The sessions whose reference set (`offloadSources`) names a session are one index read, with a copy still being
+/// made by this boot (a mark another boot left is no copy in progress); a deleted one is not listed. A session whose
+/// header holds no set, or one computed under earlier rules (no `offloadSourcesRules`: the review's `["sess_b"]` of a
+/// transcript naming `TOOL-RESULTS/SESS_A/` too), is unknown, not empty, until a scan of its transcript at the ordinal
+/// it is projected to is stored (a scan at another ordinal is not), and an earlier-rules set's rows stay (a set only
+/// grows); a set taken out of a header leaves its session unknown and its rows kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
+    let env = Env::new();
+    let rules = crate::offload_sources::RULES;
+    let with = |id: &str, fields: serde_json::Value| {
+        let mut head = head(id, "task", "t");
+        head.header.extend(fields.as_object().unwrap().clone());
+        head
+    };
+    let known = |sources: serde_json::Value| json!({"offloadSources": sources, "offloadSourcesRules": rules});
+    let mut marked = known(json!(["a"]));
+    marked.as_object_mut().unwrap().extend([("offloadInheriting".to_owned(), json!("a")), ("offloadInheritingBoot".to_owned(), json!("this-boot"))]);
+    env.store.upsert(with("c", known(json!(["a", "b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("h", marked), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("x", known(json!(["b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("e", known(json!([]))), DirtyMark::Clear).await.unwrap();
+    let mut gone = known(json!(["a"]));
+    gone.as_object_mut().unwrap().insert("deleted".to_owned(), json!(true));
+    env.store.upsert(with("gone", gone), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("u", json!({})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("o", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("p", json!({"offloadSources": ["b"], "offloadSourcesRules": rules - 1})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "h".to_owned()], Some(("h".to_owned(), "a".to_owned()))));
+    let unknown: Vec<&str> = found.unknown.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(unknown, ["o", "p", "u"], "the sessions holding no set or one of earlier rules are unknown");
+    let at = found.unknown[2].1;
+    for (id, ordinal) in &found.unknown[..2] {
+        env.store.record_offload_scan(id, *ordinal, Vec::new()).await.unwrap();
+    }
+    assert_eq!(env.store.offload_referencers("a", "an-earlier-boot").await.unwrap().copying, None, "a mark another boot left");
+    env.store.record_offload_scan("u", at + 1, vec!["a".into()]).await.unwrap();
+    assert_eq!(env.store.offload_referencers("a", "this-boot").await.unwrap().unknown, [("u".to_owned(), at)], "a scan at another ordinal");
+    env.store.record_offload_scan("u", at, vec!["a".into()]).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.unknown), (vec!["c".to_owned(), "h".to_owned(), "u".to_owned()], Vec::new()));
+    env.store.upsert(with("h", known(json!(["b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("c", json!({})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "u".to_owned()], None));
+    assert_eq!(found.unknown.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), ["c"]);
+    // The earlier-rules sets of `o` and `p`, scanned to nothing, still count.
+    assert_eq!(env.store.offload_referencers("b", "this-boot").await.unwrap().sessions, ["c", "h", "o", "p", "x"]);
+}
+
 /// The index holds no user data (FORMAT.md §8): a `user_version` 8 index (no `user_name` column) is not refused or altered, it is
 /// rebuilt from the logs, and the rebuilt row carries the name the user gave, which only the log header held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2109,6 +3168,11 @@ async fn an_index_of_the_previous_shape_is_rebuilt_from_the_logs() {
     assert!(rebuilt.iter().any(|(t, rows)| t == "sessions" && rows.len() == 2));
     let want = dump(&fresh);
     for ((table, got), (_, want)) in rebuilt.iter().zip(&want) {
+        if table == "worker_revision" {
+            // The runtime numbers an index it builds afresh, the projection of a migration leaves 0: the generation is what tells a rebuilt index from the one before.
+            assert_ne!(got, want, "{table}");
+            continue;
+        }
         assert_eq!(got, want, "{table}");
     }
     assert_eq!(rebuilt.len(), want.len());
@@ -2125,7 +3189,9 @@ async fn a_rebuild_marks_unreadable_logs_damaged_and_indexes_the_rest() {
     let (b, _) = env.commit(b, vec![user("b1", "ask"), answer("b2")]).await;
     drop(b);
     let y = env.create("y0", None).await;
-    let (y, _) = env.commit(y, vec![user("y1", "kept"), answer("y2"), user("y3", "lost")]).await;
+    // Two writes: the damaged record is a write of its own (a damaged group is damaged whole, FORMAT.md §3.6).
+    let (y, _) = env.commit(y, vec![user("y1", "kept"), answer("y2")]).await;
+    let (y, _) = env.commit(y, vec![user("y3", "lost")]).await;
     drop(y);
     let z = env.create("z0", Some(("y0", 4))).await;
     drop(z);

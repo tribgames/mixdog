@@ -478,6 +478,27 @@
       ],
       "type": "object"
     },
+    "ProxyAccountRouting": {
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "sessionAccountId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accountId",
+        "provider"
+      ],
+      "type": "object"
+    },
     "ProxyAnswer": {
       "description": "The answer to a [`ProxyCall`].",
       "oneOf": [
@@ -848,14 +869,14 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "media_type"
+            "mediaType"
           ],
           "type": "object"
         },
@@ -870,7 +891,7 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": [
                 "string",
                 "null"
@@ -1110,7 +1131,7 @@
               ],
               "type": "string"
             },
-            "os_code": {
+            "osCode": {
               "format": "int32",
               "type": [
                 "integer",
@@ -1281,7 +1302,7 @@
               ],
               "type": "string"
             },
-            "os_code": {
+            "osCode": {
               "format": "int32",
               "type": [
                 "integer",
@@ -1300,19 +1321,19 @@
       "oneOf": [
         {
           "properties": {
-            "allowed_domains": {
+            "allowedDomains": {
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
-            "context_size": {
+            "contextSize": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "include_sources": {
+            "includeSources": {
               "type": "boolean"
             },
             "kind": {
@@ -1321,7 +1342,7 @@
               ],
               "type": "string"
             },
-            "max_uses": {
+            "maxUses": {
               "format": "uint32",
               "minimum": 0.0,
               "type": [
@@ -1329,10 +1350,10 @@
                 "null"
               ]
             },
-            "tool_type": {
+            "toolType": {
               "type": "string"
             },
-            "user_location": {
+            "userLocation": {
               "anyOf": [
                 {
                   "$ref": "#/definitions/ProxyLocation"
@@ -1344,10 +1365,10 @@
             }
           },
           "required": [
-            "allowed_domains",
-            "include_sources",
+            "allowedDomains",
+            "includeSources",
             "kind",
-            "tool_type"
+            "toolType"
           ],
           "type": "object"
         }
@@ -1366,14 +1387,14 @@
               ],
               "type": "string"
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "mime_type"
+            "mimeType"
           ],
           "type": "object"
         },
@@ -1446,6 +1467,17 @@
     },
     "ProxyMessage": {
       "properties": {
+        "accountRouting": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyAccountRouting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The account that served this answer, as the server kept it from the run's `accountRouting` event (Node `providerMetadata.accountRouting`): the PC's pool reads it back from the history to keep the conversation on that account."
+        },
         "assistantBlocks": true,
         "cacheTier": {
           "anyOf": [
@@ -1763,6 +1795,11 @@
         "fast": {
           "type": "boolean"
         },
+        "forkedTransportScope": {
+          "default": false,
+          "description": "The server forked this request from a session (a side question) and gave it a transport scope of its own (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and releases it when the request ends.",
+          "type": "boolean"
+        },
         "hostedTools": {
           "items": {
             "$ref": "#/definitions/ProxyHostedTool"
@@ -2037,7 +2074,7 @@
                 "null"
               ]
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             },
             "source": {
@@ -2051,7 +2088,7 @@
             }
           },
           "required": [
-            "mime_type",
+            "mimeType",
             "source",
             "type"
           ],

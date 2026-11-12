@@ -121,22 +121,17 @@ pub async fn run_attempt(
     let mut wire = codec.encode(request)?;
     let mut again = false;
     let mut refreshed = false;
-    // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
-    // has run on, so the resend does not get it; it is let go once the resend went out.
-    let mut held = None;
     loop {
         let mut sent = wire.clone();
         if let Some(header) = header.clone() {
             credential.place(&mut sent.headers, header);
         }
-        let head = http.send(sent, MODEL_STREAM).await;
-        drop(held.take());
-        let head = head?;
+        let head = http.send(sent, MODEL_STREAM).await?;
         if head.is_success() {
             return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
         }
         let status = head.status;
-        let (rejected, body) = head.read_all_held().await?;
+        let rejected = head.read_all().await?;
         if again {
             let mut error = codec.classify(&rejected);
             if refreshed {
@@ -145,8 +140,6 @@ pub async fn run_attempt(
             return Err(error);
         }
         if credential.refreshes_on(status, &rejected.body) {
-            // The refresh waits on the network, so the refusal's socket is free again before the resend.
-            drop(body);
             again = true;
             refreshed = true;
             let next = credential.header(true).await?;
@@ -160,7 +153,6 @@ pub async fn run_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
-            held = Some(body);
             wire = codec.encode(request)?;
             continue;
         }
@@ -178,6 +170,7 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    input_excludes_cache: Option<bool>,
 }
 
 impl HttpAdapter {
@@ -199,7 +192,14 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            input_excludes_cache: None,
         }
+    }
+
+    /// The usage convention of an adapter whose class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
+    pub fn with_input_excludes_cache(mut self, excludes: bool) -> Self {
+        self.input_excludes_cache = Some(excludes);
+        self
     }
 
     /// The refusals the provider sends again at once ([`Resend`]).
@@ -217,6 +217,7 @@ impl HttpAdapter {
 
 #[async_trait]
 impl ProviderAdapter for HttpAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -239,6 +240,10 @@ impl ProviderAdapter for HttpAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         self.listing.as_deref()
+    }
+
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.input_excludes_cache
     }
 
     /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).

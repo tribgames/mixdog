@@ -99,6 +99,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderAdapter for Adapter {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
             &self.1
         }

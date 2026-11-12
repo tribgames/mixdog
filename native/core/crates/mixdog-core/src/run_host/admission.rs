@@ -150,7 +150,7 @@ struct Controller {
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
     /// Told as a waiter joins the queue, for the tests to wait on.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     queued: tokio::sync::Notify,
 }
 
@@ -240,7 +240,7 @@ impl Controller {
             queued_at: self.clock.now_ms(),
             entry: Entry::Restore { lease: id, txs: vec![tx] },
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.queued.notify_waiters();
         Some((rx, wid, own))
     }
@@ -491,7 +491,7 @@ impl ResourceAdmission {
                 limits,
                 clock,
                 state: Mutex::new(State::default()),
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 queued: tokio::sync::Notify::new(),
             }) }
     }
@@ -536,7 +536,7 @@ impl ResourceAdmission {
             state.next_id += 1;
             let id = state.next_id;
             state.queue.push(Waiter { id, pool, owner, priority, queued_at: c.clock.now_ms(), entry: Entry::New { tx, parent: parent_id } });
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             c.queued.notify_waiters();
             let deliveries = c.drain(&mut state);
             (rx, id, deliveries)

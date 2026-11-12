@@ -223,7 +223,9 @@ impl Worktrees {
 
     /// A host cleanup that runs when a folder is removed (desktop terminals, caches keyed by it).
     pub fn with_root_cleanup(mut self, cleanup: Arc<dyn crate::worktree::removal::RootCleanup>) -> Self {
-        self.cleanups.push(cleanup);
+        if !self.cleanups.iter().any(|known| Arc::ptr_eq(known, &cleanup)) {
+            self.cleanups.push(cleanup);
+        }
         self
     }
 
@@ -1035,6 +1037,36 @@ impl Worktrees {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Named(&'static str);
+
+    #[async_trait::async_trait]
+    impl crate::worktree::removal::RootCleanup for Named {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        async fn run(&self, _root: &Path, _entry_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_root_cleanup_given_twice_runs_once_and_another_still_joins_it() {
+        let scm = crate::engine::Scm::new(
+            crate::testing::TestProcesses::shared(),
+            mixdog_rt::testing::tokens().maintenance_io,
+            std::env::temp_dir(),
+        );
+        let same: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("same"));
+        let other: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("other"));
+        let worktrees = Worktrees::new(scm, std::env::temp_dir())
+            .with_root_cleanup(same.clone())
+            .with_root_cleanup(same.clone())
+            .with_root_cleanup(other);
+        let names: Vec<&str> = worktrees.cleanups().iter().map(|cleanup| cleanup.name()).collect();
+        assert_eq!(names, ["same", "other"]);
+    }
 
     #[test]
     fn the_porcelain_list_names_branch_detached_and_prunable_rows() {

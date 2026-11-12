@@ -1,0 +1,58 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-cache-break.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "deferred_body_compaction": "no product path sets it: provider-prefix-guard.mjs:5-10 only accepts it as a compaction intent; the setters of a cache-break intent are pre-send-compact.mjs:461,613 (automatic_compaction), compaction-runner.mjs:737 (post_turn_compaction, manual_compaction), request-boundary.mjs:75,88 (tool_surface_bridge_migration, transcript_rebuild)",
+    "post_turn_compaction": "no product path sets it: compaction-runner.mjs:737 sets it only for mode \"auto\", and runSessionCompaction is called only with mode \"manual\" (session-crud.mjs:164 and :391, via session-ops.mjs:75 for /compact and auto-clear); the guard cases still give the comparison that intent",
+    "request_properties_changed": "no product path reaches it: request-projection.mjs:52-58 hands the guard a prefix of the two tool lists only, and provider-prefix-guard.mjs:176-196 digests each list on its own, so a changed prefix with the same provider, model and both list digests cannot occur (the guard cases give the guard a prefix with another key)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 433082,
+      "path": "golden.json",
+      "sha256": "25b488b6bc7665ba2d1669b200f68d4e10d0a237d11acef0b4e08dcbf7c60353"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request's message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, the sends of the whole scenario in the order the provider received them (the compaction pass's summary requests and each turn's: summary or turn, every message's role and content), and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-cache-break.mjs",
+  "recorderSha256": "2ff52cebe3bf3e06034811055baf62166e370d51571dbd88e1d897b520b28f21",
+  "set": "cache-break",
+  "syntheticInputs": [
+    "the loop: a system prompt and one user turn of text and one image; a provider named anthropic whose first send throws \"Could not process image\" with status 400 and whose second answers \"ok\"",
+    "Date.now fixed at 1700000000000; MIXDOG_DIAGNOSTICS=1 so the local trace file is written",
+    "the payload records: synthetic values reaching every buildCacheBreakPayload field",
+    "the turns: six agentLoop turns of one anthropic session (a 5m messages cache) with the usage, model and tools given per turn, and a manual compaction's rewritten transcript and pending intent before the fourth",
+    "the compactions: two anthropic sessions of long synthetic turns through agentLoop; the manual one is compacted by runSessionCompaction (mode manual, force) between turns, the automatic one crosses its 20000-token window so the loop's pre-send pass compacts; the summary provider answers one fixed summary text (the only replaced part)",
+    "the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch",
+    "the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint"
+  ],
+  "totalBytes": 433082
+}

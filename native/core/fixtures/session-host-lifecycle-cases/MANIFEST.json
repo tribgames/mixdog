@@ -17,7 +17,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -71,6 +71,15 @@
   "replay": {
     "compare": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
     "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/compose_flip.rs:214 start_sub_agent_retention; mixdog-app-server-daemon/src/compose_flip.rs:223 sub_agent_retention_step; mixdog-core-session/src/session/worktree_maintenance.rs:169 set_archived_session_worktrees; mixdog-core-session/src/session/agent_registry/mod.rs:557 forget_deleted_session; mixdog-core-session/src/session/thread_settings.rs:341 mark_read.",
+    "replayedBy": {
+      "every overlapping host disposal waits for the same attachment cleanup": "two disposals at once, each bounded: apps/desktop/src/main/session-host-lifecycle-replay.test.mjs (K1's desktop SessionHost.dispose, memoised in disposePromise) and mixdog-app-server-daemon compose::tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded (the core's ComposedCore::run_stop_steps supervised as the release supervises it, server.rs:248; the integration test that composes the real core)",
+      "archiving a session archives its sub-agent sessions; restoring it brings back the ones it took": "mixdog-core-session thread_settings_tests (thread/archive, thread/unarchive, thread/delete; archive stamps read from the stored headers)",
+      "archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive": "mixdog-core-session thread_settings_tests (thread/archive -> ThreadSettingsParts::worktrees, the ArchivedWorktrees hand-off)",
+      "sub-agent retention archives exactly its tree's members through the real host, no cascade past them": "mixdog-core-session thread_settings_tests (sub_agent_retention::sweep over DirectoryRetention with the host's ArchiveStamps, then thread/unarchive and thread/archive)",
+      "a read lands in the session’s own numbering: a surface counting in a retired one cannot read past it": "mixdog-core-session thread_settings_tests (thread/readState/update, then the catalog row's summary)",
+      "failed metadata flushing cannot prevent host attachment cleanup": "apps/desktop/src/main/session-host-lifecycle-replay.test.mjs (K1's desktop service still holds the per-session metadata in <userData>/desktop-session-metadata.json: desktop-service.ts SessionHost.create -> session-host.ts DesktopSessionMetadata; the dispose with that path a directory, compared whole)"
+    },
+    "excludedCases": [],
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the restore of archived session trees and the desktop host disposal (overlapping disposals share one attachment cleanup): no counterpart found"

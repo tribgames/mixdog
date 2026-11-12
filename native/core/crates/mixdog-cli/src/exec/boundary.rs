@@ -317,7 +317,7 @@ impl Boundary {
                 }
                 Err(_) => {
                     attempt += 1;
-                    tokio::time::sleep(Duration::from_millis(REMOVAL_RETRY_DELAY_MS * u64::from(attempt))).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(REMOVAL_RETRY_DELAY_MS * u64::from(attempt))).await;
                 }
             }
         }

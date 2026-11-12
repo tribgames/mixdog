@@ -9,11 +9,15 @@ mod dispatch;
 mod errors;
 mod handshake;
 mod host;
+mod inventory_rule;
 mod lane_pushes;
+mod model_proxy_wire;
 mod phone_chat;
 mod queues;
 mod routing;
 mod sample;
+mod session_transport;
+mod settings_change_feed;
 mod storm;
 mod subscriptions;
 
@@ -120,6 +124,8 @@ impl DomainService for GateDomain {
 pub(crate) struct TestCore {
     pub(crate) mock: MockCore,
     pub(crate) gated: HashMap<&'static str, Arc<GateDomain>>,
+    /// A real domain service served in place of the mock's for its methods ([`TestCore::serve`]).
+    real: std::sync::OnceLock<Arc<dyn DomainService>>,
     threads: Mutex<Threads>,
     scoped: Mutex<HashMap<mixdog_core_api::ids::FeedId, Arc<dyn FeedSource>>>,
     opens: AtomicUsize,
@@ -135,6 +141,11 @@ struct Threads {
 }
 
 impl TestCore {
+    /// `service` answers its methods from now on (once; the mock answers every other).
+    pub(crate) fn serve(&self, service: Arc<dyn DomainService>) {
+        assert!(self.real.set(service).is_ok(), "one real service per rig");
+    }
+
     /// `feed` is the live scoped feed `id`, as its owner holds it.
     pub(crate) fn hold_scoped(&self, id: &str, feed: Arc<dyn FeedSource>) {
         crate::sharded::lock(&self.scoped).insert(mixdog_core_api::ids::FeedId::from(id), feed);
@@ -222,7 +233,10 @@ impl CoreHandle for TestCore {
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
         match self.gated.values().find(|gate| gate.methods.contains(&method)) {
             Some(gate) => Some(gate.as_ref()),
-            None => self.mock.domain_for(method),
+            None => match self.real.get().filter(|service| service.methods().contains(&method)) {
+                Some(service) => Some(service.as_ref()),
+                None => self.mock.domain_for(method),
+            },
         }
     }
 
@@ -355,6 +369,7 @@ impl Rig {
                     (name, Arc::new(gate))
                 })
                 .collect(),
+            real: std::sync::OnceLock::new(),
             threads: Mutex::default(),
             scoped: Mutex::default(),
             opens: AtomicUsize::new(0),
@@ -529,7 +544,7 @@ pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
 impl<T> Arrivals<T> {
     /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
     pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
-        tokio::time::timeout(deadline, self.0.recv())
+        mixdog_rt::time::timeout(deadline, self.0.recv())
             .await
             .unwrap_or_else(|_| panic!("no frame within {deadline:?}: awaited {awaited}"))
             .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
@@ -551,6 +566,14 @@ pub(crate) struct Client {
 impl Client {
     pub(crate) fn send(&self, message: Value) -> Inbound {
         let message: JsonRpcMessage = serde_json::from_value(message).unwrap();
+        self.handle.on_message(message)
+    }
+
+    /// A frame as the client's text, read by the server's decoder (lone surrogate escapes and all).
+    pub(crate) fn send_text(&self, frame: &str) -> Inbound {
+        let mixdog_app_protocol::rpc::InboundText::Message(message) = mixdog_app_protocol::rpc::decode_inbound_text(frame, 1 << 20) else {
+            panic!("not a message: {frame}");
+        };
         self.handle.on_message(message)
     }
 
@@ -616,7 +639,7 @@ impl Client {
 /// a bare yield may return before they have done anything.
 async fn pause() {
     tokio::task::yield_now().await;
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
 }
 
 /// `error.data.reason` of an error frame.

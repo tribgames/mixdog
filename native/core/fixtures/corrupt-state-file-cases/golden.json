@@ -1,0 +1,1215 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a corrupt ${file} is kept aside (or replaced, for the cycle state) and the next read and write work",
+      "observed": {
+        "runs": [
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": false,
+            "damagedBytes": "{broken",
+            "read": [],
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": true,
+            "damagedBytes": "{broken",
+            "read": [
+              "<root>\\first"
+            ],
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\first",
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": false,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": [],
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": true,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": [
+              "<root>\\first"
+            ],
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\first",
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": false,
+            "damagedBytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch",
+            "read": [],
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch"
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "projects.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": true,
+            "damagedBytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"<root>\\\\first\",\n      \"addedAt\": 1800000000000\n ",
+            "read": [
+              "<root>\\first"
+            ],
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"<root>\\\\first\",\n      \"addedAt\": 1800000000000\n "
+                }
+              ]
+            },
+            "write": {
+              "ok": true,
+              "entry": {
+                "name": "third",
+                "path": "<root>\\third",
+                "addedAt": 1800000000000
+              }
+            },
+            "readAfterWrite": [
+              "<root>\\first",
+              "<root>\\third"
+            ],
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"projects\": [\n    {\n      \"name\": \"first\",\n      \"path\": \"<root>\\\\first\",\n      \"addedAt\": 1800000000000\n "
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": false,
+            "damagedBytes": "{broken",
+            "read": {
+              "version": 2,
+              "aliases": {},
+              "hidden": []
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-aZLHBO\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": true,
+            "damagedBytes": "{broken",
+            "read": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-tJaq1P\\first": "First"
+              },
+              "hidden": []
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-tJaq1P\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": false,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": {
+              "version": 2,
+              "aliases": {},
+              "hidden": []
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-OpV1Wv\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": true,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-OSU9q7\\first": "First"
+              },
+              "hidden": []
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-OSU9q7\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": false,
+            "damagedBytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch\\\\s.e",
+            "read": {
+              "version": 2,
+              "aliases": {},
+              "hidden": []
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch\\\\s.e"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-pCI22r\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"C:\\\\Users\\\\tempe\\\\.mixdog\\\\data\\\\scratch\\\\s.e"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "desktop-projects.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": true,
+            "damagedBytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"<root>\\\\first\": ",
+            "read": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-waPWpG\\first": "First"
+              },
+              "hidden": []
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"<root>\\\\first\": "
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "version": 2,
+              "aliases": {
+                "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.ef31239c4b7dfa1b\\mixdog-corrupt-state-waPWpG\\third": "Third"
+              },
+              "hidden": []
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"<root>\\\\first\": "
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": false,
+            "damagedBytes": "{broken",
+            "read": {
+              "rooms": {}
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": true,
+            "damagedBytes": "{broken",
+            "read": {
+              "rooms": {
+                "first": {
+                  "id": "first",
+                  "name": "Room first",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{broken"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": false,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": {
+              "rooms": {}
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": true,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": {
+              "rooms": {
+                "first": {
+                  "id": "first",
+                  "name": "Room first",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": false,
+            "damagedBytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      ",
+            "read": {
+              "rooms": {}
+            },
+            "afterRead": {
+              "present": false,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      "
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      "
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "agent-rooms.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": true,
+            "damagedBytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      ],\n      \"maxRounds\": 3,\n      \"maxMessages\": 8,\n      \"shareTools\": false,\n      \"createdAt\": 1,\n      \"cursors\": {}\n   ",
+            "read": {
+              "rooms": {
+                "first": {
+                  "id": "first",
+                  "name": "Room first",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterRead": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      ],\n      \"maxRounds\": 3,\n      \"maxMessages\": 8,\n      \"shareTools\": false,\n      \"createdAt\": 1,\n      \"cursors\": {}\n   "
+                }
+              ]
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "rooms": {
+                "third": {
+                  "id": "third",
+                  "name": "Room third",
+                  "members": [
+                    "a",
+                    "b"
+                  ],
+                  "maxRounds": 3,
+                  "maxMessages": 8,
+                  "shareTools": false,
+                  "createdAt": 1,
+                  "cursors": {}
+                }
+              }
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": true,
+              "asides": [
+                {
+                  "suffix": ".corrupt-1800000000000",
+                  "bytes": "{\n  \"rooms\": {\n    \"first\": {\n      \"id\": \"first\",\n      \"name\": \"Room first\",\n      \"members\": [\n        \"a\",\n        \"b\"\n      ],\n      \"maxRounds\": 3,\n      \"maxMessages\": 8,\n      \"shareTools\": false,\n      \"createdAt\": 1,\n      \"cursors\": {}\n   "
+                }
+              ]
+            },
+            "shared": {
+              "asideSuffixes": [
+                ".corrupt-1800000000000"
+              ],
+              "asideHoldsDamagedBytes": true,
+              "readIsEmpty": false,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": [
+                ".corrupt-1800000000000"
+              ]
+            }
+          },
+          {
+            "file": "memory-cycle-state.json",
+            "damage": {
+              "kind": "garbage",
+              "bytes": "{broken"
+            },
+            "backup": false,
+            "damagedBytes": "{broken",
+            "read": null,
+            "afterRead": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "kind": "running",
+              "startedAt": 1800000000000
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "shared": {
+              "asideSuffixes": [],
+              "asideHoldsDamagedBytes": false,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": []
+            }
+          },
+          {
+            "file": "memory-cycle-state.json",
+            "damage": {
+              "kind": "nul-filled",
+              "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+            },
+            "backup": false,
+            "damagedBytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+            "read": null,
+            "afterRead": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "kind": "running",
+              "startedAt": 1800000000000
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "shared": {
+              "asideSuffixes": [],
+              "asideHoldsDamagedBytes": false,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": []
+            }
+          },
+          {
+            "file": "memory-cycle-state.json",
+            "damage": {
+              "kind": "truncated",
+              "keep": "half"
+            },
+            "backup": false,
+            "damagedBytes": "{\"running\":{\"cycle\":\"cycle1\",\"started_at\":1800000000000,\"pid\":26352},\"backlog\":{\"unchunked\":0,\"at\":0},\"cycles\":{\"cyc",
+            "read": null,
+            "afterRead": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "write": {
+              "ok": true
+            },
+            "readAfterWrite": {
+              "kind": "running",
+              "startedAt": 1800000000000
+            },
+            "afterWrite": {
+              "present": true,
+              "bak": false,
+              "asides": []
+            },
+            "shared": {
+              "asideSuffixes": [],
+              "asideHoldsDamagedBytes": false,
+              "readIsEmpty": true,
+              "writeSucceeded": true,
+              "readAfterWriteHasWrite": true,
+              "asideSuffixesAfterWrite": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

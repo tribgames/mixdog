@@ -1,0 +1,99 @@
+{
+  "id": "opencode-go-gemini-redirect",
+  "provider": "opencode-go-oauth",
+  "config": {
+    "enabled": true,
+    "preconnect": false
+  },
+  "listing": [
+    {
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "headers": {
+        "host": "opencode.ai",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "mixdog",
+        "authorization": "Bearer go-access",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate"
+      },
+      "body": "",
+      "answer": {
+        "status": 200,
+        "body": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"gemini-3-pro\":{\"name\":\"gemini-3-pro\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}"
+      }
+    }
+  ],
+  "sends": [
+    {
+      "model": "gemini-3-pro",
+      "tools": [],
+      "history": [],
+      "opts": {
+        "sessionId": "sess-go"
+      },
+      "sessionId": "sess-go",
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://opencode.ai",
+          "path": "/inference/go/v1/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": {
+            "host": "opencode.ai",
+            "connection": "keep-alive",
+            "content-type": "application/json",
+            "authorization": "Bearer go-access",
+            "x-goog-api-key": "go-access",
+            "user-agent": "mixdog",
+            "x-opencode-session": "sess-go",
+            "accept": "*/*",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "206"
+          },
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Look up the answer.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "answer": {
+            "status": 307,
+            "body": ""
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        }
+      ],
+      "error": {
+        "message": "[opencode-go] refusing to follow a redirect from opencode.ai",
+        "status": null,
+        "code": null,
+        "quotaExhausted": null
+      }
+    }
+  ]
+}

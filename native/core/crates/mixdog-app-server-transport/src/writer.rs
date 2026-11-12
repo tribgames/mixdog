@@ -962,7 +962,7 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
                 // A coalescing window ends on the clock, not on a new frame.
                 Some(due) => tokio::select! {
                     () = shared.budget.wake.notified() => true,
-                    () = tokio::time::sleep_until(due) => true,
+                    () = mixdog_rt::time::sleep_until(due) => true,
                     () = shared.abort.cancelled() => false,
                 },
                 None => tokio::select! {

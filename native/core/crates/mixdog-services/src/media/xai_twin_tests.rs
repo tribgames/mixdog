@@ -19,7 +19,7 @@ use super::download::{AdapterError, PublicFetch, PublicResponse};
 use super::image_api::ImageReference;
 use super::xai::{Pacer, generate_image, generate_video};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-xai-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-xai-twin.json");
 
 struct Script {
     queue: Mutex<VecDeque<Value>>,
@@ -84,7 +84,7 @@ impl PublicFetch for Refuse {
 
 #[tokio::test]
 async fn the_xai_adapter_answers_as_nodes_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let start = golden["clock"].as_i64().unwrap();
     for case in golden["scenarios"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();

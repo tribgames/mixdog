@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -221,4 +222,62 @@ test('a host without positional reads, or a vanished boundary row, never strands
   );
   assert.equal(await gone.earlier(), 'idle');
   assert.equal(gone.window, null);
+});
+
+// `fixtures/session-host-transcript-page-cases/golden.json` (record-session-host-transcript-page-cases.mjs, Node b6f10295a): the
+// client holds the newest 32 rows and reads the 64 older ones. The reads are the recorded replies (what the core's `thread/items/list`
+// answers is compared in session_host_replay_tests.rs); the movement is the recorder's own, made while the read is in flight.
+const pageCases = JSON.parse(
+  readFileSync(new URL('../../../../native/core/fixtures/session-host-transcript-page-cases/golden.json', import.meta.url), 'utf8')
+).cases;
+const pageCase = (name) => pageCases.find((entry) => entry.case.startsWith(name)).observed;
+
+async function pagedWhile(move) {
+  const older = pageCase('an older page crosses');
+  const live = { items: older.heldBeforePage, hasOlder: true };
+  const answer = older.reads[0].result.page;
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const pager = new TranscriptHistoryPager(
+    'sess_page_host',
+    () => async () => {
+      await gate;
+      return { items: answer.items, hasOlder: answer.state.transcriptHasOlder, hasNewer: true };
+    },
+    () => live,
+    () => {}
+  );
+  const reading = pager.earlier();
+  move(live);
+  release();
+  return { outcome: await reading, pager, older };
+}
+
+test('an older page read with nothing moving lands as the recorded window', async () => {
+  const { outcome, pager, older } = await pagedWhile(() => {});
+  assert.equal(outcome, 'paged');
+  assert.deepEqual(pager.window.items, older.snapshot.items, 'all 96 rows the client then shows');
+});
+
+test('held rows that move while the page is in flight drop the page and read the window again (held rows that move: Node)', async () => {
+  const name = 'held rows that move while the page is in flight';
+  assert.ok(pageCase(name).reads[1].result.full, 'Node fell back to a full read');
+  // The recorder's movement: the held copy loses its first row.
+  const { outcome, pager } = await pagedWhile((live) => (live.items = live.items.slice(1)));
+  assert.equal(outcome, 'moved');
+  assert.equal(pager.window, null, 'the window is the live tail again, which the caller grows');
+  assert.equal(pager.movedFrom, 32, 'from the 32 rows held when the page was asked, not the 31 held after');
+});
+
+test('a session that changed between reads drops the page and reads the window again (Node answered it in full)', async () => {
+  const name = 'a session that changed between reads';
+  const appended = pageCase(name).snapshot.items.slice(-pageCase(name).appendedRows.length);
+  assert.deepEqual(
+    appended.map((row) => row.id),
+    pageCase(name).appendedRows
+  );
+  const { outcome, pager } = await pagedWhile((live) => (live.items = [...live.items, ...appended]));
+  assert.equal(outcome, 'moved');
+  assert.equal(pager.window, null);
+  assert.equal(pager.movedFrom, 32, 'from the 32 rows held when the page was asked, not the 34 held after');
 });

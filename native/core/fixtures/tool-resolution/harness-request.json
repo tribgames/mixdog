@@ -1,5 +1,41 @@
 {
   "recorder": "benchmarks/rust-core/recorders/record-harness-request-tools.mjs",
+  "node": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "patches": [
+      {
+        "file": "node-fix-spawn-model-settings.patch",
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502",
+        "paths": [
+          "src/session-runtime/services/agent-tool/model-select.mjs",
+          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+          "src/session-runtime/services/agent-tool/tool-def.mjs",
+          "src/tui/app/model-picker/route-selection/effort.mjs"
+        ]
+      },
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ]
+      }
+    ]
+  },
   "provider": "custom-harness",
   "model": "harness-model",
   "toolSpec": "full",
@@ -296,7 +332,7 @@
     },
     {
       "name": "read",
-      "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+      "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -323,6 +359,12 @@
                           "type": "integer"
                         },
                         "offset": {
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "tail": {
+                          "description": "Last N lines, not with offset.",
+                          "maximum": 100000,
                           "minimum": 1,
                           "type": "integer"
                         }
@@ -355,6 +397,12 @@
           "pages": {
             "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.",
             "type": "string"
+          },
+          "tail": {
+            "description": "Last N lines of the file, not with offset.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "required": [
@@ -608,6 +656,10 @@
           "effort": {
             "description": "Reasoning effort for an explicit model.",
             "type": "string"
+          },
+          "fast": {
+            "description": "Fast mode for an explicit model; needs model.",
+            "type": "boolean"
           },
           "file": {
             "description": "Path to task text; used instead of prompt/message.",

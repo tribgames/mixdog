@@ -67,6 +67,7 @@ pub fn dependency_roots(output: &ToolOutput) -> Option<Vec<String>> {
 }
 
 pub use cache::GraphCache;
+pub use cache::is_tmp_name;
 pub use federation::TrustedRoots;
 pub use workspace::WorkspaceCodeGraph;
 
@@ -131,7 +132,9 @@ impl CodeGraphTool {
         let joined = mixdog_scm::repo::on_lane(io, cancel, move || {
             let snapshot = snapshot.with_cached(cache.roots());
             let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
-            dispatch::run(&job_args, &cwd, &env)
+            let answer = dispatch::run(&job_args, &cwd, &env);
+            cache.prune_after_call();
+            answer
         })
         .await;
         self.cache.schedule_flush(io);

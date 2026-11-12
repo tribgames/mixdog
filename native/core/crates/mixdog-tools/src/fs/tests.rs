@@ -51,7 +51,7 @@ async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContex
     context_seeded(root, files, seeds).await
 }
 
-async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
+pub(super) async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     for (rel, bytes) in seeds {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
@@ -88,7 +88,7 @@ async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<
 }
 
 /// The recorder's legacy argument names, mapped to the published schemas.
-fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
+pub(super) fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     let obj = input.as_object_mut().unwrap();
     if matches!(tool, "read" | "edit") {
         if let Some(p) = obj.shift_remove("path") {
@@ -105,7 +105,7 @@ fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     input
 }
 
-fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
+pub(super) fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
     match outcome {
         Ok(out) => match &out.parts[0] {
             ToolPart::Text(t) => (false, t.clone()),
@@ -185,6 +185,752 @@ async fn edit_read_failures_are_answered_as_node_answers_them_on_windows() {
     assert_eq!(compared, 9);
 }
 
+/// Sets a file's or a directory's modification time.
+fn set_mtime(path: &Path, at: std::time::SystemTime) {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0200_0000); // directories open with backup semantics
+    options.open(path).unwrap().set_modified(at).unwrap();
+}
+
+/// Node's answers in `fixtures/tools-fs-search/<scenario>.json` (`record-tools-fs-search.mjs`), replayed whole, in order,
+/// over the scenario's workspace on disk. As the recorder does, files are dated 2026-01-02T03:04:05Z unless the scenario
+/// dates them, and dated directories are dated after their files are written.
+/// `wait`'s outcome; a wait past a minute (a call that never ends: a replayed search's hard timer only passes for a
+/// call whose server the recording left silent, and the context has no deadline) fails the replay naming `what`.
+async fn within<T>(what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+    match tokio::time::timeout(LIMIT, wait).await {
+        Ok(value) => value,
+        Err(_) => panic!("{} did not end within {LIMIT:?}", what()),
+    }
+}
+
+/// A replayed call that never ends (its hard timer never passes, the context has no deadline) fails the replay after
+/// the wait's limit, naming the call, rather than hanging it.
+#[tokio::test(start_paused = true)]
+#[should_panic(expected = "grep-timeout #6 grep {\"pattern\":\"needle\"} did not end within 60s")]
+async fn a_replayed_call_that_never_ends_fails_naming_it() {
+    within(|| "grep-timeout #6 grep {\"pattern\":\"needle\"}".to_owned(), std::future::pending::<()>()).await;
+}
+
+async fn replay_fs_search(scenario: &str) {
+    let fixture: JsonValue = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/tools-fs-search/{scenario}.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws");
+    let at = |iso: &str| std::time::SystemTime::from(chrono::DateTime::parse_from_rfc3339(iso).unwrap());
+    let files = fixture["files"].as_object().unwrap();
+    let mtimes = fixture["mtimes"].as_object().cloned().unwrap_or_default();
+    for (rel, text) in files {
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), text.as_str().unwrap()).unwrap();
+    }
+    // Files that are not UTF-8 text, as base64.
+    let binary = fixture["filesBase64"].as_object().cloned().unwrap_or_default();
+    for (rel, b64) in &binary {
+        use base64::Engine as _;
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), base64::engine::general_purpose::STANDARD.decode(b64.as_str().unwrap()).unwrap()).unwrap();
+    }
+    // Files of parts, each a text or a text repeated so many times (a line longer than the search's heap limit).
+    let repeated = fixture["filesRepeat"].as_object().cloned().unwrap_or_default();
+    for (rel, parts) in &repeated {
+        let mut bytes = Vec::new();
+        for part in parts.as_array().unwrap() {
+            match part.as_str() {
+                Some(text) => bytes.extend_from_slice(text.as_bytes()),
+                None => bytes.extend_from_slice(part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize).as_bytes()),
+            }
+        }
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), bytes).unwrap();
+    }
+    for (rel, target) in fixture["junctions"].as_object().cloned().unwrap_or_default() {
+        // mklink reads `/` as a switch: the target is built segment by segment.
+        let target = target.as_str().unwrap().split('/').fold(ws.clone(), |path, segment| path.join(segment));
+        assert!(link_dir(&ws.join(&rel), &target), "junction {rel}");
+    }
+    for rel in files.keys().chain(binary.keys()).chain(repeated.keys()) {
+        set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
+    }
+    // The bulk files are listed from memory: the cap and its wording are applied by the tool after the file service's
+    // walk, so the walk and the stats of the empty files are served as the disk would serve them, without writing tens
+    // of thousands of files (minutes on a busy disk). Their directory exists on disk, so a walk from it starts.
+    let mut listed = Vec::new();
+    if let Some(bulk) = fixture.get("bulk") {
+        let dir = ws.join(bulk["dir"].as_str().unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..bulk["count"].as_u64().unwrap() {
+            listed.push(dir.join(format!("{i:05}{}", bulk["ext"].as_str().unwrap())));
+        }
+    }
+    if let Some(bulk) = fixture.get("bulkDirs") {
+        for i in 0..bulk["count"].as_u64().unwrap() {
+            std::fs::create_dir_all(ws.join(bulk["dir"].as_str().unwrap()).join(format!("{i:05}"))).unwrap();
+        }
+    }
+    for (rel, iso) in mtimes.iter().filter(|(rel, _)| !files.contains_key(*rel)) {
+        set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
+    }
+    // The resize service (the extension host's sharp) answers the image bytes it was recorded on as recorded.
+    // Bytes the decoder rejected (`invalid`) get no reply, as any other bytes.
+    let resizer = fixture.get("resizer").map(|replies| {
+        let replies = replies.as_array().unwrap().iter().filter(|r| r["invalid"] != true).map(|r| {
+            assert_eq!(r["ext"], "png");
+            let reply = &r["reply"];
+            let dims = &reply["dimensions"];
+            let dim = |k: &str| dims[k].as_u64().unwrap() as u32;
+            (r["inputSha256"].as_str().unwrap().to_owned(), mixdog_core_api::domain::ext::ResizedImage {
+                data_base64: reply["data"].as_str().unwrap().to_owned(),
+                mime: reply["mimeType"].as_str().unwrap().to_owned(),
+                original_w: dim("originalWidth"),
+                original_h: dim("originalHeight"),
+                display_w: dim("displayWidth"),
+                display_h: dim("displayHeight"),
+            })
+        });
+        Arc::new(RecordedResizer(replies.collect())) as Arc<dyn mixdog_core_api::domain::ext::ImageResizer>
+    });
+    let local: Arc<dyn FileService> = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
+    let files = if listed.is_empty() { local } else { Arc::new(Listed::new(local, listed, at("2026-01-02T03:04:05Z"))) };
+    let mut ctx = within(|| format!("{scenario}: the tool context"), context_seeded(&AbsPath::new(&ws).unwrap(), files, Vec::new())).await;
+    if let Some(cwd) = fixture["cwd"].as_str() {
+        ctx.cwd = AbsPath::new(ws.join(cwd)).unwrap();
+    }
+    let raw = ws.to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    // One instance of each tool for the whole scenario, as one Node process answered it; the arguments go in as
+    // recorded and the failure flag is the tool's own outcome.
+    let graph_cache = Arc::new(crate::code_graph::GraphCache::new(dir.path().join("graph-cache")));
+    // A recorded search deadline (`server`, the stand-in's script) is an input here too: the soft one passes after the
+    // same files (`deadline_script`), and the hard one on a timer the replay advances past it for a call whose server
+    // never answered (`silent`), as the recording advanced Node's.
+    let advanced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timer: super::SearchTimer = {
+        let advanced = advanced.clone();
+        Arc::new(move |_| {
+            let passed = advanced.load(std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move {
+                if !passed {
+                    std::future::pending::<()>().await;
+                }
+            })
+        })
+    };
+    let tools: [(&str, Box<dyn Tool>); 7] = [
+        ("edit", Box::new(EditTool::new())),
+        ("list", Box::new(ListTool::new())),
+        ("glob", Box::new(GlobTool::new())),
+        ("find", Box::new(FindTool::new())),
+        ("grep", Box::new(GrepTool::with_timer(timer))),
+        ("read", Box::new(ReadTool::new(None, resizer))),
+        ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache.clone()))),
+    ];
+    let tool_of = |name: &str| &tools.iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no replay for {name}")).1;
+    let raw_json = serde_json::to_string(&raw).unwrap();
+    let args_of = |input: &JsonValue| -> JsonValue {
+        serde_json::from_str(&input.to_string().replace("<ROOT>", &fwd).replace("<ROOTW>", &raw_json[1..raw_json.len() - 1])).unwrap()
+    };
+    for (index, call) in fixture["warmup"].as_array().cloned().unwrap_or_default().iter().enumerate() {
+        let tool = call["tool"].as_str().unwrap();
+        let what = || format!("{scenario} warmup #{index} {tool} {}", call["input"]);
+        let _ = within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await;
+    }
+    // As the recorder drained Node's disk cache: the warmup's graphs are written before the calls.
+    if fixture["drainAfterWarmup"] == true {
+        graph_cache.flush().unwrap();
+    }
+    // A burst against the search queue, replayed its own way.
+    if fixture.get("burst").is_some() {
+        #[cfg(windows)]
+        replay_burst(&fixture, &ws, &ctx, &**tool_of("grep"), args_of).await;
+        return;
+    }
+    // Searches past their deadline whose reads ignore their cancel (`stalled.timeouts`, the scenario's first calls): each
+    // is held in its read (`Script::Stuck`) and its hard timer passes as Node's did; the call's close gives it up once
+    // the grace has passed, and it stays given up, its volume's, until the replay's end.
+    let stuck = fixture["stalled"]["timeouts"].as_array().map_or(0, Vec::len);
+    let mut failures = Vec::new();
+    for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        use mixdog_workspace::localfs::deadline_script::Script;
+        let tool = call["tool"].as_str().unwrap();
+        // The stand-in's script: a deadline after so many files, a server that never answers, a full queue; an empty one
+        // leaves the real server to answer.
+        let script = call.get("server").and_then(|server| match server["afterFiles"].as_u64() {
+            Some(n) => Some(Script::AfterFiles(n as usize)),
+            None if server["silent"] == true => Some(Script::Silent),
+            None if server["saturated"] == true => Some(Script::QueueFull),
+            None => None,
+        });
+        let script = if index < stuck { Some(Script::Stuck) } else { script };
+        mixdog_workspace::localfs::deadline_script::set(&ws, script);
+        advanced.store(matches!(script, Some(Script::Silent | Script::Stuck)), std::sync::atomic::Ordering::SeqCst);
+        let what = || format!("{scenario} #{index} {tool} {}", call["input"]);
+        let outcome = within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await;
+        // What the tool returned besides its text (`returned`: Node's returned the text alone).
+        let text_alone = match &outcome {
+            Ok(out) => out.parts.len() == 1 && matches!(out.parts[0], ToolPart::Text(_)),
+            Err(_) => true,
+        };
+        if call.get("returned").is_some_and(|r| r == "string") && !text_alone {
+            failures.push(format!("#{index} {tool}: Node's tool returned its text alone, the core's more"));
+        }
+        let (is_error, text) = recorded_form(outcome);
+        mixdog_workspace::localfs::deadline_script::set(&ws, None);
+        // The hard timer passes only for the silent call itself, not for a call made beside it.
+        advanced.store(false, std::sync::atomic::Ordering::SeqCst);
+        // Every search of the call has ended and been joined, a timed-out one included.
+        let live = mixdog_workspace::localfs::probe::live_under(&ws);
+        if live != 0 {
+            failures.push(format!("#{index} {tool}: {live} search(es) still running after the call"));
+        }
+        // An error message names the workspace behind the prefix it lies under (home, data dir); the recording's
+        // workspace lay under none, so that spelling is the workspace too. A rich answer's JSON escapes backslashes.
+        let redacted = super::read_paths::redact(&fwd, None);
+        let escaped = raw.replace('\\', "\\\\");
+        let text = text.replace(&escaped, "<ROOT>").replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>").replace(&redacted, "<ROOT>");
+        // A call Node's tool threw is a failed call whose message is the thrown one.
+        let (want, want_error) = match call.get("thrown") {
+            Some(thrown) => (thrown.as_str().unwrap(), true),
+            None => (call["text"].as_str().unwrap(), call["isError"] == true),
+        };
+        if text != want || is_error != want_error {
+            failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
+        }
+        // A call Node made while this one's stuck search was being given up: answered by the next search, unscripted.
+        if let Some(beside) = call.get("beside") {
+            let tool = beside["tool"].as_str().unwrap();
+            let what = || format!("{scenario} #{index} beside {tool} {}", beside["input"]);
+            let (is_error, text) = recorded_form(within(what, tool_of(tool).call(&ctx, args_of(&beside["input"]))).await);
+            let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+            let (want, want_error) = (beside["text"].as_str().unwrap(), beside["isError"] == true);
+            if text != want || is_error != want_error {
+                failures.push(format!("#{index} beside {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", beside["input"]));
+            }
+        }
+    }
+    // The held reads end.
+    mixdog_workspace::localfs::deadline_script::unstick(&ws);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// `search-queue-burst` (`recordBurst`), replayed whole. Each held call is made once the one before holds: its folder's
+/// file is under a batch oplock, as the recorder's lib/oplock-holder.ps1 held it, and the search's open of it broke the
+/// oplock and waits. Then each burst call is made once its search was made (queued, or refused). Then the first hold is
+/// released and every queued call's answer awaited, then each other hold released and its answer awaited. Compared:
+/// every call's answer, and the order the searches answered in (the scheduler's, [`probe::answer_order`]) with the
+/// order Node's server answered in.
+#[cfg(windows)]
+async fn replay_burst(fixture: &JsonValue, ws: &Path, ctx: &ToolContext, grep: &dyn Tool, args_of: impl Fn(&JsonValue) -> JsonValue) {
+    use futures::StreamExt as _;
+    use mixdog_workspace::localfs::deadline_script::OplockHold;
+    use mixdog_workspace::localfs::probe;
+    let holds = fixture["burst"]["holds"].as_u64().unwrap() as usize;
+    let calls = fixture["calls"].as_array().unwrap();
+    // No search of the recording reached its soft deadline; a loaded machine must not make a held one reach it here.
+    mixdog_workspace::localfs::deadline_script::set(ws, Some(mixdog_workspace::localfs::deadline_script::Script::Unpassed));
+    let mut oplocks: Vec<Option<OplockHold>> =
+        (1..=holds).map(|n| Some(OplockHold::new(&ws.join(format!("h{n}")).join("f.ts")).unwrap())).collect();
+    let mut numbers = std::collections::HashMap::new();
+    let mut outcomes: Vec<Option<(bool, String)>> = vec![None; calls.len()];
+    let mut pending = futures::stream::FuturesUnordered::new();
+    for (index, call) in calls.iter().enumerate() {
+        let number = probe::streams_made();
+        numbers.insert(number, index);
+        let args = args_of(&call["input"]);
+        pending.push(async move { (index, recorded_form(grep.call(ctx, args).await)) });
+        let (pending, outcomes) = (&mut pending, &mut outcomes);
+        within(|| format!("search-queue-burst #{index}'s search made"), async move {
+            loop {
+                let made = probe::made().notified();
+                let mut made = std::pin::pin!(made);
+                made.as_mut().enable();
+                if probe::streams_made() > number {
+                    return;
+                }
+                tokio::select! {
+                    () = made => {}
+                    Some((done, outcome)) = pending.next() => outcomes[done] = Some(outcome),
+                }
+            }
+        })
+        .await;
+        if let Some(Some(hold)) = oplocks.get(index) {
+            let broken = tokio::task::block_in_place(|| hold.wait_broken(std::time::Duration::from_secs(60)));
+            assert!(broken, "search-queue-burst hold #{index}'s open within 60 s");
+        }
+    }
+    oplocks[0] = None;
+    within(|| "search-queue-burst: every queued call's answer once the first hold is released".to_owned(), async {
+        while outcomes.iter().enumerate().any(|(i, answer)| answer.is_none() && !(1..holds).contains(&i)) {
+            let (index, outcome) = pending.next().await.expect("a call still pending");
+            outcomes[index] = Some(outcome);
+        }
+    })
+    .await;
+    for hold in 1..holds {
+        oplocks[hold] = None;
+        within(|| format!("search-queue-burst: hold #{hold}'s answer"), async {
+            while outcomes[hold].is_none() {
+                let (index, outcome) = pending.next().await.expect("a call still pending");
+                outcomes[index] = Some(outcome);
+            }
+        })
+        .await;
+    }
+    let raw = ws.to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let mut failures = Vec::new();
+    for (index, call) in calls.iter().enumerate() {
+        let (is_error, text) = outcomes[index].clone().unwrap();
+        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+        let (want, want_error) = (call["text"].as_str().unwrap(), call["isError"] == true);
+        if text != want || is_error != want_error {
+            failures.push(format!("#{index} grep {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
+        }
+    }
+    // Each call made one search.
+    assert_eq!(probe::streams_made(), numbers.len() as u64 + numbers.keys().min().unwrap(), "one search per call");
+    let order: Vec<usize> = probe::answer_order().iter().filter_map(|n| numbers.get(n).copied()).collect();
+    let want: Vec<usize> = fixture["answerOrder"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
+    if order != want {
+        let at = order.iter().zip(&want).position(|(a, b)| a != b).unwrap_or(order.len().min(want.len()));
+        failures.push(format!("answer order differs at {at}: want {:?}, got {:?}", &want[at..(at + 12).min(want.len())], &order[at..(at + 12).min(order.len())]));
+    }
+    mixdog_workspace::localfs::deadline_script::set(ws, None);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A call's outcome as the recorder wrote Node's: its text, or for a rich answer (more than one block, an image among
+/// them) the JSON of its `{ content }` envelope.
+fn recorded_form(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
+    let parts = match &outcome {
+        Ok(out) if out.parts.len() > 1 || out.parts.iter().any(|p| matches!(p, ToolPart::Image { .. })) => &out.parts,
+        _ => return text_of(outcome),
+    };
+    let blocks: Vec<String> = parts
+        .iter()
+        .map(|part| match part {
+            ToolPart::Text(t) => format!(r#"{{"type":"text","text":{}}}"#, serde_json::to_string(t).unwrap()),
+            ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => format!(
+                r#"{{"type":"image","data":"{}","mimeType":{}}}"#,
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+                serde_json::to_string(mime).unwrap()
+            ),
+            other => panic!("unexpected part {other:?}"),
+        })
+        .collect();
+    (false, format!(r#"{{"content":[{}]}}"#, blocks.join(",")))
+}
+
+use mixdog_core_api::domain::fs::EntryKind;
+
+/// The local file service plus empty files that exist only in memory, all dated `modified`: a walk lists them where the
+/// disk walk would (siblings in byte order, depth first), and stating one answers an empty file.
+struct Listed {
+    inner: Arc<dyn FileService>,
+    files: Arc<Vec<std::path::PathBuf>>,
+    known: std::collections::HashSet<std::path::PathBuf>,
+    modified: std::time::SystemTime,
+}
+
+impl Listed {
+    fn new(inner: Arc<dyn FileService>, mut files: Vec<std::path::PathBuf>, modified: std::time::SystemTime) -> Self {
+        files.sort();
+        let known = files.iter().cloned().collect();
+        Self { inner, files: Arc::new(files), known, modified }
+    }
+}
+
+/// A walk's entries merged with the listed files under its root, in the walk's order.
+struct MergedWalk {
+    inner: Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>>,
+    request: mixdog_core_api::domain::fs::WalkRequest,
+    files: Arc<Vec<std::path::PathBuf>>,
+    merged: Option<std::collections::VecDeque<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>> for MergedWalk {
+    async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>> {
+        if self.merged.is_none() {
+            let mut all = Vec::new();
+            while let Some(item) = self.inner.next().await {
+                all.push(item);
+            }
+            let root = self.request.root.as_path();
+            all.extend(
+                self.files
+                    .iter()
+                    .filter(|f| if self.request.recursive { f.starts_with(root) } else { f.parent() == Some(root) })
+                    .filter(|f| !self.request.prune.iter().any(|p| f.starts_with(p.as_path())))
+                    .map(|f| Ok(mixdog_core_api::domain::fs::DirEntry { path: AbsPath::new(f).unwrap(), kind: EntryKind::File })),
+            );
+            // Path order is component-wise: a directory's entries follow it, before its next sibling.
+            all.sort_by(|a, b| match (a, b) {
+                (Ok(a), Ok(b)) => a.path.as_path().cmp(b.path.as_path()),
+                _ => std::cmp::Ordering::Equal,
+            });
+            self.merged = Some(all.into());
+        }
+        self.merged.as_mut().unwrap().pop_front()
+    }
+
+    async fn close(&mut self) {
+        self.inner.close().await;
+    }
+}
+
+#[async_trait::async_trait]
+impl FileService for Listed {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        if self.known.contains(path.as_path()) {
+            return Ok(mixdog_core_api::domain::fs::FileStat {
+                kind: EntryKind::File,
+                len: 0,
+                modified: Some(self.modified),
+                ctime: None,
+                inode: 0,
+                device: 0,
+                readonly: false,
+            });
+        }
+        self.inner.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.inner.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        let mut entries = self.inner.list_dir(lane, path.clone()).await?;
+        entries.extend(
+            self.files
+                .iter()
+                .filter(|f| f.parent() == Some(path.as_path()))
+                .map(|f| mixdog_core_api::domain::fs::DirEntry { path: AbsPath::new(f).unwrap(), kind: EntryKind::File }),
+        );
+        Ok(entries)
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        let inner = self.inner.walk(lane, request.clone());
+        Box::new(MergedWalk { inner, request, files: self.files.clone(), merged: None })
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.inner.search_text(lane, request)
+    }
+}
+
+/// A scenario recorded under its own environment (`env` in the fixture) replays in a child test process that carries
+/// it, so no other test of this process sees the variables. `test` is the calling test's path in the crate.
+async fn replay_fs_search_in_env(test: &str, scenario: &str) {
+    const CHILD: &str = "MIXDOG_TOOLS_REPLAY_ENV_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        replay_fs_search(scenario).await;
+        return;
+    }
+    let fixture: JsonValue = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/tools-fs-search/{scenario}.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child.args([test, "--exact", "--test-threads", "1", "--nocapture"]).env(CHILD, "1");
+    for (key, value) in fixture["env"].as_object().unwrap() {
+        child.env(key, value.as_str().unwrap());
+    }
+    let out = child.output().unwrap();
+    let log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success() && log.contains("1 passed"), "{log}");
+}
+
+/// gaps-tools item 12: a glob-shaped `list` path is Node's name search, newest first with size and date columns.
+#[tokio::test]
+async fn list_answers_a_glob_shaped_path_as_node_does() {
+    replay_fs_search("list-glob-path").await;
+}
+
+/// gaps-tools item 5: an absolute glob pattern walks from its own static prefix; one that finds
+/// nothing is expanded straight off the filesystem, through the junction the walk does not follow.
+#[tokio::test]
+async fn glob_answers_absolute_patterns_as_node_does() {
+    replay_fs_search("glob-absolute").await;
+}
+
+/// gaps-tools item 11 through the public call: past 50 000 matches an unbounded glob keeps 50 000 and says the list is
+/// incomplete; a bounded one still counts every match.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn glob_past_fifty_thousand_matches_answers_as_node_does() {
+    replay_fs_search("glob-past-cap").await;
+}
+
+/// A UNC or device-namespace pattern or path is refused before any walk; a backslashed drive pattern
+/// expands from its drive root.
+#[tokio::test]
+async fn glob_refuses_unc_and_expands_from_nodes_root_as_node_does() {
+    replay_fs_search("glob-unc").await;
+}
+
+/// A glob `path` or `root` that is not a string (an array included) is refused by the argument guard; a null or blank
+/// one searches the cwd.
+#[tokio::test]
+async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
+    replay_fs_search("glob-path-array").await;
+}
+
+/// grep over several paths: each section within its share of the context budget, the assembled text capped at 5 KB
+/// with Node's footer and offsets, in content, count, files, explicit and zero context, limit and offset; a missing
+/// path among good ones; one path alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_over_several_paths_budgets_and_caps_as_node_does() {
+    replay_fs_search("grep-path-budget").await;
+}
+
+/// grep's rendering for one path and for several: context mode past 40 matches (automatic, explicit, 0), the head/tail
+/// selection and its continuation, the bounded anchor stream, long lines, several patterns, binary and invalid UTF-8
+/// files, files and count over five paths past the final cap, matches on a file's first and last line, offsets past
+/// the end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_renders_as_node_does() {
+    replay_fs_search("grep-render").await;
+}
+
+/// A search that reaches its deadline, the deadline an input as it was in the recording: the soft one passing after a
+/// given number of files with matches (one path, several paths, several patterns, before any line, after more lines than
+/// the window holds) keeps what was found, with Node's partial notices and warning, a combined pattern scan keeping its
+/// sections; the hard one, on a search that never answers, fails the call, and a grep made while that search is given up
+/// and one after it answer as usual (Node sends the first again to its next server). No search of a call runs once it
+/// returns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_answers_a_search_past_its_deadline_as_node_does() {
+    replay_fs_search("grep-timeout").await;
+}
+
+/// A line longer than the search's heap limit fails its file's search: none of the file's lines are answered, those
+/// before the long line included, and the answer is partial, as Node's search server answers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_answers_a_line_past_the_search_heap_as_node_does() {
+    replay_fs_search("grep-heap").await;
+}
+
+/// A search-server queue that is full refuses grep's, glob's and find's searches as Node's server does, and each tool
+/// answers the refusal as Node's does; with room again the same searches answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn searches_refused_by_a_full_queue_answer_as_node_does() {
+    replay_fs_search("search-saturated").await;
+}
+
+/// A search on a volume where 8 reads ignored their cancel and were given up is answered at once with the answer Node
+/// gives a call whose server was ended for a cancel that did not take (NATIVE_SEARCH_CANCEL_STALLED): grep's failure, a
+/// grep over two paths' sections, glob's group failure, find's failure, each the tool's text alone. The 8 are greps past
+/// their deadline, answered as Node answers them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_search_on_a_volume_of_given_up_reads_answers_as_node_does() {
+    replay_fs_search_in_env("fs::tests::a_search_on_a_volume_of_given_up_reads_answers_as_node_does", "search-cancel-stalled").await;
+}
+
+/// Node's real search queue filled by a burst (9 searches held, then 2,060 greps): the same calls are queued or refused
+/// as saturated here, and once the holds are released the searches answer in the order Node's server answered them.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_burst_past_the_search_queue_is_refused_and_answered_in_nodes_order() {
+    replay_fs_search_in_env("fs::tests::a_burst_past_the_search_queue_is_refused_and_answered_in_nodes_order", "search-queue-burst").await;
+}
+
+/// A grep over far more matches than its window: the scan produces exactly the anchor stream's bound (`limit: 10`:
+/// `min(4000, max(200, 0 + 10 + 4)) + 1` = 201 of 20,000 matches, no margin), and when the call returns no producer of
+/// the search is alive.
+#[tokio::test]
+async fn a_grep_scan_ends_at_its_window_and_before_the_call_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(mixdog_workspace::pathguard::canonical(dir.path()).unwrap()).unwrap();
+    let body: String = (0..200).map(|i| format!("needle {i}\n")).collect();
+    for f in 0..100 {
+        std::fs::write(root.join(&format!("f{f:03}.txt")).as_path(), &body).unwrap();
+    }
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
+    let (failed, text) = text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": "needle", "limit": 10 })).await);
+    assert!(!failed && text.contains("[warning] anchor output capped at 200 matches"), "{text}");
+    let probe = mixdog_workspace::localfs::probe::search(root.as_path());
+    assert_eq!(probe, mixdog_workspace::localfs::probe::SearchProbe { found: 201, live: 0 });
+}
+
+/// Every non-string path shape (array, number, object, boolean, null, blank, blank-only and nested arrays) at list,
+/// find, glob, grep, read, edit and code_graph: refused, read as the cwd, or (grep) taken as several scopes, as Node's
+/// argument normalisation and guards answer it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_path_shape_is_answered_as_node_does() {
+    replay_fs_search("path-arg-shapes").await;
+}
+
+/// A Win32 verbatim path or pattern (`\\?\C:\x`, `\\?\UNC\…`), present or missing, is a UNC/device spelling and
+/// refused, as Node with node-fix-glob-verbatim-path.patch refuses it.
+#[tokio::test]
+async fn glob_refuses_a_verbatim_path_as_node_does() {
+    replay_fs_search("glob-verbatim").await;
+}
+
+/// The expansion's root is Node's `path.parse(raw).root` (Node v22 `path.win32.parse`, the runtime of b6f10295a).
+#[cfg(windows)]
+#[test]
+fn the_expansion_root_is_nodes_parse_root() {
+    for (raw, root) in [
+        ("//server/share/j*/x.ts", "//server/share/"),
+        ("//server/share", "//server/share"),
+        ("//server/share/", "//server/share/"),
+        ("//server", "/"),
+        ("//./C:/a/*.ts", "//./C:/"),
+        ("//?/C:/a/*.ts", "//?/C:/"),
+        ("//?/UNC/srv/sh/*.ts", "//?/UNC/"),
+        ("C:/a/*.ts", "C:/"),
+        ("c:/a/*.ts", "c:/"),
+        ("C:", "C:"),
+        ("C:a/*", "C:"),
+        ("/a/*.ts", "/"),
+        ("///x/y/*", "/"),
+        ("//server//share/x*", "//server//share/"),
+    ] {
+        assert_eq!(&raw[..super::search::parse_root_len(raw)], root, "{raw}");
+    }
+}
+
+/// gaps-tools item 8: a notebook read is Node's extractor's answer, not the raw JSON.
+#[tokio::test]
+async fn read_answers_a_notebook_as_node_does() {
+    replay_fs_search("read-ipynb").await;
+}
+
+/// gaps-tools item 10, through the tool's own entry over one cache, as Node's resident graph answers them: a symbol miss
+/// names the differently-cased spellings earlier queries looked up in the graph, and a reference scan stops at 200
+/// mentions as Node's does (its truncation notice is parsed away before the answer, so the cut shows as missing rows).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
+    replay_fs_search("code-graph-refs-casing").await;
+}
+
+/// Every code_graph mode, through the tool's entry, whole answers and outcomes as Node's (the replay of the cases
+/// fixtures/tools/code_graph held, recorded anew through Node's entry).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_answers_every_mode_as_node_does() {
+    replay_fs_search("code-graph-modes").await;
+}
+
+/// A sentinel-free cwd spelled in another case than its built graph is not a federation child of itself on Windows
+/// (Node with node-fix-code-graph-self-federation.patch).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_never_federates_a_cwd_into_itself_whatever_its_case_as_node_does() {
+    replay_fs_search("code-graph-self-case").await;
+}
+
+/// The casing hint's looked-up names live with the project root's resident graph, as Node's do: they survive five
+/// other roots, and after six more evict the root its rebuilt graph knows no earlier lookup.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_casing_hint_leaves_with_the_evicted_graph_as_node_does() {
+    replay_fs_search("code-graph-casing-eviction").await;
+}
+
+/// A resident graph's retained bytes are Node's estimate of its records, token index and source caches: at a 1 MB
+/// budget the casing hint's lookups are cleared or kept where Node's are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_memory_budget_counts_retained_bytes_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_memory_budget_counts_retained_bytes_as_node_does", "code-graph-memory-budget").await;
+}
+
+/// `REFERENCE_HIT_CAP` read as Node reads it: a fraction, a hex literal, a negative, 0 and a non-number.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_fraction_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_fraction_as_node_does", "code-graph-hit-cap-fraction").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_hex_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_hex_as_node_does", "code-graph-hit-cap-hex").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_negative_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_negative_as_node_does", "code-graph-hit-cap-negative").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_zero_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_zero_as_node_does", "code-graph-hit-cap-zero").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_nan_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_nan_as_node_does", "code-graph-hit-cap-nan").await;
+}
+
+/// The public read's `mode`, in both argument forms.
+#[tokio::test]
+async fn read_honours_mode_as_node_does() {
+    replay_fs_search("read-modes").await;
+}
+
+/// The read shapes that render a notebook's cells and the ones that refuse them.
+#[tokio::test]
+async fn read_renders_or_refuses_a_notebook_as_node_does() {
+    replay_fs_search("read-shapes").await;
+}
+
+/// A notebook image whose base64 is wrapped with line breaks is decoded as Node's `Buffer.from(b64, 'base64')`.
+#[tokio::test]
+async fn read_decodes_a_wrapped_notebook_image_as_node_does() {
+    replay_fs_search("read-ipynb-image").await;
+}
+
+/// Characters outside the base64 alphabet in a notebook image are read through their UTF-16 code units' low byte, as
+/// Node's `Buffer.from(b64, 'base64')` reads them: some are skipped, some count as letters or as `=`.
+#[tokio::test]
+async fn read_decodes_non_ascii_in_notebook_base64_as_node_does() {
+    replay_fs_search("read-ipynb-base64-junk").await;
+}
+
+/// A missing `list` / `grep` path carries Node's recovery hints.
+#[tokio::test]
+async fn list_and_grep_answer_a_missing_path_as_node_does() {
+    replay_fs_search("not-found-hints").await;
+}
+
+/// A missing grep path the basename scans could not settle is looked up as a `**/<basename>` glob, as Node's
+/// `_suggestIndexedPaths` does; `list` has no such fallback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_suggests_indexed_paths_for_a_missing_path_as_node_does() {
+    replay_fs_search("grep-missing-indexed").await;
+}
+
+/// gaps-tools item 6: several content patterns are independent greps, one section each.
+#[tokio::test]
+async fn grep_answers_several_patterns_as_node_does() {
+    replay_fs_search("grep-multi-pattern").await;
+}
+
 struct NoRoots;
 
 #[async_trait::async_trait]
@@ -214,7 +960,12 @@ fn the_builtin_tools_are_nodes_definitions() {
         Box::new(EditTool::new()),
         Box::new(ApplyPatchTool::new()),
         Box::new(crate::git::GitTool::new()),
-        Box::new(crate::github::GithubTool::new()),
+        Box::new(crate::github::GithubTool::new(
+            mixdog_scm::engine::Scm::new(Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default()), mixdog_rt::testing::tokens().maintenance_io, cache_dir.path().join("scm"))
+                .github
+                .clone(),
+            None,
+        )),
     ];
     for tool in &tools {
         let spec = tool.spec();
@@ -290,7 +1041,7 @@ fn snapshot(dir: &Path, base: &Path, out: &mut Tree) {
 /// text, the error flag and the resulting tree must all match.
 #[tokio::test]
 async fn edit_and_apply_patch_match_recorded_node_cases() {
-    let cases: Vec<JsonValue> = serde_json::from_str(include_str!("golden/cases.json")).unwrap();
+    let cases: Vec<JsonValue> = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/cases.json")).unwrap();
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EditTool::new()), Box::new(ApplyPatchTool::new())];
     let mut failures = Vec::new();
     for case in &cases {
@@ -405,7 +1156,7 @@ async fn an_edit_through_a_symlink_waits_for_the_referents_lock() {
             text_of(EditTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(!through_link.is_finished(), "an edit through a symlink ran under its referent's lock");
     drop(held);
     let (is_error, text) = through_link.await.unwrap();
@@ -438,7 +1189,7 @@ async fn writes_to_one_path_wait_for_its_path_lock() {
     let (unrelated_error, text) = unrelated.await.unwrap();
     assert!(!unrelated_error, "{text}");
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     assert!(!first.is_finished() && !second.is_finished(), "edits ran under a held path lock");
     drop(held);
 
@@ -666,7 +1417,7 @@ async fn apply_patch_through_a_junction_waits_for_the_referents_lock() {
             text_of(ApplyPatchTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
     assert!(!task.is_finished(), "a patch through a junction ran under its referent's lock");
     drop(held);
     let (is_error, text) = task.await.unwrap();
@@ -741,7 +1492,7 @@ async fn edit_and_apply_patch_wait_for_the_advisory_lock_of_their_file() {
                 text_of(if is_edit { EditTool::new().call(&ctx, args).await } else { ApplyPatchTool::new().call(&ctx, args).await })
             })
         };
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(200)).await;
         assert!(!task.is_finished(), "{name} was written under another holder's advisory lock");
         std::fs::remove_file(&lock_file).unwrap();
         let (is_error, text) = task.await.unwrap();
@@ -1095,8 +1846,8 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
 /// guard's own outcomes are checked in `read_legacy`.
 #[tokio::test]
 async fn the_legacy_path_spelling_reads_as_node_reads() {
-    let batch: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let batch: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut workspace = batch.clone();
     workspace["files"].as_object_mut().unwrap().extend(doc["extraFiles"].as_object().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
@@ -1157,7 +1908,7 @@ fn pin_legacy_environment() -> Vec<(&'static str, String)> {
 /// `normalizeErrorMessage` over the recorded messages (quoted paths, `file:///` URIs, the roots).
 #[test]
 fn error_messages_are_redacted_as_node_redacts_them() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut tokens = pin_legacy_environment();
     let cwd = std::env::temp_dir().join("mixdog-legacy-read-env").join("ws").to_string_lossy().replace('\\', "/");
     // The workspace with the other case of its drive letter (a Windows host compares paths without case).
@@ -1194,7 +1945,7 @@ fn error_messages_are_redacted_as_node_redacts_them() {
 #[test]
 fn host_path_spellings_are_normalized_as_node_normalizes_them() {
     use super::read_paths::{Host, host_spelling};
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut failures = Vec::new();
     for s in doc["spellings"].as_array().unwrap() {
         let host = if s["host"] == "windows" { Host::Windows } else { Host::Wsl };
@@ -1354,7 +2105,7 @@ fn recorded_result(result: &JsonValue) -> Vec<(String, String)> {
 /// Node's `read`, text and batch forms, replayed from `batch_cases.json` (no session, so no memory).
 #[tokio::test]
 async fn reading_text_and_batches_matches_the_recorded_node_cases() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let (root, ctx) = recorded_workspace(&doc, dir.path(), true).await;
     let cwd = root.as_path().to_string_lossy().replace('\\', "/");
@@ -1395,7 +2146,7 @@ impl SnapshotPersist for MemorySnapshots {
 /// read, a read after an edit or a patch, another session, a changed file, and a cache that has
 /// outlived its 30 seconds (on a clock the test moves).
 async fn replay_sequence(name: &str) {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let mut failures = Vec::new();
     {
         let sequence = doc["sequences"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded sequence {name}"));
@@ -1558,10 +2309,638 @@ sequence_tests! {
     no_session => "no-session",
 }
 
+/// The local file service, except that stating a file with one of `names` fails, one with a name of the third list
+/// never answers (a dead mount) and one named in the control's `delays` answers after that many virtual milliseconds.
+struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str], Arc<StatControl>);
+
+#[derive(Default)]
+struct StatControl {
+    /// Signalled as a stat that never answers starts.
+    hung: tokio::sync::Notify,
+    delays: &'static [(&'static str, u64)],
+}
+
+#[async_trait::async_trait]
+impl FileService for StatFails {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        if self.2.iter().any(|name| path.as_path().ends_with(name)) {
+            self.3.hung.notify_one();
+            std::future::pending::<()>().await;
+        }
+        if let Some((_, ms)) = self.3.delays.iter().find(|(name, _)| path.as_path().ends_with(name)) {
+            tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
+        }
+        if self.1.iter().any(|name| path.as_path().ends_with(name)) {
+            return Err(mixdog_core_api::domain::fs::FsError::new(mixdog_core_api::domain::fs::FsErrorKind::PermissionDenied, Some(path)));
+        }
+        self.0.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.0.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        self.0.list_dir(lane, path).await
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.0.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.0.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.walk(lane, request)
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.search_text(lane, request)
+    }
+}
+
+/// Newest-first `glob`: files whose stat failed cannot be ordered by time, so they follow every
+/// stated file (one dated at the epoch included) in walk order, as Node's mtime top-K keeps them
+/// (`search-glob-tool.mjs` `_createGlobMtimeTopK`, `serve_search/mtime.rs`; recording `tools-fs-glob-order`).
+#[tokio::test]
+async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-glob-order/golden.json")).unwrap();
+    let case = &doc["cases"][0];
+    assert_eq!(case["case"], "glob orders failed-stat matches last in walk order");
+    let (_dir, root) = small_dir();
+    let mut failed = Vec::new();
+    for entry in case["entries"].as_array().unwrap() {
+        let name = entry["path"].as_str().unwrap();
+        std::fs::write(root.as_path().join(name), "x\n").unwrap();
+        set_mtime(&root.as_path().join(name), std::time::UNIX_EPOCH + std::time::Duration::from_millis(entry["mtimeMs"].as_u64().unwrap()));
+        if entry["failed"] == true {
+            // StatFails holds its names for the program's life.
+            failed.push(&*Box::leak(name.to_owned().into_boxed_str()));
+        }
+    }
+    let failed: &'static [&'static str] = Box::leak(failed.into_boxed_slice());
+    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), failed, &[], Default::default())), Vec::new()).await;
+    let names = |value: &JsonValue| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    // The whole list, then a page of the recorded bound less one (Node's window holds the page and one more, the tool shows the
+    // page): the whole answer, the continuation line included. That line is the one Node's public glob printed for the same page
+    // of the same seven names (recording `tools-fs-search/glob-mtime-page`, stats that all succeed).
+    let public: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-search/glob-mtime-page.json")).unwrap();
+    let continuation = public["calls"][1]["text"].as_str().unwrap().lines().last().unwrap().to_owned();
+    let all = &case["bounded"][0];
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": 0 })).await);
+    assert!(!is_error, "{text}");
+    assert_eq!(text, names(&all["values"]).join("\n"));
+    let bounded = &case["bounded"][1];
+    let page = bounded["bound"].as_u64().unwrap() - 1;
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": page })).await);
+    assert!(!is_error, "{text}");
+    let mut want = names(&bounded["values"]);
+    want.truncate(page as usize);
+    want.push(continuation);
+    assert_eq!(text, want.join("\n"));
+}
+
+/// Node's public glob over the entries `glob_puts_files_whose_stat_failed_last_in_walk_order` orders, every stat succeeding:
+/// newest first, ties by name, whole and as a page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn glob_orders_by_time_and_pages_as_node_does() {
+    replay_fs_search("glob-mtime-page").await;
+}
+
+/// grep over several patterns and several paths: misses named once at each level, a missing path, a bad pattern, a page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_fans_out_patterns_over_paths_as_node_does() {
+    replay_fs_search("grep-fanout-nested").await;
+}
+
+/// The same under a search deadline: the misses of a partial scan are not proven misses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_fan_out_keeps_partial_results_as_node_does() {
+    replay_fs_search("grep-fanout-partial").await;
+}
+
+/// glob and find from a filesystem root, the root's own folders named proc, sys and dev listed: Node's recording on Windows,
+/// where its prunes are off (`rootScanIgnoreGlobs` returns none there), replayed over the drive root through the public
+/// tools, whole. The Linux prunes cannot be driven through Node's public tool from this machine.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_scan_from_the_filesystem_root_answers_as_nodes_tools_do() {
+    let fixture: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-search/glob-fs-root.json")).unwrap();
+    let root = AbsPath::new("C:\\").unwrap();
+    let seeds = fixture["files"].as_object().unwrap().iter().map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec())).collect();
+    let mut ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    ctx.cwd = root.clone();
+    let mut failures = Vec::new();
+    for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        let args = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", "C:/")).unwrap();
+        let (is_error, text) = match call["tool"].as_str().unwrap() {
+            "glob" => text_of(GlobTool::new().call(&ctx, args).await),
+            "find" => text_of(FindTool::new().call(&ctx, args).await),
+            other => panic!("no replay for {other}"),
+        };
+        // As the recorder scrubbed Node's: the root, in either separator, is `<ROOT>`.
+        let text = text.replace("C:\\", "<ROOT>").replace("C:/", "<ROOT>");
+        if text != call["text"].as_str().unwrap() || is_error != (call["isError"] == true) {
+            failures.push(format!("#{index} {}:\n  want ({}) {:?}\n  got  ({is_error}) {text:?}", call["input"], call["isError"], call["text"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A glob-shaped `list` path bounds each candidate's stat by 1 000 ms, 64 at a time (Node `collectFindMatches`,
+/// `statPathsForMtime(…, 64, { deadlineMs: FIND_STAT_DEADLINE_MS })`), not the whole pass: a stat that never answers
+/// leaves its row with `-` at its own deadline, a stat that starts late (the 65th, once a slow one ends at 900 ms)
+/// still answers 600 ms into its own bound, past 1 000 ms of the pass, and every metadata read stays in the answer.
+/// Virtual time moves only by the advances below.
+#[tokio::test]
+async fn a_glob_shaped_list_bounds_each_stat_and_keeps_what_it_read() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-list-stat").join("ws")).unwrap();
+    let mut names = vec!["a-slow.ts".to_owned()];
+    names.extend((0..62).map(|i| format!("f{i:02}.ts")));
+    names.extend(["hang.ts".to_owned(), "z-late.ts".to_owned()]);
+    let seeds = names.iter().map(|n| (n.clone(), b"x\n".to_vec())).collect();
+    let control = Arc::new(StatControl { delays: &[("a-slow.ts", 900), ("z-late.ts", 600)], ..StatControl::default() });
+    let ctx = context_seeded(&root, Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &["hang.ts"], control.clone())), seeds).await;
+    tokio::time::pause();
+    let tool = ListTool::new();
+    let mut call = Box::pin(tool.call(&ctx, serde_json::json!({ "path": "*.ts", "limit": 0 })));
+    // No timer is pending until the stats start, so the clock stands still while the walk runs on its lane.
+    tokio::select! {
+        biased;
+        () = control.hung.notified() => {}
+        out = &mut call => panic!("answered before the never-answering stat started: {out:?}"),
+    }
+    let pending = |poll: std::task::Poll<_>, what: &str| assert!(poll.is_pending(), "answered {what}");
+    pending(futures::poll!(&mut call), "with the stats just started");
+    tokio::time::advance(std::time::Duration::from_millis(899)).await;
+    pending(futures::poll!(&mut call), "before the slow stat ended");
+    // tokio rounds a timer up to its next whole millisecond tick; the 65th stat starts here.
+    tokio::time::advance(std::time::Duration::from_millis(2)).await;
+    pending(futures::poll!(&mut call), "before the late stat started");
+    tokio::time::advance(std::time::Duration::from_millis(100)).await;
+    pending(futures::poll!(&mut call), "when the never-answering stat reached its deadline, with a later stat in its own bound");
+    tokio::time::advance(std::time::Duration::from_millis(501)).await;
+    let std::task::Poll::Ready(outcome) = futures::poll!(&mut call) else { panic!("no answer once the late stat answered") };
+    let (is_error, text) = text_of(outcome);
+    assert!(!is_error, "{text}");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 66, "{text}");
+    assert_eq!(lines.iter().filter(|l| l.ends_with("\t-\t-")).copied().collect::<Vec<_>>(), ["hang.ts\t-\t-"], "{text}");
+    assert!(lines.iter().any(|l| l.starts_with("z-late.ts\t") && !l.ends_with("\t-\t-")), "{text}");
+    assert!(lines.iter().any(|l| l.starts_with("a-slow.ts\t") && !l.ends_with("\t-\t-")), "{text}");
+    assert_eq!(lines[65], "... 1 path(s) had no metadata within 1000ms; listed with \"-\" for size/date");
+}
+
+/// A glob or find rooted at a POSIX filesystem root walks neither `/proc`, `/sys` nor `/dev`;
+/// rooted inside one of them it lists that tree (Node `rootScanIgnoreGlobs`). The filesystem
+/// root here is the in-memory service's, the drive root on Windows.
+#[tokio::test]
+async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
+    let root = AbsPath::new(if cfg!(windows) { "C:\\" } else { "/" }).unwrap();
+    let seeds = ["proc/1/status", "sys/block/sda/size", "dev/null-ish", "home/u/a.txt", "procfs.txt"]
+        .iter()
+        .map(|rel| (rel.to_string(), b"x\n".to_vec()))
+        .collect();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let listed = |entries: Vec<mixdog_core_api::domain::fs::DirEntry>| {
+        entries.into_iter().map(|e| super::common::display_under(e.path.as_path(), root.as_path())).collect::<Vec<_>>()
+    };
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true), None, None).await.unwrap();
+    assert!(walked.complete);
+    assert_eq!(listed(walked.entries), ["home/u/a.txt", "procfs.txt"]);
+    let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
+    let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None, None).await.unwrap();
+    assert_eq!(walked.entries.len(), 1);
+}
+
+/// The Linux half of row 46, which no public tool of Node's can be driven for on a Windows machine (the tool reads
+/// `process.platform` itself): Node's `rootScanIgnoreGlobs` answers (recording `tools-fs-glob-order`), each root put under the
+/// host's filesystem root, against the core's prune list. The public tools' answer from a root is
+/// `a_scan_from_the_filesystem_root_answers_as_nodes_tools_do` (Windows recording).
+#[test]
+fn root_scan_prunes_are_nodes_root_scan_ignore_globs() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-glob-order/golden.json")).unwrap();
+    let case = &doc["cases"][1];
+    assert_eq!(case["case"], "root-anchored kernel-tree prunes apply only to a posix filesystem-root scan");
+    let fs_root = std::path::PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" });
+    for answer in case["answers"].as_array().unwrap() {
+        let given = answer["root"].as_str().unwrap();
+        // No call reaches the scan without a root: a blank `path` is the cwd.
+        if given.is_empty() {
+            continue;
+        }
+        let root = AbsPath::new(given.split('/').filter(|s| !s.is_empty()).fold(fs_root.clone(), |p, s| p.join(s))).unwrap();
+        let got: Vec<String> = super::search::root_scan_prunes(&root, answer["platform"] == "linux")
+            .iter()
+            .map(|p| super::common::fwd(p.as_path().strip_prefix(root.as_path()).unwrap()))
+            .collect();
+        let want: Vec<String> = answer["globs"].as_array().unwrap().iter().map(|g| g.as_str().unwrap().trim_start_matches('!').trim_end_matches("/**").to_owned()).collect();
+        assert_eq!(got, want, "{answer}");
+    }
+}
+
+/// Past 50 000 files a bounded glob still ranks and counts every match (Node's windowed pass
+/// reports its total over the whole scope) and find still scores every file (Node's native
+/// inventory has no entry cap); an unbounded glob keeps 50 000 and says the list is incomplete.
+#[tokio::test]
+async fn glob_and_find_see_files_past_fifty_thousand_entries() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-cap").join("ws")).unwrap();
+    let mut seeds: Vec<(String, Vec<u8>)> = (0..50_000).map(|i| (format!("f/{i:05}.txt"), Vec::new())).collect();
+    seeds.push(("zz/last-one.txt".to_owned(), Vec::new()));
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let (_, glob) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "**/*.txt" })).await);
+    assert!(glob.ends_with("[entries 1-100 of 50001; offset:100 for more]"), "{}", &glob[glob.len().saturating_sub(200)..]);
+    let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "last-one" })).await);
+    assert_eq!(find, "zz/last-one.txt");
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, Vec::new(), Some(super::search::GLOB_ACCUM_CAP), None).await.unwrap();
+    assert!(walked.capped && walked.entries.len() == 50_000);
+}
+
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
 #[test]
 fn every_recorded_sequence_has_its_session_memory_test() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let recorded: Vec<&str> = doc["sequences"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(recorded, SEQUENCE_TESTS);
+}
+
+// ---------------------------------------------------------------------------
+// One broad search at a time (`search-admission-*`, `record-tools-fs-search.mjs` `recordAdmission`)
+
+/// The recorder's disk: its search server takes every search it is given and never answers (the silent stand-in) until
+/// `answer` is set, then answers what it is asked; `reached` counts the searches that got to it.
+struct SilentServer {
+    inner: Arc<dyn FileService>,
+    silent: Arc<std::sync::atomic::AtomicBool>,
+    reached: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// A search the server holds: it ends when its consumer lets it go.
+struct Held<T>(std::marker::PhantomData<fn() -> T>);
+
+#[async_trait::async_trait]
+impl<T: Send + 'static> mixdog_core_api::domain::common::EventSource<T> for Held<T> {
+    async fn next(&mut self) -> Option<T> {
+        std::future::pending().await
+    }
+}
+
+#[async_trait::async_trait]
+impl FileService for SilentServer {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.inner.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.list_dir(lane, path).await
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        self.reached.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.silent.load(std::sync::atomic::Ordering::SeqCst) {
+            return Box::new(Held(std::marker::PhantomData));
+        }
+        self.inner.walk(lane, request)
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.reached.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.silent.load(std::sync::atomic::Ordering::SeqCst) {
+            return Box::new(Held(std::marker::PhantomData));
+        }
+        Box::new(RegexSearch { inner: self.inner.clone(), walk_lane: lane, request, found: None })
+    }
+}
+
+/// The recorder's server once it answers: a content search of the files under the root by the request's regex, in path order,
+/// without the request's globs (the files of these scenarios have none of the names they exclude). The in-memory service
+/// matches its pattern as a literal, and a fan-out's combined pattern is an alternation.
+struct RegexSearch {
+    inner: Arc<dyn FileService>,
+    walk_lane: mixdog_rt::MaintenanceIo,
+    request: mixdog_core_api::domain::fs::SearchRequest,
+    found: Option<std::collections::VecDeque<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>> for RegexSearch {
+    async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>> {
+        use mixdog_core_api::domain::fs::{FsError, FsErrorKind, ReadRange, SearchMatch, WalkRequest};
+        if self.found.is_none() {
+            let mut out = std::collections::VecDeque::new();
+            match regex::RegexBuilder::new(&self.request.pattern).case_insensitive(!self.request.case_sensitive).build() {
+                Err(e) => out.push_back(Err(FsError::new(FsErrorKind::InvalidPattern { message: e.to_string() }, None))),
+                Ok(re) => {
+                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false, prune: Vec::new(), descent: Default::default(), server: None };
+                    let mut walk = self.inner.walk(self.walk_lane, walk);
+                    let mut paths = Vec::new();
+                    while let Some(Ok(entry)) = walk.next().await {
+                        paths.push(entry.path);
+                    }
+                    paths.sort();
+                    let read_lane = mixdog_rt::testing::tokens().interactive_io;
+                    'files: for path in paths {
+                        let bytes = self.inner.read(read_lane, path.clone(), ReadRange::default()).await.unwrap().bytes;
+                        for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+                            if let Some(hit) = re.find(line) {
+                                out.push_back(Ok(SearchMatch { path: path.clone(), line: index as u64 + 1, column: hit.start() as u64 + 1, text: line.to_owned() }));
+                                if self.request.first_per_file {
+                                    continue 'files;
+                                }
+                            }
+                        }
+                    }
+                    out.truncate(self.request.limit.unwrap_or(usize::MAX));
+                }
+            }
+            self.found = Some(out);
+        }
+        self.found.as_mut().and_then(|found| found.pop_front())
+    }
+}
+
+/// A call of a replay: its future, polled by [`settle`] only when it was woken, and what it answered.
+struct Pending<'a> {
+    future: std::pin::Pin<Box<dyn Future<Output = mixdog_core_api::domain::tool::ToolOutcome> + 'a>>,
+    woken: Arc<Woken>,
+    cancel: CancellationToken,
+    outcome: Option<(bool, String)>,
+    /// The call ended as a cancelled one.
+    cancelled: bool,
+    /// The local-search telemetry the call's answer carries for the trace row.
+    telemetry: Option<JsonValue>,
+}
+
+struct Woken(std::sync::atomic::AtomicBool);
+
+impl std::task::Wake for Woken {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Runs every call woken since it was last polled, until none is: every call that can go on has gone on, so a call
+/// that is still pending is waiting for the clock, a cancel or another call's end. A single task is the whole replay, so
+/// the runtime never sees it idle and moves no clock by itself.
+fn settle(calls: &mut [Pending<'_>], done: &mut Vec<usize>) {
+    loop {
+        let mut polled = false;
+        for (index, call) in calls.iter_mut().enumerate().filter(|(_, c)| c.outcome.is_none()) {
+            if call.woken.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                let waker = std::task::Waker::from(call.woken.clone());
+                if let std::task::Poll::Ready(outcome) = call.future.as_mut().poll(&mut std::task::Context::from_waker(&waker)) {
+                    call.cancelled = matches!(&outcome, Err(e) if matches!(e.code, ToolErrorCode::Cancelled));
+                    call.telemetry = outcome.as_ref().ok().and_then(|out| out.meta.as_ref()).and_then(|meta| meta.get(super::common::LOCAL_SEARCH_META)).cloned();
+                    call.outcome = Some(recorded_form(outcome));
+                    done.push(index);
+                }
+                polled = true;
+            }
+        }
+        if !polled {
+            return;
+        }
+    }
+}
+
+/// `scenario`'s steps (`recordAdmission`) replayed through the public tools on the paused clock, which moves only by the
+/// recorded ticks: every call's answer, and at each step the searches that had reached the server, must be Node's.
+async fn replay_admission(scenario: &str, fixture: &str) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let fixture: JsonValue = serde_json::from_str(fixture).unwrap();
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-search-admission").join(scenario)).unwrap();
+    let seeds: Vec<(String, Vec<u8>)> = fixture["files"].as_object().unwrap().iter().map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec())).collect();
+    let silent = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let reached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let files: Arc<dyn FileService> = Arc::new(SilentServer { inner: Arc::new(MockFileService::default()), silent: silent.clone(), reached: reached.clone() });
+    let steps = fixture["admission"].as_array().unwrap();
+    // A context of its own for each call, over the one disk, for the session (`owner`) the call ran for.
+    let mut contexts = Vec::new();
+    for step in steps.iter().filter(|s| s.get("start").is_some()) {
+        let mut ctx = context_seeded(&root, files.clone(), if contexts.is_empty() { seeds.clone() } else { Vec::new() }).await;
+        if let Some(owner) = step["owner"].as_str() {
+            ctx.thread_id = ThreadId::from(owner);
+        }
+        contexts.push((step["start"].as_str().unwrap(), ctx));
+    }
+    let tools: [(&str, Box<dyn Tool>); 4] = [("glob", Box::new(GlobTool::new())), ("find", Box::new(FindTool::new())), ("grep", Box::new(GrepTool::new())), ("list", Box::new(ListTool::new()))];
+    let ctx_of = |name: &str| &contexts.iter().find(|(n, _)| *n == name).unwrap().1;
+    let mut calls: Vec<Pending<'_>> = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    // The calls, by index, in the order they were answered.
+    let mut done: Vec<usize> = Vec::new();
+    let mut failures = Vec::new();
+    let raw = root.as_path().to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let said = |text: &str| text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+    for (index, step) in steps.iter().enumerate() {
+        let reached_now = |failures: &mut Vec<String>| {
+            let want = step.get("requests").and_then(JsonValue::as_u64);
+            if let Some(want) = want.filter(|w| *w as usize != reached.load(SeqCst)) {
+                failures.push(format!("step #{index} {step}: {} search(es) reached the server, Node's {want}", reached.load(SeqCst)));
+            }
+        };
+        if let Some(name) = step["start"].as_str() {
+            let call = &step["call"];
+            let tool = &tools.iter().find(|(n, _)| *n == call["tool"].as_str().unwrap()).unwrap().1;
+            let ctx = ctx_of(name);
+            let cancel = ctx.cancel.clone();
+            calls.push(Pending { future: Box::pin(tool.call(ctx, call["input"].clone())), woken: Arc::new(Woken(true.into())), cancel, outcome: None, cancelled: false, telemetry: None });
+            names.push(name);
+            settle(&mut calls, &mut done);
+            reached_now(&mut failures);
+            if step["until"] == "answered" {
+                match calls.last().unwrap() {
+                    Pending { outcome: Some(got), cancelled, telemetry, .. } => compare(&mut failures, index, name, (got, *cancelled), telemetry, step, &said),
+                    _ => failures.push(format!("step #{index}: {name} did not answer")),
+                }
+            }
+        } else if let Some(ms) = step["tick"].as_u64() {
+            tokio::time::advance(std::time::Duration::from_millis(ms)).await;
+            settle(&mut calls, &mut done);
+        } else if step.get("script").is_some() {
+            silent.store(false, SeqCst);
+        } else if let Some(name) = step["abort"].as_str() {
+            calls[names.iter().position(|n| *n == name).unwrap()].cancel.cancel();
+            settle(&mut calls, &mut done);
+        } else {
+            let name = step["settle"].as_str().unwrap();
+            reached_now(&mut failures);
+            match &calls[names.iter().position(|n| *n == name).unwrap()] {
+                Pending { outcome: Some(got), cancelled, telemetry, .. } => compare(&mut failures, index, name, (got, *cancelled), telemetry, step, &said),
+                _ => failures.push(format!("step #{index}: {name} had not answered")),
+            }
+        }
+    }
+    // The order the calls were answered in is the order the gate admitted them in, as it admits one at a time.
+    if let Some(want) = fixture.get("answeredOrder") {
+        let got: Vec<&str> = done.iter().map(|&i| names[i]).collect();
+        if want != &serde_json::json!(got) {
+            failures.push(format!("answered in the order {got:?}, Node's {want}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A call's outcome beside Node's: its text and failure flag. An exception Node's tool threw for the call's cancel (an
+/// abort reason's text, which is Node's runtime's) is a call the core's runtime states as cancelled: that is compared.
+fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled): (&(bool, String), bool), telemetry: &Option<JsonValue>, step: &JsonValue, said: &dyn Fn(&str) -> String) {
+    const ABORTS: [&str; 2] = ["This operation was aborted", "operation aborted"];
+    let want = &step["answer"];
+    // The local-search telemetry of the answer (the trace row's `local_search`): the same counters, each duration a number
+    // (`<ms>`: the recording machine's own time).
+    if let Some(want) = want.get("telemetry") {
+        let same = telemetry.as_ref().is_some_and(|got| {
+            let (want, got) = (want.as_object().unwrap(), got.as_object().unwrap());
+            want.len() == got.len() && want.iter().all(|(key, value)| got.get(key).is_some_and(|g| if value == "<ms>" { g.is_number() } else { g == value }))
+        });
+        if !same {
+            failures.push(format!("step #{index} {name}: telemetry {telemetry:?}, Node's {want}"));
+        }
+    }
+    if let Some(thrown) = want.get("thrown").and_then(JsonValue::as_str).filter(|t| ABORTS.contains(t)) {
+        if !cancelled {
+            failures.push(format!("step #{index} {name}: Node threw {thrown:?} for the cancel; the core answered ({}) {:?}", got.0, got.1));
+        }
+        return;
+    }
+    let (want_error, want_text) = match want.get("thrown") {
+        Some(thrown) => (true, thrown.as_str().unwrap()),
+        None => (want["isError"] == true, want["text"].as_str().unwrap()),
+    };
+    let text = said(&got.1);
+    if text != want_text || got.0 != want_error || cancelled {
+        failures.push(format!("step #{index} {name}:\n  want ({want_error}) {want_text:?}\n  got  ({}) {text:?} cancelled={cancelled}", got.0));
+    }
+}
+
+/// A waiter is refused once its wait, the search's 17.5 s budget, has passed; the holder meets its own deadline.
+#[tokio::test(start_paused = true)]
+async fn a_broad_search_waiting_past_its_budget_is_refused_as_node_refuses_it() {
+    replay_admission("search-admission-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-refused.json")).await;
+}
+
+/// The holder's end admits the waiter, which then has what its wait left of the budget.
+#[tokio::test(start_paused = true)]
+async fn a_broad_search_is_admitted_when_the_holder_ends_as_node_admits_it() {
+    replay_admission("search-admission-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-admitted.json")).await;
+}
+
+/// A cancelled waiter leaves the queue and its place with it; the holder goes on, and the next waiter is admitted at its end.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_waiter_leaves_the_gate_as_in_node() {
+    replay_admission("search-admission-waiter-cancelled", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-waiter-cancelled.json")).await;
+}
+
+/// A cancelled holder gives up the gate at once.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_holder_frees_the_gate_as_in_node() {
+    replay_admission("search-admission-holder-cancelled", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-holder-cancelled.json")).await;
+}
+
+/// A search that is not broad passes a held gate.
+#[tokio::test(start_paused = true)]
+async fn a_point_search_passes_a_held_gate_as_in_node() {
+    replay_admission("search-admission-point-search-passes", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-point-search-passes.json")).await;
+}
+
+/// A grep of several patterns sends its prefilter and its combined scan as bulk searches, which wait for the gate as a find
+/// does: the combined scan is refused when its wait is over, the prefilter takes the free gate, and the per-pattern greps
+/// that follow are not broad.
+#[tokio::test(start_paused = true)]
+async fn a_grep_fan_out_behind_a_held_gate_is_refused_after_its_wait_as_in_node() {
+    replay_admission("search-admission-grep-fanout-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-grep-fanout-refused.json")).await;
+}
+
+/// The holder's end admits the fan-out's combined scan, which the server answers.
+#[tokio::test(start_paused = true)]
+async fn a_grep_fan_out_is_admitted_when_the_holder_ends_as_in_node() {
+    replay_admission("search-admission-grep-fanout-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-grep-fanout-admitted.json")).await;
+}
+
+/// Two sessions with two searches each behind a held gate are admitted by turns, not in arrival order.
+#[tokio::test(start_paused = true)]
+async fn waiters_of_two_sessions_are_admitted_by_turns_as_in_node() {
+    replay_admission("search-admission-two-owners", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-two-owners.json")).await;
+}
+
+/// A search that waited reports no admission of its own: Node tells it to the call that handed the turn over.
+#[tokio::test(start_paused = true)]
+async fn a_waiter_reports_the_telemetry_node_reports_for_it() {
+    replay_admission("search-admission-waiter-telemetry", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-waiter-telemetry.json")).await;
+}
+
+/// A list below the first level is a broad search: refused after its wait it is answered by a walk of the folder, which leaves
+/// a noise folder out; a list of the first level passes the gate.
+#[tokio::test(start_paused = true)]
+async fn a_deep_list_behind_a_held_gate_is_refused_then_walked_as_in_node() {
+    replay_admission("search-admission-list-deep-refused", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-list-deep-refused.json")).await;
+}
+
+/// The holder's end admits the deep list, which the search server answers, listing the noise folder as an entry.
+#[tokio::test(start_paused = true)]
+async fn a_deep_list_is_admitted_when_the_holder_ends_as_in_node() {
+    replay_admission("search-admission-list-deep-admitted", mixdog_testkit::fixture!("../../fixtures/tools-fs-search/search-admission-list-deep-admitted.json")).await;
+}
+
+/// The public `list` with `depth`: rows below the first level as paths under the folder, in the locale's order, through the
+/// same window, hidden and noise rules; depths read as `parseInt` reads them, from 1 to 10.
+#[tokio::test]
+async fn list_goes_deeper_with_depth_as_node_does() {
+    replay_fs_search("list-depth").await;
+}
+
+/// A list is cut at 50,000 rows and says so; the search server's inventory that is cut falls back to the walk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deep_list_past_fifty_thousand_rows_answers_as_node_does() {
+    replay_fs_search("list-depth-past-cap").await;
+}
+
+/// Node's `read` with `tail: N`, on its recorded cases (`record-read-tail.mjs`): every accepted and refused argument shape, each
+/// answer whole and whether the caller takes it for a failed call.
+#[tokio::test]
+async fn read_with_tail_matches_the_recorded_node_cases() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/read-tail/cases.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (root, ctx) = recorded_workspace(&doc, dir.path(), true).await;
+    let cwd = root.as_path().to_string_lossy().replace('\\', "/");
+    let tool = ReadTool::new(None, None);
+    let mut failures = Vec::new();
+    let cases = doc["cases"].as_array().unwrap();
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let outcome = tool.call(&ctx, case["input"].clone()).await;
+        let got = (outcome.is_err(), summary(&outcome, &cwd));
+        let want = (case["result"]["isError"].as_bool().unwrap(), vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())]);
+        if got != want {
+            failures.push(format!("{name}\n  want {want:?}\n  got  {got:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }

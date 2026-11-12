@@ -187,11 +187,15 @@ impl SessionDirectory {
         let Caller::Connection(connection) = req.ctx.caller else {
             return Err(CoreError::InvalidParams { path: "caller".into(), expected: "a client connection".into() });
         };
+        // An answer that stored a standing grant (`remember` agent/always) tells every client its permissions changed
+        // (approval-grant-change.ts): `notifySettingsChanged('permissions')`, issued once the host accepted it and reaching clients
+        // after the answer (the reply is queued first, as Node's later-turn operation).
+        let remembered = matches!(params.result.get("remember").and_then(Value::as_str), Some("agent" | "always"));
         let accepted = match self.handle(&params.thread_id) {
             None => false,
             Some(handle) => {
                 let device = handle.deps.devices.describe(connection);
-                handle
+                let accepted = handle
                     .decide_arbitrated(Decision {
                         request: ServerRequestId(id.to_owned()),
                         connection,
@@ -200,7 +204,16 @@ impl SessionDirectory {
                         origin: req.ctx.origin,
                         result: params.result,
                     })
-                    .await?
+                    .await?;
+                if accepted && remembered {
+                    let announce = handle.deps.settings_changed.clone();
+                    let answered = req.ctx.after_answer.hold();
+                    drop(mixdog_rt::spawn("permissions-changed", mixdog_rt::TaskClass::Work, async move {
+                        answered.cancelled().await;
+                        announce("permissions");
+                    }));
+                }
+                accepted
             }
         };
         Ok(Reply::Value(serde_json::to_value(ThreadApprovalAnswerResponse { accepted }).expect("protocol types serialize")))

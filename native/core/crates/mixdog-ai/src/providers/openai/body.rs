@@ -92,7 +92,7 @@ pub fn build_with(
             codex_parity: codex,
             native_tool_search: caps.native_tool_search,
             custom_tools: true,
-            replay_reasoning: caps.reasoning,
+            replay_reasoning: caps.reasoning && !config.context.flag("MIXDOG_OAI_DISABLE_REASONING_REPLAY"),
             tool_search_replay: ToolSearchReplay::Downgrade,
             phase: true,
             system_in_input: false,

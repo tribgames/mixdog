@@ -246,6 +246,14 @@ impl FailureWriter {
         self.after_append(due);
     }
 
+    /// `traceCacheBreak(record)`: the `cache_break` row, queued behind the same buffers, and its `[cache-break]` line on
+    /// stderr.
+    pub fn record_cache_break(self: &Arc<Self>, record: &Map<String, Value>) {
+        let due = self.trace.cache_break(record, self.clock.now_ms());
+        self.after_append(due);
+        mixdog_rt::node_stderr!("{}", mixdog_trace::cache_break_line(record));
+    }
+
     fn after_append(self: &Arc<Self>, due: bool) {
         if due {
             let me = Arc::clone(self);
@@ -256,7 +264,7 @@ impl FailureWriter {
         } else if !self.armed.swap(true, Ordering::AcqRel) {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-timer", TaskClass::Work, async move {
-                tokio::time::sleep(FLUSH_AFTER).await;
+                mixdog_rt::time::sleep(FLUSH_AFTER).await;
                 me.armed.store(false, Ordering::Release);
                 me.flush().await;
             }));
@@ -494,5 +502,9 @@ impl ToolFailureLog for RunFailureLog {
 
     fn stall_abort(&self, ctx: Map<String, Value>) {
         self.writer.record_watchdog_abort(&ctx);
+    }
+
+    fn cache_break(&self, record: Map<String, Value>) {
+        self.writer.record_cache_break(&record);
     }
 }

@@ -13,7 +13,7 @@ use super::accounts::{AccountProbe, AccountScope, ScopedLaneSources, SelectedAcc
 use super::catalog::CatalogFailure;
 use super::lanes::{CatalogRows, MediaLanes, lane_auth_provider};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-accounts-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-accounts-twin.json");
 
 fn fill(value: &Value, data: &str) -> Value {
     match value {
@@ -55,7 +55,7 @@ impl AccountProbe for Probe {
 
 #[test]
 fn the_account_provider_of_a_lane_matches_nodes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["providerOf"].as_array().unwrap() {
         let lane = case["lane"].as_str().unwrap_or_default();
         // `null`, `undefined` and `7` are not lane ids: `String(laneId || '')` makes them ''
@@ -67,7 +67,7 @@ fn the_account_provider_of_a_lane_matches_nodes() {
 
 #[tokio::test]
 async fn scopes_resolve_accounts_and_lists_as_nodes_do() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let data = scratch.path().to_path_buf();
     let shown = data.to_string_lossy().into_owned();

@@ -1,8 +1,8 @@
-//! The embedding model as recall sees it. A recall waits for the model's
-//! real readiness: the load it needs completes or fails, and nothing here
-//! counts time. Three defined states give a vector or none:
+//! The embedding model as recall sees it. Three defined states give a vector or none:
 //!
-//! - ready: the query is embedded;
+//! - ready: the query is embedded; a recall that finds the model cold warms it
+//!   within its bounded wait (`recall/readiness.rs` `RecallEmbedder`, the one
+//!   cold wait), then runs on its text lanes while the load goes on;
 //! - not installed: no vector, so the recall runs on its text lanes. Installing
 //!   is a separate, progress-driven step ([`EmbeddingProvider::install`]) the
 //!   host starts; a recall never waits for a download;
@@ -10,28 +10,40 @@
 //!   new instance, after an install or repair, is the retry) and recall runs on
 //!   its text lanes.
 
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use mixdog_js::{js_trim};
-use async_trait::async_trait;
 use serde_json::{Value, json};
 use mixdog_rt::Gate;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
-use crate::memory::embed::config::{self, InputType};
+use crate::memory::embed::config;
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
-use crate::memory::embed::install;
-use crate::memory::recall::QueryEmbedder;
+use crate::memory::embed::{compress, install};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
+
+type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
+type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
 
 pub struct EmbeddingProvider {
     config: EmbedConfig,
     hub: String,
-    /// The load, shared by every caller; a failure stays.
-    loaded: OnceCell<Result<Embedder, String>>,
+    /// The load, shared by every caller; a failure stays until a dispose. Shared with the task that runs
+    /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
+    loaded: std::sync::Mutex<Loaded>,
+    /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
+    /// dispose included.
+    compress_started: Arc<std::sync::atomic::AtomicBool>,
+    load: Load,
     /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
     installing: Gate,
     tick: StateTick,
+    /// Runs `compact.exe` after the first successful load (Windows only).
+    compact: Option<compress::Compact>,
 }
 
 impl EmbeddingProvider {
@@ -41,14 +53,30 @@ impl EmbeddingProvider {
 
     /// `tick` is bumped whenever `info()` may have changed.
     pub fn with_tick(config: EmbedConfig, tick: StateTick) -> Self {
-        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing: Gate::new(), tick }
+        Self {
+            config,
+            hub: install::HUB.to_owned(),
+            loaded: std::sync::Mutex::default(),
+            compress_started: Arc::default(),
+            load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
+            installing: Gate::new(),
+            tick,
+            compact: None,
+        }
+    }
+
+    /// Compress the model cache with `compact` once the model first loads.
+    pub fn with_compaction(mut self, compact: compress::Compact) -> Self {
+        self.compact = Some(compact);
+        self
     }
 
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
     pub fn info(&self) -> Value {
         let model = js_trim(&self.config.model_id);
         // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
-        let dims = match self.loaded.get() {
+        let current = self.current();
+        let dims = match current.get() {
             Some(Ok(embedder)) => Some(embedder.dims()),
             _ => config::known_dims(model),
         };
@@ -83,29 +111,58 @@ impl EmbeddingProvider {
     }
 
     pub fn is_ready(&self) -> bool {
-        matches!(self.loaded.get(), Some(Ok(_)))
+        matches!(self.current().get(), Some(Ok(_)))
+    }
+
+    /// The current load's cell.
+    fn current(&self) -> Loaded {
+        self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// The worker's `dispose`: the loaded model (or the remembered failure) is released, so the next
+    /// warmup loads again.
+    pub fn dispose(&self) {
+        *self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Loaded::default();
+        self.tick.bump();
     }
 
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
     /// not installed; `Err` is the remembered load failure.
     pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
-        if let Some(loaded) = self.loaded.get() {
+        if let Some(loaded) = self.current().get() {
             return loaded.clone().map(Some);
         }
         if !self.is_installed().await.map_err(|e| e.to_string())? {
             return Ok(None);
         }
-        let config = self.config.clone();
-        let tick = self.tick.clone();
-        self.loaded
-            .get_or_init(|| async move {
-                let outcome = Embedder::load(config).await.map_err(|e| e.message());
-                tick.bump();
-                outcome
-            })
-            .await
-            .clone()
-            .map(Some)
+        self.load_future().await.map(Some)
+    }
+
+    /// The shared load, as an owned future a task can run to its end.
+    fn load_future(&self) -> impl Future<Output = Result<Embedder, String>> + Send + 'static {
+        let (loaded, load, config, tick, compact) = (self.current(), self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
+        let started = self.compress_started.clone();
+        async move {
+            loaded
+                .get_or_init(|| async move {
+                    let outcome = load(config.clone()).await;
+                    tick.bump();
+                    if let (Ok(_), Some(compact)) = (&outcome, compact)
+                        && !started.swap(true, std::sync::atomic::Ordering::AcqRel)
+                    {
+                        mixdog_rt::spawn("embedding-model-compress", mixdog_rt::TaskClass::Work, async move {
+                            match compress::compress_model_cache(cfg!(windows), config.lane, &config.cache_dir, js_trim(&config.model_id), &compact).await {
+                                Ok(Some(dir)) => tracing::info!("[embed-worker] model cache LZX compressed: {}", dir.display()),
+                                Ok(None) => {}
+                                Err(error) => tracing::info!("[embed-worker] model cache LZX compression skipped: {error}"),
+                            }
+                        });
+                    }
+                    outcome
+                })
+                .await
+                .clone()
+        }
     }
 
     /// Downloads whatever is missing or damaged, reporting bytes as they
@@ -132,12 +189,31 @@ impl EmbeddingProvider {
     }
 }
 
-#[async_trait]
-impl QueryEmbedder for EmbeddingProvider {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        let embedder = self.warmup().await.ok().flatten()?;
-        let vector = embedder.embed(text, InputType::Query).await.ok()?;
-        (!vector.is_empty()).then(|| vector.to_vec())
+#[cfg(test)]
+impl EmbeddingProvider {
+    /// A provider over `cache` whose model files are present and whose load is `load`: the embedding worker the
+    /// recordings script (`record-memory-cold-recall.mjs`).
+    pub(crate) fn installed_with_load(
+        cache: &std::path::Path,
+        load: impl Fn() -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync + 'static,
+    ) -> Self {
+        let config = EmbedConfig {
+            model_id: config::DEFAULT_MODEL_ID.to_owned(),
+            cache_dir: cache.to_path_buf(),
+            ort_library: std::path::PathBuf::new(),
+            dtype: None,
+            sessions: 1,
+            lane: mixdog_rt::testing::tokens().cpu_bulk,
+        };
+        let graph = install::required_files(&config).graph;
+        for (file, body) in [("tokenizer.json", "{}"), ("tokenizer_config.json", "{}"), (graph.as_str(), "graph")] {
+            let path = install::model_path(&config.cache_dir, config::DEFAULT_MODEL_ID, file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let mut provider = Self::new(config);
+        provider.load = Arc::new(move |_| load());
+        provider
     }
 }
 

@@ -17,11 +17,11 @@ use super::run::{Cycle1Result, EmbeddingDirty, merge_cycle1_results, pack_cycle1
 use super::signature::{make_cycle_request_signature, parse_interval, periodic_cycle_due, scheduled_cycle1_signature};
 use super::{Cycle1Llm, Cycle1Request};
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/memory-jobs/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
 const FROZEN: i64 = 1_800_000_000_000;
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden parses")
+    serde_json::from_str(&GOLDEN).expect("golden parses")
 }
 
 fn num(value: &Value) -> f64 {
@@ -283,7 +283,8 @@ fn prompts_budgets_and_quality_equal_node() {
         let root = &case["root"];
         let members = rows(&root["members"]);
         let quality = Some(&root["chunk_quality"]).filter(|q| !q.is_null());
-        let (usable, reasons) = assess_chunk_quality(root["summary"].as_str().unwrap(), quality, &members);
+        let assessment = assess_chunk_quality(root["summary"].as_str().unwrap(), quality, &members);
+        let (usable, reasons) = (assessment.usable, assessment.reasons);
         assert_eq!(usable, case["result"]["usable"].as_bool().unwrap(), "{case}");
         assert_eq!(json!(reasons), case["result"]["reasons"], "{case}");
     }

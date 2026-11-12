@@ -64,9 +64,14 @@ pub fn model_tool_allowlist(profile: ToolProfile) -> Option<&'static [&'static s
 /// The allowlist of the profile a thread was started under (`toolProfile` on its header), which fences the
 /// standalone tools (`filterModelToolsForProfile`); a caller's own `schemaAllowedTools` does not.
 pub fn header_profile_allowlist(header: &Header) -> Option<&'static [&'static str]> {
+    header_tool_profile(header).and_then(model_tool_allowlist)
+}
+
+/// The narrowed profile a thread was started under (`toolProfile` on its header); `None` for the interactive one.
+pub fn header_tool_profile(header: &Header) -> Option<ToolProfile> {
     match header.get("toolProfile").and_then(Value::as_str) {
-        Some("headless") => model_tool_allowlist(ToolProfile::Headless),
-        Some("heartbeat") => model_tool_allowlist(ToolProfile::Heartbeat),
+        Some("headless") => Some(ToolProfile::Headless),
+        Some("heartbeat") => Some(ToolProfile::Heartbeat),
         _ => None,
     }
 }
@@ -214,7 +219,7 @@ mod tests {
     /// its profile; the one `write_header` persists is exactly that list, in that order.
     #[test]
     fn the_profile_allowlists_are_the_ones_node_recorded() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-resolution/golden.json")).expect("golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-resolution/golden.json")).expect("golden");
         let mut seen = std::collections::BTreeMap::new();
         for case in golden["cases"].as_array().expect("cases") {
             let input = &case["input"];

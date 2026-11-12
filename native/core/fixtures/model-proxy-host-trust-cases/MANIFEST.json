@@ -1,6 +1,6 @@
 {
-  "cases": 6,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "cases": 7,
+  "command": "node --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-env.mjs --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "Same hop as model-proxy-host-cases (the session connection, JSON over HTTP): every crossing message is recorded as its text under each case's `wire`.",
     "notRun": "no real provider (scripted send functions)",
@@ -14,19 +14,19 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 557738,
+      "bytes": 571533,
       "path": "golden.json",
-      "sha256": "f9ca4282080039bbf84f3a545b54ac7c93ff7e67b9ec89d99de5d25b27b6ebcf"
+      "sha256": "ccc54dd939c8ab40ad7d941def59b229861c675f461d818a7b2e90f61f2b9565"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "162d94935f08f5744da888553b7893584d1f8da76f2a2eb0d58ea6a4715e238f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -80,29 +80,83 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "2b7239402d0437935722e1a6114934fba6e6e0f0f93a72d85770532d8eb88761",
+  "recorderSha256": "9cc4e153b6e263985aa779088bde857f6719f7ba872f8e3cc21d547b2a1e3734",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
-    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",
-    "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the PC host (claims bounded by maxSnapshotEntries, in-flight byte limits, projected callbacks): no counterpart found"
+    "declaredExclusions": [
+      {
+        "case": "the size of a payload is the length of the string the server claimed",
+        "keys": [
+          "resolveArgs"
+        ],
+        "reason": "Node's refusal travels in a resolve operation of the replaced protocol; the K1 refusal is the failure answer of modelProxy/run, whose code, status and words are compared with the refusal of the aggregate-limit case"
+      }
     ],
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references; mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs:184 ModelProxyService::call (the `modelProxy/run` request: admission by payload size, then the run and its typed events).",
+    "existsButNotPublicOnO1": [],
+    "fieldMap": {
+      "1,000 advertised ids never produce more claims than one snapshot may name": {
+        "maxSnapshotEntries / advertised / rounds / claims": "no snapshot exists on the typed protocol: each call is its own modelProxy/run request (mixdog-app-protocol/src/methods.rs:4338); the server does not count them against its class cap (mixdog-app-server/src/server.rs, the cap of modelProxy/run), as Node's host has none: the recorded burst of case 4 is admitted whole (mixdog-app-server tests/admission.rs the_recorded_burst_and_refusal_reach_the_real_model_proxy_service_from_the_wire); each call is one frame of at most maxInboundFrameBytes, tested by a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame"
+      },
+      "a burst of sends all run, with no rate or concurrency refusal": {
+        "hostRunningAfter": "ModelProxyService::close returns at once: no run left",
+        "sends / results[].content": "30 concurrent modelProxy/run calls on ModelProxyService; each answers `sent` and its textDelta events fold to the content"
+      },
+      "a stored-attachment reference from a server never reads this PC’s attachment store": {
+        "pcSecretBase64 / readBackHere / stored": "the PC's own store: ProxyRunner (model_proxy.rs:864) holds no attachment store; asserted absent from what the provider saw",
+        "request.messages[0].content[0] (text)": "ProxyPart::Text -> providerSaw[0].content[0], compared",
+        "request.messages[0].content[1] (image with attachmentRef)": "unrepresentable: ProxyImage (mixdog-app-protocol/src/v2/model_proxy.rs:55) is base64, url or file id; the three typed forms are sent and reach the provider unchanged",
+        "request.messages[0].content[2].content[0] (file with attachmentRef, filename)": "a tool message's ProxyPart::File { source: Unavailable (v2/model_proxy.rs:67), filename } -> the provider's text part, compared with providerSaw[0].content[2].content[0].text",
+        "request.provider / method / model": "ProxyCall::Send { provider: \"openai\" } with model \"gpt\""
+      },
+      "callbacks reach the server only allowlisted and projected; account ids stay on this PC": {
+        "allowlistedCallbacks": "the CALLBACKS table of the replay test: each Node callback and the ProxyEvent variants that carry it, keys compared in order",
+        "deltas (onStreamDelta of a 200-char string)": "unrepresentable: onStreamDelta's kind is the ProxyProgress enum (v2/model_proxy.rs:596), never free text",
+        "excluded[] {name, index, pointer, reason, message}": "ProxyEvent::ToolExcluded (v2/model_proxy.rs:653), each string redacted",
+        "providerName / accounts / tools / networkAttempts": "the recorder's inputs: the provider and its two accounts, the two tools it was sent (the first has an invalid schema, its name carries the credential-shaped text) and, per network attempt, whether the server's secret hook was known; the replay reads the tools and the second account's id from them",
+        "result.content": "the textDelta events of the run, folded; the provider is scripted with the recorder's own 'ok', and the run's whole ordered event list is compared in the order Node's wire recorded the callbacks, which is the order a real send raises them (see the recorder's comment: the request body's tool report at each account attempt, the switch between attempts, the committed change last): tool excluded, account switching, tool excluded, account changed (onStreamDelta has no typed event); the text and the scripted stream's completed event close the list",
+        "result.providerMetadata": "carried as ProxyEvent::AccountRouting { provider, accountId, sessionAccountId } (v2/model_proxy.rs) by a pool that stamps it, and back on the history as ProxyMessage.accountRouting: without the history carry the next turn of a conversation through the proxy would not be kept on the account that served the last (Node's pool reads it from the history, account-pool.mjs sessionAccountId / customKeyServedBy) and would land on another key, with its cache and quota. The typed completion has no other provider metadata. The provider of this case is scripted and raises no AccountRouting, so the replay's event list is only the recorded callbacks and the account id of the roster's switch stays on this PC; the history carry is tested by the_account_that_served_an_answer_rides_on_the_history (model_proxy_tests.rs) and the key binding by the recorded gateway cases (registry/gateway_replay.rs)",
+        "result.secretHookKnown / secretHookCalled": "unrepresentable: a typed request (ProxyOptions, v2/model_proxy.rs:194) carries no callback, so a provider cannot learn of one",
+        "secretShapedInput": "a note of the recorder",
+        "stages[account-changed] {provider, at}": "ProxyEvent::AccountChanged { provider, at } (v2/model_proxy.rs:646): the account id is not a field of the event",
+        "stages[reconnecting].message": "ProxyEvent::AccountSwitching { message }, redacted (redacted_text, 2,000)"
+      },
+      "payloads past the aggregate in-flight limit are refused, and so are oversized event replies": {
+        "maxInflightBytes / payloadChars / secondCall": "ModelProxyService (mixdog-core-domains ai_admin/model_proxy_service.rs admit) refuses as Node's admitPayload does: a call whose payload (the UTF-16 length of the call's JSON as claimed, `payload.length`: claimed_chars) would take the data held by the calls in flight past maxInflightBytes (recorded as 3,000; the service's default is Node's 256 MiB) is the failure MODEL_PROXY_BUSY, status 429, with Node's words, before any provider is looked up, and a call past 128 MiB is MODEL_PROXY_REQUEST_TOO_LARGE (413); replayed from the wire through the server's admission by the_recorded_burst_and_refusal_reach_the_real_model_proxy_service_from_the_wire and by a_call_that_would_take_the_data_held_past_its_bound_is_refused_as_busy; a frame past maxInboundFrameBytes is refused before it is parsed (mixdog-app-protocol/src/rpc.rs:142), tested by a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame",
+        "oversizedReply / hostOperations": "a run sends notifications and asks the peer nothing (model_proxy_service.rs RunEvents::emit), so there is no peer reply to bound; any inbound frame is under the same frame bound"
+      }
+    },
+    "missingOnO1": [],
     "normalised": {
       "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)",
       "heartbeats": "the heartbeat interval runs on the virtual clock (armed/fired/pending recorded per case under timers); no heartbeat operation fires unless advanced"
     },
     "protocolMethods": [],
+    "replaced": {
+      "keys": [
+        "wire",
+        "timers"
+      ],
+      "protocol": "Node's claim/event/resolve host (modelProxyClaim/Event/Resolve, the heartbeat and its snapshot event) is replaced by the typed modelProxy/run request and its modelProxy/run/event notifications: mixdog-app-protocol/src/inventory.rs:848-858 marks the three operations Deleted",
+      "reason": "every case's `wire` lines and `timers` are the envelope and heartbeat of the replaced protocol; what each case pins is compared through fieldMap"
+    },
+    "replayTests": "mixdog-core/src/run_host/model_proxy_trust_replay_tests.rs drives `modelProxy/run` on ModelProxyService (mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs, the service compose_flip.rs registers) over ProxyRunner (model_proxy.rs:864) with a scripted provider, and reads the typed `modelProxy/run/event` notifications; mixdog-app-server tests/admission.rs `the_recorded_burst_and_refusal_reach_the_real_model_proxy_service_from_the_wire` sends the recorded burst and the recorded refusal as JSON-RPC frames through the server's admission to the real ModelProxyService; mixdog-ai/src/service/model_proxy_trust_replay_tests.rs replays \"inline attachment data passes untouched, and nesting is bounded\" through without_attachment_references (mixdog-ai/src/service/model_proxy.rs:76), which request_in applies to every free-form JSON field (model_proxy.rs part_in/message_in -> plain_json).",
     "rustTargets": [
       {
         "line": 76,
         "name": "without_attachment_references",
         "path": "native/core/crates/mixdog-ai/src/service/model_proxy.rs"
+      },
+      {
+        "line": 184,
+        "methods": "the `modelProxy/run` request: admission by payload size, then the run and its typed events",
+        "name": "ModelProxyService::call",
+        "path": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-trust-cases",
-  "totalBytes": 557738,
+  "totalBytes": 571533,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

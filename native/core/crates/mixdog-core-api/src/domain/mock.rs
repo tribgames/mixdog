@@ -402,6 +402,7 @@ impl ModelListing for MockProvider {
 
 #[async_trait]
 impl ProviderAdapter for MockProvider {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -1053,6 +1054,7 @@ impl FileService for MockFileService {
             .under(&request.root, request.recursive)
             .into_iter()
             .filter(|e| request.include_dirs || e.kind != EntryKind::Dir)
+            .filter(|e| !request.prune.iter().any(|p| e.path.as_path().starts_with(p.as_path())))
             .map(Ok);
         Box::new(VecSource::new(entries))
     }
@@ -1095,6 +1097,7 @@ impl FileService for MockFileService {
                 }
             }
         }
+        matches.truncate(request.limit.unwrap_or(usize::MAX));
         Box::new(VecSource::new(matches))
     }
 }

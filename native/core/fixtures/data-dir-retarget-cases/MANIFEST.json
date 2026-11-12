@@ -17,7 +17,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -70,19 +70,19 @@
   "recorderSha256": "a8a5316e7d9c7b36e5d27a5438e34b9c6952fbd4b7b0981a67d69b45a578673b",
   "replay": {
     "compare": "mixdog-core config / turn-snapshot store: set the data dir twice at runtime and compare the config path, the written section and the snapshot dir",
-    "entry": "NO RUST ENTRY ON o1: no public counterpart: settings.rs:98 `with_data_dir` sets the bot store directory of the onboarding summary, not the data dir the config follows; readSection / updateSection under a data dir changed after start: config/mod.rs:629 `update` is the nearest and its data-dir following is not shown; the turn snapshot store root: no public function that takes the data dir.",
+    "entry": "The core is composed over one data directory: mixdog-app-server-daemon/src/compose_flip.rs config_file(data_dir) -> mixdog-core-config Config::open / Config::update, and the turn review store under the same directory (mixdog-core-review turn_review Store::save_turn_snapshot_record). Node read MIXDOG_DATA_DIR at each call; the core equivalent of the retarget is a core started over the second directory.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "no public counterpart: settings.rs:98 `with_data_dir` sets the bot store directory of the onboarding summary, not the data dir the config follows",
-      "readSection / updateSection under a data dir changed after start: config/mod.rs:629 `update` is the nearest and its data-dir following is not shown",
-      "the turn snapshot store root: no public function that takes the data dir"
-    ],
+    "missingOnO1": [],
     "normalised": {
       "dataDirs": "<first> / <second>"
     },
     "protocolMethods": [],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "retarget": "Node's case moves MIXDOG_DATA_DIR inside one process (a test affordance: shared/data-dir-retarget.test.mjs). No shipped client retargets a running instance: the variable is set once at start (src/standalone/daemon.mjs:131, src/session-runtime/services/seeds.mjs:24) and once per worker thread from its own workerData (src/runtime/agent/orchestrator/session/store/summary-rebuild-worker.mjs:4, catalog-db/worker.mjs:260). The core is composed over one directory per instance; the replay keeps the instance over the first directory running while the second directory's instance takes the writes, and compares what Node's case compared.",
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": {
+      "config and turn snapshot records follow a runtime MIXDOG_DATA_DIR retarget": "mixdog-app-server-daemon session_host_replay_tests::the_config_and_turn_snapshots_follow_the_data_directory_as_node_recorded"
+    }
   },
   "set": "data-dir-retarget-cases",
   "totalBytes": 780,

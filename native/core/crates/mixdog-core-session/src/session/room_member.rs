@@ -19,7 +19,12 @@ fn room_row_of(item: &ThreadItem) -> Option<Value> {
     let ThreadItem::RoomRow { room, text, meta, .. } = item else { return None };
     let id = meta.message_id.clone()?;
     let Value::Object(mut row) = serde_json::to_value(room.as_ref()).ok()? else { return None };
+    // Node's row is the item's `room` (`roomRowItem`: the stored payload, then the message id and time) with its text.
+    let at = row.shift_remove("at");
     row.insert("id".into(), json!(id));
+    if let Some(at) = at {
+        row.insert("at".into(), at);
+    }
     let words = match text {
         MaybeBlob::Inline(text) if matches!(room.kind, RoomRowKind::User | RoomRowKind::Speech) => text.clone(),
         _ => String::new(),

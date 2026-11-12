@@ -1,0 +1,44 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-owner-lock.mjs --tree <tree>",
+  "exclusions": "The order racers answer in is not recorded: a race records its racer count and how many held. The lock-file deletion step of the Node test (platform dependent) is not recorded.",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 744,
+      "path": "golden.json",
+      "sha256": "ed9b5f6c0f9b11b302d0f5250e8463ffec5e071157a50f7a860d812c133a4e40"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-owner-lock.mjs",
+  "recorderSha256": "6c144e68296e1448b65c24f7a65483fac18b2410cdb2bd8042ebf5d4a32fde1f",
+  "set": "owner-lock",
+  "totalBytes": 744
+}

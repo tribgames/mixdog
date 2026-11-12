@@ -86,6 +86,9 @@ pub enum Section {
     /// Fields of the runtime section's `spinner` alone, laid over the spinner it holds (`set({ spinner: { ...spinner, ... } })`);
     /// nothing while no spinner is shown. The rest of the section stays as it was.
     Spinner(serde_json::Map<String, Value>),
+    /// `spinner.quiet` of the runtime section alone (`None` clears it): the running turn's quiet state (`turn-quiet.mjs`
+    /// `set({ spinner: { ...spinner, quiet } })`). The rest of the section stays as it was.
+    SpinnerQuiet(Option<Value>),
     Route(ThreadRoute),
     Context(ThreadContext),
     Todo(Option<Value>),

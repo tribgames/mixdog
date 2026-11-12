@@ -189,6 +189,17 @@ impl SessionOps for DirectorySessions {
         self.request(&thread, "thread/clear", Self::op_params(&thread, json!({}))).await.map(|_| ()).map_err(port)
     }
 
+    async fn set_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        self.patch(session_id, Map::from_iter([("roomMembers".to_owned(), json!(members))])).await
+    }
+
+    async fn seed_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        match self.header(session_id).await? {
+            Some(header) if !header.contains_key("roomMembers") => self.set_room_members(session_id, members).await,
+            _ => Ok(()),
+        }
+    }
+
     async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
         let thread = ThreadId::from(session_id);
         match self.request(&thread, "thread/delete", Self::op_params(&thread, json!({}))).await {
@@ -247,6 +258,14 @@ mod tests {
         sessions.set_retired_title("home_free", "[mixdog-runtime]").await.unwrap();
         assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("title"), Some(&json!("Ada the bot")));
         sessions.set_retired_title("nope", "Ada").await.unwrap();
+        // A log without the record of its room's members is given it; one that has it keeps what its room's changes wrote.
+        let members = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        sessions.seed_room_members("home_free", &members(&["lead", "bench"])).await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("roomMembers"), Some(&json!(["lead", "bench"])));
+        sessions.set_room_members("home_free", &members(&["lead"])).await.unwrap();
+        sessions.seed_room_members("home_free", &members(&["lead", "bench"])).await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("roomMembers"), Some(&json!(["lead"])));
+        sessions.seed_room_members("nope", &members(&["lead"])).await.unwrap();
         sessions.set_archived("home_bench", true).await.unwrap();
         // An empty conversation keeps no archive copy and clears in place.
         sessions.clear("home_bench", "arch_1").await.unwrap();

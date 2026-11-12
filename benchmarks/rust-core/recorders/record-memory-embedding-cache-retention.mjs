@@ -6,9 +6,13 @@
 // DELETEs, a DELETE that removes nothing, a failing query.
 //
 //   node benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs --tree <dir>
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { NODE_COMMIT, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { nodeTreeIdentity, parseArgs, resolveTree } from './lib/common.mjs';
 
-const ctx = begin();
+// Exactly NODE_COMMIT, or with `--patch <file>` NODE_COMMIT plus that Node fix.
+const args = parseArgs();
+const tree = resolveTree(args);
+const ctx = { tree, identity: nodeTreeIdentity(args, tree, NODE_COMMIT) };
 const { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows, DEFAULT_EMBED_CACHE_MAX_ROWS } = await importFrom(ctx.tree, 'src/runtime/memory/lib/embedding-cache-retention.mjs');
 
 const resolve = [];
@@ -70,8 +74,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'resolveEmbeddingCacheMaxRows and pruneEmbeddingCache (embedding-cache-retention.mjs)', notRun: 'a real database: db.query is a scripted endpoint that records statements; the last prune call (no options) uses the default cap from the environment' },
-    rustWork: "The recorded pruning results (rows deleted, rows kept, cap resolution) have no public observation in Rust: the public flush (mixdog-services memory/ingest/embed_flush.rs:114 RawEmbedFlush::flush, which calls prune at :341 with cache_max_rows :80, private) returns only attempted/embedded, and a pruning error becomes a log line, not a result. Work for the Rust side before a replay can compare these recordings: surface the prune outcome (rows deleted / error) in the flush result or another public observation, or compare through the entries/cache table rows after a flush and declare the swallowed error as not observable",
-    replay: 'public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). NODE BUG recorded as is: resolveEmbeddingCacheMaxRows(\'0.5\') returns 0 (a positive fraction floors to 0, which wipes the cache); fix proposed in D:\\mixdog-build\\tmp\\node-patches\\node-fix-embedding-cache-max-rows.patch',
+    replay: 'public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). Recorded from Node with benchmarks/rust-core/recorders/node-patches/node-fix-embedding-cache-max-rows.patch (pass --patch): at b6f10295a resolveEmbeddingCacheMaxRows(\'0.5\') returned 0 (a positive fraction floored to a zero-row cap that wipes the cache, while 0 itself is refused); the patch and its test make it invalid as 0 is, as the core resolves it. The flush returns the prune outcome or error (FlushOutcome::pruned)',
     exclusions: 'none',
     normalised: { none: 'no run-dependent value' },
   },

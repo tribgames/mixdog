@@ -19,7 +19,7 @@ fn text<'a>(case: &'a Value, key: &str) -> &'a str {
 
 #[test]
 fn every_edit_writes_what_node_writes() {
-    let golden: Value = serde_json::from_str(include_str!("../golden/skillfm.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/skillfm.json")).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     let mut exact = 0;
     let mut by_data = 0;

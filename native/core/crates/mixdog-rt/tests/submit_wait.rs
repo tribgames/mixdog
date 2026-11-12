@@ -16,7 +16,6 @@ use std::time::Duration;
 use mixdog_rt::Backend;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::JobHandle;
-use mixdog_rt::LaneFull;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::SubmitWaitError;
@@ -29,10 +28,7 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        config.cpu_bulk = PoolParams {
-            threads: 2,
-            queue: 2,
-        };
+        config.cpu_bulk = PoolParams::fixed(2, 2, 8);
         mixdog_rt::exec::boot(config).expect("boot")
     })
 }
@@ -68,7 +64,7 @@ impl Gate {
     }
 }
 
-/// Fills `cpu_bulk` (2 threads running, 2 queued) with jobs that wait for `gate`.
+/// Fills `cpu_bulk` (2 threads running, 2 queued: its room) with jobs that wait for `gate`.
 fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
     let tokens = rt().1;
     let (started_tx, started_rx) = mpsc::channel();
@@ -86,7 +82,7 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
         );
     }
     for _ in 0..2 {
-        started_rx.recv().unwrap();
+        started_rx.recv_timeout(Duration::from_secs(60)).expect("both cpu-bulk threads are held");
     }
     for _ in 0..2 {
         let gate = gate.clone();
@@ -97,20 +93,9 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
                 .unwrap(),
         );
     }
-    assert_eq!(
-        tokens
-            .cpu_bulk
-            .submit(&CancellationToken::new(), |_| ())
-            .err(),
-        Some(LaneFull {
-            lane: mixdog_rt::LaneKind::CpuBulk
-        })
-    );
+    let lane = rt().0.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::CpuBulk).unwrap();
+    assert_eq!((lane.queue_depth, lane.room), (2, 2), "the queue holds its room");
     handles
-}
-
-async fn settle() {
-    tokio::time::sleep(Duration::from_millis(50)).await;
 }
 
 #[test]
@@ -144,12 +129,11 @@ fn cancelling_the_token_ends_the_wait() {
     let cancel = CancellationToken::new();
 
     let result = block_on(async {
-        let canceller = cancel.clone();
-        tokio::spawn(async move {
-            settle().await;
-            canceller.cancel();
-        });
-        tokens.cpu_bulk.submit_wait(&cancel, |_| ()).await
+        let mut waiting = pin!(tokens.cpu_bulk.submit_wait(&cancel, |_| ()));
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+        assert!(polled.is_pending(), "the full lane makes the caller wait");
+        cancel.cancel();
+        waiting.await
     });
     assert_eq!(result.err(), Some(SubmitWaitError::Cancelled));
     gate.open();
@@ -201,10 +185,10 @@ fn every_waiter_is_served_as_room_frees() {
     let done = Arc::new(AtomicUsize::new(0));
 
     block_on(async {
-        let waiters: Vec<_> = (0..6)
+        let mut waiters: Vec<_> = (0..6)
             .map(|_| {
                 let done = done.clone();
-                tokio::spawn(async move {
+                Box::pin(async move {
                     let cancel = CancellationToken::new();
                     let handle = tokens
                         .cpu_bulk
@@ -217,12 +201,18 @@ fn every_waiter_is_served_as_room_frees() {
                 })
             })
             .collect();
-        settle().await;
+        // One poll queues a waiter behind the full lane: all six are waiting before room frees.
+        for waiting in &mut waiters {
+            let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+            assert!(polled.is_pending(), "the full lane makes every caller wait");
+        }
         assert_eq!(done.load(SeqCst), 0);
         gate.open();
-        for w in waiters {
-            w.await.unwrap();
-        }
+        std::future::poll_fn(|cx| {
+            waiters.retain_mut(|waiting| waiting.as_mut().poll(cx).is_pending());
+            if waiters.is_empty() { std::task::Poll::Ready(()) } else { std::task::Poll::Pending }
+        })
+        .await;
     });
     assert_eq!(done.load(SeqCst), 6);
     for h in held {

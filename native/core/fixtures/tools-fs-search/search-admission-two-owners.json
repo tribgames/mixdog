@@ -1,0 +1,138 @@
+{
+  "name": "search-admission-two-owners",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n",
+    "u/e.ts": "e\n",
+    "u/f.ts": "f\n",
+    "u/g.ts": "g\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "cancellable": true,
+      "owner": "H",
+      "requests": 1
+    },
+    {
+      "start": "A0",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "a",
+          "path": "t"
+        }
+      },
+      "until": "queued",
+      "owner": "A",
+      "requests": 1
+    },
+    {
+      "start": "A1",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "d",
+          "path": "u"
+        }
+      },
+      "until": "queued",
+      "owner": "A",
+      "requests": 1
+    },
+    {
+      "start": "B2",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "e",
+          "path": "u"
+        }
+      },
+      "until": "queued",
+      "owner": "B",
+      "requests": 1
+    },
+    {
+      "start": "B3",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "f",
+          "path": "u"
+        }
+      },
+      "until": "queued",
+      "owner": "B",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "abort": "holder"
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "thrown": "operation aborted"
+      }
+    },
+    {
+      "settle": "A0",
+      "answer": {
+        "text": "a.ts",
+        "isError": false
+      }
+    },
+    {
+      "settle": "A1",
+      "answer": {
+        "text": "d.ts",
+        "isError": false
+      }
+    },
+    {
+      "settle": "B2",
+      "answer": {
+        "text": "e.ts",
+        "isError": false
+      }
+    },
+    {
+      "settle": "B3",
+      "requests": 5,
+      "answer": {
+        "text": "f.ts",
+        "isError": false
+      }
+    }
+  ],
+  "answeredOrder": [
+    "holder",
+    "A0",
+    "B2",
+    "A1",
+    "B3"
+  ]
+}

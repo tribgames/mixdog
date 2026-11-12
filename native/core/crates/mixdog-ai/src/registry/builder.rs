@@ -3,9 +3,9 @@
 //! config entry, its credentials and the host's seams.
 //!
 //! Admission and account rotation wrap sends above the adapter, so each
-//! built adapter is the plain one. `mixdog-local` is not built here: its
-//! adapter is made per turn from the endpoint the managed runtime reports
-//! (`providers::local::adapter`).
+//! built adapter is the plain one. `mixdog-local` is registered over the host's
+//! managed runtime (`BuilderEnv::local`): its server, and so its endpoint, starts on a send
+//! (`providers::local::RegisteredAdapter`).
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::ids::ProviderId;
@@ -100,6 +101,7 @@ use crate::providers::openai::config::ModelFactsSource;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
+use crate::providers::openai::switch::TransportMode;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
 use crate::transport::preconnect::Preconnect;
@@ -146,6 +148,9 @@ pub struct BuilderEnv {
     pub io: CredentialIo,
     /// `providerAvailable`: names a Developer option currently gates off.
     pub gated_off: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    /// The managed local runtime `mixdog-local` is registered over (`ensureLocalProviderServer`,
+    /// `installedLocalProviderModels`); a host without one cannot enable that provider.
+    pub local: Option<Arc<dyn crate::providers::local::LocalRuntime>>,
 }
 
 /// A built custom provider and its listing (see [`DefaultProviderBuilder::build_custom_parts`]).
@@ -446,6 +451,20 @@ impl ApiKeySource for FixedKey {
     }
 }
 
+/// `openRouterCapabilityModel`: the Claude id a routing slug stands for. An alias (`~anthropic/claude-opus-latest`) reads
+/// its catalog `alias_target`; the `~`, the `anthropic/` vendor prefix and a `:variant` suffix drop.
+fn openrouter_capability_model(model: &str, alias_target: Option<&str>) -> String {
+    let named = alias_target.filter(|alias| !alias.is_empty()).unwrap_or(model);
+    let named = named.strip_prefix('~').unwrap_or(named);
+    let named = match named.get(..10) {
+        Some(prefix) if prefix.eq_ignore_ascii_case("anthropic/") => &named[10..],
+        _ => named,
+    };
+    // `/:[^/]*$/`: the first colon with no slash after it.
+    let variant = named.char_indices().find(|(at, c)| *c == ':' && !named[*at + 1..].contains('/'));
+    variant.map_or(named, |(at, _)| &named[..at]).to_owned()
+}
+
 fn custom_invalid(message: &str) -> String {
     format!("[custom-provider] {message}")
 }
@@ -551,11 +570,25 @@ impl ApiKeySource for OpenCodeKey {
 /// `ws-full`, `ws-delta`, unset or unknown) is WebSocket-first, and the
 /// HTTP replay on a WebSocket failure is decided above the adapter.
 fn openai_transport(raw: Option<String>) -> TransportKind {
-    let v = raw.unwrap_or_default().trim().to_lowercase();
-    let v: String = v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-    match v.as_str() {
+    match openai_mode_token(raw).as_str() {
         "http-sse" | "httpsse" | "http" | "sse" | "http/sse" => TransportKind::Http1,
         _ => TransportKind::WebSocket,
+    }
+}
+
+/// `_normalizeTransportMode`: the setting trimmed, lower-cased, spaces and underscores collapsed to `-`.
+fn openai_mode_token(raw: Option<String>) -> String {
+    let v = raw.unwrap_or_default().trim().to_lowercase();
+    v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-")
+}
+
+/// The pin `MIXDOG_OAI_TRANSPORT` puts on the WebSocket (`resolveResponsesTransportPolicy`): `ws-full` sends full
+/// frames, `ws-delta` delta frames, neither moves to HTTP/SSE; every other setting is `auto`.
+pub fn openai_mode(raw: Option<String>) -> TransportMode {
+    match openai_mode_token(raw).as_str() {
+        "ws-full" | "wsfull" | "full" | "ws" | "websocket-full" => TransportMode::WsFull,
+        "ws-delta" | "wsdelta" | "delta" | "websocket-delta" => TransportMode::WsDelta,
+        _ => TransportMode::Auto,
     }
 }
 
@@ -638,6 +671,7 @@ impl DefaultProviderBuilder {
         let context: Arc<dyn WireContext> = self.env.openai_context.clone();
         let facts = self.env.openai_facts.clone();
         let transport = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
+        let mode = openai_mode(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
             (
                 OpenAiConfig::api_key(flag(cfg, "store").unwrap_or(true), facts, context),
@@ -660,7 +694,8 @@ impl DefaultProviderBuilder {
                 context: self.env.openai_context.clone(),
                 listing: self.env.listing.clone(),
             },
-        )))
+        )
+        .with_mode(mode)))
     }
 
     fn compat_config(
@@ -690,8 +725,10 @@ impl DefaultProviderBuilder {
         credential: Arc<dyn Credential>,
         headers: Vec<(String, String)>,
         http: Arc<dyn crate::transport::HttpSend>,
+        tune: &dyn Fn(&mut AnthropicConfig),
     ) -> HttpAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
+        tune(&mut config);
         config.base_url = base;
         config.disable_beta_headers = true;
         // The Anthropic SDK's `accept`, which the gateway engines send ahead of their own headers.
@@ -768,10 +805,15 @@ impl DefaultProviderBuilder {
             .unwrap_or_default();
         let routing = RouteInputs { model_wires, catalog: None };
         let caches_model_info = profile.listing.caches_model_info;
+        // The provider config's `reasoningEffort` stands in for a turn that names none on the Chat and Responses wires.
+        // The Messages engines of DeepSeek, OpenCode Go and Command Code never read it (recorded: `config-effort-*`);
+        // OpenRouter's reads it through its own reasoning control, below.
+        let configured_effort = text(cfg, "reasoningEffort").map(str::to_owned);
         let account = Arc::new(
             CompatAdapter::new(codec, http.clone(), Some(key.clone()))
                 .with_routing(routing)
-                .with_listing_lookup(self.env.listing.clone()),
+                .with_listing_lookup(self.env.listing.clone())
+                .with_configured_effort(configured_effort.clone()),
         );
         if caches_model_info {
             self.declare(name, account.clone());
@@ -786,7 +828,7 @@ impl DefaultProviderBuilder {
         identifying.extend(config.extra_headers.iter().cloned());
         let keyed = |header: &'static str, bearer: bool| -> Arc<dyn Credential> { Arc::new(KeyHeader { source: key.clone(), header, bearer }) };
         // The Messages engines post through the Anthropic client, the gateway's headers as its `defaultHeaders`.
-        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying);
+        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying).refusing_redirects();
         // The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
         let messages_base = |base: &str| -> String {
             let base = base.trim_end_matches('/');
@@ -795,26 +837,51 @@ impl DefaultProviderBuilder {
                 _ => base.to_owned(),
             }
         };
+        let rows: Arc<dyn CachedModelInfo> = account.clone();
+        let untuned = |_: &mut AnthropicConfig| {};
         let (engines, pick, session_header): (Vec<(Wire, Arc<dyn ProviderAdapter>)>, WirePick, bool) = match name {
             "xai" => (vec![(Wire::Responses, responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
             "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
             "deepseek" => {
                 let base = format!("{}/anthropic", messages_base(&chat_base));
-                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()), &untuned);
                 (vec![(Wire::Messages, Arc::new(engine))], WirePick::Routed, false)
             }
             "openrouter" => {
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()));
+                // The routing slug stays on the wire; capabilities come from the Claude id it stands for (its catalog
+                // alias target first), and OpenRouter's reasoning control replaces the turn's effort.
+                let aliases = rows.clone();
+                let configured = configured_effort.clone();
+                let tune = move |config: &mut AnthropicConfig| {
+                    let aliases = aliases.clone();
+                    let configured = configured.clone();
+                    config.capability_model = Some(Arc::new(move |model: &str| {
+                        let alias = aliases.cached_row(model).and_then(|row| row.get("aliasTarget").and_then(Value::as_str).map(str::to_owned));
+                        Some(openrouter_capability_model(model, alias.as_deref()))
+                    }));
+                    config.gateway_effort = Some(Arc::new(move |request: &ModelRequest| {
+                        let reasoning = match (&configured, &request.options.effort) {
+                            (Some(effort), None) => {
+                                let mut owned = request.clone();
+                                owned.options.effort = Some(effort.clone());
+                                crate::providers::compat::chat::openrouter_reasoning(&owned)?
+                            }
+                            _ => crate::providers::compat::chat::openrouter_reasoning(request)?,
+                        };
+                        Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
+                    }));
+                };
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()), &tune);
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "command-code-oauth" => {
                 // The key as `x-api-key` and, right after it, as a bearer (`CommandCodeMessagesEngine`).
                 let mirrored: Arc<dyn crate::transport::HttpSend> = Arc::new(anthropic_http().mirroring_key_as_bearer());
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored);
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored, &untuned);
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "opencode-go-oauth" => {
-                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()), &untuned);
                 // The generateContent routes live under `.../go/v1`, not the organization's chat base
                 // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
                 let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
@@ -823,7 +890,9 @@ impl DefaultProviderBuilder {
                         GatewayHttp::new(self.env.http.clone())
                             .moving_path("/v1beta/models/", "/v1/models/")
                             .plain_system_instruction()
-                            .with_headers(identifying.clone()),
+                            .with_headers(identifying.clone())
+                            // `originBoundFetch`: the Gemini engine never follows a redirect either.
+                            .refusing_redirects_as("opencode-go"),
                     );
                 let gemini = google::adapter::GoogleAdapter::new(
                     google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
@@ -842,7 +911,6 @@ impl DefaultProviderBuilder {
         // The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
         // catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
         // roster alone).
-        let rows: Arc<dyn CachedModelInfo> = account.clone();
         let catalog = matches!(name, "deepseek" | "openrouter").then(|| (self.env.listing.clone(), name.to_owned()));
         let ceiling = move |model: &str| -> Option<u32> {
             let listed = rows.cached_row(model).and_then(|row| row.get("outputTokens").and_then(Value::as_u64)).filter(|n| *n > 0);
@@ -1067,6 +1135,7 @@ impl DefaultProviderBuilder {
             self.env.http.clone(),
             self.env.google_traits.clone(),
             Box::new(now_ms_u64),
+            self.env.env.var("MIXDOG_ANTIGRAVITY_FC_MODE").as_deref(),
         )
         .await
         .map_err(|e| e.message)?;
@@ -1156,7 +1225,8 @@ impl DefaultProviderBuilder {
             let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> { handle.clone() });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
-                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
+                    // Node's custom class on the anthropic protocol is an `AnthropicProvider` subclass.
+                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false)).with_input_excludes_cache(protocol == Protocol::Anthropic);
                     Arc::new(match listing {
                         Some(listing) => engine.with_listing(listing),
                         None => engine,
@@ -1283,7 +1353,18 @@ impl DefaultProviderBuilder {
                 self.declare(name, built.clone());
                 Ok(built)
             }
-            "mixdog-local" => Err("mixdog-local is built per turn from the managed runtime's endpoint".into()),
+            // `registry.mjs`: `MixdogLocalProvider`, constructed with no endpoint; the server starts on a send.
+            "mixdog-local" => match &self.env.local {
+                Some(runtime) => {
+                    // The installed models are read once now, so `getCachedModelInfo` has its answer from the moment the
+                    // provider exists (Node reads the disk on every call); a failed read leaves it a miss until the next.
+                    let _ = runtime.installed().await;
+                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()));
+                    self.declare(name, built.clone());
+                    Ok(built)
+                }
+                None => Err("mixdog-local needs the managed local runtime, which this host does not have".into()),
+            },
             other => Err(format!("unknown enabled provider: {other}")),
         }
     }
@@ -1306,11 +1387,8 @@ impl ProviderBuilder for DefaultProviderBuilder {
     /// inherited; verified at `b6f10295a` under `src/runtime/agent/orchestrator/providers/`): `custom-*`
     /// (`custom-provider.mjs:109`), the compat family whose profile says so (`openai-compat.mjs:280`; `WireGatewayProvider`,
     /// `wire-gateway.mjs:166`, for deepseek and openrouter), `cursor-oauth` / `cursor-api` (`cursor.mjs:601`),
-    /// `devin-oauth` (`devin.mjs:316`). `mixdog-local` also has it at `b6f10295a` (`mixdog-local.mjs:91`, registered when
-    /// `providers['mixdog-local'].enabled`, `registry.mjs:199`, `config.mjs:144`) and is reachable through `lookupModelMeta`
-    /// there, but it is EXCLUDED here: the Rust registry never holds it (`build_unversioned` refuses it, the managed
-    /// runtime's endpoint exists only per turn), so the memo answers its unmarked fallback where Node answers the
-    /// installed model's row. `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
+    /// `devin-oauth` (`devin.mjs:316`), `mixdog-local` (`mixdog-local.mjs:91`: the installed model's row, which the managed
+    /// runtime keeps current for a synchronous read, `LocalRuntime::installed_now`). `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
     /// `antigravity-oauth`, `grok-oauth`, `mimo-oauth` and `command-code-oauth` define none.
     fn cached_model_info(&self, name: &str) -> Option<Arc<dyn CachedModelInfo>> {
         self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(name).cloned()

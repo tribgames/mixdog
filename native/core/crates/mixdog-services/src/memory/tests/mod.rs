@@ -6,12 +6,17 @@
 
 pub mod awaiting;
 mod boot;
+mod cold_recall;
+mod core_key;
+mod model_compression;
+mod status;
 mod core_memory;
 mod embeddings;
 pub mod fakes;
 mod ingest;
 mod jobs;
 mod recall;
+mod recall_cancel;
 mod reindex;
 mod sensitive;
 mod service;

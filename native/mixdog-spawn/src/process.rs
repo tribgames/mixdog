@@ -189,9 +189,8 @@ const EMPTY_POLL: Duration = Duration::from_millis(5);
 #[cfg(windows)]
 const REKILL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Every command runs in its own job object, assigned while the root is still
-/// suspended (see `assign_and_resume`), so nothing it starts is created
-/// outside the job. A CONTAINED job also refuses breakaway: no descendant can
+/// Every command runs in its own job object, which the root is created in
+/// (`winspawn::spawn`), so nothing it starts is created outside the job. A CONTAINED job also refuses breakaway: no descendant can
 /// leave it, so an empty job proves the whole tree is gone. An uncontained one
 /// keeps `JOB_OBJECT_LIMIT_BREAKAWAY_OK` for programs that start children with
 /// CREATE_BREAKAWAY_FROM_JOB, and proves nothing about those children.
@@ -210,30 +209,6 @@ pub(crate) struct ProcessControl {
 unsafe impl Send for ProcessControl {}
 #[cfg(windows)]
 unsafe impl Sync for ProcessControl {}
-
-#[cfg(windows)]
-#[link(name = "ntdll")]
-extern "system" {
-    // Resumes every thread of the process behind `process`. Long-standing
-    // ntdll export (debuggers and Process Explorer rely on it).
-    fn NtResumeProcess(process: HANDLE) -> i32;
-}
-
-/// Resume a process created suspended, through the process handle `Child`
-/// holds. std does not expose the primary thread handle CreateProcess returns
-/// (`ChildExt::main_thread_handle` is nightly-only), and finding the thread in
-/// a system-wide thread snapshot cost 31 ms per spawn idle and 51 ms (p50) /
-/// 74 ms (p95) under full CPU load on a 6k-thread host; this costs ~2 µs.
-#[cfg(windows)]
-fn resume_suspended(child: &Child) -> std::io::Result<()> {
-    let status = unsafe { NtResumeProcess(child.as_raw_handle().cast()) };
-    if status < 0 {
-        return Err(std::io::Error::other(format!(
-            "the suspended process could not be resumed (NTSTATUS 0x{status:08x})"
-        )));
-    }
-    Ok(())
-}
 
 #[cfg(windows)]
 impl ProcessControl {
@@ -267,17 +242,6 @@ impl ProcessControl {
             #[cfg(test)]
             refuse_release: AtomicBool::new(false),
         })
-    }
-
-    /// Put a child created suspended (build_command) into the job, then let it
-    /// run: it cannot start anything before it is a member.
-    pub(crate) fn assign_and_resume(&self, child: &Child) -> std::io::Result<()> {
-        let assigned =
-            unsafe { AssignProcessToJobObject(self.handle, child.as_raw_handle().cast()) };
-        if assigned == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        resume_suspended(child)
     }
 
     /// Kill every process in the job. False when no kill was issued: the
@@ -446,7 +410,7 @@ pub(crate) struct ManagedProcess {
     pub(crate) state: Mutex<TaskState>,
     pub(crate) done: AtomicBool,
     pub(crate) retained: AtomicBool,
-    pub(crate) stdin: Mutex<Option<std::process::ChildStdin>>,
+    pub(crate) stdin: Mutex<Option<Box<dyn Write + Send>>>,
 }
 
 impl ManagedProcess {

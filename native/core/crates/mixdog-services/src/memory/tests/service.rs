@@ -38,7 +38,7 @@ impl MemoryModule for FakeMemory {
         "ingest_session: considered=1 inserted=1".into()
     }
 
-    async fn recall(&self, args: Value) -> String {
+    async fn recall(&self, args: Value, _: &tokio_util::sync::CancellationToken) -> String {
         self.calls.lock().expect("calls").push(json!(["recall", args]));
         self.results.lock().expect("results").pop_front().unwrap_or_else(|| "(no results)".into())
     }
@@ -105,8 +105,8 @@ async fn the_answer_order_and_memory_calls_match_the_node_product() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_goldens() {
-    let seed: Value = serde_json::from_str(SEED).expect("seed");
-    let cases: Vec<Value> = serde_json::from_str(CASES).expect("cases");
+    let seed: Value = serde_json::from_str(&SEED).expect("seed");
+    let cases: Vec<Value> = serde_json::from_str(&CASES).expect("cases");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
@@ -171,7 +171,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     expected_args["sessionId"] = json!(session_id);
     expected_args["currentSessionId"] = json!(session_id);
     let answer = ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await;
-    let expected = recall.recall(&expected_args).await.text;
+    let expected = recall.recall_cancellable(&expected_args, &tokio_util::sync::CancellationToken::new()).await.text;
     assert_eq!(answer, expected);
 }
 

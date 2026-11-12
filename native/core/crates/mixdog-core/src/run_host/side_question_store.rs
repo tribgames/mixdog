@@ -314,6 +314,7 @@ mod tests {
     }
     #[async_trait]
     impl ProviderAdapter for Recording {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             self.inner.id()
         }

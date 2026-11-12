@@ -114,19 +114,19 @@ impl HostCommands for ChannelHostCommands {
     }
 }
 
-/// Model text of a host failure: the host's redacted message as it stands (the `Error:` lead-in
-/// is the pipeline's marker), or the fixed unavailable wording without a host.
+/// Model text of a host failure: the host's redacted message led by `Error: ` unless it already is,
+/// as the bridge clients answer a refused command (`browser-bridge/client.mjs:537-541`
+/// `message.startsWith('Error:') ? message : \`Error: ${message}\``, `visualize-bridge/client.mjs:37`
+/// `toolError`); an empty message is the bridge's own wording. Without a host: the fixed
+/// unavailable wording.
 pub fn command_error(tool_unavailable: &str, error: HostCommandError) -> ToolError {
     match error {
         HostCommandError::Cancelled => cancelled(),
         HostCommandError::NoHost => unavailable("desktopHost", tool_unavailable),
         HostCommandError::Rpc { message, .. } => {
-            let message = if mixdog_js::js_trim(&message).is_empty() {
-                "browser bridge request failed".to_owned()
-            } else {
-                message.strip_prefix("Error:").map(|m| mixdog_js::js_trim_start(m).to_owned()).unwrap_or(message)
-            };
-            action_failed("browser", message)
+            let message = if mixdog_js::js_trim(&message).is_empty() { "browser bridge request failed".to_owned() } else { message };
+            let text = if message.starts_with("Error:") { message.clone() } else { format!("Error: {message}") };
+            ToolError::new(ToolErrorCode::Failed { reason: message }, text)
         }
     }
 }
@@ -143,13 +143,18 @@ fn bad(message: &str) -> ToolError {
     action_failed("browser", message)
 }
 
+/// `browserToolError(message)` (`browser-bridge/client.mjs:277`): the bridge's own refusal of a reply, `Error: ` led.
+fn bridge_error(message: &str) -> ToolError {
+    ToolError::new(ToolErrorCode::Failed { reason: message.to_owned() }, format!("Error: {message}"))
+}
+
 /// A successful `browser` result value as tool output: text (default `OK`), then the image.
 pub fn browser_output(value: &Value) -> ToolOutcome {
     let empty = serde_json::Map::new();
     let value = value.as_object().unwrap_or(&empty);
     let text = value.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("OK");
     if mixdog_js::utf16_len(text) > MAX_TEXT_CHARS {
-        return Err(bad("browser bridge returned oversized text"));
+        return Err(bridge_error("browser bridge returned oversized text"));
     }
     let mut parts = vec![ToolPart::Text(text.to_owned())];
     if let Some(image) = value.get("image").and_then(Value::as_object) {
@@ -161,7 +166,7 @@ pub fn browser_output(value: &Value) -> ToolOutcome {
                 .flatten()
                 .filter(|b| b.len() <= MAX_IMAGE_BYTES);
             let Some(bytes) = bytes else {
-                return Err(bad("browser bridge returned an invalid image"));
+                return Err(bridge_error("browser bridge returned an invalid image"));
             };
             parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes) });
         }

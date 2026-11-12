@@ -169,17 +169,21 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
     await settle();
 
     const got = sessionStateOf(client, 'lead') as O;
-    // Fields the engine starts with (initial-state.mjs) that a recorded snapshot omits while they hold their initial value.
-    // `streamingPartial` is not among them: the first draft has none (initial-state.mjs); a frame holds it once a partial line was shown.
-    // The route state's and the host's always-present fields read null (or empty) while they hold nothing (context-state.mjs:75,92,95,97,
-    // initial-state.mjs:37, session-host-publication.ts:281-288, session-host.ts:485-495).
+    // Fields the engine starts with (initial-state.mjs, context-state.mjs `baseRouteState`, the route's `runtime.sessionProvider ?? null`) that
+    // the scripted daemon's snapshot omits while they hold their initial value; `transcriptSpilled` comes with the first row
+    // (transcript-store.mjs). `streamingPartial` is not among them: the first draft has none (initial-state.mjs); a frame holds it once a
+    // partial line was shown. The host's always-present fields read null (or empty) while they hold nothing
+    // (session-host-publication.ts:281-288, session-host.ts:485-495).
     const expected: O = {
       streamingTail: null,
+      sessionProvider: null,
+      sessionModel: null,
       promptRestore: null,
       workspace: null,
       goal: null,
       quotaResume: null,
       todo: null,
+      agentScope: null,
       remoteEnabled: false,
       shellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
       hostShellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
@@ -192,7 +196,7 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
       transcriptHistoryBefore: false,
       transcriptHistoryAfter: false,
       transcriptArchive: null,
-      transcriptSpilled: { epoch: 0, rows: 0 },
+      ...(d.items.length ? { transcriptSpilled: { epoch: 0, rows: 0 } } : {}),
       lastTurn: null,
       themeEpoch: 0,
       ...d,

@@ -34,6 +34,9 @@ impl ModelTurnJudge {
 impl TurnJudge for ModelTurnJudge {
     async fn judge(&self, input: TurnJudgeInput) -> JudgeAnswer {
         let input = TurnInput { request: input.request, prev: input.prev, prev_request: input.prev_request };
+        // The turn is about to judge: keep the model loaded under it (`holdEffortJudgeWarm`).
+        // The turn is about to judge: keep the model loaded under it (`holdEffortJudgeWarm`).
+        self.model.hold_warm();
         match self.model.judge_turn(input, self.timing).await {
             TurnVerdict::Probs { probs, ms } => JudgeAnswer::Probs { probs, ms },
             TurnVerdict::Skipped(why) => JudgeAnswer::Skipped(why),
@@ -52,12 +55,21 @@ mod tests {
 
     fn judge_over(dir: &std::path::Path, timing: JudgeTiming) -> ModelTurnJudge {
         let config = ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.join("no-ort")) };
-        let model = EffortJudgeModel::new(config, mixdog_rt::testing::tokens().cpu_bulk).unwrap();
+        let model = EffortJudgeModel::new(config, mixdog_services::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())).unwrap();
         ModelTurnJudge::with_timing(model, timing)
     }
 
     fn request() -> TurnJudgeInput {
         TurnJudgeInput { request: "fix the bug".into(), prev: "ok".into(), prev_request: "hi".into() }
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_judges_holds_the_model_loaded_even_when_the_judgment_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
+        assert!(!judge.model.is_held_warm());
+        assert_eq!(judge.judge(request()).await, JudgeAnswer::Skipped("model-missing".into()));
+        assert!(judge.model.is_held_warm(), "the lease is renewed before the judgment, as Node's turn does");
     }
 
     #[tokio::test]

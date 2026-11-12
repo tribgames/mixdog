@@ -29,7 +29,7 @@ use super::tool_surface::{bind_edit_dialect, filter_model_edit_tool_names, ROUTE
 type Tools = Vec<Arc<dyn Tool>>;
 
 /// `BUILTIN_TOOLS` in definition order.
-const BUILTIN: [&str; 10] = ["read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list"];
+const BUILTIN: [&str; 11] = ["read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list", "machine"];
 const PATCH: &str = "apply_patch";
 const CODE_GRAPH: &str = "code_graph";
 /// `FILESYSTEM_TOOL_NAMES`.

@@ -207,18 +207,30 @@ struct Inner {
     /// Persistence work in the order it was asked for, run one at a time on the durability lane.
     outbox: std::collections::VecDeque<Job>,
     draining: bool,
+    /// Per session, the numbers ([`Shared::marks`]) of its changes no write has taken yet: the next flush or save of the
+    /// session takes them all.
+    unwritten: Vec<(String, Vec<u64>)>,
+}
+
+impl Inner {
+    fn take_unwritten(&mut self, scope: &str) -> Vec<u64> {
+        match self.unwritten.iter().position(|(s, _)| s == scope) {
+            Some(at) => self.unwritten.swap_remove(at).1,
+            None => Vec::new(),
+        }
+    }
 }
 
 /// One unit of persistence, run on the durability lane and never under the state's mutex.
 enum Job {
     /// A session's file, read for its first use.
     Load { scope: String, reply: tokio::sync::oneshot::Sender<Option<String>> },
-    /// The session's snapshots as they are when the job runs (`persistScopeSync`).
+    /// The session's snapshots as they are when the job runs (`persistScopeSync`), with the changes unwritten then.
     Flush { scope: String },
-    /// A released session's last content, or its deletion (`releaseReadSnapshotScope`).
-    Save { scope: String, json: Option<String> },
+    /// A released session's last content, or its deletion (`releaseReadSnapshotScope`), and the changes it writes.
+    Save { scope: String, json: Option<String>, marks: Vec<u64> },
     /// A forgotten path leaves every persisted file (`deleteReadSnapshotPathEverywhere`).
-    Sweep { path: String },
+    Sweep { path: String, mark: u64 },
 }
 
 /// Where a session's snapshots survive a restart: `read-snapshots/<scope>.json` under the plugin
@@ -264,6 +276,11 @@ struct Shared {
     idle: tokio::sync::Notify,
     /// `registerCacheInvalidationListener`: told the paths of every invalidation.
     watchers: Mutex<Vec<Arc<dyn Fn(&[String]) + Send + Sync>>>,
+    /// `registerSessionPurgeHook`: told the id of every session that is closed or deleted.
+    releases: Mutex<Vec<Arc<dyn Fn(&str) + Send + Sync>>>,
+    /// Every change owed to the store (a session's change, a release, a path sweep) numbered as it is made, reported once
+    /// the write that carries it ran.
+    marks: mixdog_rt::WriteMarks,
 }
 
 pub struct ReadState {
@@ -298,8 +315,13 @@ impl Shared {
     /// is dropped (a load answers nothing).
     fn enqueue(self: &Arc<Self>, inner: &mut Inner, job: Job) {
         if self.persist.is_none() {
-            if let Job::Load { reply, .. } = job {
-                let _ = reply.send(None);
+            match job {
+                Job::Load { reply, .. } => {
+                    let _ = reply.send(None);
+                }
+                Job::Save { marks, .. } => marks.into_iter().for_each(|mark| self.marks.withdrawn(mark)),
+                Job::Sweep { mark, .. } => self.marks.withdrawn(mark),
+                Job::Flush { .. } => {}
             }
             return;
         }
@@ -339,23 +361,26 @@ impl Shared {
                     let _ = reply.send(text);
                 }
                 Job::Flush { scope } => {
-                    let json = {
-                        let inner = self.lock();
-                        match inner.scopes.iter().find(|s| s.key == scope) {
-                            Some(s) => Some(files_to_json(&s.files)),
-                            None => None,
-                        }
+                    let (json, marks) = {
+                        let mut inner = self.lock();
+                        let json = inner.scopes.iter().find(|s| s.key == scope).map(|s| files_to_json(&s.files));
+                        (json, inner.take_unwritten(&scope))
                     };
-                    // A session released since the flush was asked for has its own save queued.
-                    if let Some(json) = json {
-                        persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                    // A session released since the flush was asked for has its own save queued, with its changes.
+                    match json {
+                        Some(json) => {
+                            let ran = persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                            self.report(&marks, ran);
+                        }
+                        None => marks.into_iter().for_each(|mark| self.marks.withdrawn(mark)),
                     }
                 }
-                Job::Save { scope, json } => {
-                    persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                Job::Save { scope, json, marks } => {
+                    let ran = persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                    self.report(&marks, ran);
                 }
-                Job::Sweep { path } => {
-                    persist
+                Job::Sweep { path, mark } => {
+                    let ran = persist
                         .run(move |store| {
                             for scope in store.scopes() {
                                 let Some(text) = store.load(&scope) else { continue };
@@ -371,7 +396,18 @@ impl Shared {
                             }
                         })
                         .await;
+                    self.report(&[mark], ran);
                 }
+            }
+        }
+    }
+
+    /// The write carrying `marks` ran (`Some`), or its lane did not run it.
+    fn report(&self, marks: &[u64], ran: Option<()>) {
+        for &mark in marks {
+            match ran {
+                Some(()) => self.marks.written(mark),
+                None => self.marks.failed(mark, "the durability lane did not run the write"),
             }
         }
     }
@@ -384,7 +420,9 @@ impl Shared {
         inner.outbox.retain(|job| !matches!(job, Job::Flush { scope } if *scope == key));
         inner.hydrated.retain(|k| *k != key);
         let json = if delete { None } else { files_to_json(&released.files) };
-        self.enqueue(inner, Job::Save { scope: key, json });
+        let mut marks = inner.take_unwritten(&key);
+        marks.push(self.marks.accept());
+        self.enqueue(inner, Job::Save { scope: key, json, marks });
     }
 
     /// Scope access order: the used scope moves to the end; past 32 the oldest is released.
@@ -419,6 +457,11 @@ impl Shared {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
         let generation = {
             let mut inner = self.lock();
+            let mark = self.marks.accept();
+            match inner.unwritten.iter_mut().find(|(s, _)| s == scope) {
+                Some((_, marks)) => marks.push(mark),
+                None => inner.unwritten.push((scope.to_owned(), vec![mark])),
+            }
             if inner.timers.iter().any(|(s, _)| s == scope) {
                 return;
             }
@@ -429,7 +472,7 @@ impl Shared {
         };
         let (shared, scope) = (Arc::clone(self), scope.to_owned());
         handle.spawn(async move {
-            tokio::time::sleep(shared.debounce).await;
+            mixdog_rt::time::sleep(shared.debounce).await;
             let mut inner = shared.lock();
             // Only the timer that is still the session's own fires; a release cancelled the rest.
             if inner.timers.iter().any(|(s, g)| *s == scope && *g == generation) {
@@ -451,7 +494,14 @@ impl ReadState {
     }
 
     fn build(persist: Option<Persistence>, clock: Clock, debounce: std::time::Duration) -> Self {
-        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()) }) }
+        let marks = mixdog_rt::WriteMarks::new("the read-state snapshots");
+        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()), releases: Mutex::new(Vec::new()), marks }) }
+    }
+
+    /// The changes' numbers: a barrier takes `accepted()` when it arrives, calls [`Self::flush_pending`], and waits for
+    /// `reached` of it.
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.shared.marks
     }
 
     /// `registerCacheInvalidationListener(fn)`: `fn` runs with the paths of every `invalidate` (an edit, a patch, a
@@ -505,15 +555,18 @@ impl ReadState {
         }
     }
 
+    /// Every session waiting on its flush timer is queued to be written now.
+    pub fn flush_pending(&self) {
+        let mut inner = self.shared.lock();
+        let pending: Vec<String> = inner.timers.drain(..).map(|(s, _)| s).collect();
+        for scope in pending {
+            self.shared.enqueue(&mut inner, Job::Flush { scope });
+        }
+    }
+
     /// The exit drain (`flushAllScopesSync`): every pending flush runs now, and the queue is emptied.
     pub async fn flush_all(&self) {
-        {
-            let mut inner = self.shared.lock();
-            let pending: Vec<String> = inner.timers.drain(..).map(|(s, _)| s).collect();
-            for scope in pending {
-                self.shared.enqueue(&mut inner, Job::Flush { scope });
-            }
-        }
+        self.flush_pending();
         self.settle().await;
     }
 
@@ -582,6 +635,27 @@ impl ReadState {
     /// `releaseReadSnapshotScope(scope, { deletePersisted: true })`: a deleted session forgets its
     /// snapshots, in memory and in the store (the `read_cache` purge hook).
     pub fn forget_session(&self, scope: &str) {
+        self.forget_snapshots(scope);
+        self.notify_released(scope);
+    }
+
+    /// `registerSessionPurgeHook` / `releaseSessionReadCaches`: `listener` runs with the id of every session that is deleted
+    /// ([`forget_session`](Self::forget_session)) or closed ([`release_session`](Self::release_session)), the two points at which Node
+    /// drops everything a session cached (`clearReadDedupSession` beside `releaseReadSnapshotScope`).
+    pub fn on_released(&self, listener: Arc<dyn Fn(&str) + Send + Sync>) {
+        self.shared.releases.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    }
+
+    fn notify_released(&self, scope: &str) {
+        let listeners: Vec<_> = self.shared.releases.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for listener in listeners {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(scope)));
+        }
+    }
+
+    /// `releaseReadSnapshotScope(scope, { deletePersisted: true, persist: false })`: the snapshots of a session whose context was
+    /// compacted away leave memory and the store (`resetReadStateAfterCompaction`). The session itself goes on.
+    pub fn forget_snapshots(&self, scope: &str) {
         let mut inner = self.shared.lock();
         match inner.scopes.iter().position(|s| s.key == scope) {
             Some(at) => {
@@ -592,7 +666,9 @@ impl ReadState {
                 inner.timers.retain(|(s, _)| s != scope);
                 inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
                 inner.hydrated.retain(|k| k != scope);
-                self.shared.enqueue(&mut inner, Job::Save { scope: scope.to_owned(), json: None });
+                let mut marks = inner.take_unwritten(scope);
+                marks.push(self.shared.marks.accept());
+                self.shared.enqueue(&mut inner, Job::Save { scope: scope.to_owned(), json: None, marks });
             }
         }
     }
@@ -601,18 +677,25 @@ impl ReadState {
     /// its snapshots leave memory and their last content is written, so a resumed session reads
     /// them back. (`forget_session` is the deleted session's: the stored copy goes too.)
     pub fn release_session(&self, scope: &str) {
-        let mut inner = self.shared.lock();
-        match inner.scopes.iter().position(|s| s.key == scope) {
-            Some(at) => {
-                let released = inner.scopes.remove(at);
-                self.shared.release(&mut inner, released, false);
-            }
-            None => {
-                inner.timers.retain(|(s, _)| s != scope);
-                inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
-                inner.hydrated.retain(|k| k != scope);
+        {
+            let mut inner = self.shared.lock();
+            match inner.scopes.iter().position(|s| s.key == scope) {
+                Some(at) => {
+                    let released = inner.scopes.remove(at);
+                    self.shared.release(&mut inner, released, false);
+                }
+                None => {
+                    inner.timers.retain(|(s, _)| s != scope);
+                    inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
+                    inner.hydrated.retain(|k| k != scope);
+                    // A session out of memory was saved when it left, with its changes.
+                    for mark in inner.take_unwritten(scope) {
+                        self.shared.marks.withdrawn(mark);
+                    }
+                }
             }
         }
+        self.notify_released(scope);
     }
 
     /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it,
@@ -634,7 +717,8 @@ impl ReadState {
                     touched.push(s.key.clone());
                 }
             }
-            self.shared.enqueue(&mut inner, Job::Sweep { path: path.to_owned() });
+            let mark = self.shared.marks.accept();
+            self.shared.enqueue(&mut inner, Job::Sweep { path: path.to_owned(), mark });
             touched
         };
         for key in touched {
@@ -968,7 +1052,7 @@ mod tests {
         let state = persistent(store.clone());
         fill_past_the_scope_cap(&state);
         // s0's debounce timer would fire during this wait; the release cancelled it.
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(state.shared.lock().timers.iter().all(|(s, _)| s != "s0"), "the release cancelled the flush timer");
         let saved = store.load("s0").expect("the released session's file survives its cancelled flush");
@@ -990,7 +1074,7 @@ mod tests {
         let state = persistent(store.clone());
         state.record(Some("gone"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
         state.forget_session("gone");
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(store.load("gone").is_none());
         assert!(state.snapshot(Some("gone"), "/x").is_none());
@@ -1004,7 +1088,7 @@ mod tests {
         let state = persistent(store.clone());
         state.record(Some("closed"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
         state.release_session("closed");
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(state.shared.lock().scopes.iter().all(|s| s.key != "closed"), "gone from memory");
         assert!(store.load("closed").unwrap().contains("\"/x\""), "its file is what a resume reads");
@@ -1018,6 +1102,70 @@ mod tests {
         assert!(store.load("a").is_none(), "not before the debounce");
         state.flush_all().await;
         assert!(store.load("a").unwrap().contains("\"/x\""));
+    }
+
+    /// A store whose save of a held session signals its arrival and waits for its release.
+    #[derive(Default)]
+    struct Gated {
+        files: Memory,
+        gates: Mutex<Vec<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
+    }
+
+    impl Gated {
+        fn hold(&self, scope: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+            let (arrived, (go, wait)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+            self.gates.lock().unwrap().push((scope.to_owned(), arrived.clone(), wait));
+            (arrived, go)
+        }
+    }
+
+    impl SnapshotPersist for Gated {
+        fn load(&self, scope: &str) -> Option<String> {
+            self.files.load(scope)
+        }
+        fn scopes(&self) -> Vec<String> {
+            self.files.scopes()
+        }
+        fn save(&self, scope: &str, json: Option<&str>) {
+            let gate = {
+                let mut gates = self.gates.lock().unwrap();
+                gates.iter().position(|(s, _, _)| s == scope).map(|at| gates.remove(at))
+            };
+            if let Some((_, arrived, wait)) = gate {
+                arrived.notify_one();
+                let _ = wait.recv();
+            }
+            self.files.save(scope, json);
+        }
+    }
+
+    const HELD: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// The replay's barrier on the snapshots: a change made before it holds it until written, a change made after it, held at
+    /// the store, does not.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_barrier_waits_for_the_changes_before_it_and_not_the_later_ones() {
+        use futures::FutureExt;
+        let store = Arc::new(Gated::default());
+        let state = persistent(store.clone());
+        let (before_arrived, before_go) = store.hold("before");
+        let (after_arrived, after_go) = store.hold("after");
+        state.record(Some("before"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        let mark = state.marks().accepted();
+        state.flush_pending();
+        tokio::time::timeout(HELD, before_arrived.notified()).await.expect("the earlier session's write did not start within 10 s");
+        let mut settled = Box::pin(state.marks().reached(mark));
+        assert!(settled.as_mut().now_or_never().is_none(), "the change from before the barrier is still unwritten");
+
+        state.record(Some("after"), "/y", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        state.flush_pending();
+        before_go.send(()).expect("the write waits");
+        tokio::time::timeout(HELD, after_arrived.notified()).await.expect("the later session's write did not start within 10 s");
+        let answer = tokio::time::timeout(HELD, settled).await.expect("the barrier did not answer within 10 s although the earlier change was written");
+        assert_eq!(answer, Ok(()));
+        assert_eq!(state.marks().committed(), mark, "the later change was still unwritten when the barrier answered");
+        after_go.send(()).expect("the write waits");
+        state.settle().await;
     }
 
     /// A store whose every call asks the state a question: if the state made the call while

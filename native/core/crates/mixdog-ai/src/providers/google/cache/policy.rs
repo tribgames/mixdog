@@ -52,7 +52,7 @@ fn parse_int(text: &str) -> f64 {
 
 /// `resolveTimeoutMs`: the first env name holding a positive number, clamped,
 /// else the fallback, clamped.
-fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
+pub(crate) fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
     for name in names {
         if let Some(raw) = get(name).filter(|r| !r.is_empty()) {
             let n = string_to_number(&raw);
@@ -66,11 +66,27 @@ fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fal
 
 /// `stall-policy.mjs`: the provider deadlines derive from the stall thresholds. The stall warning
 /// window in ms and `PROVIDER_MAX_BEFORE_WARN_MS`.
-fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
+pub(crate) fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
     let abort_s = get("STALL_TIMEOUT_S").map_or(f64::NAN, |v| parse_int(&v));
     let abort_s = if abort_s.is_finite() && abort_s > 0.0 { abort_s } else { 600.0 };
     let warn_s = if abort_s > 300.0 { 300.0 } else { (abort_s / 2.0).floor() };
     (warn_s * 1000.0, (warn_s * 1000.0 - 15_000.0).max(1000.0))
+}
+
+/// `WS_HEDGE_MS` (`openai-ws-connect.mjs`, 3 s, 0.5-60 s) and `PROVIDER_WS_ACQUIRE_TIMEOUT_MS` (15 s, 5 s up to the
+/// provider ceiling) in ms.
+pub fn ws_connect_ms(get: impl Fn(&str) -> Option<String>) -> (f64, f64) {
+    let (_, max_before_warn) = stall_windows_ms(&get);
+    let hedge = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_HEDGE_MS"], 3_000.0, 500.0, 60_000.0);
+    let acquire = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS"], 15_000.0, 5_000.0, max_before_warn);
+    (hedge, acquire)
+}
+
+/// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS` (`stall-policy.mjs`, 60 s, 10 s up to the provider ceiling) in ms: the initial-response
+/// window of the OpenAI HTTP/SSE request.
+pub fn http_response_ms(get: impl Fn(&str) -> Option<String>) -> f64 {
+    let (_, max_before_warn) = stall_windows_ms(&get);
+    resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS"], 60_000.0, 10_000.0, max_before_warn)
 }
 
 /// `PROVIDER_FIRST_BYTE_TIMEOUT_MS` and `PROVIDER_SSE_IDLE_TIMEOUT_MS` in ms.

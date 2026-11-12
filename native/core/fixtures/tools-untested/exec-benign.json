@@ -1,0 +1,222 @@
+{
+  "note": null,
+  "calls": [
+    {
+      "command": "grep x | sls",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "Select-String foo",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git diff --quiet",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git -C . diff --exit-code",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "grep -n foo file",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "findstr foo file.txt",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git grep -n foo",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git -C . grep foo",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "grep x file && echo done",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "... < <(printf x | grep y)",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "echo hi `| Select-String x`",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "git diff-index --quiet",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "git diff",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "git diff --exit-code",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git --no-pager diff --quiet",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git -c core.pager=cat diff --check",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git --git-dir=x diff --exit-code",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "git diff HEAD~1 -- a.txt",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "git status",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "node -e \"process.exit(1); grep\"",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "Get-Content a.txt | Select-String nomatch",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "C:\\bin\\Grep.EXE x f",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": true
+    },
+    {
+      "command": "grep x f || true",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "grep 'x f",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "echo $(grep x f)",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "grep x file",
+      "exitCode": 2,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "grep x file",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "grep: file: No such file",
+      "benign": false
+    },
+    {
+      "command": "grep x file",
+      "exitCode": 1,
+      "signal": "SIGTERM",
+      "stderr": "",
+      "benign": false
+    },
+    {
+      "command": "grep x file",
+      "exitCode": 1,
+      "signal": null,
+      "stderr": "  \n",
+      "benign": true
+    },
+    {
+      "command": "grep x file",
+      "exitCode": 0,
+      "signal": null,
+      "stderr": "",
+      "benign": false
+    }
+  ]
+}

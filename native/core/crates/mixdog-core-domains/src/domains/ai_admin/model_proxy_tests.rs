@@ -89,6 +89,21 @@ fn a_request_survives_the_wire() {
     assert_eq!(request_in(*request).unwrap(), sent);
 }
 
+/// The account that served an answer rides on the history the server sends back, so the PC's pool keeps the next turn on it
+/// (Node's `providerMetadata.accountRouting`, read by `sessionAccountId` and `customKeyServedBy`; the PC's pool reads it as
+/// `KeyPool`'s bound hint, replayed in mixdog-ai registry/gateway_replay.rs from the recorded gateway cases).
+#[test]
+fn the_account_that_served_an_answer_rides_on_the_history() {
+    let mut sent = request();
+    let mut served = p::Message::new(p::Role::Assistant, p::Content::Text("ok".into()));
+    served.account_routing = Some(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k1".into()) });
+    sent.messages.push(served);
+    let text = serde_json::to_string(&request_out(&sent)).unwrap();
+    assert!(text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#), "{text}");
+    let got = request_in(serde_json::from_str(&text).unwrap()).unwrap();
+    assert_eq!(got.messages.last().unwrap().account_routing, sent.messages.last().unwrap().account_routing);
+}
+
 #[test]
 fn the_senders_scope_and_unresolved_references_stay_home() {
     let mut sent = request();
@@ -273,7 +288,15 @@ fn every_stream_event_survives_the_wire() {
     assert_eq!(seen, all, "a sample for every StreamEvent variant");
     for event in events {
         let text = serde_json::to_string(&event_out(&event)).unwrap();
-        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(event), "{text}");
+        // The PC's account id stays on the PC: the server reads the change without it.
+        let arrives = match event {
+            p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, at, .. }) => {
+                assert!(!text.contains("k2"), "{text}");
+                p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, account_id: String::new(), at })
+            }
+            other => other,
+        };
+        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(arrives), "{text}");
     }
     let wire = |event: p::StreamEvent| serde_json::to_value(event_out(&event)).unwrap();
     assert_eq!(wire(p::StreamEvent::Progress(p::ProgressKind::Tool)), json!({ "type": "progress", "kind": "tool" }));
@@ -552,13 +575,14 @@ async fn the_other_calls_are_answered_on_the_pc() {
 
 // -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
 
-const PC_TWIN: &str = include_str!("../../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
+const PC_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
 
 /// A provider whose attempt never ends: only the cancel ends the call.
 struct Hang(MockProvider);
 
 #[async_trait]
 impl p::ProviderAdapter for Hang {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.0.id()
     }
@@ -587,7 +611,7 @@ impl ProviderLookup for HangLookup {
 
 #[tokio::test(start_paused = true)]
 async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
-    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
     // The text deltas of the recorded run, in order.
     let recorded: Vec<String> = twin["runs"]["stream"]["events"]
         .as_array()
@@ -631,7 +655,7 @@ async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
 /// the PC looks it up, with the text of the recording, and is not named in the config answer.
 #[tokio::test(start_paused = true)]
 async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
-    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
     let recorded = twin["runs"]["refusals"].as_array().unwrap().iter().find(|r| r["label"] == "not allowed").unwrap();
     // "openai" in the recording; the same refusal for the provider this test names.
     let expected = recorded["error"]["message"].as_str().unwrap().replace("openai", "mock");
