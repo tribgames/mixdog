@@ -233,9 +233,28 @@ export class Machine {
   }
 }
 
+// The host's modules take `screen` from Electron once, when they load: it is one object for the whole run, answering for the world installed now.
+const live = { world: null };
+const displaysOf = () => {
+  let x = 0;
+  return live.world.displays.map((size, index) => {
+    const display = { id: index + 1, bounds: { x, y: 0, ...size }, size, scaleFactor: 1 };
+    x += size.width;
+    return display;
+  });
+};
+const events = () => ({ on() {}, off() {}, removeListener() {} });
+const screen = {
+  ...events(),
+  getAllDisplays: () => displaysOf(),
+  getPrimaryDisplay: () => displaysOf()[0],
+  getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+  screenToDipPoint: (p) => p,
+  dipToScreenPoint: (p) => p,
+};
+
 function electronOf(world, encodeJpeg) {
-  const display = { id: 1, bounds: { x: 0, y: 0, ...world.display }, size: world.display, scaleFactor: 1 };
-  const events = () => ({ on() {}, off() {}, removeListener() {} });
+  live.world = world;
   const inert = () => new Proxy(() => undefined, { get: (_target, key) => (key === 'then' ? undefined : inert()), apply: () => undefined });
   return {
     ...Object.fromEntries(ELECTRON_NAMES.map((name) => [name, inert()])),
@@ -246,7 +265,7 @@ function electronOf(world, encodeJpeg) {
     globalShortcut: { register: () => true, unregister() {} },
     nativeImage: { createFromBuffer: (buffer) => nativeImageOf(Buffer.from(buffer), encodeJpeg) },
     powerMonitor: events(),
-    screen: { ...events(), getAllDisplays: () => [display], getPrimaryDisplay: () => display, getCursorScreenPoint: () => ({ x: 0, y: 0 }), screenToDipPoint: (p) => p, dipToScreenPoint: (p) => p },
+    screen,
     session: {},
     systemPreferences: {},
   };
