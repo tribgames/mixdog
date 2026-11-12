@@ -308,9 +308,10 @@ async fn request_parsing_answers_as_node_answers_it() {
         let sequential = case["sequential"].as_bool().unwrap_or(false);
         let fin = case["halfClose"].as_bool().unwrap_or(false) || case["server"] == "gate";
         let seen = peer_sees(listener.port(), &parts, sequential, fin).await;
-        // Every recorded header is compared (`Date`, which the recorder drops, is dropped from what the peer sees too).
-        let recorded: Vec<Value> = case["responses"].as_array().unwrap().iter().map(|r| json!({"status": r["status"], "headers": r["headers"], "body": r["body"]})).collect();
-        let seen: Vec<Value> = seen.into_iter().map(|(status, headers, body)| json!({"status": status, "headers": headers, "body": body})).collect();
+        // The raw bytes the peer gets are compared whole: status line and header lines in order with their name case
+        // and repeats, the body with its framing. Only the value of `Date` is a token, on both sides.
+        let recorded: Vec<Value> = case["responses"].as_array().unwrap().iter().map(|r| json!({"status": r["status"], "head": r["head"], "body": r["body"], "raw": r["raw"]})).collect();
+        let seen: Vec<Value> = seen.into_iter().map(|(status, head, body, raw)| json!({"status": status, "head": head, "body": body, "raw": raw})).collect();
         assert_eq!(seen, recorded, "{name}: what the peer sees");
         assert!(case["closed"].as_bool().unwrap(), "{name}: Node closes the connection");
         assert_eq!(case["settled"], 0, "{name}: nothing settles in Node");
@@ -409,8 +410,31 @@ async fn serve_on_loopback(f: &Fx) -> WebhookListener {
     WebhookListener::start(service, 0).await.unwrap()
 }
 
-/// A reply the peer parsed: status, lower-cased headers without `Date`, decoded body.
-type Parsed = (u16, std::collections::BTreeMap<String, String>, String);
+/// A reply the peer parsed: status, head (status line and header lines as sent, the `Date` value a token), decoded
+/// body, and the whole raw reply (head and body with its framing).
+type Parsed = (u16, String, String, String);
+
+/// What the recorder replaces the value of `Date` by.
+const DATE_TOKEN: &str = "<date>";
+
+fn golden() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap()
+}
+
+/// A write on a socket, with the same deadline as a read: a peer that does not take its bytes fails the test by name.
+async fn send(write: &mut (impl AsyncWriteExt + Unpin), bytes: &[u8], what: &str) {
+    // A listener that has already answered and closed may refuse the rest; the reply is what is compared.
+    let _ = within(&format!("the write of {what}"), write.write_all(bytes)).await;
+}
+
+async fn connect(port: u16) -> TcpStream {
+    within("the loopback connection", TcpStream::connect(("127.0.0.1", port))).await.unwrap()
+}
+
+/// Waits `ms` of the paused clock.
+async fn advance(ms: u64) {
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
 
 /// Every wait on a socket has this deadline and names what it waits for when it passes. It is longer than
 /// every paused-clock bound a test waits for (the 25 s process bound), so it fires only on a real hang.
@@ -421,25 +445,25 @@ async fn within<T>(waiting_for: &str, future: impl std::future::Future<Output = 
 }
 
 async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
-    read_response_typed(stream, pending, "a reply").await.map(|(status, _, body)| (status, body))
+    read_response_typed(stream, pending, "a reply").await.map(|(status, _, body, _)| (status, body))
 }
 
 /// Writes `parts` (a `sequential` second part only after the first reply came) and returns every reply
 /// the peer gets until the listener closes. `fin` half-closes the sending side after the writes, so a
 /// listener that kept the connection alive ends it too.
 async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Vec<Parsed> {
-    let (mut read, mut write) = within("the loopback connection", TcpStream::connect(("127.0.0.1", port))).await.unwrap().into_split();
+    let (mut read, mut write) = connect(port).await.into_split();
     let (mut pending, mut seen) = (Vec::new(), Vec::new());
     let first = if sequential { 1 } else { parts.len() };
     for part in &parts[..first] {
-        let _ = write.write_all(part.as_bytes()).await;
+        send(&mut write, part.as_bytes(), "a request").await;
     }
     if sequential {
         seen.extend(read_response_typed(&mut read, &mut pending, "the reply to the first request").await);
-        let _ = write.write_all(parts[1].as_bytes()).await;
+        send(&mut write, parts[1].as_bytes(), "the second request").await;
     }
     if fin {
-        let _ = write.shutdown().await;
+        let _ = within("the half-close", write.shutdown()).await;
     }
     while let Some(reply) = read_response_typed(&mut read, &mut pending, "the listener closing the connection after its reply").await {
         seen.push(reply);
@@ -472,12 +496,15 @@ async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: 
     };
     let head = String::from_utf8_lossy(&pending[..head_end]).into_owned();
     let status = head.split(' ').nth(1)?.parse().ok()?;
+    // The framing is found through lower-cased names; the head that is returned keeps the names as sent.
     let mut headers = std::collections::BTreeMap::new();
+    let mut lines = vec![head.lines().next().unwrap().to_owned()];
     for line in head.lines().skip(1) {
         let (name, value) = line.split_once(':').expect("a header line has a colon");
         headers.insert(name.to_ascii_lowercase(), value.trim().to_owned());
+        lines.push(if name.eq_ignore_ascii_case("date") { format!("{name}: {DATE_TOKEN}") } else { line.to_owned() });
     }
-    headers.remove("date");
+    let head = lines.join("\r\n");
     let mut at = head_end + 4;
     let mut body = Vec::new();
     if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
@@ -502,8 +529,8 @@ async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: 
                 break;
             }
         }
-    } else {
-        let length: usize = headers.get("content-length").map_or(0, |v| v.parse().unwrap());
+    } else if let Some(length) = headers.get("content-length") {
+        let length: usize = length.parse().unwrap();
         while pending.len() < at + length {
             if !fill(stream, pending, &format!("{waiting}: the response body")).await {
                 return None;
@@ -511,26 +538,31 @@ async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: 
         }
         body.extend_from_slice(&pending[at..at + length]);
         at += length;
+    } else {
+        // No length and no chunking: the body is what comes before the connection ends.
+        while fill(stream, pending, &format!("{waiting}: the connection ending after an unframed body")).await {}
+        body.extend_from_slice(&pending[at..]);
+        at = pending.len();
     }
+    let raw = format!("{head}\r\n\r\n{}", String::from_utf8_lossy(&pending[head_end + 4..at]));
     pending.drain(..at);
-    Some((status, headers, String::from_utf8_lossy(&body).into_owned()))
+    Some((status, head, String::from_utf8_lossy(&body).into_owned(), raw))
 }
 /// Sends `parts` one after the other and returns the first reply, None when the server closed
 /// without one.
 async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
-    let stream = within("the loopback connection", TcpStream::connect(("127.0.0.1", port))).await.unwrap();
-    let (mut read, mut write) = stream.into_split();
+    let (mut read, mut write) = connect(port).await.into_split();
     let parts: Vec<Vec<u8>> = parts.iter().map(|p| p.to_vec()).collect();
     // The writer runs beside the reader: a reply may arrive while the sender is still sending,
     // and a server that closes on it must not take the reply down with a failed write.
     let writer = tokio::spawn(async move {
         for part in parts {
-            if write.write_all(&part).await.is_err() {
+            if within("a write of the request", write.write_all(&part)).await.is_err() {
                 return;
             }
         }
         if half_close {
-            let _ = write.shutdown().await;
+            let _ = within("the half-close", write.shutdown()).await;
         }
         std::future::pending::<()>().await;
     });
@@ -591,9 +623,9 @@ async fn a_request_framed_both_ways_never_carries_a_second_request() {
     let listener = serve_on_loopback(&f).await;
     let both = post("/webhook/hook", &[JSON_CT, ("x-github-delivery", "m2")], "Transfer-Encoding: chunked\r\nContent-Length: 2\r\n");
     let behind = b"2\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n";
-    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
-    stream.write_all(&both).await.unwrap();
-    stream.write_all(behind).await.unwrap();
+    let mut stream = connect(listener.port()).await;
+    send(&mut stream, &both, "the request framed both ways").await;
+    send(&mut stream, behind, "the bytes behind it").await;
     let mut replies = Vec::new();
     within("the listener closing the connection", stream.read_to_end(&mut replies)).await.unwrap();
     let text = String::from_utf8(replies).unwrap();
@@ -627,18 +659,59 @@ async fn more_than_a_hundred_headers_under_the_size_limit_are_served() {
     listener.stop().await;
 }
 
-/// Node's 60 s `headersTimeout`: a head that never completes is cut off. The clock is paused, so
-/// the minute costs no wall time.
+/// Node's `headersTimeout` and `requestTimeout`: a head that never completes and a body that does not arrive are each
+/// answered with Node's recorded bare 408 and the connection ends. The recorded defaults are waited on the paused clock,
+/// so the minutes cost no wall time.
 #[tokio::test(start_paused = true)]
-async fn a_head_that_never_completes_is_closed_after_the_headers_timeout() {
+async fn a_request_that_does_not_arrive_in_time_gets_the_recorded_bare_408() {
+    let timing = golden()["timing"].clone();
+    assert_eq!(timing["defaults"]["headersTimeoutMs"], super::listener::HEADERS_TIMEOUT.as_millis() as u64);
+    assert_eq!(timing["defaults"]["requestTimeoutMs"], super::listener::REQUEST_TIMEOUT.as_millis() as u64);
     let f = fx(WebhookConfig::default());
     let listener = serve_on_loopback(&f).await;
-    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
-    stream.write_all(b"POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: ").await.unwrap();
-    mixdog_rt::time::sleep(super::listener::HEADERS_TIMEOUT + std::time::Duration::from_secs(1)).await;
-    let mut reply = Vec::new();
-    let _ = stream.read_to_end(&mut reply).await;
-    assert!(reply.is_empty() || reply.starts_with(b"HTTP/1.1 408"), "{}", String::from_utf8_lossy(&reply));
+    for case in timing["timeouts"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let mut stream = connect(listener.port()).await;
+        for part in case["parts"].as_array().unwrap() {
+            send(&mut stream, part.as_str().unwrap().as_bytes(), name).await;
+        }
+        advance(timing["defaults"][case["after"].as_str().unwrap()].as_u64().unwrap()).await;
+        let mut reply = Vec::new();
+        within(&format!("{name}: the 408 and the end of the connection"), stream.read_to_end(&mut reply)).await.unwrap();
+        let recorded: Vec<&str> = case["responses"].as_array().unwrap().iter().map(|r| r["raw"].as_str().unwrap()).collect();
+        assert_eq!(vec![String::from_utf8_lossy(&reply).into_owned()], recorded, "{name}");
+        assert!(case["closed"].as_bool().unwrap());
+    }
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+    listener.stop().await;
+}
+
+/// Node closes a connection that sits idle between requests, after `keepAliveTimeout` plus `keepAliveTimeoutBuffer`
+/// (the recorded server settings), though it announces only the first. One connection is asked again just before the
+/// timeout and answers; the other, left alone, is closed at it.
+#[tokio::test(start_paused = true)]
+async fn an_idle_connection_is_closed_at_the_recorded_keep_alive_timeout() {
+    let timing = golden()["timing"].clone();
+    let keep = &timing["keepAlive"];
+    assert!(keep["idleOpenJustBefore"].as_bool().unwrap() && keep["answeredJustBefore"].as_bool().unwrap() && keep["idleClosedJustAfter"].as_bool().unwrap());
+    let closes_after = keep["closesAfterMs"].as_u64().unwrap();
+    assert_eq!(closes_after, timing["defaults"]["keepAliveTimeoutMs"].as_u64().unwrap() + timing["defaults"]["keepAliveTimeoutBufferMs"].as_u64().unwrap());
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let request = "GET / HTTP/1.1\r\nHost: x\r\n\r\n";
+    let (mut again, mut idle) = (connect(listener.port()).await, connect(listener.port()).await);
+    let (mut again_pending, mut idle_pending) = (Vec::new(), Vec::new());
+    send(&mut again, request.as_bytes(), "the first request").await;
+    send(&mut idle, request.as_bytes(), "the first request").await;
+    assert_eq!(read_response(&mut again, &mut again_pending).await.unwrap().0, 200);
+    assert_eq!(read_response(&mut idle, &mut idle_pending).await.unwrap().0, 200);
+    advance(closes_after - 1).await;
+    send(&mut again, request.as_bytes(), "the request just before the timeout").await;
+    let answered = read_response_typed(&mut again, &mut again_pending, "the reply on a connection used just before the keep-alive timeout").await;
+    assert_eq!(answered.map(|r| r.0), Some(200));
+    advance(1).await;
+    let closed = read_response_typed(&mut idle, &mut idle_pending, "the idle connection closing at the keep-alive timeout").await;
+    assert_eq!(closed, None);
     listener.stop().await;
 }
 
@@ -647,8 +720,8 @@ async fn a_head_that_never_completes_is_closed_after_the_headers_timeout() {
 async fn pipelined_requests_are_each_answered_in_order() {
     let f = fx(WebhookConfig::default());
     let listener = serve_on_loopback(&f).await;
-    let mut stream = TcpStream::connect(("127.0.0.1", listener.port())).await.unwrap();
-    stream.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+    let mut stream = connect(listener.port()).await;
+    send(&mut stream, b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", "three pipelined requests").await;
     let mut pending = Vec::new();
     let mut replies = Vec::new();
     for _ in 0..3 {

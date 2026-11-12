@@ -736,13 +736,9 @@
       "responses": [
         {
           "status": 404,
-          "headers": {
-            "content-type": "application/json",
-            "connection": "keep-alive",
-            "keep-alive": "timeout=5",
-            "transfer-encoding": "chunked"
-          },
-          "body": "{\"error\":\"invalid endpoint name\"}"
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked",
+          "body": "{\"error\":\"invalid endpoint name\"}",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked\r\n\r\n21\r\n{\"error\":\"invalid endpoint name\"}\r\n0\r\n\r\n"
         }
       ],
       "closed": true,
@@ -759,13 +755,9 @@
       "responses": [
         {
           "status": 404,
-          "headers": {
-            "content-type": "application/json",
-            "connection": "keep-alive",
-            "keep-alive": "timeout=5",
-            "transfer-encoding": "chunked"
-          },
-          "body": "{\"error\":\"invalid endpoint name\"}"
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked",
+          "body": "{\"error\":\"invalid endpoint name\"}",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked\r\n\r\n21\r\n{\"error\":\"invalid endpoint name\"}\r\n0\r\n\r\n"
         }
       ],
       "closed": true,
@@ -781,10 +773,9 @@
       "responses": [
         {
           "status": 400,
-          "headers": {
-            "connection": "close"
-          },
-          "body": ""
+          "head": "HTTP/1.1 400 Bad Request\r\nConnection: close",
+          "body": "",
+          "raw": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"
         }
       ],
       "closed": true,
@@ -799,14 +790,173 @@
       "responses": [
         {
           "status": 400,
-          "headers": {
-            "connection": "close"
-          },
-          "body": ""
+          "head": "HTTP/1.1 400 Bad Request\r\nConnection: close",
+          "body": "",
+          "raw": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "GET / asking to close",
+      "server": "gate",
+      "parts": [
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "GET / kept alive, then GET / asking to close",
+      "server": "gate",
+      "sequential": true,
+      "parts": [
+        "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
+        },
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "GET on HTTP/1.0",
+      "server": "gate",
+      "parts": [
+        "GET / HTTP/1.0\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\n\r\nOK"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "GET on HTTP/1.0 with Connection: keep-alive",
+      "server": "gate",
+      "parts": [
+        "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "head": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close",
+          "body": "OK",
+          "raw": "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nDate: <date>\r\nConnection: close\r\n\r\nOK"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "a gate answer on HTTP/1.0",
+      "server": "gate",
+      "parts": [
+        "POST /webhook/%zz HTTP/1.0\r\nContent-Length: 0\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: close",
+          "body": "{\"error\":\"invalid endpoint name\"}",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: close\r\n\r\n{\"error\":\"invalid endpoint name\"}"
+        }
+      ],
+      "closed": true,
+      "settled": 0
+    },
+    {
+      "name": "a gate answer on HTTP/1.0 with Connection: keep-alive",
+      "server": "gate",
+      "parts": [
+        "POST /webhook/%zz HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n"
+      ],
+      "responses": [
+        {
+          "status": 404,
+          "head": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: close",
+          "body": "{\"error\":\"invalid endpoint name\"}",
+          "raw": "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nDate: <date>\r\nConnection: close\r\n\r\n{\"error\":\"invalid endpoint name\"}"
         }
       ],
       "closed": true,
       "settled": 0
     }
-  ]
+  ],
+  "timing": {
+    "defaults": {
+      "keepAliveTimeoutMs": 5000,
+      "keepAliveTimeoutBufferMs": 1000,
+      "headersTimeoutMs": 60000,
+      "requestTimeoutMs": 300000
+    },
+    "keepAlive": {
+      "closesAfterMs": 6000,
+      "justBeforeMs": 5500,
+      "idleOpenJustBefore": true,
+      "answeredJustBefore": true,
+      "closedJustAfterMs": 6500,
+      "idleClosedJustAfter": true
+    },
+    "timeouts": [
+      {
+        "name": "a body that does not arrive in time",
+        "after": "requestTimeoutMs",
+        "parts": [
+          "POST /webhook/hook HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc"
+        ],
+        "responses": [
+          {
+            "status": 408,
+            "head": "HTTP/1.1 408 Request Timeout\r\nConnection: close",
+            "body": "",
+            "raw": "HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n"
+          }
+        ],
+        "closed": true
+      },
+      {
+        "name": "a head that does not complete in time",
+        "after": "headersTimeoutMs",
+        "parts": [
+          "POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: "
+        ],
+        "responses": [
+          {
+            "status": 408,
+            "head": "HTTP/1.1 408 Request Timeout\r\nConnection: close",
+            "body": "",
+            "raw": "HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n"
+          }
+        ],
+        "closed": true
+      }
+    ]
+  }
 }

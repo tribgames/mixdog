@@ -2,16 +2,20 @@
   "command": "node benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs --tree <b6f10295a>",
   "exclusions": [
     {
-      "reason": "the recorder drops the Date header (a clock reading of the recording run); the replay drops it from what the peer sees",
-      "what": "wire[].responses[].headers.date"
+      "reason": "a clock reading of the recording run: the recorder replaces it by the token <date> and the replay replaces the listener's Date value by the same token; the header name, its place and its case are compared",
+      "what": "the value of the Date header in wire[].responses[].{raw,head} and timing.timeouts[].responses[].{raw,head}"
+    },
+    {
+      "reason": "Node's own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server's own settings, read from a default server) on its virtual clock",
+      "what": "timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server"
     }
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 17715,
+      "bytes": 23709,
       "path": "golden.json",
-      "sha256": "781d5cf185d65cb284c1ffb07cb9db2d7c2a8df37ae54aecc70cb95d51df81fb"
+      "sha256": "f7c774e4bba1078204fbac7faba9164896ff9eee4a2b96d6e676622fb665af44"
     }
   ],
   "inputs": [
@@ -43,7 +47,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs",
-  "recorderSha256": "485cc4baf2e221adbe3d8bba388fd70fb461a64fa3ded0b5a3ae5ed0aa8d1e6f",
+  "recorderSha256": "98e9f09abbcee1f4541253635d0d371664c81564b677e9a0bf02026af42d6e12",
   "set": "webhook-endpoint-name",
-  "totalBytes": 17715
+  "totalBytes": 23709
 }

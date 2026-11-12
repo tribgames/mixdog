@@ -216,7 +216,7 @@ for (const c of cutCases) {
 // What a peer sees on the wire: real `http.createServer` servers, raw bytes over a socket. The gate server answers like the
 // listener (`handlePost` for `POST /webhook/*`, `GET /` 200 `OK`); the collect server runs `collectRawBody` alone (the cases
 // that pass the gate need PostgreSQL) and counts how many collections settled. A case records the responses the peer parsed
-// (status, headers without `date`, body), whether the server closed the connection, and the settled count. `sequential`
+// (status, raw head and bytes with the `date` value tokenised, body), whether the server closed the connection, and the settled count. `sequential`
 // writes the second part only once the first response has arrived. One deadline guards a connection that stays open.
 const wireHandler = createWebhookRequestHandler({
   getConfig: () => ({ endpoints: {} }),
@@ -245,6 +245,12 @@ const wireServers = {
 };
 for (const server of Object.values(wireServers)) await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 
+// The Date value is a clock reading of the recording run: the head keeps its name as sent and its value becomes this token.
+const DATE_TOKEN = '<date>';
+
+// Every response is recorded as the bytes the server sent (`raw`: status line, header lines in order, name case and repeats
+// as sent, the body with its framing), with only the Date value replaced; `head` is the same without the body and `body` is
+// the decoded body. The lower-cased map below is only how this parser finds the framing; it is not recorded.
 function parseResponses(buffer) {
   const responses = [];
   let rest = buffer;
@@ -257,7 +263,7 @@ function parseResponses(buffer) {
       const at = line.indexOf(':');
       headers[line.slice(0, at).toLowerCase()] = line.slice(at + 1).trim();
     }
-    delete headers.date;
+    const head = lines.map((line, i) => (i > 0 && /^date:/i.test(line) ? `${line.slice(0, line.indexOf(':') + 1)} ${DATE_TOKEN}` : line)).join('\r\n');
     let at = end + 4;
     let body = '';
     if (headers['transfer-encoding'] === 'chunked') {
@@ -276,7 +282,7 @@ function parseResponses(buffer) {
       body = rest.subarray(at, at + length).toString('latin1');
       at += length;
     }
-    responses.push({ status: Number(lines[0].split(' ')[1]), headers, body });
+    responses.push({ status: Number(lines[0].split(' ')[1]), head, body, raw: `${head}\r\n\r\n${rest.subarray(end + 4, at).toString('latin1')}` });
     rest = rest.subarray(at);
   }
 }
@@ -312,6 +318,13 @@ const wireCases = [
   { name: 'a gate answer, then a second request on the same connection', server: 'gate', sequential: true, parts: [gateRequest, secondRequest] },
   { name: 'a truncated chunked body, the peer half-closed', server: 'collect', halfClose: true, parts: [chunkedHead + '2\r\n{}\r\n0\r\n'] },
   { name: 'junk where a chunk ends', server: 'collect', parts: [chunkedHead + '2\r\n{}XX0\r\n\r\n'] },
+  // The replies the listener writes through its HTTP stack: a kept connection, then a closing one.
+  { name: 'GET / asking to close', server: 'gate', parts: ['GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'] },
+  { name: 'GET / kept alive, then GET / asking to close', server: 'gate', sequential: true, parts: ['GET / HTTP/1.1\r\nHost: x\r\n\r\n', secondRequest] },  // A sender on HTTP/1.0 gets no chunked framing; the reply of a request that asks to keep the connection is recorded too.
+  { name: 'GET on HTTP/1.0', server: 'gate', parts: ['GET / HTTP/1.0\r\n\r\n'] },
+  { name: 'GET on HTTP/1.0 with Connection: keep-alive', server: 'gate', parts: ['GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n'] },
+  { name: 'a gate answer on HTTP/1.0', server: 'gate', parts: ['POST /webhook/%zz HTTP/1.0\r\nContent-Length: 0\r\n\r\n'] },
+  { name: 'a gate answer on HTTP/1.0 with Connection: keep-alive', server: 'gate', parts: ['POST /webhook/%zz HTTP/1.0\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n'] },
 ];
 const wireResults = [];
 for (const c of wireCases) {
@@ -319,9 +332,66 @@ for (const c of wireCases) {
   const seen = await runWire(wireServers[c.server], c);
   wireResults.push({ ...c, ...seen, settled: settledCollections - before });
 }
+
+// Time: the server's own settings (read, not assumed), and what they do on the wire. Node's timers are real here, so the
+// request and headers timeouts are shortened (with the check interval) on the server that records the 408s: the bytes sent
+// do not depend on the length, and the replay waits the recorded defaults on its own clock. The keep-alive probe runs the
+// default server (the gate server) for real: one connection is asked again just before the timeout and answers, an idle
+// one is closed just after it.
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultServer = http.createServer();
+const defaults = { keepAliveTimeoutMs: defaultServer.keepAliveTimeout, keepAliveTimeoutBufferMs: defaultServer.keepAliveTimeoutBuffer, headersTimeoutMs: defaultServer.headersTimeout, requestTimeoutMs: defaultServer.requestTimeout };
+defaultServer.close();
+const keepAliveRequest = 'GET / HTTP/1.1\r\nHost: x\r\n\r\n';
+const keepAlive = await (async () => {
+  const port = wireServers.gate.address().port;
+  const open = (resolve) => {
+    const socket = net.connect(port, '127.0.0.1');
+    socket.state = { closed: false };
+    socket.on('error', () => {});
+    socket.on('close', () => {
+      socket.state.closed = true;
+    });
+    socket.once('data', () => resolve(socket));
+    socket.write(keepAliveRequest);
+  };
+  const [again, idle] = await Promise.all([new Promise(open), new Promise(open)]);
+  // The server closes an idle connection after keepAliveTimeout plus keepAliveTimeoutBuffer, while it announces only the first.
+  const closesAfterMs = defaults.keepAliveTimeoutMs + defaults.keepAliveTimeoutBufferMs;
+  const justBeforeMs = closesAfterMs - 500;
+  await sleep(justBeforeMs);
+  const idleOpenBefore = !idle.state.closed;
+  const answeredBefore = await new Promise((resolve) => {
+    again.once('data', () => resolve(true));
+    again.write(keepAliveRequest);
+    setTimeout(() => resolve(false), 1000);
+  });
+  await sleep(1000);
+  return {
+    closesAfterMs,
+    justBeforeMs,
+    idleOpenJustBefore: idleOpenBefore,
+    answeredJustBefore: answeredBefore,
+    closedJustAfterMs: justBeforeMs + 1000,
+    idleClosedJustAfter: idle.state.closed,
+  };
+})();
+if (!(keepAlive.idleOpenJustBefore && keepAlive.answeredJustBefore && keepAlive.idleClosedJustAfter)) throw new Error(`keep-alive probe: ${JSON.stringify(keepAlive)}`);
+
+const shortServer = http.createServer({ requestTimeout: 1000, headersTimeout: 500, connectionsCheckingInterval: 100 }, (req, res) => {
+  void collectRawBody(req, res);
+});
+await new Promise((resolve) => shortServer.listen(0, '127.0.0.1', resolve));
+const timeoutCases = [
+  { name: 'a body that does not arrive in time', after: 'requestTimeoutMs', parts: ['POST /webhook/hook HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc'] },
+  { name: 'a head that does not complete in time', after: 'headersTimeoutMs', parts: ['POST /webhook/hook HTTP/1.1\r\nHost: x\r\nX-Slow: '] },
+];
+const timeoutResults = [];
+for (const c of timeoutCases) timeoutResults.push({ ...c, ...(await runWire(shortServer, c)) });
+shortServer.close();
 for (const server of Object.values(wireServers)) server.close();
 
-const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults, wire: wireResults };
+const result = { maxBodyBytes: MAX_BODY_BYTES, paths: pathResults, bodies: caseResults, cutBodies: cutResults, wire: wireResults, timing: { defaults, keepAlive, timeouts: timeoutResults } };
 const out = args.get('out');
 if (out) {
   writeFileSync(out, JSON.stringify(result, null, 1));
@@ -336,8 +406,11 @@ if (out) {
     identity,
     extra: {
       ...recorderProvenance(import.meta.url),
-      // Every other recorded wire header is compared by equality, `Connection` included.
-      exclusions: [{ what: 'wire[].responses[].headers.date', reason: 'the recorder drops the Date header (a clock reading of the recording run); the replay drops it from what the peer sees' }],
+      // Every reply is compared as the raw bytes sent (status line, header lines in order with their name case and repeats, body framing).
+      exclusions: [
+        { what: 'the value of the Date header in wire[].responses[].{raw,head} and timing.timeouts[].responses[].{raw,head}', reason: 'a clock reading of the recording run: the recorder replaces it by the token <date> and the replay replaces the listener\'s Date value by the same token; the header name, its place and its case are compared' },
+        { what: 'timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server', reason: 'Node\'s own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server\'s own settings, read from a default server) on its virtual clock' },
+      ],
     },
   });
   commitStage(stage, finalDir);
