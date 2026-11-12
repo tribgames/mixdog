@@ -138,3 +138,20 @@ test('a post whose PDF intake stalls fails at the deadline and the next post sti
   assert.equal((await report).added, 1);
   assert.deepEqual(ids(session), ['after']);
 });
+
+test("a member's speech is posted with its session's sensitive values as the marker", async () => {
+  const { rememberSensitiveValues } = await import('../runtime/agent/orchestrator/session/sensitive-values.mjs');
+  const { roomMemberSessionId } = await import('../runtime/agent/orchestrator/session/agent-room.mjs');
+  const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: '482913' } } };
+  rememberSensitiveValues(roomMemberSessionId('abc123', 'gh'), [fill]);
+  const { session, delivery } = memory();
+  const posted = await delivery.append(ROOM_LOG, [
+    speech('s1', 'the code is 482913'),
+    { ...speech('s2', 'other says 482913'), speaker: 'alpha' },
+  ]);
+  assert.deepEqual(
+    session.messages.map((message) => message.content),
+    ['the code is [redacted]', 'other says 482913']
+  );
+  assert.deepEqual(posted.rows.map((row) => row.text), ['the code is [redacted]', 'other says 482913']);
+});

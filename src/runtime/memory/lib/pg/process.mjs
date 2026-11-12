@@ -117,6 +117,7 @@ async function findFreePort(preferred) {
 const MIXDOG_CONF_V2_MARKER = '# mixdog overrides v2 — bgwriter / checkpoint distribution';
 const MIXDOG_CONF_V3_MARKER = '# mixdog overrides v3 — bounded local-app resources';
 const MIXDOG_CONF_V4_MARKER = '# mixdog overrides v4 — resident-memory bounds';
+const MIXDOG_CONF_V5_MARKER = '# mixdog overrides v5 — no WAL segment reuse';
 
 // Lines emitted into postgresql.conf for v2. effective_io_concurrency requires
 // posix_fadvise; PostgreSQL rejects non-zero values on Windows and macOS.
@@ -171,6 +172,14 @@ function buildV4Block() {
   ].join('\n')}\n`;
 }
 
+// The setting a sensitive scrub relies on (session-search-db.mjs
+// scrubReplacedRows): a WAL segment past the redo point is deleted, never
+// renamed for reuse with its old bytes. A cluster made before the fresh conf
+// carried it gets it here.
+function buildV5Block() {
+  return `${['', MIXDOG_CONF_V5_MARKER, 'wal_recycle = off'].join('\n')}\n`;
+}
+
 // Migration: an earlier v2 emitted effective_io_concurrency on every POSIX
 // platform. Strip it anywhere except Linux so old macOS clusters can start.
 function stripPlatformInvalidLines(conf) {
@@ -197,6 +206,10 @@ function ensureConfV2(pgdataDir) {
   }
   if (!conf.includes(MIXDOG_CONF_V4_MARKER)) {
     conf += buildV4Block();
+    changed = true;
+  }
+  if (!conf.includes(MIXDOG_CONF_V5_MARKER)) {
+    conf += buildV5Block();
     changed = true;
   }
   if (!changed) return false;
@@ -290,7 +303,8 @@ function freshClusterConfAppend() {
     '\n' +
     buildV2Block() +
     buildV3Block() +
-    buildV4Block()
+    buildV4Block() +
+    buildV5Block()
   );
 }
 

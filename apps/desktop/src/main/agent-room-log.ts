@@ -63,8 +63,9 @@ export function createRoomLog(
       const kept = Array.isArray(stored?.rows) ? (stored.rows as RoomRow[]) : rows;
       const list = [...(recent.get(roomId) ?? []), ...kept].slice(-RECENT_ROWS);
       recent.set(roomId, list);
-      // The list row's preview follows every spoken line, as a home thread's does.
-      const said = [...rows].reverse().find((row) => row.kind === 'user' || row.kind === 'speech');
+      // The list row's preview follows every spoken line, as a home thread's does,
+      // as stored (a speech's sensitive values are the marker there).
+      const said = [...kept].reverse().find((row) => row.kind === 'user' || row.kind === 'speech');
       const room = rooms()[roomId];
       if (said && room) {
         room.lastPreview = plainPreviewText(said.text).slice(0, 200);

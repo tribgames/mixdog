@@ -26,6 +26,7 @@ import { handoffContent } from '../../../handoff-attachments.mjs';
 import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import { turnReportText } from '../../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
+import { carrySensitiveValues, redactSensitiveText } from '../../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
 
 export function createSpawnRunner({
   mgr,
@@ -54,7 +55,8 @@ export function createSpawnRunner({
       tag,
       sessionId: session.id,
       ...presetDescriptor(agent, preset, presetName),
-      content: turnReportText(result),
+      // The report leaves the worker: its sensitive values as the marker.
+      content: redactSensitiveText(session.id, turnReportText(result)),
       ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
       ...(abnormalError ? { error: abnormalError } : {}),
     };
@@ -90,6 +92,14 @@ export function createSpawnRunner({
     const turn = workerTurns.claim(session, job);
     const turnReview = createTurnReviewCollector(session, tag, agent, notifyContext || {});
     const completionValue = completionValueFor(prepared);
+    // The sessions the turn's report and handoffs reach and whose text its prompt carries: each one's sensitive
+    // values follow the text both ways, and the prompt leaves its owners with theirs as the marker.
+    for (const owner of [notifyContext?.callerSessionId, session.parentSessionId, notifyContext?.ownerSessionId, session.ownerSessionId]) {
+      if (!owner) continue;
+      carrySensitiveValues(session.id, owner);
+      carrySensitiveValues(owner, session.id);
+      prepared.prompt = redactSensitiveText(owner, prepared.prompt);
+    }
     let finalStatus = 'idle';
     // SubagentStart: a worker session is about to run its first turn.
     emitSubagentEvent('start', agent, { session_id: session.id, tag });
@@ -101,7 +111,7 @@ export function createSpawnRunner({
         tag,
         sessionId: session.id,
         ...presetDescriptor(agent, preset, presetName),
-        content: turnPartialHandoff(error, mgr.getSession(session.id), handoffMsgStart) || result?.content || '',
+        content: redactSensitiveText(session.id, turnPartialHandoff(error, mgr.getSession(session.id), handoffMsgStart) || result?.content || ''),
       });
     };
     try {
@@ -142,6 +152,7 @@ export function createSpawnRunner({
       }
       return finalValue;
     } catch (error) {
+      if (typeof error?.message === 'string') error.message = redactSensitiveText(session.id, error.message);
       if (job?.status === 'cancelled') {
         settleCancelled(error);
         throw error;
@@ -153,7 +164,7 @@ export function createSpawnRunner({
           tag,
           sessionId: session.id,
           ...presetDescriptor(agent, preset, presetName),
-          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(session.id)),
+          content: redactSensitiveText(session.id, watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(session.id))),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;

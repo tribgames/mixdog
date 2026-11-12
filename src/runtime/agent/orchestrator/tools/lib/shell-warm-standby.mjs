@@ -20,9 +20,20 @@ import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
 // matching -Command rather than leaking an earlier $LASTEXITCODE.
 // Fresh (non-standby) pwsh spawns use the same bootstrap with the script fed
 // through stdin, so both paths share one delivery and one set of semantics.
+// The script arrives framed (frameStdinScript): its length on a line of its
+// own first. An input that ends before that length (the write failed part
+// way and the input closed) runs nothing and exits 1: ReadToEnd alone would
+// take the end of a part of the script for the end of all of it and run it.
 const STANDBY_BOOTSTRAP =
-  "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); try { $__mixdogScript = [scriptblock]::Create([Console]::In.ReadToEnd() + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; . $__mixdogScript";
+  "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $__mixdogIn = [Console]::In.ReadToEnd(); $__mixdogAt = $__mixdogIn.IndexOf(\"`n\"); if ($__mixdogAt -lt 1 -or \"$($__mixdogIn.Length - $__mixdogAt - 1)\" -cne $__mixdogIn.Substring(0, $__mixdogAt)) { [Console]::Error.WriteLine('the command arrived incomplete and was not run'); exit 1 }; try { $__mixdogScript = [scriptblock]::Create($__mixdogIn.Substring($__mixdogAt + 1) + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; $__mixdogIn = $null; . $__mixdogScript";
 export const STANDBY_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', STANDBY_BOOTSTRAP];
+
+// A script as the bootstrap takes it: its length in UTF-16 code units (what
+// .NET counts once it has decoded the input) on a line of its own, then it.
+export function frameStdinScript(script) {
+  const text = String(script ?? '');
+  return `${text.length}\n${text}`;
+}
 const _configuredIdleMs = Number(process.env.MIXDOG_SHELL_WARM_STANDBY_IDLE_MS);
 const STANDBY_TTL_MS =
   Number.isFinite(_configuredIdleMs) && _configuredIdleMs >= 100 ? Math.floor(_configuredIdleMs) : 2 * 60_000;
@@ -193,7 +204,7 @@ export function takeWarmShellStandby({ shell, env }) {
     const prelude = scratchPrelude + cwdPrelude;
     // Single atomic write+EOF: a separate close message can race ahead
     // of the server's async write thread and feed an empty script.
-    slot.native.child.writeStdin(prelude + String(commandText ?? ''), { close: true });
+    slot.native.child.writeStdin(frameStdinScript(prelude + String(commandText ?? '')), { close: true });
   };
   return { spawned: slot.native, feed };
 }

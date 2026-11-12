@@ -22,6 +22,16 @@ const modelEffortValues = (model) =>
     .map((effort) => effort.value)
     .filter(Boolean);
 
+/** The effort a model starts on when nothing selects one: the saved choice,
+ *  else the catalog default, else the preference order. */
+export function catalogDefaultEffort(model) {
+  const values = modelEffortValues(model);
+  if (!values.length) return null;
+  if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
+  if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
+  return preferredEffort(values);
+}
+
 export function createEffortSelection({ providerModels, state, currentRoute, isCurrentRoute, isStateRoute }) {
   const selectedEfforts = new Map();
 
@@ -31,9 +41,7 @@ export function createEffortSelection({ providerModels, state, currentRoute, isC
     if (isCurrentRoute(model) && currentRoute.effort && values.includes(currentRoute.effort))
       return currentRoute.effort;
     if (isStateRoute(model) && state.effort && values.includes(state.effort)) return state.effort;
-    if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
-    if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
-    return preferredEffort(values);
+    return catalogDefaultEffort(model);
   };
   const getSelectedEffort = (model) => {
     if (!model) return null;

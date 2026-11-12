@@ -67,6 +67,7 @@ export const AGENT_TOOL = {
       },
       provider: { type: 'string', description: 'Narrows model to one provider; requires model.' },
       effort: { type: 'string', description: 'Reasoning effort for an explicit model.' },
+      fast: { type: 'boolean', description: 'Fast mode for an explicit model; needs model.' },
     },
     required: ['type'],
     additionalProperties: false,

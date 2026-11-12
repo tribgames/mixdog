@@ -15,6 +15,7 @@ import {
   inheritanceRouteTarget,
 } from '../inheritance-fit.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { carrySensitiveValues } from '../../runtime/agent/orchestrator/session/sensitive-values.mjs';
 import {
   rebindToChangedPrefix,
   requestPrefixIdentity,
@@ -190,6 +191,9 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
       ...stripEffortConfiguration(inheritedCompatReplayMessages(structuredClone(carried), source.provider))
     );
     target.inheritedFromSessionId = source.id;
+    // The heir holds the source's text: the source's sensitive values, now and
+    // later, are the heir's to redact in what it stores.
+    carrySensitiveValues(source.id, target.id);
     target.updatedAt = Date.now();
     recordInheritanceBoundary(target, source);
     if (!clean(target.title) && clean(source.title)) target.title = source.title;

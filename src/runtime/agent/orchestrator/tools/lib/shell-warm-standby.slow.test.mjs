@@ -14,7 +14,7 @@ import {
   ensureNativeSpawnServer,
   shutdownNativeSpawnServer,
 } from './native-spawn-client.mjs';
-import { STANDBY_ARGS, _parkedShellStandbyForTest, takeWarmShellStandby } from './shell-warm-standby.mjs';
+import { STANDBY_ARGS, _parkedShellStandbyForTest, frameStdinScript, takeWarmShellStandby } from './shell-warm-standby.mjs';
 
 const spawnBinary = ['release', 'debug']
   .map((profile) =>
@@ -88,6 +88,34 @@ test(
   }
 );
 
+// An input that ends after half of the script (the helper's write failed part
+// way and the input closed) runs nothing of it, not even the statement the
+// half carries whole; the whole script runs.
+test('the bootstrap runs nothing of a script that arrived in part', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-partial-'));
+  try {
+    const marker = join(dir, 'first-half-ran');
+    const framed = frameStdinScript(`New-Item -ItemType File -Path '${marker}' | Out-Null\n# ${'x'.repeat(400)}\nWrite-Output whole`);
+    const half = framed.slice(0, Math.floor(framed.length / 2));
+    assert.ok(half.includes('Out-Null\n# x'), 'the half carries the first statement whole');
+    const options = { encoding: 'utf8', windowsHide: true, cwd: fixtureRoot };
+    const cut = spawnSync('powershell.exe', STANDBY_ARGS, { ...options, input: half });
+    assert.ifError(cut.error);
+    assert.equal(existsSync(marker), false, 'the first half of a script that arrived in part ran');
+    assert.equal(cut.status, 1);
+    assert.equal(cut.stderr.trim(), 'the command arrived incomplete and was not run');
+    assert.equal(cut.stdout, '');
+    const whole = spawnSync('powershell.exe', STANDBY_ARGS, { ...options, input: framed });
+    assert.ifError(whole.error);
+    assert.equal(existsSync(marker), true, 'the whole script ran');
+    assert.deepEqual([whole.status, whole.stdout.trim()], [0, 'whole']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // The cold `-Command` run is the semantic reference, not a timing check: no
 // spawn deadline (pwsh startup on a loaded machine is unbounded), and a hung
 // pwsh is bounded by the runner's per-file timeout.
@@ -106,7 +134,7 @@ test('warm PowerShell preserves cold command status and output', {
   for (const [script, expected] of cases) {
     const options = { encoding: 'utf8', windowsHide: true, cwd: fixtureRoot };
     const cold = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], options);
-    const warm = spawnSync('pwsh', STANDBY_ARGS, { ...options, input: script });
+    const warm = spawnSync('pwsh', STANDBY_ARGS, { ...options, input: frameStdinScript(script) });
     assert.ifError(cold.error);
     assert.ifError(warm.error);
     assert.equal(cold.status, expected, `cold: ${script}`);

@@ -31,6 +31,10 @@ const MARKERS = [MARKER, SAVED_LOGIN_MARKER];
 const bySession = new Map();
 /** sessionId → Set(listener) notified synchronously when the session gains a value. */
 const listeners = new Map();
+/** sessionId → Set(sessionId) its text went to (carrySensitiveValues): every value it gains goes there too. */
+const carries = new Map();
+/** Told the id of each session that gained values carried from another. */
+let carriedListener = null;
 
 function fillValues(call) {
   let args = call?.arguments;
@@ -56,9 +60,66 @@ function fillValues(call) {
 export function rememberSensitiveValues(sessionId, calls) {
   const values = (Array.isArray(calls) ? calls : []).flatMap(fillValues);
   if (!sessionId || !values.length) return false;
+  const next = addValues(sessionId, values);
+  if (!next) return false;
+  gainCarried(next, values, sessionId);
+  return true;
+}
+
+/** Text of `fromSessionId` went to `toSessionId` (a worker's report to its
+ *  owner): every value the source holds, and every value it gains later, is
+ *  the target's too, and so on along the target's own carries. The target is
+ *  told as by a mark of its own, and the carried listener is told each session
+ *  that gained a value this way. */
+export function carrySensitiveValues(fromSessionId, toSessionId) {
+  if (!fromSessionId || !toSessionId || fromSessionId === toSessionId) return;
+  const to = carries.get(fromSessionId) ?? new Set();
+  to.add(toSessionId);
+  carries.set(fromSessionId, to);
+  const values = [...(bySession.get(fromSessionId)?.values || [])];
+  if (values.length) gainCarried([toSessionId], values, fromSessionId);
+}
+
+/** Calls `listener(sessionId)` for every session that gains values carried
+ *  from another (the session manager, which rewrites that session's files
+ *  whether a turn runs on it or not); returns the function that stops it. */
+export function onSensitiveValuesCarried(listener) {
+  carriedListener = typeof listener === 'function' ? listener : null;
+  return () => {
+    if (carriedListener === listener) carriedListener = null;
+  };
+}
+
+/** `values` reach every session of `targets` and, from each that gains one,
+ *  its own carries; never back to `origin` or a session reached already. */
+function gainCarried(targets, values, origin) {
+  const seen = new Set([origin]);
+  const queue = [...targets];
+  while (queue.length) {
+    const sessionId = queue.pop();
+    if (seen.has(sessionId)) continue;
+    seen.add(sessionId);
+    const next = addValues(sessionId, values);
+    if (!next) continue;
+    try {
+      carriedListener?.(sessionId);
+    } catch (error) {
+      try {
+        process.stderr.write(`[sensitive-values] carried listener failed session=${sessionId}: ${error?.message || error}\n`);
+      } catch {
+        // stderr may be closed; the listener failure is only reported
+      }
+    }
+    queue.push(...next);
+  }
+}
+
+/** Adds `values` to `sessionId`, tells its listeners when one is new and
+ *  returns the sessions it carries to; null when it gained nothing. */
+function addValues(sessionId, values) {
   const known = bySession.get(sessionId) ?? { version: 0, values: new Set(), spellings: [] };
   const fresh = values.filter((value) => !known.values.has(value));
-  if (!fresh.length) return false;
+  if (!fresh.length) return null;
   const spellings = new Set(known.spellings);
   for (const value of fresh) {
     known.values.add(value);
@@ -79,7 +140,7 @@ export function rememberSensitiveValues(sessionId, calls) {
       }
     }
   }
-  return true;
+  return [...(carries.get(sessionId) || [])];
 }
 
 /** Calls `listener` whenever `sessionId` gains a sensitive value; returns the

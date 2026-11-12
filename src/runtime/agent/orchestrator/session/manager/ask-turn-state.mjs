@@ -4,7 +4,8 @@
 // canonicalizes the transcript when the turn is interrupted.
 import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from './turn-checkpoint.mjs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
-import { onSensitiveValuesMarked } from '../sensitive-values.mjs';
+import { onSensitiveValuesCarried, onSensitiveValuesMarked } from '../sensitive-values.mjs';
+import { getSession } from './session-crud.mjs';
 import { saveSessionAsync } from '../store.mjs';
 import { setTranscriptSnapshotHook } from '../store/transcript-durability.mjs';
 import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
@@ -12,6 +13,31 @@ import { ingestSessionTurn } from '../../../../session-search/session-search-ing
 // Coalescing window for streaming-delta flushes. Each flush journals only the
 // delta since the previous one, so the window just bounds syscalls.
 const TURN_CHECKPOINT_THROTTLE_MS = 150;
+
+// A value marked in a session whose text this one holds (a worker's report,
+// sensitive-values.mjs carrySensitiveValues) reaches it whether a turn runs on
+// it or not: its stored copies are written again with the value replaced and
+// its search rows replaced, as for a mark of its own. A running turn's own
+// listener (below) does the same; the second save finds nothing due.
+// Resolves once the session's files are rewritten (false when it is gone or
+// the save failed).
+export function redactCarriedSession(sessionId) {
+  const session = getSession(sessionId);
+  if (!session) return Promise.resolve(false);
+  ingestSessionTurn(session);
+  return saveSessionAsync(session).then(
+    () => true,
+    (err) => {
+      try {
+        process.stderr.write(`[session] carried sensitive-value save failed session=${sessionId}: ${err?.message || err}\n`);
+      } catch {
+        // stderr may be closed; the save failure is only reported
+      }
+      return false;
+    }
+  );
+}
+onSensitiveValuesCarried(redactCarriedSession);
 
 /** What one turn mutates while it runs; every helper reads the live values. */
 export function createAskTurnState(session) {

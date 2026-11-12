@@ -16,7 +16,7 @@ import {
 } from './native-spawn-client.mjs';
 import { _maybeEncodePowerShellCommand } from '../shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './shell-spawn-retry.mjs';
-import { STANDBY_ARGS, takeWarmShellStandby } from './shell-warm-standby.mjs';
+import { STANDBY_ARGS, frameStdinScript, takeWarmShellStandby } from './shell-warm-standby.mjs';
 import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
 import { admitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { worktreeError } from '../../../../shared/worktrees/contract.mjs';
@@ -254,7 +254,7 @@ async function spawnAdmittedShellChild({
   // as for the standby.
   abortSignal?.throwIfAborted();
   if (standby) standby.feed(spawnCommand, cwd);
-  else if (stdinScript !== null) spawned.child.writeStdin(stdinScript, { close: true });
+  else if (stdinScript !== null) spawned.child.writeStdin(frameStdinScript(stdinScript), { close: true });
   // The command has now reached a shell. This is the start moment every
   // readout measures from, and the point from which a still-running
   // command deserves to be visible in the shell readouts.

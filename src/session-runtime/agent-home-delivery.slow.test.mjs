@@ -606,6 +606,25 @@ test('a final report whose answer is still queued as progress carries it instead
   assert.match(wakes[0], /All done\./);
 });
 
+test("a task report and a routine result reach the home with their session's sensitive values as the marker", async (t) => {
+  const { rememberSensitiveValues } = await import('../runtime/agent/orchestrator/session/sensitive-values.mjs');
+  const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: '482913' } } };
+  rememberSensitiveValues('sess_task_s', [fill]);
+  rememberSensitiveValues('sess_run_s', [fill]);
+  const h = homes(t, ['sess_home_lead']);
+  h.state.busy = true;
+  const delivery = createAgentHomeDelivery(h.deps);
+  await delivery.enqueueTask('lead', { taskSessionId: 'sess_task_s', title: 'T', runId: 'task_s', status: 'completed', text: 'the code is 482913' });
+  await delivery.enqueue({ name: 'daily', ownerAgentId: 'lead' }, { runId: 'run_s', ok: true, text: 'ran with 482913', runSessionId: 'sess_run_s' });
+  const queued = JSON.stringify(await h.deps.queue.items('sess_home_lead'));
+  h.state.busy = false;
+  await delivery.drain('sess_home_lead');
+  const all = queued + JSON.stringify(h.sessions.get('sess_home_lead').messages);
+  assert.ok(!all.includes('482913'), all);
+  assert.match(all, /the code is \[redacted\]/);
+  assert.match(all, /ran with \[redacted\]/);
+});
+
 test('a home thread that does not exist yet keeps its result queued until it does', async (t) => {
   const h = homes(t, []);
   const delivery = createAgentHomeDelivery(h.deps);

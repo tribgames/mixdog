@@ -3,7 +3,7 @@ import { createSharedAbortable } from './abort-race.mjs';
 /** Lazy per-dataDir PG handle: one in-flight init, bootstrap lock, retry after
  *  failure. `signal` withdraws a caller; the init (a PG runtime install
  *  included) is cancelled once every caller has (createSharedAbortable). */
-export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLock }) {
+export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLock, afterDdl = null }) {
   const ready = new Map();
   return function getDb(dataDir = defaultDataDir(), { signal = null } = {}) {
     let shared = ready.get(dataDir);
@@ -15,6 +15,8 @@ export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLo
           // Serialize CREATE TABLE across concurrent first-boot processes on the
           // same cluster-global advisory lock the adapter uses for schema bootstrap.
           await withLock(pool, () => db.exec(ddl));
+          // Work a killed process left owed on the schema, done before any caller uses it.
+          if (afterDdl) await afterDdl(db);
           return db;
         },
         {
