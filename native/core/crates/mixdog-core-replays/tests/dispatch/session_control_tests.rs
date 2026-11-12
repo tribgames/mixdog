@@ -255,6 +255,8 @@ async fn session_fork_answers_as_node() {
     for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with("fork-")) {
         let name = scenario["name"].as_str().expect("name");
         let rig = Rig::new();
+        // The catalog lists the sessions (a delete removes only a listed one, `isAvailableSession`).
+        rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let caller = &scenario["caller"];
         let source = ThreadId::from(caller["id"].as_str().expect("caller id"));
@@ -287,9 +289,10 @@ async fn session_fork_answers_as_node() {
             text = text.replace(&minted, heir["id"].as_str().expect("heir id"));
         }
         assert_eq!((ok, text.as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
-        // A refused fork leaves no session behind: Node persists the cold heir only after its carry.
+        // A refused fork leaves no session behind: Node persists the cold heir only after its carry (the core's heir exists while it is
+        // measured, marked as being copied, and goes with the refusal).
         if !ok {
-            assert_eq!(rig.store.log_ids(), [source.clone()], "{name}: a refused fork leaves only the source");
+            assert_eq!(directory.loaded_ids(), [source.clone()], "{name}: a refused fork leaves only the source");
         }
         replayed += 1;
     }
