@@ -51,6 +51,8 @@ export function createWsConnector(resolve: (target: WsTarget) => Promise<WsEndpo
       socket.on('close', (code, reason) => {
         if (ended) return;
         ended = true;
+        // Why the link went is known here and nowhere after: every request it carried only says `connectionLost`.
+        console.error(`[mixdog] core socket closed code=${code} reason=${JSON.stringify(reason.toString('utf8').slice(0, 300))}`);
         sink.closed(code, reason.toString('utf8'));
       });
       // An error always precedes a close event that carries the code; the library reconnects on `closed` only.
