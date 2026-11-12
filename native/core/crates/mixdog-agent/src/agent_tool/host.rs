@@ -151,6 +151,12 @@ pub trait Sessions: Send + Sync {
         text
     }
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool;
+    /// `closeRuntime`'s answer: `Ok(false)` when there is nothing to close, `Err` (the text Node
+    /// throws, `agent session <id> could not be durably closed`) when the close did not land. A
+    /// surface that cannot tell the two apart keeps this default.
+    async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        Ok(self.close_session(session_id, reason, options).await)
+    }
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String>;
     /// `registry.childrenOf(id)`: the agent sessions linked directly below `session_id`.
     fn child_session_ids(&self, session_id: &str) -> Vec<String>;

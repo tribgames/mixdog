@@ -132,18 +132,21 @@ fn cancel_session_tasks(tasks: &dyn Tasks, session_id: &str, target: &str, scope
 /// descendants first and one at a time, all refusing admission until the last has closed. Each
 /// member's own jobs go first with the tree's `reason` (the agent jobs it started, then the jobs
 /// bound to it), so the owner of a running turn hears `cancelled` with the turn's partial output
-/// rather than the closed turn failing the job. A member that cannot close never skips the rest.
-/// Whether every member closed.
-pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, session_id: &str, reason: &str, options: CloseOptions) -> bool {
+/// rather than the closed turn failing the job. A member that cannot close never skips the rest:
+/// once all were attempted the cancel fails, with that one failure's text or, for several, the
+/// count of the failed among the tree's sessions and each text. Otherwise whether any member was
+/// there to close.
+pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
     let id = mixdog_js::js_trim(session_id);
     if id.is_empty() {
-        return false;
+        return Ok(false);
     }
     let mut ordered = Vec::new();
     let mut seen = std::collections::HashSet::new();
     visit_descendants_first(sessions, id, &mut seen, &mut ordered);
     let _cancelling = sessions.begin_cancellation(&ordered);
-    let mut closed = true;
+    let mut closed = false;
+    let mut failures = Vec::new();
     for current in &ordered {
         tasks.cancel_owned(current, reason);
         for row in tasks.list(&Scope::default()) {
@@ -151,9 +154,16 @@ pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, sessi
                 tasks.cancel(&row.task_id, reason);
             }
         }
-        closed &= sessions.close_session(current, reason, options).await;
+        match sessions.try_close_session(current, reason, options).await {
+            Ok(done) => closed |= done,
+            Err(error) => failures.push(error),
+        }
     }
-    closed
+    match failures.len() {
+        0 => Ok(closed),
+        1 => Err(failures.remove(0)),
+        count => Err(format!("agent tree cancel failed for {count} of {} sessions: {}", ordered.len(), failures.join("; "))),
+    }
 }
 
 fn visit_descendants_first(sessions: &dyn Sessions, current: &str, seen: &mut std::collections::HashSet<String>, ordered: &mut Vec<String>) {
@@ -199,7 +209,7 @@ pub async fn close_resolved(
     // session deletion may tombstone the conversation. An owner's close (not a process
     // exit's) is recorded on the session itself, so a later reuse of its reaped tag never
     // continues it.
-    let ok = cancel_agent_tree(sessions, tasks, session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await;
+    let ok = cancel_agent_tree(sessions, tasks, session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await?;
     if let Some(id) = &task_id_out {
         tasks.cancel(id, CLOSE_REASON);
     }

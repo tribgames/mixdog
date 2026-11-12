@@ -141,6 +141,10 @@ struct Shared {
     selections: Mutex<Vec<Value>>,
     /// The agents below the worker as `(session, parent)`, in the order Node linked them.
     children: Vec<(String, String)>,
+    /// The sessions whose close does not land (`tree.failClose`).
+    fail_close: Vec<String>,
+    /// What the tree's cancel answered, or the text it failed with (`treeCancel`).
+    tree_cancel: Mutex<Value>,
 }
 
 impl Shared {
@@ -208,7 +212,11 @@ impl Sess {
             } else if let Some(reason) = step.get("cancelTree").and_then(Value::as_str) {
                 // The entry `agent close` and the owner's teardown run: the session and the agents below it close, each after its jobs.
                 let session = s(&lock(&self.0.session), "id");
-                cancel_agent_tree(&Closer(self.0.clone()), &self.0.board, &session, reason, CloseOptions::default()).await;
+                let outcome = cancel_agent_tree(&Closer(self.0.clone()), &self.0.board, &session, reason, CloseOptions::default()).await;
+                *lock(&self.0.tree_cancel) = match outcome {
+                    Ok(closed) => json!({ "returned": closed, "threw": null }),
+                    Err(message) => json!({ "returned": null, "threw": message }),
+                };
             } else if let Some(message) = step.get("stall").and_then(Value::as_str) {
                 // A stop by the progress watchdog: its sentence, and the handoff the abort carried, if any.
                 return Err(TurnError {
@@ -283,6 +291,13 @@ impl Sessions for Closer {
     async fn close_session(&self, id: &str, reason: &str, _: CloseOptions) -> bool {
         log(&self.0.log, json!(format!("close:{id}:{reason}")));
         true
+    }
+    async fn try_close_session(&self, id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        let closed = self.close_session(id, reason, options).await;
+        if self.0.fail_close.iter().any(|failing| failing == id) {
+            return Err(format!("agent session {id} could not be durably closed"));
+        }
+        Ok(closed)
     }
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
@@ -664,6 +679,8 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         stopped: Mutex::new(stopped_shells(host)),
         selections: Mutex::default(),
         children: scenario["tree"]["children"].as_array().map(|rows| rows.iter().map(|c| (s(c, "id"), s(c, "parent"))).collect()).unwrap_or_default(),
+        fail_close: scenario["tree"]["failClose"].as_array().map(|ids| ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect()).unwrap_or_default(),
+        tree_cancel: Mutex::new(Value::Null),
     };
     // The notifier needs the state (its notices); give it its own handle to the same lists.
     let notices = shared.notices.clone();
@@ -927,6 +944,9 @@ async fn a_spawn_equals_nodes() {
                 })
                 .collect::<Map<String, Value>>()
                 .into();
+        }
+        if want.get("treeCancel").is_some() {
+            got["treeCancel"] = lock(&rig.shared.tree_cancel).clone();
         }
         // The turns' skill selections are compared where the scenario records them.
         if want.get("selections").is_some() {
