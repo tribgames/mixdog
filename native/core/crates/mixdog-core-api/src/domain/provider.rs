@@ -189,6 +189,9 @@ pub struct Message {
     /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
     /// names it. An account pool passes this message's replay state to that account alone.
     pub account_routing: Option<AccountRouting>,
+    /// Assistant only: the stored `providerMetadata.gemini` (`{thoughtParts, textParts}`), which a Gemini-wire request
+    /// replays for a turn that has no replay envelope of its own (`geminiThoughtPartsFromMetadata`).
+    pub gemini_metadata: Option<JsonValue>,
     /// User and tool only (Node `meta.sentRequestTail`): the message a provider request ended with when a restart
     /// or cancel cut it. An Anthropic wire keeps later user text beside it as sibling blocks instead of folding it
     /// in, so the cached prefix that request wrote is sent unchanged.
@@ -212,6 +215,7 @@ impl Message {
             source: None,
             turn_reminder: None,
             account_routing: None,
+            gemini_metadata: None,
             sent_request_tail: false,
             provider_replay: Vec::new(),
         }
@@ -295,6 +299,114 @@ impl std::fmt::Debug for ToolExclusionSink {
     }
 }
 
+/// The identity of one provider send, shared by every attempt of it (Node mints an id per `send` call, e.g. Grok's
+/// `x-grok-req-id` and Antigravity's `requestId`, and the retry loop inside it reuses it). The id is minted by the first
+/// attempt that asks; the broker gives each send a fresh one. Clones share the cell. It is not part of a request's
+/// content: two identities always compare equal.
+#[derive(Clone, Default, Debug)]
+pub struct SendIdentity {
+    id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// The wire a gateway's latest attempt of this send went out on: the send's own route (Node keeps it per send,
+    /// `wire-route.mjs` `sendOnRoute`), so concurrent sends of one model on different wires never share it.
+    wire: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
+    /// The attempts of this send that began so far.
+    attempts: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// The display stages the adapter raised from inside an attempt (`onStageChange`), in order, for the caller to take
+    /// after the attempt.
+    stages: std::sync::Arc<std::sync::Mutex<Vec<RaisedStage>>>,
+    /// Whether this send raised its once-per-send `requesting` yet.
+    requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// A display stage an adapter raised, with the payload Node's `onStageChange(stage, payload)` carried.
+pub type RaisedStage = (&'static str, Option<serde_json::Value>);
+
+impl SendIdentity {
+    /// Raises a display stage from inside an attempt.
+    pub fn raise_stage(&self, stage: &'static str) {
+        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((stage, None));
+    }
+
+    /// Raises a display stage that carries a payload.
+    pub fn raise_stage_with(&self, stage: &'static str, payload: serde_json::Value) {
+        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((stage, Some(payload)));
+    }
+
+    /// Raises `requesting` for a provider that raises it once before its whole retry ladder (Node raises it outside
+    /// `withRetry`): the send's first attempt raises it, a retry does not; a re-issue ([`Self::reissue`]) raises it again.
+    pub fn raise_requesting_once(&self) {
+        if !self.requested.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            self.raise_stage("requesting");
+        }
+    }
+
+    /// The send begins its ladder again (a stream re-issued after output, a credential reloaded and the send run anew):
+    /// the once-per-ladder `requesting` is raised again by the next attempt.
+    pub fn reissue(&self) {
+        self.requested.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The stages raised inside the attempt that ended, in order.
+    pub fn take_stages(&self) -> Vec<RaisedStage> {
+        std::mem::take(&mut *self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+
+    /// Runs `attempt`, handing each stage it raises to `deliver` right after the poll that raised it, so a stage is seen
+    /// when the request goes out and not when the attempt (which may read the response's first output) ends.
+    pub async fn deliver_stages<F: std::future::Future>(&self, attempt: F, mut deliver: impl FnMut(&'static str, Option<serde_json::Value>)) -> F::Output {
+        let mut attempt = std::pin::pin!(attempt);
+        std::future::poll_fn(|cx| {
+            let polled = attempt.as_mut().poll(cx);
+            for (stage, payload) in self.take_stages() {
+                deliver(stage, payload);
+            }
+            polled
+        })
+        .await
+    }
+
+    /// Marks an attempt of this send as begun and returns how many began before it: 0 for the send's first attempt,
+    /// more for a retry.
+    pub fn next_attempt(&self) -> u32 {
+        self.attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The send's attempts count from the first again: the adapter re-sends the request as a new request of its own (Node
+    /// runs its request loop anew).
+    pub fn restart_attempts(&self) {
+        self.attempts.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The send's id, minted with `mint` by the first caller.
+    pub fn get_or_mint(&self, mint: impl FnOnce() -> String) -> String {
+        self.id.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert_with(mint).clone()
+    }
+
+    /// The send's id is minted anew by the next caller of [`Self::get_or_mint`]: a request the adapter makes of its own, as Node
+    /// calls `send` again (Grok's version gate).
+    pub fn remint(&self) {
+        *self.id.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// Records the wire an attempt of this send went out on.
+    pub fn set_wire(&self, wire: &'static str) {
+        *self.wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wire);
+    }
+
+    /// The wire the send's latest attempt went out on, once one did.
+    pub fn wire(&self) -> Option<&'static str> {
+        *self.wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl PartialEq for SendIdentity {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for SendIdentity {}
+
 /// Send options the adapters read (PW §2.1, §2.1a). Callbacks are replaced
 /// by the [`StreamEvent`] stream; admission and account routing happen
 /// before an attempt and are not adapter options.
@@ -366,6 +478,8 @@ pub struct RequestOptions {
     /// Node `session.wireRoute`: the wire the session pinned for a provider and model. A gateway sends on it while
     /// it names the gateway and the request's model and the model is still offered there (`sendWireRoute`).
     pub wire_pin: Option<WirePin>,
+    /// The send these options belong to, for the ids Node mints once per send.
+    pub send_identity: SendIdentity,
 }
 
 /// A session's pinned wire route (Node `session.wireRoute`: `{ provider, model, wire }`).
@@ -685,6 +799,12 @@ impl ProgressKind {
             Self::Tool => "tool",
         }
     }
+
+    /// `isVisibleStreamProgress`: text, reasoning and a tool are output the caller sees; any other kind (and a
+    /// transport-only chunk, which reports none) is not.
+    pub fn is_visible(self) -> bool {
+        matches!(self, Self::Text | Self::Reasoning | Self::Tool)
+    }
 }
 
 /// Deltas are hints; the folded result is the truth. Partial output of a dead
@@ -770,6 +890,12 @@ pub enum StreamEvent {
     /// Responses output item added, a compatible Chat stream's first visible delta). The accounting layer times the
     /// first-output wait from it (`ttftMs`). Folds into nothing.
     OutputStarted,
+    /// Anthropic's summary of the turn's content blocks (Node result `hasThinkingContent` and `contentBlockTypes`):
+    /// whether a thinking block streamed, and the delta types (plus `fallback`) in first-seen order. The session reads
+    /// them for an empty final turn (`ask-turn-commit.mjs:65-66`); the message threads refuse to store a turn that
+    /// fell back (`anthropic-message-threads.mjs:333`). Raised once, before the terminal event. Folds into the
+    /// response's summary.
+    ContentSummary { has_thinking: bool, block_types: Vec<String> },
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -973,6 +1099,9 @@ pub struct ProviderError {
     pub reset_at: Option<SystemTime>,
     pub quota_scope: Option<QuotaScope>,
     pub reauth_required: bool,
+    /// The provider's own recovery of this send ran out with this failure (`markProviderRecoveryExhausted`: the
+    /// non-streaming re-issue of a refused stream): the send ends exhausted, whatever the ladder's verdict.
+    pub recovery_exhausted: bool,
     /// Anthropic `x-should-retry`.
     pub should_retry: Option<bool>,
     pub exposure: Exposure,
@@ -1030,6 +1159,11 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The wire's finish reason of a turn that ended on one other than a clean stop (Node `finishReason` of a
+    /// `ProviderIncompleteError`), as sent; `None` for every other failure.
+    pub finish_reason: Option<Box<str>>,
+    /// The window a stream watchdog of the call ended it in (Node `timeoutPhase`); `None` for every other failure.
+    pub timeout_phase: Option<StreamTimeoutPhase>,
     /// The failure came from a WebSocket send, and where (Node `wsFailurePhase`); the loop keeps such a failure
     /// when a retry follows it, since an outage that ends later surfaces that one.
     pub ws_phase: Option<WsPhase>,
@@ -1055,6 +1189,15 @@ impl std::fmt::Debug for FailingImage {
     }
 }
 
+/// The stream window a watchdog fired in (`TIMEOUT_PHASE`, `shared/provider-timeout-phase.mjs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StreamTimeoutPhase {
+    /// Before the first payload (`first-chunk`).
+    FirstChunk,
+    /// After a payload, no further progress (`idle`).
+    Idle,
+}
+
 impl ProviderError {
     pub fn new(kind: ErrorKind, delivery: DeliveryState) -> Self {
         Self {
@@ -1065,6 +1208,7 @@ impl ProviderError {
             reset_at: None,
             quota_scope: None,
             reauth_required: false,
+            recovery_exhausted: false,
             should_retry: None,
             exposure: Exposure::default(),
             delivery,
@@ -1083,6 +1227,8 @@ impl ProviderError {
             ws_phase: None,
             failing_image: None,
             notices: Vec::new(),
+            finish_reason: None,
+            timeout_phase: None,
         }
     }
 
@@ -1168,6 +1314,23 @@ pub trait ProviderAdapter: Send + Sync {
     fn retry_policy_for(&self, _model: &str) -> &RetryPolicy {
         self.retry_policy()
     }
+    /// [`Self::retry_policy_for`] of one send: a provider whose route is known only per send (a gateway, by the wire
+    /// the send's attempts went out on, [`SendIdentity::wire`]) reads it from `request`. By default the model's.
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.retry_policy_for(&request.model)
+    }
+    /// Called once before a send's first attempt, so a provider whose route is known only by resolving it can record
+    /// it on the send ([`SendIdentity::set_wire`]) before the stages ahead of the first attempt are read. Nothing by
+    /// default; a wrapper forwards.
+    async fn prepare_send(&self, _request: &ModelRequest) {}
+    /// [`Self::send_stages`] of one send (see [`Self::retry_policy_of`]).
+    fn send_stages_of(&self, request: &ModelRequest) -> SendStages {
+        self.send_stages(&request.model)
+    }
+    /// [`Self::retry_line`] of one send (see [`Self::retry_policy_of`]).
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<RetryLine> {
+        self.retry_line(&request.model)
+    }
     fn keepalive(&self) -> &KeepaliveSchedule;
     /// Exactly one attempt; never retries internally. Dropping the future
     /// aborts the attempt.
@@ -1244,6 +1407,87 @@ pub trait ProviderAdapter: Send + Sync {
     /// for one that has none. A wrapper forwards its inner provider's.
     fn cache_warm(&self) -> Option<&dyn super::cache_warm::CacheWarmSend> {
         None
+    }
+    /// The display stages a send to `model` raises around its attempts (Node `onStageChange`): by default only the
+    /// retry ladder's `reconnecting` ([`SendStages::default`]); a wrapper forwards its inner provider's.
+    fn send_stages(&self, _model: &str) -> SendStages {
+        SendStages::default()
+    }
+    /// The line the provider's ladder writes to stderr before each retry of a send to `model` (`<tag> retry attempt <n>
+    /// after <message>`, with the wait for most ladders); `None` for a provider that writes none. A wrapper forwards
+    /// its inner provider's.
+    fn retry_line(&self, _model: &str) -> Option<RetryLine> {
+        None
+    }
+    /// Whether the provider re-issues a send to `model` whose stream ladder ran out on `failure` (Gemini's
+    /// `_recoverGeminiNonStreaming`: once, without streaming). False by default; a wrapper forwards its inner
+    /// provider's.
+    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+        false
+    }
+    /// That re-issue, called only when [`Self::recovers_spent`] holds: its stream, or its failure, after which the
+    /// ladder's own failure surfaces.
+    async fn recover_spent(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))
+    }
+}
+
+/// The line a provider's retry ladder writes to stderr before a retry ([`ProviderAdapter::retry_line`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RetryLine {
+    /// The line's tag, brackets included (`[gemini]`, `[xai:responses]`).
+    pub tag: String,
+    /// The wait follows the message (`retryDelayLabel`: `, delay <ms>ms`, and ` (retry-after)` when the server advised
+    /// it): the Anthropic API's and the OpenAI-compatible ladders (anthropic-api-transport.mjs:203,
+    /// compat-request-policy.mjs:9), not Gemini's (`geminiRetryLogger`, gemini.mjs:243).
+    pub delay: bool,
+    /// How the line words the attempt and the cause.
+    pub style: RetryLineStyle,
+}
+
+/// The wording of a [`RetryLine`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RetryLineStyle {
+    /// `<tag> retry attempt <n> after <message>[<wait>]`.
+    Attempt,
+    /// `<tag> retry attempt <n>/<max> after <status, else code, else message>, backoff <ms>ms[ (retry-after)]`: the
+    /// Anthropic OAuth ladder (anthropic-oauth-request.mjs:146).
+    OfMax,
+    /// `<tag> retry <n> after <message>`: the Antigravity ladder (antigravity-transport.mjs:179).
+    Plain,
+    /// The Anthropic API route: a refused request is worded as [`RetryLineStyle::Attempt`], a stream that was
+    /// re-issued after it opened as the mid-stream ladder words it (`<tag> truncated stream — retry <n>/<max>`,
+    /// anthropic-midstream-recovery.mjs:262), whose stage counts retries, not attempts.
+    AnthropicApi,
+}
+
+/// The display stages a provider's send raises around its attempts ([`ProviderAdapter::send_stages`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SendStages {
+    /// `requesting` stages raised once, before the first attempt (Gemini's `_doSend`: the request built, the cache
+    /// settled).
+    pub preparing: u32,
+    /// A `requesting` stage before every attempt (Gemini's attempt `run`).
+    pub each_attempt: bool,
+    /// A `requesting` stage before the re-issue of a spent send ([`ProviderAdapter::recover_spent`]).
+    pub before_recovery: bool,
+    /// The `reconnecting` stage before each retry wait of the provider's own ladder (`emitProviderRetryStage`,
+    /// retry-executor.mjs:346, from each ladder's `onRetry`). On by default: every Node provider ladder raises it but
+    /// the two that pass no `onRetry` (Vertex AI's Gemini models, vertex-ai.mjs:382; Devin, which has no ladder of
+    /// its own, devin.mjs).
+    pub reconnecting: bool,
+    /// The ladder is chosen by whether the attempt's response opened (its headers arrived and were accepted), and each
+    /// stream attempt opens under a fresh connection ladder (`runGeminiStreamAttempts`' `connected()`); otherwise by
+    /// whether the attempt produced an event.
+    pub ladder_by_connection: bool,
+    /// The provider's note that the request is on the wire, raised after each attempt's request is sent
+    /// (`MODEL_THINKING_STAGE`, antigravity-transport.mjs:236), which the run's liveness reads.
+    pub model_thinking: bool,
+}
+
+impl Default for SendStages {
+    fn default() -> Self {
+        Self { preparing: 0, each_attempt: false, before_recovery: false, reconnecting: true, ladder_by_connection: false, model_thinking: false }
     }
 }
 

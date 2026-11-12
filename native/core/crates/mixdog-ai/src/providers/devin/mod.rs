@@ -69,6 +69,10 @@ pub const PROVIDER_ID: &str = "devin-oauth";
 #[async_trait]
 pub trait SessionToken: Send + Sync {
     async fn session_token(&self) -> Result<String, ProviderError>;
+
+    /// The account this login belongs to: what stays the same when its session token is replaced and differs between
+    /// accounts (the credential file, the identity the sign-in returned).
+    fn account(&self) -> String;
 }
 
 /// Everything a codec needs for one turn of one account.
@@ -110,7 +114,10 @@ impl DevinCodec {
 fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(bytes).expect("writing to a Vec cannot fail");
-    encoder.finish().expect("finishing a Vec cannot fail")
+    let mut out = encoder.finish().expect("finishing a Vec cannot fail");
+    // The header's OS byte, as Node's zlib writes it for the host (`OS_CODE`: 10 on Windows, 3 on Unix).
+    out[9] = if cfg!(windows) { 10 } else { 3 };
+    out
 }
 
 impl WireCodec for DevinCodec {
@@ -185,6 +192,18 @@ fn account_key(session_token: &str) -> String {
         .collect()
 }
 
+/// `DevinOAuthProvider.send` runs no retry ladder (devin.mjs:383-431: no `withRetry`), so no row retries: every failure
+/// ends the send.
+fn no_retry_policy() -> RetryPolicy {
+    let mut policy = RetryPolicy::codex_default();
+    for row in [&mut policy.request, &mut policy.midstream, &mut policy.transport, &mut policy.connection] {
+        row.schedule.max_retries = 0;
+        row.by_kind.clear();
+    }
+    policy.recovery = None;
+    policy
+}
+
 impl DevinAdapter {
     pub fn new(base_url: Option<String>, http: Arc<dyn HttpSend>, token: Arc<dyn SessionToken>) -> Self {
         #[cfg(feature = "count-work")]
@@ -209,7 +228,7 @@ impl DevinAdapter {
             base_url,
             http,
             token,
-            policy: RetryPolicy::codex_default(),
+            policy: no_retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
             rows: crate::catalog::RowStore::default(),
@@ -236,6 +255,11 @@ impl DevinAdapter {
             })));
         }
         Ok(rows)
+    }
+
+    /// The user JWT exchange of this provider's account for `session_token`.
+    pub(crate) async fn user_session(&self, session_token: &str) -> Result<UserSession, ProviderError> {
+        session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &self.token.account(), session_token).await
     }
 
     /// One `GetCliModelConfigs` request: no cache.
@@ -290,7 +314,7 @@ impl DevinAdapter {
 }
 
 fn random_uuid() -> String {
-    let bytes: [u8; 16] = rand::random();
+    let bytes: [u8; 16] = crate::random::bytes();
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
@@ -337,6 +361,12 @@ impl ProviderAdapter for DevinAdapter {
         &self.policy
     }
 
+    /// `DevinOAuthProvider.send` runs no retry ladder of its own (devin.mjs:383-431: no `withRetry`, no `onRetry`), so
+    /// it raises no `reconnecting`.
+    fn send_stages(&self, _model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        mixdog_core_api::domain::provider::SendStages { reconnecting: false, ..Default::default() }
+    }
+
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
     }
@@ -351,7 +381,7 @@ impl ProviderAdapter for DevinAdapter {
         let token = self.token.session_token().await?;
         let rows = self.cached_rows(&token).await?;
         let row = rows.into_iter().find(|r| r.id == model);
-        let session = session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &token).await?;
+        let session = self.user_session(&token).await?;
         // The server threads turns that share one cascade id.
         let cascade_id = request
             .options
@@ -379,6 +409,8 @@ impl ProviderAdapter for DevinAdapter {
             execution_id: random_uuid(),
         });
         let wire = codec.encode(&request)?;
+        // `_streamTurn` raises `requesting` once the chat request is built, before it is sent (devin.mjs:383).
+        request.options.send_identity.raise_requesting_once();
         // `transportError` (`devin-wire-transport.mjs:243-261`) words what the raw `fetch` threw.
         let head = self.http.send(wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
         if (300..400).contains(&head.status) {
@@ -390,7 +422,7 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable")))
+        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable").with_fault_prefix("Devin connection failed: ")))
     }
 }
 

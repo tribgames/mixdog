@@ -296,6 +296,11 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         Some(events) => events.as_array().unwrap().iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect::<String>(),
                         None => plan["body"].as_str().unwrap_or("").to_owned(),
                     };
+                    // `bodyBase64`: a body of any bytes (a compressed one), written as given.
+                    let body: Vec<u8> = match plan.get("bodyBase64").and_then(Value::as_str) {
+                        Some(encoded) => base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).expect("a base64 body"),
+                        None => text.clone().into_bytes(),
+                    };
                     let mut fields: Vec<(String, String)> = Vec::new();
                     if plan.get("events").is_some() {
                         fields.push(("content-type".into(), "text/event-stream".into()));
@@ -318,7 +323,7 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         mode = Mode::Head;
                         continue;
                     }
-                    fields.push(("content-length".into(), text.len().to_string()));
+                    fields.push(("content-length".into(), body.len().to_string()));
                     let head: String = fields.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
                     if plan["then"] == "withhold" {
                         // Written when the caller releases it ([`Loopback::release`]); the caller puts the deadline on that.
@@ -330,7 +335,7 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         }
                     }
                     io.write_all(format!("HTTP/1.1 {status} X\r\n{head}\r\n").as_bytes()).await.ok();
-                    io.write_all(text.as_bytes()).await.ok();
+                    io.write_all(&body).await.ok();
                     if plan["then"] == "reset" {
                         break 'serving;
                     }

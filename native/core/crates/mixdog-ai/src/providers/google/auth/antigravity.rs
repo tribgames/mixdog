@@ -180,13 +180,18 @@ pub struct FileTokenStore(pub CredentialFile);
 #[async_trait]
 impl TokenStore for FileTokenStore {
     async fn load(&self) -> Option<TokenDoc> {
-        match self.0.load_document().await {
+        let doc = match self.0.load_document().await {
             Probe::Present(map) => TokenDoc::from_json(&Value::Object(map)),
             Probe::Absent | Probe::Unreadable => None,
+        };
+        if let Some(doc) = &doc {
+            self.0.keep(&[&doc.access_token, &doc.refresh_token]);
         }
+        doc
     }
 
     async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool {
+        self.0.keep(&[&next.access_token, &next.refresh_token]);
         let spent = spent.clone();
         let Value::Object(update) = next.to_json() else { return false };
         self.0
@@ -196,6 +201,7 @@ impl TokenStore for FileTokenStore {
     }
 
     async fn save(&self, doc: &TokenDoc) -> bool {
+        self.0.keep(&[&doc.access_token, &doc.refresh_token]);
         let Value::Object(update) = doc.to_json() else { return false };
         self.0.replace_if(|_| true, update).await.unwrap_or(false)
     }

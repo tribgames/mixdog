@@ -632,18 +632,35 @@ impl Run {
             }))
         };
         let provider = Arc::clone(&self.provider);
-        // Node announces the request twice: its admission scheduler once the send is admitted (`admission-scheduler.mjs:592`),
-        // and the provider as it makes its attempt (`anthropic.mjs:300`). Admission is behind this exchange already.
-        self.emit(RunEvent::Stage(Stage::Requesting));
-        self.emit(RunEvent::Stage(Stage::Requesting));
+        // The provider's own `requesting` stages (`onStageChange`): those it raises before a send's first attempt and
+        // before every attempt, here; those it raises from inside the attempt, once the attempt is over.
+        let stages = provider.send_stages_of(&request);
+        let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0
+            && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
+        if first_attempt {
+            for _ in 0..stages.preparing {
+                self.emit(RunEvent::Stage(Stage::Requesting));
+            }
+        }
+        if stages.each_attempt {
+            self.emit(RunEvent::Stage(Stage::Requesting));
+        }
+        let identity = request.options.send_identity.clone();
         // The projection is rebuilt from the transcript for every request.
+        // The provider's own `requesting` is delivered as its request goes out: the attempt may already be reading the
+        // response's first output when it returns, and the liveness clock starts at the request.
+        let deliver = |stage: &'static str, _payload: Option<serde_json::Value>| {
+            if stage == "requesting" {
+                self.emit(RunEvent::Stage(Stage::Requesting));
+            }
+        };
         let attempt = match &self.config.effort {
             Some(wiring) => {
                 let projection = wiring.route.project(&self.messages);
                 let adapter = Arc::clone(&wiring.adapter);
-                or_cancelled(&self.cancel, async move { adapter.attempt_with(request, projection).await }).await
+                identity.deliver_stages(or_cancelled(&self.cancel, async move { adapter.attempt_with(request, projection).await }), deliver).await
             }
-            None => or_cancelled(&self.cancel, provider.attempt(request)).await,
+            None => identity.deliver_stages(or_cancelled(&self.cancel, provider.attempt(request)), deliver).await,
         };
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
@@ -688,6 +705,8 @@ impl Run {
                 None => break,
                 Some(Err(error)) => {
                     self.show_notices(&error);
+                    // The stream is issued anew by the retry: the provider's once-per-ladder `requesting` is raised again.
+                    identity.reissue();
                     return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
                 }
                 Some(Ok(event)) => event,
@@ -936,11 +955,20 @@ impl Run {
             let max = policy
                 .row(next.class())
                 .map_or(0, |row| row.schedule.max_retries);
+            // Node's attempt is the one about to run, of the row's attempts.
+            let payload = mixdog_ai::retry::stage::reconnecting(
+                &decide_on,
+                next.count(None).retries + 1,
+                max.saturating_add(1),
+                delay,
+                u64::try_from(self.env.clock.now_ms()).unwrap_or(0),
+            );
             self.emit(RunEvent::Stage(Stage::Reconnecting {
                 attempt: next.count(None).retries,
                 max,
                 delay,
                 reason,
+                payload: Some(payload),
             }));
             or_cancelled(&self.cancel, self.env.waiter.wait(delay))
                 .await
@@ -1002,6 +1030,7 @@ impl Run {
                     max: 3,
                     delay: std::time::Duration::ZERO,
                     reason: mixdog_core_api::domain::retry::RetryReason::Other,
+                    payload: None,
                 }));
                 Some(Recovery::Rebuilt)
             }

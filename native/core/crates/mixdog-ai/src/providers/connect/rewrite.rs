@@ -137,6 +137,13 @@ pub async fn run_fitted_attempt(
     }
     let mut again = false;
     let mut refreshed = false;
+    // `requesting`: Chat Completions raises it for every attempt of its ladder (openai-compat-chat-send.mjs:276), the
+    // Messages wire (anthropic.mjs:300) and Responses (grok-oauth.mjs, openai-compat-xai-send.mjs:103) once before it.
+    if wire.url.ends_with("/chat/completions") {
+        request.options.send_identity.raise_stage("requesting");
+    } else {
+        request.options.send_identity.raise_requesting_once();
+    }
     loop {
         let mut sent = wire.clone();
         if let Some(header) = header.clone() {
@@ -169,6 +176,8 @@ pub async fn run_fitted_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
+            // Node's gate calls `send` again: the resend is a request with an id of its own.
+            request.options.send_identity.remint();
             wire = codec.encode(request)?;
             if let Some(fitter) = images {
                 wire = fitter.fit_wire(request, wire).await?;
@@ -189,6 +198,7 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    retry_line: Option<mixdog_core_api::domain::provider::RetryLine>,
     input_excludes_cache: Option<bool>,
     /// What the engine takes as a document when it is not the plain `nativePdf = false` of Grok, the local
     /// runtime and a custom provider's engines (a gateway's Messages engine declares its own).
@@ -216,10 +226,17 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            retry_line: None,
             input_excludes_cache: None,
             media: None,
             images: None,
         }
+    }
+
+    /// The line the provider's ladder writes before each retry ([`ProviderAdapter::retry_line`]).
+    pub fn with_retry_line(mut self, line: mixdog_core_api::domain::provider::RetryLine) -> Self {
+        self.retry_line = Some(line);
+        self
     }
 
     /// The usage convention of an adapter whose class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
@@ -270,6 +287,10 @@ impl ProviderAdapter for HttpAdapter {
 
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
+    }
+
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.retry_line.clone()
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

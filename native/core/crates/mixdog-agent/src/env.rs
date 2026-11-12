@@ -137,7 +137,8 @@ impl Tone {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stage {
     Connecting,
-    /// `onStageChange('requesting')`: the send was admitted, and again as the provider makes its attempt.
+    /// The provider is about to put a request on the wire (its `onStageChange('requesting')`): the request clock of the
+    /// turn's liveness starts here.
     Requesting,
     Streaming,
     /// A provider ping or comment: informational only.
@@ -147,6 +148,9 @@ pub enum Stage {
         max: u32,
         delay: Duration,
         reason: RetryReason,
+        /// The provider's `onStageChange('reconnecting', payload)` before the wait (`emitProviderRetryStage`), which
+        /// the client's status shows; `None` for a re-send no provider ladder raised.
+        payload: Option<serde_json::Value>,
     },
     /// The model changed for the rest of the turn.
     ModelFallback {

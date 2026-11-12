@@ -134,7 +134,10 @@ pub struct CursorCodec {
 
 impl CursorCodec {
     pub fn new(request: &ModelRequest, target: CursorTarget) -> Result<Self, ProviderError> {
-        let run = build_run(request, &target.selection, &target.conversation_id, &random_uuid())?;
+        // The run request is built once per send and every in-place retry sends its bytes again (`requestBytes`,
+        // cursor-wire.mjs:`handleChatCompletion`): its message id is the send's, drawn by the first attempt.
+        let message_id = request.options.send_identity.get_or_mint(random_uuid);
+        let run = build_run(request, &target.selection, &target.conversation_id, &message_id)?;
         Ok(Self { target, run })
     }
 
@@ -177,7 +180,7 @@ pub fn retry_policy() -> RetryPolicy {
     let row = RetryRow::single(RetrySchedule {
         max_retries: 5,
         backoff: Backoff::Ladder(vec![ms(250), ms(500), ms(1000), ms(2000), ms(2000)]),
-        jitter: Jitter::symmetric(0.2),
+        jitter: Jitter::symmetric_floored(0.2),
         advice: AdviceRule::honored_in_full(),
     });
     let mut policy = RetryPolicy::codex_default();
@@ -202,12 +205,15 @@ struct CursorStream {
     /// Resolves at the next client heartbeat; the core ticker owns the clock.
     heartbeat: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
     heartbeat_at: std::time::Instant,
+    /// The access token the run was opened with: a server error that echoes it is redacted.
+    secret: String,
 }
 
 impl CursorStream {
-    fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder) -> Self {
+    fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder, secret: String) -> Self {
         let heartbeat_at = std::time::Instant::now() + CLIENT_HEARTBEAT;
         Self {
+            secret,
             body,
             sink,
             decoder,
@@ -223,8 +229,9 @@ impl CursorStream {
         self.heartbeat = Box::pin(mixdog_rt::ticker().wait_until(self.heartbeat_at));
     }
 
-    fn fail(&mut self, err: ProviderError) {
+    fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
+        err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&self.secret]);
         self.queue.push_back(Err(err));
     }
 
@@ -452,6 +459,9 @@ impl CursorAdapter {
         // A catalog failure never blocks a turn: the id is then sent as it is.
         let catalog = self.cached_models(token).await.unwrap_or_default();
         let selection = self.selection(&catalog, request)?;
+        // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
+        // and the model chosen (cursor.mjs:656).
+        request.options.send_identity.raise_requesting_once();
         let scope = request
             .options
             .transport_scope
@@ -476,7 +486,7 @@ impl CursorAdapter {
             let response = head.read_all().await?;
             return Err(codec.classify(&response));
         }
-        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder())))
+        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned())))
     }
 }
 
@@ -529,7 +539,16 @@ impl ProviderAdapter for CursorAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let mut token = self.tokens.access_token(false).await?;
+        // Every in-place retry of Node's bridge force-refreshes the credentials and keeps the previous token when the
+        // refresh fails (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315).
+        let mut token = if request.options.send_identity.next_attempt() > 0 {
+            match self.tokens.access_token(true).await {
+                Ok(next) => next,
+                Err(_) => self.tokens.access_token(false).await?,
+            }
+        } else {
+            self.tokens.access_token(false).await?
+        };
         let mut refreshed = false;
         loop {
             let error = match self.open(&request, &token).await {
@@ -551,9 +570,34 @@ impl ProviderAdapter for CursorAdapter {
                     continue;
                 }
             }
-            return Err(error);
+            return Err(with_failure_hint(error));
         }
     }
+}
+
+/// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
+fn failure_detail(error: &ProviderError) -> &str {
+    error.message.split_once(": ").map_or("", |(_, detail)| detail)
+}
+
+/// `isCursorProtocolDrift` (cursor-wire-guards.mjs:293): a protocol error, or a detail that names a wire mismatch.
+fn is_protocol_drift(error: &ProviderError) -> bool {
+    static DRIFT: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern"));
+    error.code.as_deref() == Some("protocol_error") || DRIFT.is_match(failure_detail(error))
+}
+
+/// `withCursorFailureHint`: the guidance a final Cursor failure ends with, once.
+fn with_failure_hint(mut error: ProviderError) -> ProviderError {
+    let hint = if matches!(error.code.as_deref(), Some("unauthenticated" | "permission_denied")) {
+        auth::REAUTH_GUIDANCE
+    } else if is_protocol_drift(&error) {
+        "Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists."
+    } else {
+        return error;
+    };
+    error.message = format!("{} {hint}", error.message);
+    error
 }
 
 impl crate::catalog::CachedModelInfo for CursorAdapter {

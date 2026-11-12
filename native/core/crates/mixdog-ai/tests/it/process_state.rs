@@ -25,8 +25,19 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/google/adapter.rs", "ANNOUNCED", Reset("google::adapter::reset_announced()")),
     ("providers/google/cache/registry.rs", "SHARED", Reset("Registry::reset_shared()")),
     ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
+    ("oauth/carried.rs", "REGISTRY", Reset("oauth::carried::reset_registry()")),
+    ("oauth/carried.rs", "TOUCHED", NotState("a unit test's count of the index entries its own thread made, compiled only into unit tests")),
+    ("oauth/carried.rs", "SCANNING", NotState("a unit test's hook that parks its own thread's scan, compiled only into unit tests")),
     ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
+    ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
+    ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
+    ("random.rs", "SCOPES", NotState("the source of fresh scope ids: a replay's scope is a new one each run")),
+    ("random.rs", "SCOPE", NotState("the scope a thread draws in, entered and left by `run_scoped` around each replay")),
+    ("wall.rs", "CLOCK", Reset("wall::set(None)")),
+    ("pid.rs", "PID", Reset("pid::set(None)")),
+    ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
+    ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
     (
         "oauth/lease.rs",
         "THIS",
@@ -211,13 +222,14 @@ fn code(text: &str) -> String {
 }
 
 /// Every `static` keyword of `code` ([`code`]): read as a declaration (`static [mut] name: type`, the name and the
-/// type on any lines), or listed with its line as one this scan cannot read; a `'static` lifetime is neither. A
-/// refused macro (`thread_local!`, `lazy_static!`, a `once_cell::` path), with any spacing, is listed too.
+/// type on any lines), or listed with its line as one this scan cannot read; a `'static` lifetime is neither. The
+/// statics of a `thread_local!` are read as any other (each test thread's own, reset like the rest); a refused macro
+/// (`lazy_static!`, a `once_cell::` path), with any spacing, is listed.
 fn statics(code: &str) -> (Vec<(usize, String, String)>, Vec<(usize, String)>) {
     let line_of = |at: usize| code[..at].matches('\n').count() + 1;
     let keyword = regex::Regex::new(r"\bstatic\b").unwrap();
     let declaration = regex::Regex::new(r"^static\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:([^=;]*)").unwrap();
-    let refused = regex::Regex::new(r"\b(?:thread_local\s*!|lazy_static\s*!|once_cell\s*::)").unwrap();
+    let refused = regex::Regex::new(r"\b(?:lazy_static\s*!|once_cell\s*::)").unwrap();
     let mut read = Vec::new();
     let mut unreadable = Vec::new();
     for found in keyword.find_iter(code) {
@@ -259,14 +271,14 @@ fn the_scan_reads_every_static_or_names_it_unreadable() {
     let source = "// static IN_COMMENT: u8 = 0;\nconst S: &str = \"static IN_STRING: u8\";\nfn f(x: &'static str) {}\n\
                   static lower: Mutex<u8> = Mutex::new(0);\nstatic\n    NEXT_LINE\n    : AtomicU64 = AtomicU64::new(0);\n\
                   static A: u8 = 0; static B: u8 = 0;\nmacro_rules! m { ($name:ident) => { static $name: u8 = 0; }; }\n\
-                  thread_local !{ static T: u8 = 0; }\nconst C: char = '\"'; static AFTER_CHAR: u8 = 0;\n\
+                  thread_local !{ static T: u8 = 0; }\nlazy_static !{ static ref L: u8 = 0; }\nconst C: char = '\"'; static AFTER_CHAR: u8 = 0;\n\
                   const R: &str = r#\"static IN_RAW: u8\"#;\nstatic mut M: u8 = 0;\n/* static IN_BLOCK: u8 /* nested */ */\n";
     let (read, unreadable) = statics(&code(source));
     let names: Vec<(usize, &str)> = read.iter().map(|(line, name, _)| (*line, name.as_str())).collect();
-    assert_eq!(names, [(4, "lower"), (5, "NEXT_LINE"), (8, "A"), (8, "B"), (10, "T"), (11, "AFTER_CHAR"), (13, "M")]);
+    assert_eq!(names, [(4, "lower"), (5, "NEXT_LINE"), (8, "A"), (8, "B"), (10, "T"), (12, "AFTER_CHAR"), (14, "M")]);
     assert_eq!(read[1].2, "AtomicU64", "the type is read across lines");
     let lines: Vec<usize> = unreadable.iter().map(|(line, _)| *line).collect();
-    assert_eq!(lines, [9, 10], "{unreadable:?}: the macro's `static $name` and the spaced `thread_local !`");
+    assert_eq!(lines, [9, 11, 11], "{unreadable:?}: the macro's `static $name` and the spaced `lazy_static !` with its `static ref`");
 }
 
 #[test]

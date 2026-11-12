@@ -176,6 +176,26 @@ impl AccountedAdapter {
         self.begin(request)
     }
 
+    /// One request of the inner provider (an attempt, or its re-issue of a spent send) under the send's accounting.
+    async fn accounted(&self, request: Arc<ModelRequest>, reissue: bool) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let accounting = self.open(&request).await;
+        let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));
+        let opened = if reissue { self.inner.recover_spent(request).await } else { self.inner.attempt(request).await };
+        match opened {
+            Ok(stream) => Ok(Box::new(AccountedStream {
+                inner: stream,
+                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None, output_at: None }),
+                group,
+                now: Arc::clone(&self.deps.now),
+                wire_left: None,
+            })),
+            Err(error) => {
+                fail(accounting, group, error.clone()).await;
+                Err(error)
+            }
+        }
+    }
+
     fn begin(&self, request: &ModelRequest) -> SendAccounting {
         let deps = &self.deps;
         let provider = self.name.as_str();
@@ -218,6 +238,18 @@ impl ProviderAdapter for AccountedAdapter {
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
         self.inner.retry_policy_for(model)
     }
+    async fn prepare_send(&self, request: &ModelRequest) {
+        self.inner.prepare_send(request).await;
+    }
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.inner.retry_policy_of(request)
+    }
+    fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages_of(request)
+    }
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line_of(request)
+    }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.inner.keepalive()
     }
@@ -255,22 +287,23 @@ impl ProviderAdapter for AccountedAdapter {
         self.inner.first_response_budget(model, parameters)
     }
 
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages(model)
+    }
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line(model)
+    }
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.inner.recovers_spent(model, failure)
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let accounting = self.open(&request).await;
-        let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));
-        match self.inner.attempt(request).await {
-            Ok(stream) => Ok(Box::new(AccountedStream {
-                inner: stream,
-                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None, output_at: None }),
-                group,
-                now: Arc::clone(&self.deps.now),
-                wire_left: None,
-            })),
-            Err(error) => {
-                fail(accounting, group, error.clone()).await;
-                Err(error)
-            }
-        }
+        self.accounted(request, false).await
+    }
+
+    /// The re-issue is one more request the provider bills: accounted as an attempt is.
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.accounted(request, true).await
     }
 
     fn release_send(&self, group: &str) {

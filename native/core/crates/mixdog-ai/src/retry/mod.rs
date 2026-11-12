@@ -7,6 +7,7 @@
 
 pub mod advice;
 pub mod classify;
+pub mod stage;
 mod decider;
 
 pub use decider::StandardRetryDecider;

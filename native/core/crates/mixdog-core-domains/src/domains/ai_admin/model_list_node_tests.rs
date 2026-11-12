@@ -104,6 +104,11 @@ impl HttpSend for Endpoint {
         };
         // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
         let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
+        // A custom provider's connection warm-up is a raw `undici.request` in Node, which the recorder's fetch hook did not
+        // see: answered, not one of the requests.
+        if request.method == "HEAD" {
+            return Ok(reply(200, json!({})));
+        }
         let body = if request.body.is_empty() { Value::Null } else { Value::String(String::from_utf8_lossy(&request.body).into_owned()) };
         let logged = json!({ "method": request.method, "url": format!("__BASE_URL__{path}"), "headers": request.headers, "body": body });
         self.requests.send_modify(|log| log.push(logged));
@@ -333,6 +338,7 @@ pub(super) async fn rig_paced(
             accounts,
             anthropic_caps: Arc::new(|_| None),
             google_traits: Arc::new(Traits),
+            route_traits: Arc::new(|_| None),
             openai_facts: Arc::new(NoFacts),
             openai_context: Arc::new(SessionContext::new()),
             codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },

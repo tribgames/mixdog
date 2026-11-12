@@ -103,11 +103,16 @@ use crate::providers::openai::config::OpenAiConfig;
 use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
 use crate::providers::openai::switch::TransportMode;
+use crate::providers::openai::transport_policy;
+use crate::providers::openai::transport_policy::Mode as PolicyMode;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
 use crate::transport::preconnect::Preconnect;
 use crate::transport::preconnect::Setting;
 use crate::transport::WsDial;
+
+/// A provider id's catalog traits for wire routing ([`BuilderEnv::route_traits`]).
+pub type RouteTraits = Arc<dyn Fn(&str) -> Option<Arc<dyn crate::catalog::ModelTraits>> + Send + Sync>;
 
 /// What the host supplies to every adapter.
 #[derive(Clone)]
@@ -122,6 +127,9 @@ pub struct BuilderEnv {
     pub anthropic_caps: CapsLookup,
     /// Gemini/Vertex model traits.
     pub google_traits: Arc<dyn ModelTraits>,
+    /// The catalog traits of a gateway's models (`getModelsDevRowSync`: the SDK package that names a model's wire), by
+    /// provider id; `None` where the host has no catalog for it.
+    pub route_traits: RouteTraits,
     pub openai_facts: Arc<dyn ModelFactsSource>,
     /// The per-process OpenAI request context (turn-state tokens).
     pub openai_context: Arc<SessionContext>,
@@ -351,11 +359,12 @@ struct StoredKey {
 impl FileKey {
     async fn read(&self) -> Result<String, ProviderError> {
         match self.file.load::<StoredKey>().await {
-            Probe::Present(stored) => stored
-                .api_key
-                .or(stored.access_token)
-                .filter(|k| !k.is_empty())
-                .ok_or_else(|| reauth(&format!("not signed in to {}", self.provider))),
+            Probe::Present(stored) => {
+                let held: Vec<&str> = [stored.api_key.as_deref(), stored.access_token.as_deref()].into_iter().flatten().collect();
+                let key = stored.api_key.clone().or_else(|| stored.access_token.clone()).filter(|k| !k.is_empty()).ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
+                self.file.keep(&held);
+                Ok(key)
+            }
             Probe::Absent => Err(reauth(&format!("not signed in to {}", self.provider))),
             Probe::Unreadable => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -440,7 +449,7 @@ impl RequestAuth for GoBearerAuth {
     async fn authorize(&self) -> Result<google::auth::Authorization, ProviderError> {
         let token = self.0.key().await?;
         Ok(google::auth::Authorization {
-            headers: vec![("authorization".into(), format!("Bearer {token}")), ("x-goog-api-key".into(), token)],
+            headers: vec![("Authorization".into(), format!("Bearer {token}")), ("x-goog-api-key".into(), token)],
             identity: String::new(),
         })
     }
@@ -580,31 +589,24 @@ impl ApiKeySource for OpenCodeKey {
     }
 }
 
-/// The wire `openai` and `openai-oauth` speak (`MIXDOG_OAI_TRANSPORT`):
-/// `http-sse` and its spellings pin HTTP/SSE; every other mode (`auto`,
-/// `ws-full`, `ws-delta`, unset or unknown) is WebSocket-first, and the
-/// HTTP replay on a WebSocket failure is decided above the adapter.
-fn openai_transport(raw: Option<String>) -> TransportKind {
-    match openai_mode_token(raw).as_str() {
-        "http-sse" | "httpsse" | "http" | "sse" | "http/sse" => TransportKind::Http1,
-        _ => TransportKind::WebSocket,
+/// The wire and WebSocket mode `openai` and `openai-oauth` speak
+/// (`MIXDOG_OAI_TRANSPORT` through `resolveOpenAiTransportPolicy`): `http-sse`
+/// pins HTTP/SSE, `ws-full` pins full frames, `ws-delta` pins delta frames,
+/// and `auto` (unset or unknown) is WebSocket-first with the HTTP replay on a
+/// WebSocket failure.
+fn openai_transport(raw: Option<String>) -> (TransportKind, TransportMode) {
+    let policy = transport_policy::resolve_openai(raw.as_deref());
+    match policy.mode {
+        PolicyMode::HttpSse => (TransportKind::Http1, TransportMode::Auto),
+        PolicyMode::WsFull => (TransportKind::WebSocket, TransportMode::WsFull),
+        PolicyMode::WsDelta => (TransportKind::WebSocket, TransportMode::WsDelta),
+        PolicyMode::Auto => (TransportKind::WebSocket, TransportMode::Auto),
     }
 }
 
-/// `_normalizeTransportMode`: the setting trimmed, lower-cased, spaces and underscores collapsed to `-`.
-fn openai_mode_token(raw: Option<String>) -> String {
-    let v = raw.unwrap_or_default().trim().to_lowercase();
-    v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-")
-}
-
-/// The pin `MIXDOG_OAI_TRANSPORT` puts on the WebSocket (`resolveResponsesTransportPolicy`): `ws-full` sends full
-/// frames, `ws-delta` delta frames, neither moves to HTTP/SSE; every other setting is `auto`.
+/// The pin `MIXDOG_OAI_TRANSPORT` puts on the WebSocket: `ws-full` sends full frames, `ws-delta` delta frames, every other`n/// setting leaves it `auto`.
 pub fn openai_mode(raw: Option<String>) -> TransportMode {
-    match openai_mode_token(raw).as_str() {
-        "ws-full" | "wsfull" | "full" | "ws" | "websocket-full" => TransportMode::WsFull,
-        "ws-delta" | "wsdelta" | "delta" | "websocket-delta" => TransportMode::WsDelta,
-        _ => TransportMode::Auto,
-    }
+    openai_transport(raw).1
 }
 
 /// The OpenAI public API's bearer: the configured or stored key.
@@ -686,8 +688,7 @@ impl DefaultProviderBuilder {
     fn build_openai(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let context: Arc<dyn WireContext> = self.env.openai_context.clone();
         let facts = self.env.openai_facts.clone();
-        let transport = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
-        let mode = openai_mode(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
+        let (transport, mode) = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
             (
                 OpenAiConfig::api_key(flag(cfg, "store").unwrap_or(true), facts, context),
@@ -828,7 +829,7 @@ impl DefaultProviderBuilder {
             .and_then(Value::as_object)
             .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
             .unwrap_or_default();
-        let routing = RouteInputs { model_wires, catalog: None };
+        let routing = RouteInputs { model_wires, catalog: (self.env.route_traits)(name) };
         let caches_model_info = profile.listing.caches_model_info;
         // The provider config's `reasoningEffort` stands in for a turn that names none on the Chat and Responses wires.
         // The Messages engines of DeepSeek, OpenCode Go and Command Code never read it (recorded: `config-effort-*`);
@@ -920,7 +921,7 @@ impl DefaultProviderBuilder {
                             .refusing_redirects_as("opencode-go"),
                     );
                 let gemini = google::adapter::GoogleAdapter::new(
-                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
+                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()).with_error_label("OpenCode Go Gemini streamGenerateContent"),
                     google::policy::gemini(),
                     gemini_http,
                     Arc::new(GoBearerAuth(key.clone())),
@@ -952,6 +953,10 @@ impl DefaultProviderBuilder {
         Ok(adapter(
             google::gemini_keyed(self.key_source(name, cfg), self.env.http.clone(), self.env.google_traits.clone())
                 .with_listing_lookup(self.env.listing.clone())
+                .with_settings({
+                    let env = self.env.env.clone();
+                    Arc::new(move |name| env.var(name))
+                })
                 .with_preconnect(self.preconnect()),
         ))
     }
@@ -1159,6 +1164,7 @@ impl DefaultProviderBuilder {
             self.env.antigravity_client_version.clone(),
             self.env.http.clone(),
             self.env.google_traits.clone(),
+            self.env.env.clone(),
             Box::new(now_ms_u64),
             self.env.env.var("MIXDOG_ANTIGRAVITY_FC_MODE").as_deref(),
         )
@@ -1284,8 +1290,16 @@ impl DefaultProviderBuilder {
         if engines.len() == 1 && protocol == Protocol::Anthropic {
             return Ok(CustomParts { adapter: engines.remove(0).1, listing });
         }
-        let adapter = Arc::new(MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires));
-        Ok(CustomParts { adapter, listing })
+        let mut adapter = MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires);
+        // The provider's constructor warms the endpoint's socket, and every send re-warms it (openai-compat.mjs:100,
+        // :207), unless the config turns `preconnect` off.
+        if cfg.get("preconnect").and_then(Value::as_bool) != Some(false) {
+            let preconnect = self.preconnect();
+            let warm: Arc<dyn Fn() + Send + Sync> = Arc::new(move || preconnect.warm_base(&base_url));
+            warm();
+            adapter = adapter.with_warm(warm);
+        }
+        Ok(CustomParts { adapter: Arc::new(adapter), listing })
     }
 
     /// The Messages engine of a custom provider (the `anthropic` protocol, or
@@ -1327,7 +1341,8 @@ impl DefaultProviderBuilder {
         let http = self.env.http.clone();
         let tokens: Arc<dyn crate::providers::cursor::AccessToken> = if name == "cursor-api" {
             let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
-            Arc::new(ApiKeyAccess::new(http.clone(), key))
+            let slot = self.env.keys.slot(name, &key_config(cfg));
+            Arc::new(ApiKeyAccess::new(http.clone(), key, slot))
         } else {
             Arc::new(FileAccess::new(http.clone(), self.file(name)?))
         };

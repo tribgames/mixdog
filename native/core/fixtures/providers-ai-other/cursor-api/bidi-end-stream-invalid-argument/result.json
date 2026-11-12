@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "stream_aborted",
-    "connectCode": null,
-    "cursorCode": "stream_aborted",
-    "liveTextEmitted": null,
-    "message": "Cursor stream was aborted",
     "name": "Error",
-    "providerRecoveryExhausted": true,
-    "reauthRequired": null,
-    "retryAfterMs": null,
+    "message": "Cursor invalid_argument: fixture bad request",
+    "status": 400,
+    "code": "invalid_argument",
+    "cursorCode": "invalid_argument",
+    "connectCode": null,
     "retryable": null,
-    "status": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": null
+  },
+  "dispatchedToolCalls": []
 }
