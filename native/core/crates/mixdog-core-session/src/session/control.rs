@@ -237,6 +237,9 @@ pub(crate) struct ControlCell {
     /// The records the actor accepted that the store has not acknowledged, after its last step.
     #[cfg(any(test, feature = "test-support"))]
     pub unacked: std::sync::atomic::AtomicUsize,
+    /// The records handed to the store and not yet acknowledged or failed, after the actor's last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub handed: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]

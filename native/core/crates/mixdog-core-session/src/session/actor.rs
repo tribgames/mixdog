@@ -823,6 +823,9 @@ pub(crate) struct SessionActor {
     draft_stopped: std::collections::HashSet<String>,
     /// Ended runs whose drafts wait for the held records (their end records among them) to land.
     drafts_after_save: Vec<String>,
+    /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
+    /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
+    ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released: sent once the pump has
@@ -846,8 +849,6 @@ pub(crate) struct SessionActor {
     generation: u64,
     pending: bool,
     indeterminate: bool,
-    /// A closing thread asked the durability task to write the units kept from a failed write.
-    flush_sent: bool,
     published_storage: StorageState,
     ch: ActorChannels,
     jobs_tx: mpsc::UnboundedSender<JobDone>,
@@ -1178,6 +1179,7 @@ impl SessionActor {
             draft_busy: false,
             draft_stopped: std::collections::HashSet::new(),
             drafts_after_save: Vec::new(),
+            ended_drafts: std::collections::HashMap::new(),
             after_publish: Vec::new(),
             releasing: false,
             replies_after_publish: Vec::new(),
@@ -1193,7 +1195,6 @@ impl SessionActor {
             generation: 0,
             pending: false,
             indeterminate: false,
-            flush_sent: false,
             published_storage: StorageState::Ok,
             ch,
             jobs_tx,
@@ -1303,12 +1304,8 @@ impl SessionActor {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
                 self.cell.recovered.store(!self.recovering && self.outbox.is_empty(), SeqCst);
                 self.cell.unacked.store(self.outbox.unacked(), SeqCst);
+                self.cell.handed.store(self.outbox.handed().len(), SeqCst);
                 self.cell.stepped.notify_waiters();
-            }
-            // A closing thread writes the units kept from a failed write now (Node's exit drain writes what is queued), once
-            // per failure: a write that fails again keeps them, and the thread with them.
-            if self.cell.closed.load(SeqCst) && !self.flush_sent && self.outbox.has_retained() {
-                self.flush_sent = self.ch.dur_tx.try_send(ToDurability::Flush { generation: self.generation }).is_ok();
             }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
@@ -1594,8 +1591,9 @@ impl SessionActor {
         let entry = self
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
-        // Node's next save writes the whole session: the unsaved records go again before this one.
-        if self.outbox.has_unsaved() {
+        // Node's next save writes the whole session: the unsaved records, and the units kept from a failed write, go again
+        // before this one.
+        if self.outbox.has_unsaved() || self.outbox.awaits_retry() {
             self.retry_due = true;
         }
         self.submit_encode(entry, record, shown);
@@ -1746,6 +1744,8 @@ impl SessionActor {
                 if let Some(run) = self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
                     run.journal.lost();
                 }
+                // An ended run's draft is not written again once removed.
+                self.ended_drafts.remove(rid);
             }
             DraftWrite::Remove { rid } if self.run.as_ref().is_some_and(|run| run.turn.as_str() == rid) => {
                 self.draft_stopped.insert(rid.clone());
@@ -1759,8 +1759,9 @@ impl SessionActor {
         }
     }
 
-    /// Once everything queued so far is durable (the run's end record among it), run `rid`'s draft file goes.
-    fn remove_draft_when_durable(&mut self, rid: &str) {
+    /// Once everything queued so far is durable (the run's end record among it), run `rid`'s draft file goes. `needs`: the
+    /// record whose failure keeps the draft (it goes with that record's).
+    fn remove_draft_when_durable(&mut self, rid: &str, needs: Option<u64>) {
         let (tx, rx) = oneshot::channel();
         let (jobs, rid) = (self.jobs_tx.clone(), rid.to_owned());
         tokio::spawn(async move {
@@ -1768,7 +1769,10 @@ impl SessionActor {
                 let _ = jobs.send(JobDone::DraftEnded(rid));
             }
         });
-        self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(tx)]);
+        match needs {
+            Some(needs) => self.outbox.push_after(needs, Change::Barrier, Vec::new(), vec![Effect::ItemAck(tx)]),
+            None => self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(tx)]),
+        };
     }
 
     /// A view-only change, released in order with the records around it.
@@ -1874,8 +1878,8 @@ impl SessionActor {
                         }
                         self.outbox.encoded(id, encoded, stored);
                         // Encoded behind records a failed barrier held (it was still encoding when it failed): Node's next
-                        // save writes the whole session, the held records and this one.
-                        if self.outbox.has_unsaved() {
+                        // save writes the whole session, the held or kept records and this one.
+                        if self.outbox.has_unsaved() || self.outbox.awaits_retry() {
                             self.retry_due = true;
                         }
                     }
@@ -1932,6 +1936,7 @@ impl SessionActor {
                 if self.outbox.has_unsaved() {
                     self.drafts_after_save.push(rid);
                 } else {
+                    self.ended_drafts.remove(&rid);
                     self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
                 }
             }
@@ -1959,6 +1964,15 @@ impl SessionActor {
             // committed so far is durable.
             JobDone::SensitiveMarked => {
                 self.redact_prompts();
+                // The drafts of ended runs still kept (their rows wait for a failed save to be retried) are replaced redacted.
+                let marks = self.deps.sensitive.clone();
+                let mut rewrites = Vec::new();
+                for (rid, (journal, _)) in &mut self.ended_drafts {
+                    rewrites.push((rid.clone(), journal.reset(&*marks, &self.id)));
+                }
+                for (rid, body) in rewrites {
+                    self.draft_push(super::turn_draft::DraftWrite::Replace { rid, body }, None);
+                }
                 if self.run.is_some() {
                     // The run's draft file is replaced by the draft redacted with the new value (`commitHeader` on a new
                     // version): no stored copy keeps the value.
@@ -2317,14 +2331,14 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        // A closing thread gives its unsaved records one more barrier before it stops.
+        // A closing thread gives what a failed barrier left one more barrier before it stops (Node's exit drain writes what
+        // is queued); a write that fails again keeps the retained units, and the thread with them.
         if self.cell.closed.load(SeqCst) && self.outbox.awaits_retry() {
             self.retry_due = true;
         }
         for unit in self.outbox.handoff(self.ch.dur_tx.capacity(), std::mem::take(&mut self.retry_due)) {
             let msg = ToDurability::Append {
                 generation: self.generation,
-                retain: unit.retain,
                 records: unit.records,
             };
             // Never more than the channel holds is handed off, so a refusal is a durability task that is gone.
@@ -2723,14 +2737,18 @@ impl SessionActor {
     /// change a client asked for answers the failure and is not applied (RL §6.1), and every other record the barrier
     /// carried is released unsaved: its rows stay shown and the run goes on, and it is written again, before any
     /// later record, with the next record or turn. A turn that waited for it is refused.
-    /// The units the store kept for its next write (etained\) are neither held nor failed: they stay handed.
-    fn hold_failed(&mut self, error: &CoreError, cause: Arc<str>, retained: &std::collections::HashSet<u64>) {
+    /// The units retained on a write rolled back cleanly (`retain`: a room post, an import) are kept in their place,
+    /// unreleased: their requests hear the failure now and they go with the next write. A unit is failed or held whole.
+    fn hold_failed(&mut self, error: &CoreError, cause: Arc<str>, retain: bool) {
         self.generation += 1;
         self.save_failure = cause;
-        self.outbox.keep_retained(retained);
-        self.tell_retained(retained, error);
+        let retained: std::collections::HashSet<u64> = if retain { self.outbox.handed_retained().into_iter().collect() } else { Default::default() };
+        for id in &retained {
+            self.outbox.keep(*id);
+        }
+        self.tell_retained(&retained, error);
         let mut notes = Vec::new();
-        let handed: Vec<u64> = self.outbox.handed().into_iter().filter(|id| !retained.contains(id)).collect();
+        let handed: Vec<u64> = self.outbox.handed();
         // A turn whose start was not saved does not run: no provider call is made while the session cannot be saved,
         // and its input row goes with it, as Node's ask is refused before it touches the session.
         let refused: Vec<String> = handed
@@ -2745,14 +2763,22 @@ impl SessionActor {
                 _ => None,
             })
             .collect();
+        // A unit one of whose records is answered with the failure fails whole: none of it is written later behind its
+        // caller's back (a manual compaction's replacement after its commit was refused).
+        let asked: std::collections::HashSet<u64> = handed
+            .iter()
+            .filter(|id| {
+                self.outbox.get(**id).is_some_and(|entry| {
+                    !entry.held
+                        && (answers_a_client(entry)
+                            || entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable))
+                            || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Item(row) if row.turn.as_ref().is_some_and(|turn| refused.iter().any(|rid| rid == turn.as_str())))))
+                })
+            })
+            .filter_map(|id| self.outbox.unit_of(*id))
+            .collect();
         for id in handed {
-            let asked = self.outbox.get_mut(id).is_some_and(|entry| {
-                !entry.held
-                    && (answers_a_client(entry)
-                        || entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable))
-                        || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Item(row) if row.turn.as_ref().is_some_and(|turn| refused.iter().any(|rid| rid == turn.as_str())))))
-            });
-            if asked {
+            if self.outbox.unit_of(id).is_some_and(|unit| asked.contains(&unit)) {
                 let gone = self.outbox.remove(id).into_iter().chain(self.outbox.remove_needing(id));
                 for entry in gone.collect::<Vec<_>>() {
                     self.fail_entry(entry, error);
@@ -2770,8 +2796,12 @@ impl SessionActor {
         // A close's mark or a toast waiting behind the failed barrier was part of the save that threw in Node (`closeSession`
         // answers `false`, the notice posting rejects): its caller hears the failure.
         for id in self.outbox.waiting(|effect| matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_))) {
-            for entry in self.outbox.remove(id).into_iter().chain(self.outbox.remove_needing(id)).collect::<Vec<_>>() {
+            for entry in self.outbox.remove_unit(id) {
+                let gone = entry.id;
                 self.fail_entry(entry, error);
+                for dependent in self.outbox.remove_needing(gone) {
+                    self.fail_entry(dependent, error);
+                }
             }
         }
         self.rebuild_projected();
@@ -2838,7 +2868,6 @@ impl SessionActor {
         }
         self.tell_retained(&retained, &error);
         self.generation += 1;
-        self.flush_sent = false;
         self.rebuild_projected();
     }
 
@@ -2957,15 +2986,19 @@ impl SessionActor {
                 }
                 if !self.outbox.has_unsaved() {
                     for rid in std::mem::take(&mut self.drafts_after_save) {
+                        self.ended_drafts.remove(&rid);
                         self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
                     }
                 }
             }
-            FromDurability::Failed { generation, error, retained } => {
+            FromDurability::Failed { generation, error } => {
                 if generation != self.generation {
                     return;
                 }
                 self.deps.notices.save_failed();
+                // A write rolled back cleanly keeps its retained units for the next one; one whose outcome is unknown keeps
+                // nothing of them.
+                let retain = matches!(error, super::seams::BarrierError::Failed { .. });
                 let (error, cause) = match error {
                     // The refusal of the next turn names the error, as Node's names its save's (`cause.message`).
                     super::seams::BarrierError::Failed { io_kind, cause } => (
@@ -2988,6 +3021,7 @@ impl SessionActor {
                 // A closing thread had its retry: what is still unsaved is lost with it.
                 if self.cell.closed.load(SeqCst) {
                     tracing::error!("session {}: records not saved to disk are dropped as the session closes: {error:?}", self.id.as_str());
+                    let retained = if retain { self.outbox.retained() } else { Vec::new() };
                     if retained.is_empty() {
                         self.fail_all(error);
                     } else {
@@ -2995,7 +3029,7 @@ impl SessionActor {
                     }
                     return;
                 }
-                self.hold_failed(&error, cause, &retained.into_iter().collect());
+                self.hold_failed(&error, cause, retain);
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
@@ -3333,8 +3367,13 @@ impl SessionActor {
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             }
-            // `clearTurnCheckpoint` once the terminal save landed: the draft goes with nothing left to recover.
-            self.remove_draft_when_durable(turn.as_str());
+            // `clearTurnCheckpoint` once the terminal save landed: the draft goes with nothing left to recover. Until it goes,
+            // a value marked meanwhile is taken out of it, as while the run streamed.
+            if slot.journal.written() {
+                let marks = std::mem::replace(&mut slot._marks, Box::new(()));
+                self.ended_drafts.insert(turn.as_str().to_owned(), (std::mem::take(&mut slot.journal), marks));
+            }
+            self.remove_draft_when_durable(turn.as_str(), None);
         }
         if self.deleting {
             self.delete_turn_ended();
@@ -4133,6 +4172,9 @@ impl SessionActor {
                     return;
                 }
                 self.transcript_rewritten = true;
+                // The reset, the replacement and the header are one unit: a manual commit refused for a failed save leaves
+                // none of them to be written later.
+                self.outbox.begin_unit(false);
                 // A compaction that changed the context drops the provider continuation
                 // (`compaction-runner.mjs:701`).
                 if let Some(reset) = self.provider_state_change(None) {
@@ -4182,6 +4224,7 @@ impl SessionActor {
                     let change = header(&self.projected.header);
                     self.accept_record(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }), Class::Normal, Display::None, Vec::new(), header_ack);
                 }
+                self.outbox.end_unit();
             }
             ProducerMsg::ContextRewound { turn, replacement, ack } => {
                 if !self.active(&turn) {
@@ -6445,6 +6488,10 @@ impl SessionActor {
     /// the turn it covers, is stamped as used, and drops the provider continuation, `turn-checkpoint.mjs:545-554`).
     fn recovered(&mut self, ended: Vec<(String, super::seams::CrashedRows)>) {
         let at = self.deps.clock.now_ms();
+        // The recovery is one unit, written whole or failed whole: a failed save shows nothing of it (the open is served the
+        // log as it stands) and leaves the runs open, their drafts kept, for the next open, as an unreadable context does.
+        let first = self.outbox.next_id();
+        self.outbox.begin_unit(false);
         if let Some(reset) = self.provider_state_change(None) {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
         }
@@ -6514,14 +6561,16 @@ impl SessionActor {
                 set.insert("lastContextTokens".into(), json!(tokens));
             }
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
-            self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
-            self.remove_draft_when_durable(&rid);
+            let end = self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+            self.remove_draft_when_durable(&rid, Some(end));
         }
-        // The recovery's records are durable (or failed) before the session is served: its last entry carries the ack.
+        self.outbox.end_unit();
+        // The recovery's records are durable (or failed) before the session is served: its last entry carries the ack, which a
+        // failed save fails rather than holds (a held recovery would be served unsaved).
         let (ack, durable) = oneshot::channel();
-        match self.outbox.last_mut() {
+        match self.outbox.last_durable_mut(first) {
             Some(entry) => {
-                entry.effects.push(Effect::ItemAck(ack));
+                entry.effects.push(Effect::MarkAck(ack));
                 let jobs = self.jobs_tx.clone();
                 tokio::spawn(async move {
                     let done = durable.await.unwrap_or(Err(RunError::NotApplied));

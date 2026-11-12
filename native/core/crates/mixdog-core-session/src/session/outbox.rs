@@ -39,7 +39,8 @@ pub(crate) enum Stage {
     Encoded(EncodedRecord),
     /// Handed to the durability task; the encoding is kept for a retry should its barrier fail.
     Handed(EncodedRecord),
-    /// Its barrier failed and it was released unsaved ([`Entry::held`]): handed again only by a retry.
+    /// Its barrier failed and it stays, in its place, to be handed again by a retry: released unsaved ([`Entry::held`]), or
+    /// kept whole and unreleased ([`Outbox::keep`]).
     Held(EncodedRecord),
     Acked(u64),
 }
@@ -51,9 +52,9 @@ pub(crate) struct Durable {
     pub bytes: usize,
     /// The unit this record is written in: every record of one request's plan, committed together or not at all.
     pub unit: u64,
-    /// A failed write keeps the unit queued for the next one (Node's recorder keeps a failed batch's bytes).
+    /// A failed write keeps the unit, unreleased, for the next one (Node's recorder keeps a failed batch's bytes).
     pub retain: bool,
-    /// Whether the record still counts in the window (a retained one no longer does: it waits for the next write).
+    /// Whether the record still counts in the window (a held or kept one no longer does: it waits for the next write).
     counted: bool,
     /// The record's number on the outbox's [`mixdog_rt::WriteMarks`].
     #[cfg(any(test, feature = "test-support"))]
@@ -62,7 +63,6 @@ pub(crate) struct Durable {
 
 /// One unit handed to the durability task: its records in accept order.
 pub(crate) struct HandedUnit {
-    pub retain: bool,
     pub records: Vec<(u64, CommitRecord, usize)>,
 }
 
@@ -161,11 +161,6 @@ impl Outbox {
         self.unit = None;
     }
 
-    /// Whether a unit kept from a failed write waits for the next one.
-    pub fn has_retained(&self) -> bool {
-        self.entries.iter().any(|entry| entry.durable.as_ref().is_some_and(|durable| durable.retain && !durable.counted && matches!(durable.stage, Stage::Handed(_))))
-    }
-
     /// An outbox numbering its durable records on `marks`: the thread's [`super::control::ControlCell::record_marks`].
     #[cfg(any(test, feature = "test-support"))]
     pub fn numbered_on(limits: SessionLimits, marks: Arc<mixdog_rt::WriteMarks>) -> Self {
@@ -217,7 +212,7 @@ impl Outbox {
         self.entries.iter().any(|entry| entry.held)
     }
 
-    /// Some held entry waits for a retry (none of them is handed).
+    /// Some record a failed barrier left, held or kept, waits for a retry.
     pub fn awaits_retry(&self) -> bool {
         self.entries.iter().any(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Held(_), .. })))
     }
@@ -263,19 +258,43 @@ impl Outbox {
         Some(released)
     }
 
-    /// A write failed and the store kept the units of `retained` for the next write: their records stay handed, out of the
-    /// window.
-    pub fn keep_retained(&mut self, retained: &std::collections::HashSet<u64>) {
-        for id in retained {
-            let Some(index) = self.index(*id) else { continue };
-            let Some(durable) = self.entries[index].durable.as_mut() else { continue };
-            if std::mem::replace(&mut durable.counted, false) {
-                let (class, bytes) = (durable.class, durable.bytes);
-                let usage = self.usage(class);
-                usage.records -= 1;
-                usage.bytes -= bytes;
-            }
+    /// The handed entry `id` of a retained unit failed its barrier: it stays in its place, unreleased and out of the window, and
+    /// goes again with the next write ([`Self::handoff`]).
+    pub fn keep(&mut self, id: u64) {
+        let Some(index) = self.index(id) else { return };
+        let Some(durable) = self.entries[index].durable.as_mut() else { return };
+        if let Stage::Handed(encoded) = &durable.stage {
+            durable.stage = Stage::Held(encoded.clone());
         }
+        if std::mem::replace(&mut durable.counted, false) {
+            let (class, bytes) = (durable.class, durable.bytes);
+            let usage = self.usage(class);
+            usage.records -= 1;
+            usage.bytes -= bytes;
+        }
+    }
+
+    /// The ids of the handed entries of retained units, in order.
+    pub fn handed_retained(&self) -> Vec<u64> {
+        self.entries
+            .iter()
+            .filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), retain: true, .. })))
+            .map(|entry| entry.id)
+            .collect()
+    }
+
+    /// The ids of the entries of retained units not yet written (handed, or kept from an earlier failure), in order.
+    pub fn retained(&self) -> Vec<u64> {
+        self.entries
+            .iter()
+            .filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_) | Stage::Held(_), retain: true, .. })))
+            .map(|entry| entry.id)
+            .collect()
+    }
+
+    /// The unit `id` belongs to, when it holds a record.
+    pub fn unit_of(&self, id: u64) -> Option<u64> {
+        self.get(id)?.durable.as_ref().map(|durable| durable.unit)
     }
 
     fn usage(&mut self, class: Class) -> &mut Usage {
@@ -355,6 +374,16 @@ impl Outbox {
         self.entries.back_mut()
     }
 
+    /// The id the next entry pushed gets.
+    pub fn next_id(&self) -> u64 {
+        self.next_id
+    }
+
+    /// The last entry holding a record, if it was pushed at `from` or after.
+    pub fn last_durable_mut(&mut self, from: u64) -> Option<&mut Entry> {
+        self.entries.iter_mut().rev().take_while(|entry| entry.id >= from).find(|entry| entry.durable.is_some())
+    }
+
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Entry> {
         let index = self.index(id)?;
         self.entries.get_mut(index)
@@ -383,6 +412,14 @@ impl Outbox {
     /// durability lane each), stopping at the first unit still encoding, and at the first held record unless this is a
     /// `retry` (a held record goes before every record after it). A unit is handed on whole, however many records it
     /// holds (a whole inherited conversation), so the store writes it as one commit.
+    ///
+    /// The order invariant: this outbox is the one owner of every record not yet durable, and the log takes records only
+    /// from here, in accept order. A record a failed barrier leaves stays at its place ([`Stage::Held`]): released unsaved
+    /// (a turn's rows, [`Self::hold`]) or kept unreleased (a retained unit, [`Self::keep`]), never moved to another keeper.
+    /// Nothing accepted after it is handed before it is handed again, the store keeps nothing of a failed write
+    /// (`durability.rs`), and every batch is a prefix of what is handed, so what the log holds is always the accepted
+    /// sequence less what was failed to its waiter, whatever fails, retries, arrives meanwhile or closes; a crash loses what
+    /// was not written, never reorders it.
     pub fn handoff(&mut self, room: usize, retry: bool) -> Vec<HandedUnit> {
         // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
         let mut end = 0;
@@ -433,7 +470,7 @@ impl Outbox {
             };
             durable.stage = Stage::Handed(encoded.clone());
             if last_unit != Some(durable.unit) {
-                out.push(HandedUnit { retain: durable.retain, records: Vec::new() });
+                out.push(HandedUnit { records: Vec::new() });
                 last_unit = Some(durable.unit);
             }
             out.last_mut().expect("pushed").records.push((
@@ -468,8 +505,8 @@ impl Outbox {
         }
     }
 
-    /// A write failed and was rolled back: the entries of `retained` (handed units kept for the next write) stay, in order,
-    /// out of the window; every other unreleased entry is failed, as [`Self::fail_all`].
+    /// A write failed and was rolled back: the entries of `retained` (units kept for the next write) stay, in order, out of
+    /// the window, to be handed again; every other unreleased entry is failed, as [`Self::fail_all`].
     pub fn fail_all_but(&mut self, retained: &std::collections::HashSet<u64>) -> Vec<Entry> {
         self.normal = Usage::default();
         self.reserve = Usage::default();
@@ -480,6 +517,9 @@ impl Outbox {
         for entry in &mut self.entries {
             if let Some(durable) = entry.durable.as_mut() {
                 durable.counted = false;
+                if let Stage::Handed(encoded) = &durable.stage {
+                    durable.stage = Stage::Held(encoded.clone());
+                }
             }
         }
         failed
