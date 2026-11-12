@@ -241,8 +241,10 @@
         ]
       },
       "agent": {
-        "autoClear": "no",
-        "compaction": "x"
+        "agents": {},
+        "providers": {},
+        "modelSettings": {},
+        "webSearchRoute": null
       },
       "desktop": {
         "defaultsSeparationVersion": 1
@@ -260,6 +262,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyAgent": {
@@ -274,6 +279,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyVolume": {
@@ -288,6 +296,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyRetention": {
@@ -302,6 +313,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyPermissions": {
@@ -316,6 +330,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyPins": {
@@ -330,6 +347,9 @@
           "worker",
           "writer"
         ]
+      },
+      "desktop": {
+        "defaultsSeparationVersion": 1
       }
     },
     "emptyDesktop": {
@@ -12429,7 +12449,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"autoClear\": {\n      \"enabled\": false\n    },\n    \"compaction\": \"x\"\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"agents\": {},\n    \"providers\": {},\n    \"modelSettings\": {},\n    \"webSearchRoute\": null,\n    \"autoClear\": {\n      \"enabled\": false\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -12586,7 +12606,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"autoClear\": {\n      \"enabled\": false\n    },\n    \"compaction\": {\n      \"auto\": false\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"agents\": {},\n    \"providers\": {},\n    \"modelSettings\": {},\n    \"webSearchRoute\": null,\n    \"autoClear\": {\n      \"enabled\": false\n    },\n    \"compaction\": {\n      \"auto\": false\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -12737,7 +12757,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"autoClear\": {\n      \"enabled\": false\n    },\n    \"compaction\": {\n      \"auto\": false\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"usagePinned\": false\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"agents\": {},\n    \"providers\": {},\n    \"modelSettings\": {},\n    \"webSearchRoute\": null,\n    \"autoClear\": {\n      \"enabled\": false\n    },\n    \"compaction\": {\n      \"auto\": false\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"usagePinned\": false\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -12894,7 +12914,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {},\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13045,7 +13065,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13196,7 +13216,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13346,7 +13366,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13496,7 +13516,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"notificationVolume\": 50\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"keepAwake\": false,\n    \"notificationVolume\": 50\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13653,7 +13673,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13810,7 +13830,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"agent\": {\n    \"compaction\": {\n      \"auto\": false\n    }\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"agent\": {\n    \"compaction\": {\n      \"auto\": false\n    }\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -13960,7 +13980,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -14117,7 +14137,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"keepAwake\": false\n  },\n  \"agent\": {}\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -14268,7 +14288,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -14418,7 +14438,7 @@
         }
       ],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {}\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -14499,7 +14519,7 @@
       "window": [],
       "changed": [],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\"\n      ],\n      \"revision\": 1\n    }\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\"\n      ],\n      \"revision\": 1\n    }\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"
@@ -14585,7 +14605,7 @@
       "window": [],
       "changed": [],
       "files": {
-        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\"\n      ],\n      \"revision\": 1\n    }\n  }\n}\n",
+        "config": "{\n  \"defaultsVersion\": 2,\n  \"agents\": {\n    \"greeted\": [\n      \"advisor\",\n      \"front-worker\",\n      \"heavy-worker\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\"\n      ],\n      \"revision\": 1\n    }\n  }\n}\n",
         "snapshots": [
           "post-config-write",
           "pre-config-write"

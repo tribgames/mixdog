@@ -33,7 +33,8 @@ const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 
 const onOffOn = (key) => [['updateSetting', key, true], ['updateSetting', key, false], ['updateSetting', key, true]];
 const GREETED = ['advisor', 'front-worker', 'heavy-worker', 'reviewer', 'security', 'worker', 'writer'];
-// Each seed is a config the product's own startup leaves alone (defaults separated, roles greeted).
+// A seed the core's start-up passes rewrite (the desktop section gets its separation marker, an agent section that is no object is
+// normalised; Node runs those in the app's start-up) is compared from what that rewrite leaves: the replay snapshots are taken after the start.
 const BASE = { defaultsVersion: 2, agents: { greeted: GREETED } };
 const SITE = { origin: 'https://example.com', permission: 'geolocation', setting: 'allow' };
 const SITES = (count) => Array.from({ length: count }, (_, i) => ({ origin: `https://site${i}.example.org`, permission: 'notifications', setting: 'block' }));
@@ -64,6 +65,10 @@ const VALUES_SEED = {
     zoomFactor: 1.25,
   },
 };
+// What the core's start leaves of a seed that lacks the desktop marker or holds a malformed agent section (the app runs those passes in its start-up):
+// the replay's core would rewrite the plain seed, so these groups start from the result and Node's recorded bytes stay the expectation.
+const BOOTED = { ...BASE, desktop: MARKED };
+const BOOTED_AGENT = { agents: {}, providers: {}, modelSettings: {}, webSearchRoute: null };
 const GROUPS = {
   // Every flag, in the order of the list: on, off, on again; a control that was on before its marker existed.
   // (The config writer keeps 40 snapshots: a group stays under that, so each call's snapshots are comparable.)
@@ -130,21 +135,19 @@ const GROUPS = {
     steps: [['updateSetting', 'keepAwake', false], ['updateSetting', 'autoCompact', false], ['updateSetting', 'computerControl', true], ['updateSetting', 'computerControl', false]],
   },
   odd2: {
-    bootRewrites: true,
-    seed: { ...BASE, agent: { autoClear: 'no', compaction: 'x' }, desktop: MARKED },
+    seed: { ...BASE, agent: BOOTED_AGENT, desktop: MARKED },
     steps: [['updateSetting', 'autoClear', false], ['updateSetting', 'autoCompact', false], ['updateSetting', 'usagePinned', false]],
   },
   // A config with neither section: the first write creates what it needs (a default value still leaves its section).
   empty: {
-    bootRewrites: true,
-    seed: BASE,
+    seed: BOOTED,
     steps: [['updateSetting', 'keepAwake', true], ['updateSetting', 'keepAwake', false], ['updateSetting', 'autoClear', true], ['setNotificationVolume', 100], ['setNotificationVolume', 50]],
   },
-  emptyAgent: { bootRewrites: true, seed: BASE, steps: [['updateSetting', 'autoCompact', true], ['updateSetting', 'autoCompact', false]] },
-  emptyVolume: { bootRewrites: true, seed: BASE, steps: [['setNotificationVolume', 100], ['updateSetting', 'keepAwake', false]] },
-  emptyRetention: { bootRewrites: true, seed: BASE, steps: [['setSessionRetention', 'sessionAutoArchiveDays', 7]] },
-  emptyPermissions: { bootRewrites: true, seed: BASE, steps: [['setBrowserPermissions', {}]] },
-  emptyPins: { bootRewrites: true, seed: BASE, steps: [['updateActivityRailPins', ['agents'], true], ['updateActivityRailPins', ['agents'], true]] },
+  emptyAgent: { seed: BOOTED, steps: [['updateSetting', 'autoCompact', true], ['updateSetting', 'autoCompact', false]] },
+  emptyVolume: { seed: BOOTED, steps: [['setNotificationVolume', 100], ['updateSetting', 'keepAwake', false]] },
+  emptyRetention: { seed: BOOTED, steps: [['setSessionRetention', 'sessionAutoArchiveDays', 7]] },
+  emptyPermissions: { seed: BOOTED, steps: [['setBrowserPermissions', {}]] },
+  emptyPins: { seed: BOOTED, steps: [['updateActivityRailPins', ['agents'], true], ['updateActivityRailPins', ['agents'], true]] },
   emptyDesktop: {
     seed: { ...BASE, desktop: MARKED },
     steps: [['updateSetting', 'computerControl', false], ['updateSetting', 'computerControl', true], ['updateActivityRailPins', ['agents'], true]],
@@ -452,7 +455,6 @@ writeSetManifest(stage, {
     },
     exclusions: {
       markdownDefaultViewFile: "Node keeps the Markdown default view in <userData>/User/settings.json (a JSONC structural edit); the core keeps it as the config key desktop.editor.markdownDefaultView (editorcfg.rs user scope). For this call the replay compares the answer, the events and what a second client reads, and that the view the core stored is the one Node answered; the config bytes and snapshots are not compared",
-      bootRewrites: `groups ${Object.keys(GROUPS).filter((group) => GROUPS[group].bootRewrites).join(', ')}: their seeds are configs the core's own start-up passes rewrite before any write (the desktop section gets its separation marker, an agent section that is no object is normalised), where Node runs those passes in the app's start-up. The core replay skips them; the Config-level test mixdog-core-config config::service::tests::the_desktops_setting_writes_leave_what_node_left replays every group, these included, from the same recording`,
       errorName: "a refusal is compared by its message: the window's handler rethrows the error and Electron hands the page the text; Node's class (TypeError, RangeError for the 300-site limit) is not kept across a core connection",
       notificationsSubtree: "the core keeps Node's notification-preferences.json as the `notifications` subtree of mixdog-config.json; the replay seeds it (last key) and takes it out of the bytes it compares",
       snapshots: "the snapshot kinds each call wrote (backups/user-data), as a multiset: the file names carry the time, one process-wide counter and the scope's hash",
@@ -489,8 +491,6 @@ async function replay(exe) {
   const differences = [];
   let compared = 0;
   for (const group of groups) {
-    // Declared in the manifest (exclusions.bootRewrites).
-    if (GROUPS[group].bootRewrites) continue;
     const root = join(WORK, 'core', group);
     rmSync(root, { recursive: true, force: true });
     for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(root, dir), { recursive: true });
