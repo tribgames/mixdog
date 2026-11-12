@@ -13,7 +13,9 @@ const { NtExecutable, NtExecutableResource, Resource } = require('resedit');
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
-const schemaVersion = 2;
+// 3: the Node daemon group and the installed `fast-runtime` tree are gone; the core is `resources/core/mixdogd`.
+// A state written by an older schema never matches, so the first deploy over a Node-core install is a complete one.
+const schemaVersion = 3;
 const desktopPackageManifest = join(desktopDir, 'package.json');
 
 export function asarPath(path) {
@@ -21,16 +23,13 @@ export function asarPath(path) {
 }
 
 // koffi stays listed in the archive but lives in app.asar.unpacked, as
-// electron-builder's asarUnpack leaves it: the main process loads it through
-// the archive (window-mica.ts) and the daemon, running from app.asar.unpacked,
-// through the real file system (opened-file-path.ts). Packed, the daemon finds
-// no koffi and every phone file preview fails as "The file changed while it was
-// opened." asar matches unpackDir with minimatch, which takes `/` on Windows too.
+// electron-builder's asarUnpack leaves it: a native binding cannot be loaded
+// from inside the archive. asar matches unpackDir with minimatch, which takes
+// `/` on Windows too.
 export const koffiBindingPath = `node_modules/@koromix/koffi-${process.platform}-${process.arch}/${process.platform}_${process.arch}/koffi.node`;
 
 export function fastDirectAsarOptions() {
   return {
-    unpack: 'daemon.cjs',
     unpackDir: '{out/renderer,node_modules/koffi,node_modules/@koromix/koffi-*}',
   };
 }
@@ -163,10 +162,9 @@ export async function assertPackagedProductionDependencyClosure(archivePath, opt
 }
 
 const repoPackageManifest = join(repoRoot, 'package.json');
-// electron-builder keeps this package unpacked (asarUnpack). The daemon runs
-// from app.asar.unpacked and resolves it through the real file system, and a
-// native binding cannot be dlopen'd from inside the archive, so an incremental
-// artifact that repacks it leaves the installed app with no terminals at all.
+// electron-builder keeps this package unpacked (asarUnpack). A native binding
+// cannot be dlopen'd from inside the archive, so an incremental artifact that
+// repacks it leaves the installed app with no terminals at all.
 const ptyPackageSegments = ['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'];
 const browserImportNativeFileNames = [
   'mixdog-browser-import.exe',
@@ -191,6 +189,23 @@ const runtimeDependencyInputs = [
   join(repoRoot, 'native', 'mixdog-secure-desktop'),
   join(repoRoot, 'native', 'mixdog-window'),
 ];
+/** What decides the bytes of `mixdogd`: the workspace, its toolchain pin, and the files of the Node tree its
+ *  `include_str!` reads (hidden_agents.rs, native_asset/mod.rs). `root` is the checkout the core is built in. */
+export function coreInputs(root) {
+  return [
+    join(root, 'rust-toolchain.toml'),
+    join(root, 'native', 'core', 'Cargo.toml'),
+    join(root, 'native', 'core', 'Cargo.lock'),
+    join(root, 'native', 'core', '.cargo'),
+    join(root, 'native', 'core', 'crates'),
+    join(root, 'src', 'defaults', 'agents.json'),
+    join(root, 'src', 'rules', 'agent'),
+    join(root, 'src', 'runtime', 'agent', 'orchestrator', 'tools', 'graph-manifest.json'),
+    join(root, 'apps', 'desktop', 'scripts', 'stage-core.mjs'),
+    join(root, 'apps', 'desktop', 'scripts', 'core-layout.mjs'),
+  ];
+}
+
 const ignoredSource =
   /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 const fileContents = new Map();
@@ -201,7 +216,6 @@ export const targetInputs = {
   renderer: [
     join(desktopDir, 'src', 'renderer'),
     join(desktopDir, 'src', 'shared'),
-    join(desktopDir, 'vendor'),
     join(desktopDir, 'electron.vite.config.ts'),
   ],
   main: [
@@ -214,18 +228,10 @@ export const targetInputs = {
     join(desktopDir, 'src', 'shared'),
     join(desktopDir, 'electron.vite.config.ts'),
   ],
-  daemon: [
-    join(repoRoot, 'src'),
-    join(repoRoot, 'package.json'),
-    join(repoRoot, 'package-lock.json'),
-    join(desktopDir, 'src', 'main'),
-    join(desktopDir, 'src', 'shared'),
-    join(desktopDir, 'scripts', 'build-daemon.mjs'),
-  ],
+  core: coreInputs(repoRoot),
   runtime: [
     join(repoRoot, 'src'),
     join(repoRoot, 'scripts'),
-    join(repoRoot, 'vendor'),
     join(repoRoot, 'LICENSES'),
     join(repoRoot, 'README.md'),
     join(repoRoot, 'NOTICE.md'),
@@ -367,7 +373,7 @@ export async function hashBrowserImportNativeTools(nativeToolsDir) {
   return hash.digest('hex');
 }
 
-async function fingerprint(inputs) {
+async function fingerprint(inputs, root = repoRoot) {
   const fileSet = new Set();
   for (const input of inputs) {
     for (const file of await filesForInput(input)) fileSet.add(file);
@@ -383,7 +389,7 @@ async function fingerprint(inputs) {
   let newestMtimeMs = 0;
   for (const { file, metadata, contents } of details) {
     newestMtimeMs = Math.max(newestMtimeMs, metadata.mtimeMs);
-    hash.update(relative(repoRoot, file).replaceAll(sep, '/'));
+    hash.update(relative(root, file).replaceAll(sep, '/'));
     hash.update('\0');
     hash.update(String(contents.length));
     hash.update('\0');
@@ -433,29 +439,16 @@ async function runtimeFingerprint(inputs) {
 const changedByGroup = (changed) => Object.fromEntries(Object.keys(targetInputs).map((name) => [name, changed(name)]));
 
 function fullPlan(changed) {
-  return { full: true, bootstrap: false, targets: [], daemon: false, runtime: false, runtimeMode: 'none', changed };
+  return { full: true, targets: [], core: false, runtime: false, runtimeMode: 'none', changed };
 }
 
 const buildTargets = (changed) => ['main', 'preload', 'renderer'].filter((name) => changed[name]);
 
-// Schema 2 states created before runtimeDependencies existed used the
-// developer deploy scripts as package inputs. Migrate that one state by
-// comparing only real package inputs against the successful deploy time;
-// a package file changed afterward still takes the complete fallback.
-function migratePackageChange(previous, groups, changed) {
-  if (previous.groups?.runtimeDependencies || !previous.deployedAt) return;
-  const deployedAtMs = Date.parse(previous.deployedAt);
-  if (Number.isFinite(deployedAtMs)) changed.package = groups.package.newestMtimeMs > deployedAtMs;
-}
-
-export function decidePlan({
-  previous,
-  groups,
-  installedMatches,
-  bootstrapFresh,
-  devRuntimeReady = false,
-  forceFull = false,
-}) {
+/** What an incremental deploy touches. Anything the installed layout cannot take piecemeal (packaging, the
+ *  runtime's dependency tree, a state or install this script did not write) is the complete directory build.
+ *  `core` swaps `resources/core/mixdogd`; `runtime` ('code') swaps the real-file package root the core reads
+ *  (`runtime.asar.unpacked/node_modules/mixdog`). */
+export function decidePlan({ previous, groups, installedMatches, forceFull = false }) {
   if (forceFull) {
     const changed = changedByGroup(
       (name) => previous?.schemaVersion !== schemaVersion || previous.groups?.[name]?.hash !== groups[name].hash
@@ -465,57 +458,19 @@ export function decidePlan({
   }
   if (previous?.schemaVersion === schemaVersion && installedMatches) {
     const changed = changedByGroup((name) => previous.groups?.[name]?.hash !== groups[name].hash);
-    migratePackageChange(previous, groups, changed);
-    const full = changed.package;
+    const full = changed.package || changed.runtimeDependencies;
     const runtime = !full && changed.runtime;
     return {
       full,
-      bootstrap: false,
       targets: full ? [] : buildTargets(changed),
-      daemon: !full && changed.daemon,
+      core: !full && changed.core,
       runtime,
-      runtimeMode: runtimeMode(runtime, changed.runtimeDependencies || !devRuntimeReady),
-      changed,
-    };
-  }
-
-  if (bootstrapFresh) {
-    const changed = {
-      renderer: groups.renderer.newestMtimeMs > bootstrapFresh.renderer,
-      main: groups.main.newestMtimeMs > bootstrapFresh.main,
-      preload: groups.preload.newestMtimeMs > bootstrapFresh.preload,
-      daemon: groups.daemon.newestMtimeMs > bootstrapFresh.daemon,
-      runtime: true,
-      runtimeDependencies: true,
-      package: groups.package.newestMtimeMs > bootstrapFresh.package,
-    };
-    const full = changed.package;
-    return {
-      full,
-      bootstrap: true,
-      targets: full ? [] : buildTargets(changed),
-      daemon: !full && changed.daemon,
-      runtime: !full,
-      runtimeMode: full ? 'none' : 'full',
+      runtimeMode: runtime ? 'code' : 'none',
       changed,
     };
   }
 
   return fullPlan(changedByGroup(() => true));
-}
-
-export async function installedFastRuntimeReady(installDir, dependencyHash) {
-  try {
-    const root = join(installDir, 'resources', 'fast-runtime');
-    const marker = JSON.parse(await readFile(join(root, '.mixdog-fast-runtime.json'), 'utf8'));
-    if (marker.schemaVersion !== 1 || marker.dependencyHash !== dependencyHash) return false;
-    // The extension host mixdogd starts from the runtime package (the Node core left at K1).
-    await stat(join(root, 'node_modules', 'mixdog', 'src', 'ext-host', 'worker.mjs'));
-    return true;
-  } catch (error) {
-    if (error?.code === 'ENOENT' || error instanceof SyntaxError) return false;
-    throw error;
-  }
 }
 
 async function currentGroups() {
@@ -543,7 +498,6 @@ const builtTargetArtifacts = {
   renderer: join(desktopDir, 'out', 'renderer', 'index.html'),
   main: join(desktopDir, 'out', 'main', 'index.js'),
   preload: join(desktopDir, 'out', 'preload', 'index.js'),
-  daemon: join(desktopDir, 'out', 'main', 'daemon.cjs'),
 };
 
 async function currentPrebuilt(groups) {
@@ -555,6 +509,16 @@ async function currentPrebuilt(groups) {
   return prebuilt;
 }
 
+// An install of the Node core has no `mixdogd`; its empty hash is a mismatch with any state, so it plans a complete deploy.
+async function hashCoreExe(path) {
+  try {
+    return await hashFile(path);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return '';
+    throw error;
+  }
+}
+
 async function installedHashes(installDir) {
   const resources = join(installDir, 'resources');
   const appAsar = join(resources, 'app.asar');
@@ -562,6 +526,7 @@ async function installedHashes(installDir) {
   return {
     appAsar: await hashFile(appAsar),
     runtimeAsar: await hashFile(runtimeAsar),
+    coreExe: await hashCoreExe(join(resources, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')),
     browserImportNativeTools: await hashBrowserImportNativeTools(join(resources, 'native-tools')),
   };
 }
@@ -575,40 +540,6 @@ async function readState(statePath) {
   }
 }
 
-async function outputMatchesInstalled(installDir) {
-  const archive = join(installDir, 'resources', 'app.asar');
-  const unpacked = `${archive}.unpacked`;
-  const outputFiles = [];
-  await walkFiles(join(desktopDir, 'out'), outputFiles);
-  // A fresh checkout has no build output: nothing local proves the install current.
-  if (outputFiles.length === 0) return false;
-  for (const file of outputFiles) {
-    const archivePath = asarPath(relative(desktopDir, file));
-    if (archivePath.endsWith(`${sep}capture-window.js`) || archivePath.endsWith('.map')) continue;
-    let installed;
-    const metadata = statFile(archive, archivePath, false);
-    if (metadata.unpacked) {
-      installed = await readFile(join(unpacked, archivePath));
-    } else {
-      installed = extractFile(archive, archivePath);
-    }
-    const local = await readFile(file);
-    if (!local.equals(installed)) return false;
-  }
-  return true;
-}
-
-async function bootstrapFreshness(installDir) {
-  if (!(await outputMatchesInstalled(installDir))) return null;
-  const installedExe = await stat(join(installDir, 'Mixdog.exe'));
-  const freshness = {};
-  for (const [name, artifact] of Object.entries(builtTargetArtifacts)) {
-    freshness[name] = (await stat(artifact)).mtimeMs;
-  }
-  freshness.package = installedExe.mtimeMs;
-  return freshness;
-}
-
 async function createPlan({ installDir, statePath, planPath, forceFull = false }) {
   const groups = await currentGroups();
   const prebuilt = await currentPrebuilt(groups);
@@ -619,10 +550,9 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
       previous.installDir === resolve(installDir) &&
       previous.installed?.appAsar === hashes.appAsar &&
       previous.installed?.runtimeAsar === hashes.runtimeAsar &&
+      previous.installed?.coreExe === hashes.coreExe &&
       previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools
   );
-  const bootstrap = previous ? null : await bootstrapFreshness(installDir);
-  const devRuntimeReady = await installedFastRuntimeReady(installDir, groups.runtimeDependencies.hash);
   let forceFullPlan = forceFull;
   try {
     await assertPackagedProductionDependencyClosure(join(installDir, 'resources', 'app.asar'));
@@ -635,8 +565,6 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     previous,
     groups,
     installedMatches,
-    bootstrapFresh: bootstrap,
-    devRuntimeReady,
     forceFull: forceFullPlan,
   });
   const plan = {
@@ -645,7 +573,6 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     statePath: resolve(statePath),
     groups,
     prebuilt,
-    devRuntimeReady,
     ...decision,
   };
   await mkdir(dirname(planPath), { recursive: true });
@@ -836,7 +763,7 @@ async function stageShell({ installDir, artifactDir }) {
     // is short-lived so a failed stage cannot be mistaken for a clean template.
     await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   }
-  for (const file of ['out/main/daemon.cjs', 'out/renderer/index.html', koffiBindingPath]) {
+  for (const file of ['out/renderer/index.html', koffiBindingPath]) {
     if (!statFile(artifactArchive, asarPath(file), false).unpacked) {
       throw new Error(`FastDirect artifact did not unpack ${file}`);
     }
@@ -860,9 +787,8 @@ async function stageShell({ installDir, artifactDir }) {
   await assertPackagedProductionDependencyClosure(artifactArchive);
   const artifactExe = join(artifactDir, 'Mixdog.exe');
   await cp(join(installDir, 'Mixdog.exe'), artifactExe);
-  // Incremental FastDirect runtime updates live in resources/fast-runtime.
-  // The signed shell still carries the production runtime.asar fallback, so
-  // its integrity entry always names the installed archive.
+  // An incremental deploy never replaces runtime.asar, so the shell's
+  // integrity entry names the installed archive.
   const runtimeArchive = fastDirectRuntimeArchive(installedResources);
   await replaceWinAsarIntegrity(artifactExe, {
     'resources/app.asar': await hashAsarHeader(artifactArchive),
@@ -887,13 +813,6 @@ async function commitState({ installDir, statePath, plan }) {
   await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`);
   await cp(temporary, statePath);
   await rm(temporary, { force: true });
-}
-
-/** How much of the runtime a refresh rebuilds: nothing, its code, or the
- *  dependency closure as well. */
-function runtimeMode(runtime, dependenciesChanged) {
-  if (!runtime) return 'none';
-  return dependenciesChanged ? 'full' : 'code';
 }
 
 async function main() {
@@ -937,6 +856,17 @@ async function main() {
       );
     }
     process.stdout.write('[fastdirect] planned inputs are still current\n');
+    return;
+  }
+  if (action === 'assert-core-source') {
+    // The core is built in the real checkout (cargo's incremental state lives there), not in the frozen
+    // snapshot the plan was fingerprinted in: its inputs must still be the ones the plan names.
+    const root = resolve(args['source-root'] || repoRoot);
+    const { hash } = await fingerprint(coreInputs(root), root);
+    if (hash !== plan.groups.core.hash) {
+      throw new Error(`The core sources in ${root} changed after planning; rerun the deploy so a mixed build is never installed`);
+    }
+    process.stdout.write('[fastdirect] core sources are still current\n');
     return;
   }
   if (action === 'stage-shell') {

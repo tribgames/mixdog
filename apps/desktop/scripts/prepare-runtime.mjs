@@ -24,7 +24,7 @@ import { pruneDesktopPtyPackage, pruneDesktopRuntime } from '../../../scripts/pr
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import {
   downloadNativeTool,
-  NATIVE_TOOL_KINDS as ALL_NATIVE_TOOL_KINDS,
+  NATIVE_TOOL_KINDS,
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
@@ -129,8 +129,6 @@ if (!ownsNpmCache && (npmCacheDir === runtimeDir || npmCacheDir.startsWith(`${ru
 }
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('prepare-runtime must be run from npm.');
-// The Node supervisor and its manifest are deleted at K1; Rust owns that role.
-const NATIVE_TOOL_KINDS = ALL_NATIVE_TOOL_KINDS.filter((kind) => kind !== 'supervisor');
 const fastFullMode = optionValue('mode') === 'fast-full';
 const fastRuntimeDependencyHash = optionValue('dependency-hash');
 const fastRuntimeHash = optionValue('runtime-hash');

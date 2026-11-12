@@ -6,7 +6,7 @@ import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 import { loadServerPayloads } from '../src/main/ssh/remote-install-payload.ts';
-import { HOST_TARGETS, jsRuntimeManifest, stageCore, workspaceVersion } from './stage-core.mjs';
+import { HOST_TARGETS, jsRuntimeManifest, stageCore, stageHostCore, workspaceVersion } from './stage-core.mjs';
 
 function builtTargets(dir, targets) {
   for (const target of targets) {
@@ -29,6 +29,22 @@ const verifyPayload = async ({ key, payloadDir }) => {
   assert.ok(readFileSync(join(payloadDir, 'js-runtime.json'), 'utf8'));
   verified.push(key);
 };
+
+test('a local deploy stages the host core from a plain cargo release build, and refuses a core of another version', async () => {
+  const dir = makeTempDirSync('stage-core-host');
+  const runtimeDir = makeTempDirSync('stage-core-host-rt');
+  const binary = join(dir, 'mixdogd.exe');
+  writeFileSync(binary, 'cargo release build');
+  const options = { binary, runtimeDir, host: { platform: 'win32', arch: 'x64' } };
+  await assert.rejects(stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.5' }), /reports version 1\.4\.5/);
+  assert.equal(existsSync(join(runtimeDir, 'core', 'mixdogd.exe')), false);
+
+  await stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.6' });
+  assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'cargo release build');
+  assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), jsRuntimeManifest('win32', 'x64'));
+  // The SSH install's bundles need every platform's build: a local deploy ships none.
+  assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
+});
 
 test('a server payload that fails its integrity check is never archived', async () => {
   const targetDir = makeTempDirSync('stage-core-verify');

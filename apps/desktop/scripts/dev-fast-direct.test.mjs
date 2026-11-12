@@ -15,8 +15,8 @@ import {
   extractStagedShell,
   fastDirectAsarOptions,
   fastDirectRuntimeArchive,
+  coreInputs,
   hashBrowserImportNativeTools,
-  installedFastRuntimeReady,
   koffiBindingPath,
   MissingProductionDependencyError,
   packagingManifestForFingerprint,
@@ -33,20 +33,20 @@ import {
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const groups = Object.fromEntries(
-  ['renderer', 'main', 'preload', 'daemon', 'runtime', 'runtimeDependencies', 'package'].map((name) => [
+  ['renderer', 'main', 'preload', 'core', 'runtime', 'runtimeDependencies', 'package'].map((name) => [
     name,
     { hash: `${name}-same`, newestMtimeMs: 10 },
   ])
 );
 const previous = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   groups: Object.fromEntries(Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }])),
 };
 
 test('ASAR API paths always use native separators', () => {
-  const expected = join('out', 'main', 'daemon.cjs');
-  assert.equal(asarPath('out\\main\\daemon.cjs'), expected);
-  assert.equal(asarPath('out/main/daemon.cjs'), expected);
+  const expected = join('out', 'main', 'index.js');
+  assert.equal(asarPath('out\\main\\index.js'), expected);
+  assert.equal(asarPath('out/main/index.js'), expected);
 });
 
 test('FastDirect shell integrity keeps the installed production runtime fallback', () => {
@@ -76,7 +76,6 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
   const archive = join(root, 'app.asar');
   const files = [
     'out/main/index.js',
-    'out/main/daemon.cjs',
     'out/preload/index.js',
     'out/renderer/index.html',
     'node_modules/koffi/index.cjs',
@@ -94,11 +93,9 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
   const unpacked = (file) => Boolean(statFile(archive, asarPath(file), false).unpacked);
   assert.equal(unpacked('out/main/index.js'), false);
   assert.equal(unpacked('out/preload/index.js'), false);
-  assert.equal(unpacked('out/main/daemon.cjs'), true);
   assert.equal(unpacked('out/renderer/index.html'), true);
   assert.equal(unpacked('node_modules/koffi-lookalike/index.js'), false);
-  // The daemon loads koffi from disk beside daemon.cjs: listed in the archive,
-  // its bytes in app.asar.unpacked.
+  // koffi is listed in the archive, its bytes in app.asar.unpacked.
   for (const file of ['node_modules/koffi/index.cjs', koffiBindingPath]) {
     assert.equal(unpacked(file), true, file);
     assert.equal(await readFile(join(`${archive}.unpacked`, asarPath(file)), 'utf8'), file);
@@ -120,18 +117,17 @@ test('renderer build cache stays warm briefly and then releases memory', () => {
 });
 
 test('unchanged installed build is a no-op', () => {
-  assert.deepEqual(decidePlan({ previous, groups, installedMatches: true, bootstrapFresh: null }), {
+  assert.deepEqual(decidePlan({ previous, groups, installedMatches: true }), {
     full: false,
-    bootstrap: false,
     targets: [],
-    daemon: false,
+    core: false,
     runtime: false,
     runtimeMode: 'none',
     changed: {
       renderer: false,
       main: false,
       preload: false,
-      daemon: false,
+      core: false,
       runtime: false,
       runtimeDependencies: false,
       package: false,
@@ -140,161 +136,81 @@ test('unchanged installed build is a no-op', () => {
 });
 
 test('an explicit release version forces a shell rebuild without rebuilding unchanged runtime', () => {
-  const plan = decidePlan({
-    previous,
-    groups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    forceFull: true,
-  });
+  const plan = decidePlan({ previous, groups, installedMatches: true, forceFull: true });
   assert.equal(plan.full, true);
   assert.deepEqual(plan.targets, []);
   assert.equal(plan.changed.package, true);
   assert.equal(plan.changed.runtime, false);
-  assert.equal(plan.changed.daemon, false);
+  assert.equal(plan.changed.core, false);
 });
 
 test('renderer-only change builds only renderer', () => {
   const changedGroups = structuredClone(groups);
   changedGroups.renderer.hash = 'renderer-new';
-  const plan = decidePlan({
-    previous,
-    groups: changedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-  });
+  const plan = decidePlan({ previous, groups: changedGroups, installedMatches: true });
   assert.deepEqual(plan.targets, ['renderer']);
   assert.equal(plan.full, false);
-  assert.equal(plan.daemon, false);
+  assert.equal(plan.core, false);
   assert.equal(plan.runtime, false);
 });
 
-test('runtime and daemon changes do not rebuild desktop targets', () => {
-  const changedGroups = structuredClone(groups);
-  changedGroups.daemon.hash = 'daemon-new';
-  changedGroups.runtime.hash = 'runtime-new';
-  const plan = decidePlan({
-    previous,
-    groups: changedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    devRuntimeReady: true,
-  });
-  assert.deepEqual(plan.targets, []);
-  assert.equal(plan.daemon, true);
-  assert.equal(plan.runtime, true);
-  assert.equal(plan.runtimeMode, 'code');
-  assert.equal(plan.full, false);
+test('a core change swaps only the core; a runtime change swaps only the package root', () => {
+  const coreGroups = structuredClone(groups);
+  coreGroups.core.hash = 'core-new';
+  const core = decidePlan({ previous, groups: coreGroups, installedMatches: true });
+  assert.deepEqual(core.targets, []);
+  assert.equal(core.core, true);
+  assert.equal(core.runtime, false);
+  assert.equal(core.full, false);
+
+  const runtimeGroups = structuredClone(groups);
+  runtimeGroups.runtime.hash = 'runtime-new';
+  const runtime = decidePlan({ previous, groups: runtimeGroups, installedMatches: true });
+  assert.deepEqual(runtime.targets, []);
+  assert.equal(runtime.core, false);
+  assert.equal(runtime.runtime, true);
+  assert.equal(runtime.runtimeMode, 'code');
+  assert.equal(runtime.full, false);
 });
 
-test('runtime dependency changes rebuild the unpacked FastDirect dependency tree', () => {
+test('runtime dependency changes take the complete directory build', () => {
   const changedGroups = structuredClone(groups);
   changedGroups.runtime.hash = 'runtime-new';
   changedGroups.runtimeDependencies.hash = 'dependencies-new';
-  const plan = decidePlan({
-    previous,
-    groups: changedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    devRuntimeReady: true,
-  });
-  assert.equal(plan.runtime, true);
-  assert.equal(plan.runtimeMode, 'full');
-});
-
-test('a missing FastDirect dependency tree upgrades a source change to a full runtime stage', () => {
-  const changedGroups = structuredClone(groups);
-  changedGroups.runtime.hash = 'runtime-new';
-  const plan = decidePlan({
-    previous,
-    groups: changedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    devRuntimeReady: false,
-  });
-  assert.equal(plan.runtimeMode, 'full');
+  const plan = decidePlan({ previous, groups: changedGroups, installedMatches: true });
+  assert.equal(plan.full, true);
+  assert.equal(plan.runtime, false);
+  assert.equal(plan.core, false);
 });
 
 test('packaging change falls back to the complete directory build', () => {
   const changedGroups = structuredClone(groups);
   changedGroups.package.hash = 'package-new';
-  const plan = decidePlan({
-    previous,
-    groups: changedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-  });
+  const plan = decidePlan({ previous, groups: changedGroups, installedMatches: true });
   assert.equal(plan.full, true);
   assert.deepEqual(plan.targets, []);
 });
 
-test('legacy plan migration ignores deploy-script hash drift but keeps newer package inputs', () => {
-  const legacyPrevious = structuredClone(previous);
-  delete legacyPrevious.groups.runtimeDependencies;
-  legacyPrevious.deployedAt = new Date(15).toISOString();
-  const migratedGroups = structuredClone(groups);
-  migratedGroups.package.hash = 'new-package-algorithm';
-  migratedGroups.package.newestMtimeMs = 10;
-  const incremental = decidePlan({
-    previous: legacyPrevious,
-    groups: migratedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    devRuntimeReady: false,
-  });
-  assert.equal(incremental.full, false);
-  assert.equal(incremental.runtimeMode, 'none');
-
-  migratedGroups.package.newestMtimeMs = 20;
-  const fallback = decidePlan({
-    previous: legacyPrevious,
-    groups: migratedGroups,
-    installedMatches: true,
-    bootstrapFresh: null,
-    devRuntimeReady: false,
-  });
-  assert.equal(fallback.full, true);
+test('an install this script did not deploy last is replaced completely', () => {
+  // No state: a Node-core install, or a fresh machine.
+  assert.equal(decidePlan({ previous: null, groups, installedMatches: false }).full, true);
+  // A state of the previous schema (the Node daemon era), even when the installed files match it.
+  assert.equal(decidePlan({ previous: { ...previous, schemaVersion: 2 }, groups, installedMatches: true }).full, true);
+  // Installed files that moved since the last deploy.
+  assert.equal(decidePlan({ previous, groups, installedMatches: false }).full, true);
 });
 
-test('trusted bootstrap uses artifact times and always checks runtime', () => {
-  const bootstrapGroups = structuredClone(groups);
-  bootstrapGroups.renderer.newestMtimeMs = 20;
-  const plan = decidePlan({
-    previous: null,
-    groups: bootstrapGroups,
-    installedMatches: false,
-    bootstrapFresh: {
-      renderer: 15,
-      main: 15,
-      preload: 15,
-      daemon: 15,
-      package: 15,
-    },
-  });
-  assert.equal(plan.full, false);
-  assert.equal(plan.bootstrap, true);
-  assert.deepEqual(plan.targets, ['renderer']);
-  assert.equal(plan.runtime, true);
-  assert.equal(plan.runtimeMode, 'full');
-});
-
-test('installed FastDirect runtime readiness requires the matching dependency marker', async (context) => {
-  const installDir = await mkdtemp(join(tmpdir(), 'mixdog-fast-runtime-ready-'));
-  context.after(() => rm(installDir, { recursive: true, force: true }));
-  const runtimeRoot = join(installDir, 'resources', 'fast-runtime');
-  const entry = join(runtimeRoot, 'node_modules', 'mixdog', 'src', 'ext-host');
-  await mkdir(entry, { recursive: true });
-  await writeFile(join(entry, 'worker.mjs'), 'export {};');
-  await writeFile(
-    join(runtimeRoot, '.mixdog-fast-runtime.json'),
-    JSON.stringify({
-      schemaVersion: 1,
-      dependencyHash: 'dependencies-v1',
-    })
-  );
-
-  assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v1'), true);
-  assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v2'), false);
+test('the core fingerprint names the workspace and the Node-tree files its include_str! reads', () => {
+  const root = join('checkout');
+  const inputs = coreInputs(root).map((path) => relative(root, path).replaceAll('\\', '/'));
+  for (const expected of [
+    'native/core/Cargo.lock',
+    'native/core/crates',
+    'src/defaults/agents.json',
+    'src/runtime/agent/orchestrator/tools/graph-manifest.json',
+  ]) {
+    assert.ok(inputs.includes(expected), expected);
+  }
 });
 
 test('developer scripts do not invalidate the packaged application', () => {
@@ -505,7 +421,7 @@ const stagedShellFixtureFiles = {
   'node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json': '{"name":"pty"}\n',
   'node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node': 'pty binding\n',
   'out/main/index.js': 'main\n',
-  'out/main/daemon.cjs': 'daemon\n',
+  'out/main/helper.cjs': 'helper\n',
   'out/renderer/index.html': '<html></html>\n',
   'out/renderer/assets/nls.messages.de-DtwwLlEk.js': 'locale\n',
 };
@@ -521,7 +437,7 @@ async function packStagedShellFixture(context) {
   }
   const archive = join(root, 'app.asar');
   await createAsarPackage(source, archive, {
-    unpack: '{daemon.cjs,*.node}',
+    unpack: '{helper.cjs,*.node}',
     unpackDir: asarPath('out/renderer'),
   });
   // The fixture is only meaningful while these land where the defect lives: an

@@ -511,7 +511,7 @@ const connectionDependencies: DesktopConnectionDependencies = {
         ? resolveLocalCore({
             runtimeRoot: resolveRuntimeRoot(),
             bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
-            env: () => coreEnvironment(app.isPackaged, process.resourcesPath),
+            env: () => coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
             environmentReady: () => loginShellEnvironmentReady,
           })
         : null;

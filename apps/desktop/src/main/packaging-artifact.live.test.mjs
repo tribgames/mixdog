@@ -145,12 +145,10 @@ test('electron-vite emitted the preload entry the main process loads', async () 
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
-test('plain Node can import the standalone daemon service artifact', async () => {
-  const serviceUrl = new URL('../../out/main/daemon.cjs', import.meta.url);
-  const source = await readFile(serviceUrl, 'utf8');
-  assert.doesNotMatch(source, /(?:from\s+|import\s*\()\s*["']electron["']/);
-  const service = await import(`${serviceUrl.href}?packaging-test=${Date.now()}`);
-  assert.equal(typeof service.createDesktopService, 'function');
+test('the build staged the core the app starts, with its js-runtime manifest beside it', async () => {
+  const core = fileURLToPath(new URL('../../.runtime/core/', import.meta.url));
+  await access(join(core, process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd'));
+  await access(join(core, 'js-runtime.json'));
 });
 
 test('built runtime archive metadata and emitted native sidecar agree', async () => {
