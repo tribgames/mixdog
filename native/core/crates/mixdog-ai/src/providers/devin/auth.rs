@@ -67,6 +67,15 @@ impl SessionToken for StaticSessionToken {
             .map_or(0, |d| d.as_millis() as u64);
         self.0.usable_token(now).map(str::to_owned)
     }
+
+    /// The identity the sign-in returned; a token that came with none is the only one this adapter holds.
+    fn account(&self) -> String {
+        match &self.0.identity {
+            Some(Identity { id: Some(id), .. }) => format!("id {id}"),
+            Some(Identity { email: Some(email), .. }) => format!("email {email}"),
+            _ => "static session token".to_owned(),
+        }
+    }
 }
 
 /// `devin-oauth.json`: read on every turn, so a sign-in by another process
@@ -91,6 +100,10 @@ impl SessionToken for FileSessionToken {
                 Err(error)
             }
         }
+    }
+
+    fn account(&self) -> String {
+        format!("file {}", self.0.path().display())
     }
 }
 

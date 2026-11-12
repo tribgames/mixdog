@@ -395,7 +395,7 @@ async fn cursor_recordings() {
         let exchange = fixtures("providers-ai-other", "cursor-api", &scenario, "exchange.json");
         let result = fixtures("providers-ai-other", "cursor-api", &scenario, "result.json");
         let replay = Replay::new(&exchange, scenario.contains("reset"));
-        let tokens = ApiKeyAccess::new(replay.clone(), "fixture-api-key".into());
+        let tokens = ApiKeyAccess::new(replay.clone(), "fixture-api-key".into(), "env CURSOR_API_KEY".into());
         let adapter = CursorAdapter::new("cursor-api", None, None, replay.clone(), replay.clone(), Arc::new(tokens));
         let got = run(&adapter, request("cursor-fixture")).await;
         assert_matches_result(&scenario, &got, &result, cursor_usage);
