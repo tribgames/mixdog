@@ -2,8 +2,9 @@
 //! (`benchmarks/rust-core/recorders/record-credential-transitions.mjs`): the custom-provider connection test (a real send
 //! over the production link, the transport guard included) and the Devin sign-in's code exchange, against an endpoint that
 //! answers each request as the recorded one was answered. Every step's answer or thrown text and every request (origin,
-//! method, path, authorization), in order, equal the recording; the Devin record is the stored file, compared whole. The
-//! link's connection warm-up (`HEAD`) is answered and not compared: the manifest declares it.
+//! method, path, authorization), in order, equal the recording; so do the connection warm-ups (`HEAD`), as a sequence of
+//! their own (the manifest's exclusion: their place among the requests is a race); the Devin record is the stored file,
+//! compared whole.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -41,12 +42,15 @@ type Seen = [Value; 4];
 struct Endpoint {
     addr: std::net::SocketAddr,
     arrived: watch::Receiver<Vec<Seen>>,
+    script: Arc<Script>,
 }
 
 struct Script {
     exchanges: Vec<Value>,
     served: Vec<Value>,
     taken: Mutex<HashSet<usize>>,
+    /// The warm-ups that came in, in order.
+    warmed: Mutex<Vec<Seen>>,
     arrived: watch::Sender<Vec<Seen>>,
     answered: watch::Sender<HashSet<usize>>,
 }
@@ -57,14 +61,15 @@ impl Endpoint {
         let addr = listener.local_addr().unwrap();
         let (arrived, arrived_rx) = watch::channel(Vec::new());
         let (answered, _) = watch::channel(HashSet::new());
-        let script = Arc::new(Script { exchanges, served, taken: Mutex::new(HashSet::new()), arrived, answered });
+        let script = Arc::new(Script { exchanges, served, taken: Mutex::new(HashSet::new()), warmed: Mutex::default(), arrived, answered });
+        let kept = script.clone();
         tokio::spawn(async move {
             loop {
                 let (socket, _) = listener.accept().await.unwrap();
                 tokio::spawn(serve(socket, script.clone()));
             }
         });
-        Self { addr, arrived: arrived_rx }
+        Self { addr, arrived: arrived_rx, script: kept }
     }
 
     fn base(&self) -> String {
@@ -117,13 +122,15 @@ async fn serve(mut socket: TcpStream, script: Arc<Script>) {
         let mut request_line = head.split_whitespace();
         let method = request_line.next().unwrap().to_owned();
         let path = request_line.next().unwrap().to_owned();
-        // The connection warm-up is the link's: answered, not recorded (as the recorder did).
+        let origin = header(mixdog_ai::transport::redirect::ORIGIN_HEADER).map_or(Value::Null, Value::String);
+        let seen: Seen = [origin, json!(method), json!(path), json!(header("authorization").unwrap_or_default())];
+        // The connection warm-up: answered empty as the recorder's endpoint did, kept apart from the requests (its position
+        // among them is a race, the manifest's exclusion).
         if method == "HEAD" {
+            script.warmed.lock().unwrap().push(seen);
             socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await.unwrap();
             continue;
         }
-        let origin = header(mixdog_ai::transport::redirect::ORIGIN_HEADER).map_or(Value::Null, Value::String);
-        let seen: Seen = [origin, json!(method), json!(path), json!(header("authorization").unwrap_or_default())];
         script.arrived.send_modify(|all| all.push(seen.clone()));
         let index = {
             let mut taken = script.taken.lock().unwrap();
@@ -179,7 +186,8 @@ async fn replay(name: &str) {
     let exchanges = scenario["exchanges"].as_array().unwrap().clone();
     let mut endpoint = Endpoint::start(exchanges.clone(), golden["served"].as_array().unwrap().clone()).await;
     let base = endpoint.base();
-    let w = world(HashMap::new()).await;
+    // The recorder's setting (the manifest's `environment`): the warm-up gate does not lapse inside a scenario.
+    let w = world(HashMap::from([("MIXDOG_LLM_KEEPALIVE_MS".to_owned(), "3600000".to_owned())])).await;
     let steps = scenario["steps"].as_array().unwrap();
     // The accounts of the scenario are saved before its first step, each reading its key out of `CT_KEY_<letter>`.
     let mut ids: HashMap<String, String> = HashMap::new();
@@ -258,6 +266,10 @@ async fn replay(name: &str) {
     for (n, (got, want)) in arrived.iter().zip(&recorded).enumerate() {
         assert_eq!(got, want, "{name}: request {n}");
     }
+    // The warm-ups: as many as the recording holds, in its order (their place among the requests is the manifest's exclusion).
+    let warmed = endpoint.script.warmed.lock().unwrap().clone();
+    let recorded_warmups: Vec<Seen> = scenario["warmups"].as_array().unwrap().iter().map(|e| std::array::from_fn(|i| e[i].clone())).collect();
+    assert_eq!(warmed, recorded_warmups, "{name}: the connection warm-ups");
 }
 
 /// The variable account `who` reads its key out of.

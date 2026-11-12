@@ -330,6 +330,11 @@ pub(super) async fn endpoint(refused: Vec<String>, flaky: usize) -> (String, Arc
                     let n = socket.read(&mut buffer).await.unwrap();
                     raw.extend_from_slice(&buffer[..n]);
                 }
+                // The provider's connection warm-up: answered empty, no request of the scenario.
+                if head.starts_with("HEAD ") {
+                    let _ = socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+                    return;
+                }
                 let path = head.split_whitespace().nth(1).unwrap().trim_start_matches("/v1").to_owned();
                 let authorization = head
                     .lines()

@@ -1207,8 +1207,16 @@ impl DefaultProviderBuilder {
         if engines.len() == 1 && protocol == Protocol::Anthropic {
             return Ok(CustomParts { adapter: engines.remove(0).1, listing });
         }
-        let adapter = Arc::new(MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires));
-        Ok(CustomParts { adapter, listing })
+        let mut adapter = MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires);
+        // The provider's constructor warms the endpoint's socket, and every send re-warms it (openai-compat.mjs:100,
+        // :207), unless the config turns `preconnect` off.
+        if cfg.get("preconnect").and_then(Value::as_bool) != Some(false) {
+            let preconnect = self.preconnect();
+            let warm: Arc<dyn Fn() + Send + Sync> = Arc::new(move || preconnect.warm_base(&base_url));
+            warm();
+            adapter = adapter.with_warm(warm);
+        }
+        Ok(CustomParts { adapter: Arc::new(adapter), listing })
     }
 
     /// The Messages engine of a custom provider (the `anthropic` protocol, or
