@@ -25,4 +25,4 @@ mod tests;
 mod worker_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
-mod host_tests;
+pub(crate) mod host_tests;
