@@ -69,29 +69,41 @@
       {
         "file": "node-fix-scrub-canonical-credential.patch",
         "paths": [
+          "src/cli.mjs",
+          "src/runtime/agent/orchestrator/config-providers-merge.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs",
           "src/runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/command-code-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/custom-provider.mjs",
           "src/runtime/agent/orchestrator/providers/devin-auth.mjs",
           "src/runtime/agent/orchestrator/providers/grok-oauth-isolated.test.mjs",
           "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
           "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
-          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs"
+          "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/muse-code-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/opencode-go-oauth-tokens.mjs",
+          "src/runtime/shared/custom-provider-keys.mjs",
+          "src/runtime/shared/provider-api-key.mjs",
+          "src/session-runtime/services/provider-admin.mjs",
+          "src/standalone/daemon.mjs"
         ],
-        "sha256": "52e7828ef01de13f67c62f04b92ada38795cfdf12789964665c60a12d142eb90"
+        "sha256": "2c309dccf2e6b4024f2513b384d034a9839076399d5c6f588181a2a8efa9b347"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 25
+      "filesDifferingFromCommit": 36
     },
-    "srcSha256": "996776606d7dc90772bd390393776369ff19dc5e0a867e9c76013ffae9b51b1a",
+    "srcSha256": "da91c237f97fdce4c626a25dc1e4ae4905e9e314ab78f46b495bd9946ae5401c",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-oauth-scrub.mjs",
