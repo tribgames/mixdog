@@ -6,6 +6,7 @@ import {
   isEmptyRecallText,
   currentSessionRecallRows,
 } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { redactSensitiveMessages } from '../runtime/agent/orchestrator/session/sensitive-projection.mjs';
 
 function isIdentityRecallQuery(query) {
   const q = clean(query).toLowerCase().replace(/\s+/g, '');
@@ -70,11 +71,13 @@ export function createRecallResourceApi({ deps }) {
       if (session?.id && args?.currentSession !== false && args?.forceCycleOnEmpty !== false) {
         const messages = Array.isArray(session.messages) ? session.messages : [];
         if (messages.length > 0) {
+          // The memory database is written to disk: a value the session marked
+          // sensitive goes there as the marker (memory-ingest.mjs does the same).
           await memoryMod.handleToolCall('memory', {
             action: 'ingest_session',
             sessionId: session.id,
             cwd: currentCwd,
-            messages,
+            messages: redactSensitiveMessages(session.id, messages),
           });
           result = toolResponseText(
             await memoryMod.handleToolCall('recall', {

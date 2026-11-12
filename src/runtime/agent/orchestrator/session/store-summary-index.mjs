@@ -5,15 +5,17 @@
  * file. store.mjs re-exports these so
  * importers stay unchanged.
  */
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, truncateSync } from 'node:fs';
 import { appendFile, mkdir, readdir, readFile, stat, truncate, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import { withFileLock, withFileLockSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
+import { withFileLock, withFileLockSync, writeJsonAtomicAsync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { applySummaryLogText, encodeSummaryOps, summaryLogPath } from './store-summary-log.mjs';
 import { isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
 import { sessionModeOf } from './agent-mode.mjs';
+import { redactSensitiveText } from './sensitive-values.mjs';
+import { redactSensitiveMessages } from './sensitive-projection.mjs';
 import {
   importKey,
   inheritedFromSessionId,
@@ -302,7 +304,22 @@ export function projectionOfFacts(facts, sessionId) {
  *  without it they are read off `session.messages`. */
 export function _sessionSummary(session, projection = null) {
   if (!session?.id) return null;
-  const messageProjection = projection ?? _sessionMessageProjection(session);
+  // The row is a stored copy too: a value the session marked sensitive is
+  // the marker in its title and previews, as in the session's own files.
+  let messageProjection;
+  if (projection) {
+    messageProjection = {
+      ...projection,
+      preview: redactSensitiveText(session.id, projection.preview),
+      last: redactSensitiveText(session.id, projection.last),
+    };
+  } else {
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    const redacted = redactSensitiveMessages(session.id, messages);
+    messageProjection = _sessionMessageProjection(
+      redacted === messages ? session : { id: session.id, messages: redacted }
+    );
+  }
   return {
     id: String(session.id),
     updatedAt: _positiveNumber(session.updatedAt, Date.now()),
@@ -350,7 +367,7 @@ export function _sessionSummary(session, projection = null) {
     // The numbering epoch of messageCount: a compaction restarts it.
     compactCount: compactCount(session.compaction) ?? 0,
     realTurnCount: messageProjection.real,
-    title: _cleanPreview(session.title || '', 100),
+    title: _cleanPreview(redactSensitiveText(session.id, session.title || ''), 100),
     preview: messageProjection.preview,
     lastMessagePreview: messageProjection.last,
     lastMessageRoutine: messageProjection.lastRoutine,
@@ -711,6 +728,42 @@ async function _compactSummaryIndexLocked(path) {
     { compact: true, lock: false }
   );
   await truncate(logPath, 0);
+}
+
+/**
+ * A session's files were rewritten for a value it marked sensitive
+ * (store.mjs `_write`): rows of it appended before the mark may hold the value.
+ * Once its queued row (built redacted) has landed, the delta log is folded into
+ * a fresh base, where only that latest row stays, and emptied. Waits for the
+ * index lock; the sync form is the exit drain's.
+ */
+export async function foldSummaryIndexForRedaction(id) {
+  await settleSummaryIndexWrites({ ids: [id] });
+  const path = summaryIndexPath();
+  await withFileLock(`${path}.lock`, () => _compactSummaryIndexLocked(path));
+}
+
+/** foldSummaryIndexForRedaction at the exit drain, after its sync flush. */
+export function foldSummaryIndexForRedactionSync() {
+  const path = summaryIndexPath();
+  withFileLockSync(`${path}.lock`, () => {
+    const logPath = summaryLogPath(path);
+    let logText = '';
+    try {
+      logText = readFileSync(logPath, 'utf8');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    let base = null;
+    try {
+      base = JSON.parse(readFileSync(path, 'utf8'));
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+    }
+    const { rows } = _normalizeSummaryIndex(applySummaryLogText(base ?? {}, logText));
+    writeJsonAtomicSync(path, { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: Date.now(), rows }, { compact: true, lock: false });
+    truncateSync(logPath, 0);
+  });
 }
 
 /** Fold the delta log into the base now (tests, maintenance). Resolves false

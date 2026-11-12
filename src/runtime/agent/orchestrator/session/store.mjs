@@ -6,7 +6,12 @@
  * at its first write. A save records the difference from what the log holds
  * and resolves once those records are fsynced.
  */
-import { _flushPendingSummaryOps, _sessionSummary } from './store-summary-index.mjs';
+import {
+  _flushPendingSummaryOps,
+  _sessionSummary,
+  foldSummaryIndexForRedaction,
+  foldSummaryIndexForRedactionSync,
+} from './store-summary-index.mjs';
 // Facade re-export: summary-index API moved to store-summary-index.mjs; keep
 // prior importers of store.mjs unchanged.
 export {
@@ -182,10 +187,11 @@ async function _write(session, opts, summaryVersion) {
   const accepted = _acceptedCopies.get(session);
   const transcript = accepted?.transcript ?? captureTranscriptSnapshot(session);
   const row = _sessionSummary(session);
+  const redacting = redactionDue(id);
   try {
     // A value marked sensitive since the files were last written must leave
     // every stored copy, not only the records still to come.
-    if (redactionDue(id)) await redactSessionFiles(recorder, session);
+    if (redacting) await redactSessionFiles(recorder, session);
     else await recorder.record(session, { compacted: opts?.compacted === true });
   } catch (err) {
     rollback();
@@ -200,6 +206,13 @@ async function _write(session, opts, summaryVersion) {
   // The recorder wrote its log only after proving the json beside it still
   // leaves the log the record: its base's legacy is the row's log proof.
   _queueSessionSummaryUpsertRow(row, summaryVersion, { logLegacy: recorder.legacy ?? null });
+  // The summary index is a stored copy too: its rows from before the mark
+  // leave it once this redacted row has landed.
+  if (redacting) {
+    await foldSummaryIndexForRedaction(id).catch((err) => {
+      process.stderr.write(`[session-store] summary redaction failed: ${err?.message}\n`);
+    });
+  }
   recordLandedTranscript(accepted?.original ?? session, transcript);
   _recordSaveLanded(id);
   return SAVE_OUTCOME_SAVED;
@@ -304,6 +317,7 @@ export const saveSessionDurably = saveSessionAsync;
  */
 export function drainSessionStore() {
   startWaitingSaves();
+  let redacted = false;
   for (const slot of takeAllPendingWrites()) {
     try {
       const opened = _recorderOrRefusal(slot.session);
@@ -311,7 +325,11 @@ export function drainSessionStore() {
         opened.recorder.record(slot.session).catch(() => {});
         // As a save would (_write): a value marked since leaves the files,
         // here synchronously (the save above is written first).
-        if (redactionDue(slot.session.id)) redactSessionFilesSync(opened.recorder, slot.session);
+        if (redactionDue(slot.session.id)) {
+          redactSessionFilesSync(opened.recorder, slot.session);
+          _queueSessionSummaryUpsertRow(_sessionSummary(slot.session));
+          redacted = true;
+        }
       }
     } catch (err) {
       process.stderr.write(`[session-store] drain save failed: ${err?.message}\n`);
@@ -322,6 +340,8 @@ export function drainSessionStore() {
   // (losing them is acceptable — the index self-heals).
   try {
     _flushPendingSummaryOps({ sync: true });
+    // As _write does after a redaction: the rows from before the mark leave.
+    if (redacted) foldSummaryIndexForRedactionSync();
   } catch {
     /* best-effort */
   }

@@ -4,6 +4,7 @@ import { countJsonNextCalls } from './tools/next-call-utils.mjs';
 import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
 import { redactSensitiveToolCall } from './session/sensitive-projection.mjs';
+import { redactSensitiveText } from './session/sensitive-values.mjs';
 import { nonNegativeInt } from '../../shared/numbers.mjs';
 import { isUserControlCancellation } from '../../shared/tool-status.mjs';
 import {
@@ -508,8 +509,10 @@ function traceAgentToolFailure({
   if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
   if (!_resolveToolFailurePath()) return;
   // The failure log is a file: a value the session marked sensitive (a fill's
-  // text) goes there as the marker, as in the session's own stored copy.
+  // text) goes there as the marker, as in the session's own stored copy; the
+  // error text a failed call returns can repeat the value, so it goes too.
   toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
+  if (typeof resultText === 'string') resultText = redactSensitiveText(sessionId, resultText);
   try {
     const cleanText = _redactLogText(toolTraceText(resultText));
     // A session close is deliberate orchestration, not a tool failure.
@@ -583,8 +586,10 @@ function traceAgentTool({
   cwd,
 }) {
   // The trace is a file: a value the session marked sensitive goes there (and
-  // into the argument hash) as the marker, as in the session's stored copy.
+  // into the argument hash) as the marker, as in the session's stored copy, and
+  // so does the result text its error line and failure class are read from.
   toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
+  if (typeof resultText === 'string') resultText = redactSensitiveText(sessionId, resultText);
   const nextCallCount = countJsonNextCalls(resultText);
   const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
   const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
