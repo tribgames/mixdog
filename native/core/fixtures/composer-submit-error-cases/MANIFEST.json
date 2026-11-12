@@ -1,18 +1,21 @@
 {
-  "cases": 2,
+  "cases": 3,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-composer-submit-error-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "The relay frame (the object executeRemoteFrame returns for a phone) is recorded whole; the phone's JSON text is its JSON.stringify.",
     "notRun": "no real room: the host's send throws the refusal",
     "runs": "composerSubmitErrorText (renderer), codedErrorParams / ipcErrorEnvelope / ipcErrorFromEnvelope (shared/coded-error.ts), roomMemberSwitchedOffError, executeRemoteFrame (main/remote-methods.ts) with a scripted host that throws, i18n with the catalogs of every supported language"
   },
-  "exclusions": {},
+  "exclusions": {
+    "renderer": "namedTexts, bareTexts, otherMessage, proseWithoutCode, languages, ipcDetails, relayDetails, params: the composer text, the IPC envelope and the whitelist function are the desktop renderer's (apps/desktop/src/renderer/composer-submit-error.ts, shared/coded-error.ts) and stay there; the Rust whitelist is typed (a detail variant per public code) and its length rule is replayed through case 3",
+    "secretFrame": "the first recording of the secret refusal passes the Node capability argument {key}, which is no Rust method's params; case 3 records the same refusal with arguments that are a Rust method's params (\"the secret is removed from the params of a public code\")"
+  },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3633,
+      "bytes": 17853,
       "path": "golden.json",
-      "sha256": "b5179be31c80c11b3fe124f4faaa4f23e15d3d7a953c54598fc8394bde75aefe"
+      "sha256": "34b93e77535a53b0c8939c0439e2a40607ea4f206c8abcb9186d547a97d9efcd"
     }
   ],
   "inputs": [
@@ -26,7 +29,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/composer-error-scenarios.mjs",
-      "sha256": "2eefe8fd286beba734df882a0c890e881a0ff8461f08859ff93971cdf889feb5"
+      "sha256": "7f438fdba41406a5952474d4652d0a1486c33795b1548f90dbf99b58f9adde82"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -46,7 +49,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+      "sha256": "74af62ceb5c73a3580067ed9e4c597a519bb7e64fc2cc81f33a4f82bfbd4cd8c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -72,20 +75,21 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-composer-submit-error-cases.mjs",
-  "recorderSha256": "9c9e1d2277266c8f94d9070be59226562e3e76681307ed390474e5b9c68187cc",
+  "recorderSha256": "1153709bb3b4fa3db4b3f3bf62f81abff1540f43aa9a4ce3b48913520eae90a7",
   "replay": {
-    "compare": "the desktop relay's refusal frames and the composer's text on the product modules; compare each case whole",
-    "entry": "NO RUST ENTRY ON o1: the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core carries the refusal's code, message and typed detail (the member's name) to its client (mixdog-app-server/src/error.rs:138; mixdog-core-rooms/src/rooms/service.rs:187), no phone-facing envelope of its own.",
+    "compare": "the desktop relay's refusal frames and the composer's text on the product modules; compare each case whole. In Rust the frame is the server's error answer to a relay connection (error = data.message, errorCode = data.code, errorParams = data.detail): the refusal frames of case 1 and 2 and every answer of case 3 are replayed whole through the real server (mixdog-app-server tests/relay_answer.rs); the composer's text (namedTexts, bareTexts, otherMessage, proseWithoutCode) and the IPC leg (ipcDetails, relayDetails) are the renderer's and stay on the desktop",
+    "entry": "Drive these public items on o1: room/send (a refusal of a send to a switched-off member: mixdog-core-rooms/src/rooms/service.rs `failure`, written by mixdog-app-server/src/error.rs `error_data`); account/saveProviderApiKey, mcp/completeMcpOAuthLogin, connector/addConnectorAccount, mcp/saveMcpServer, approval/provideSecret (the secret-bearing calls whose refusals a phone is told with the call's own secrets removed: mixdog-app-server/src/relay_answer.rs `RelayAnswer`, applied in server.rs `admitted` to a relay connection's requests).",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core carries the refusal's code, message and typed detail (the member's name) to its client (mixdog-app-server/src/error.rs:138; mixdog-core-rooms/src/rooms/service.rs:187), no phone-facing envelope of its own"
-    ],
+    "missingOnO1": [],
     "normalised": {},
-    "protocolMethods": [],
+    "protocolMethods": [
+      "room/send (a refusal of a send to a switched-off member: mixdog-core-rooms/src/rooms/service.rs `failure`, written by mixdog-app-server/src/error.rs `error_data`)",
+      "account/saveProviderApiKey, mcp/completeMcpOAuthLogin, connector/addConnectorAccount, mcp/saveMcpServer, approval/provideSecret (the secret-bearing calls whose refusals a phone is told with the call's own secrets removed: mixdog-app-server/src/relay_answer.rs `RelayAnswer`, applied in server.rs `admitted` to a relay connection's requests)"
+    ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "composer-submit-error-cases",
-  "totalBytes": 3633,
+  "totalBytes": 17853,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
