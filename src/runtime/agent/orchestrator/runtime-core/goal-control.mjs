@@ -8,13 +8,13 @@ import { compactSessionTitle } from './session-title.mjs';
 import {
   NO_DEADLINE_WARNING_MS,
   activateGoal,
-  activeElapsedMs,
   assertSessionId,
   clearTurnFailures,
   parseGoalDuration,
   parseUserCommand,
   publicGoal,
   resumeGoalState,
+  setGoalTimeLimit,
   stopActiveClock,
   validateObjective,
 } from './goal-state.mjs';
@@ -84,19 +84,7 @@ const GOAL_CONTROL_ACTIONS = {
   },
   async time(ctx, { id, goal, args, at, action }) {
     const limit = parseGoalDuration(args.duration);
-    const used = activeElapsedMs(goal, at);
-    goal.timeLimitMs = limit;
-    // A new commitment re-earns its warnings.
-    goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
-    if (goal.status === 'active') {
-      goal.timeUsedMs = used;
-      goal.lastStartedAt = at;
-      if (used >= limit) {
-        stopActiveClock(goal, at);
-        goal.status = 'duration_reached';
-      }
-    }
-    goal.updatedAt = at;
+    setGoalTimeLimit(goal, limit, at);
     const timed = await ctx.commit(id, goal);
     return reply(action, timed, `Goal duration · ${durationLabel(limit)}`);
   },

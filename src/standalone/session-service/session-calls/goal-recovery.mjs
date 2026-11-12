@@ -38,6 +38,10 @@ export function createGoalRecovery({ log, readStoredGoal, listStoredActiveGoalSe
         failed += 1;
         log(`active Goal recovery failed session=${sessionId}: ${err?.message || err}`);
       }
+      // One session per turn of the loop: a restart with many active Goals
+      // resumes them in a paced sequence, never as one uninterrupted run of
+      // loads and parses that holds the main thread (and its supervisor ping).
+      await new Promise((resolve) => setImmediate(resolve));
     }
     return { found: sessionIds.length, resumed, skipped, failed };
   };
