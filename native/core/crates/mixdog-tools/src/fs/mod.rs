@@ -26,6 +26,8 @@ pub mod read_state;
 mod search;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod node_cases;
 
 pub use edit::EditTool;
 pub use list::ListTool;

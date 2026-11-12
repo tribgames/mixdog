@@ -1,6 +1,7 @@
 mod builders;
 mod cache_break;
 mod golden;
+mod node_cases;
 mod spool_flush;
 mod tool_failure_log;
 mod tools;
