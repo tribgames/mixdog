@@ -71,6 +71,15 @@ if (args.get('once')) {
   });
 } else if (!args.get('replay')) {
   const identity = nodeTreeIdentity(args, tree, args.get('commit') ?? COMMIT);
+  const provenance = recorderProvenance(import.meta.url);
+  // The manifest holds one provenance for the whole set: a partial run keeps the other cases, so it may write only while the scripts
+  // are the ones that recorded them.
+  if (only) {
+    const recorded = JSON.parse(readFileSync(join(SET_DIR, 'MANIFEST.json'), 'utf8'));
+    if (stableStringify(recorded.provenance) !== stableStringify(provenance) || stableStringify(recorded.product) !== stableStringify(identity)) {
+      throw new Error('--only: the scripts or the tree differ from those that recorded the other cases (MANIFEST.json provenance/product); record the whole set in one run');
+    }
+  }
   const first = await recordAll('run-1');
   const second = await recordAll('run-2');
   const differing = chosen.filter((c) => stableStringify(first[c.name]) !== stableStringify(second[c.name])).map((c) => c.name);
@@ -99,7 +108,7 @@ if (args.get('once')) {
     cases: Object.keys(cases).length,
     files: [{ path: 'golden.json', bytes: Buffer.byteLength(golden), sha256: sha256(Buffer.from(golden)) }],
     product: identity,
-    provenance: recorderProvenance(import.meta.url),
+    provenance,
   };
   writeFileSync(join(SET_DIR, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`recorded ${chosen.length} cases twice, identical; golden sha256 ${sha256(Buffer.from(golden))}; tree ${identity.commit}`);
