@@ -7,7 +7,7 @@
 //   tool-exec/read-only-deadline.mjs — bounded read-only I/O with partial-output grace
 import { isMcpTool, resolveMcpToolAccount } from '../../mcp/client.mjs';
 import { connectorPolicyAgentOf } from '../../mcp/agent-connectors.mjs';
-import { prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
+import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { refreshDeferredMcpToolCatalog } from '../../runtime-core/tool-catalog.mjs';
 import { bridgeTargetUnavailable } from '../../runtime-core/tool-bridge.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
@@ -52,6 +52,9 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
   if (name === 'shell') {
     const guarded = guardShellCall(callArgs, {
       shellType: requestedShellType(callArgs),
+      cwd,
+      // Rejecting a command the tools cover only helps a session that has those tools.
+      offers: (toolName) => isOnDeferredToolSurface(sessionRef, toolName),
       agent: sessionRef?.agent || null,
       sessionId: callerSessionId,
       telemetry: executeOpts.resultTelemetry,

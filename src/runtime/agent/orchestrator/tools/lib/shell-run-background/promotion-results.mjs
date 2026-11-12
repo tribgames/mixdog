@@ -13,7 +13,7 @@ import {
 } from '../shell-run-state.mjs';
 
 const BACKGROUND_GUIDANCE =
-  'Its result is delivered automatically when it finishes; use task wait only if you need it now.';
+  'Its result is delivered automatically when it finishes; use task wait only if no other work remains.';
 
 function backgroundVerb(reason, secs) {
   if (reason === 'timeout') return `moved to background at timeout after ${secs}s`;
