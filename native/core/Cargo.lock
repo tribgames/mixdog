@@ -5302,6 +5302,7 @@ name = "mixdog-trace"
 version = "1.4.5"
 dependencies = [
  "mixdog-js",
+ "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde_json",
  "sha2 0.10.9",
