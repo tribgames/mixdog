@@ -11,24 +11,43 @@
   "files": [
     {
       "path": "golden.json",
-      "bytes": 164842,
-      "sha256": "27791f45609b20310d2bdad0dda218db5b6ae7715109be2b89b833ad00f2179f"
+      "bytes": 171385,
+      "sha256": "9deb77b526afc4ec42918957b8027d0b74595ef9bba8bb20cd437e8fd9029456"
     }
   ],
   "product": {
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5",
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "459aee3f77d9514c8964e80013c7adc4c239ba14764640a568a826b37cc015bd",
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "files": 9139,
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "exact": true,
-      "filesDifferingFromCommit": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2,
       "commitFilesMissingFromTree": 0
+    },
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "patches": [
+      {
+        "file": "node-fix-scheduled-compaction-keeps-archive.patch",
+        "sha256": "33ec893a6d2e4b2dc09f61d4bbe9a08236c857de6fdd23c664a2939b58cf86c6",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs",
+          "src/runtime/agent/orchestrator/session/compaction-archive.test.mjs"
+        ]
+      }
+    ],
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scheduled-compaction-keeps-archive.patch",
+      "sha256": "33ec893a6d2e4b2dc09f61d4bbe9a08236c857de6fdd23c664a2939b58cf86c6",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs",
+        "src/runtime/agent/orchestrator/session/compaction-archive.test.mjs"
+      ]
     },
     "exact": true
   },
@@ -75,7 +94,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "441cc2f04b353491868387768ef5aa4f57dbfb3e282c0ff6b6da1abca8cc2903"
+        "sha256": "4bd5094a8ad21feef079ec52db5dfa7732b66c9dd2a09d956f362cf04e6102e0"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",

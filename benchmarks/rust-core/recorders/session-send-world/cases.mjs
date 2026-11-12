@@ -433,6 +433,10 @@ export const CASES = [
   { name: 'send-reported', bots: ann, call: send(), answers: { work: { after: 'tool-result', text: FINAL } }, steps: [...start, ...kick, { do: 'until', request: 'work' }, ...reported] },
 
   // Reported home exactly once.
+  // The `settle` steps of this and the cases below that stay are waits for an absence the product shows no event for: no report, no
+  // second notice, nothing to a recipient that is gone. A report that is not sent has no request, row or idle to follow, and none of
+  // the later events (the recipient's idle, the answer, the removal) comes after the report's would-be delivery in a causal order the
+  // driver can see: only the time the product has to do it.
   {
     name: 'sender-archived-before-answer',
     bots: ann,
@@ -463,7 +467,8 @@ export const CASES = [
       { do: 'say', to: 'H', prompt: 'COMPACTME: compact yourself.' },
       { do: 'until', request: 'tool-result', n: 2 },
       { do: 'idle', who: 'H' },
-      { do: 'settle', ms: 3000 },
+      // The report must reach H's compaction, not its start: H's scheduled compaction has asked for its summary.
+      { do: 'until', request: 'compaction' },
       { do: 'release', request: 'work' },
       ...reported,
     ],
@@ -475,7 +480,7 @@ export const CASES = [
     // Ended from outside: an app's own stop ends the running turn and drops the queued send, and whether that process still reports it
     // before it exits is a race inside Node's stop.
     // The restart restores the queued send (`restoreLeadSteeringFromDisk`) and it runs.
-    steps: [...start, { do: 'say', to: 'R', prompt: 'BUSY: hold on.' }, { do: 'held', request: 'busy' }, ...kick, { do: 'idle', who: 'H' }, { do: 'restart', killed: true }, ...reported, { do: 'settle', ms: 6000 }],
+    steps: [...start, { do: 'say', to: 'R', prompt: 'BUSY: hold on.' }, { do: 'held', request: 'busy' }, ...kick, { do: 'idle', who: 'H' }, { do: 'restart', killed: true }, ...reported, { do: 'say', to: 'R', prompt: 'QUEUED: then this.' }, { do: 'until', request: 'queued' }, { do: 'idle', who: 'R' }],
   },
   {
     name: 'restart-during-recipient-turn',
@@ -528,8 +533,8 @@ export const CASES = [
       { do: 'until', request: 'tool-result' },
       { do: 'held', request: 'compaction' },
       { do: 'say', to: 'H', prompt: 'KICK: send it.' },
+      // H's second tool result is the answer to its send: the send reached R while the compaction is held.
       { do: 'until', request: 'tool-result', n: 2 },
-      { do: 'settle', ms: 2000 },
       { do: 'release', request: 'compaction' },
       { do: 'until', request: 'work' },
       ...reported,
@@ -545,6 +550,8 @@ export const CASES = [
       ...notes,
       { do: 'held', request: 'compaction' },
       { do: 'say', to: 'R', prompt: 'Continue from where you left off.', options: { retryFailedTurn: true } },
+      // Stays a wait: that the retry holds back while the compaction is held shows only as no request, and no event comes from
+      // a thing that does not happen. The recorded request that follows holds the conversation it ran on.
       { do: 'settle', ms: 2000 },
       { do: 'release', request: 'compaction' },
       { do: 'until', request: 'other', n: 2 },
@@ -558,11 +565,15 @@ export const CASES = [
       ...notes,
       { do: 'held', request: 'compaction' },
       { do: 'say', to: 'R', prompt: 'Continue from where you left off.', options: { retryFailedTurn: true } },
+      // Stays a wait: the stop reaches the retry while it waits only once its ask is queued behind the compaction, which no row or
+      // request shows; stopped earlier, Node hands no prompt back.
       { do: 'settle', ms: 2000 },
       { do: 'abort', who: 'R' },
-      { do: 'settle', ms: 2000 },
       { do: 'release', request: 'compaction' },
-      { do: 'settle', ms: 4000 },
+      // A later turn runs after anything the cancelled retry left behind: its request is the proof that none ran before it.
+      { do: 'say', to: 'R', prompt: 'QUEUED: then this.' },
+      { do: 'until', request: 'queued' },
+      { do: 'idle', who: 'R' },
     ],
   },
   { name: 'recipient-archived', bots: ann, call: send(), answers: { work: { after: 'tool-result', text: FINAL } }, steps: [...start, { do: 'archive', who: 'R' }, ...kick, { do: 'until', request: 'work' }, ...reported] },
