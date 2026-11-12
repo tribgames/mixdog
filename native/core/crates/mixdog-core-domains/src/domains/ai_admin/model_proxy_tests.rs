@@ -582,6 +582,7 @@ struct Hang(MockProvider);
 
 #[async_trait]
 impl p::ProviderAdapter for Hang {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.0.id()
     }

@@ -168,6 +168,9 @@ impl ResponsesEngine {
 
 #[async_trait]
 impl ProviderAdapter for ResponsesEngine {
+    fn release_send(&self, group: &str) {
+        self.account.release_send(group);
+    }
     fn id(&self) -> &ProviderId {
         self.account.id()
     }
@@ -292,6 +295,11 @@ impl GatewayAdapter {
 
 #[async_trait]
 impl ProviderAdapter for GatewayAdapter {
+    fn release_send(&self, group: &str) {
+        for (_, engine) in &self.engines {
+            engine.release_send(group);
+        }
+    }
     fn id(&self) -> &ProviderId {
         self.account.id()
     }

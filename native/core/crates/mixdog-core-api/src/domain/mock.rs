@@ -402,6 +402,7 @@ impl ModelListing for MockProvider {
 
 #[async_trait]
 impl ProviderAdapter for MockProvider {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

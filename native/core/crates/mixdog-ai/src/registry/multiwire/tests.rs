@@ -47,6 +47,7 @@ pub(crate) fn refusing(tag: &str, status: u16, message: &str) -> Arc<Refusing> {
 
 #[async_trait]
 impl ProviderAdapter for Refusing {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

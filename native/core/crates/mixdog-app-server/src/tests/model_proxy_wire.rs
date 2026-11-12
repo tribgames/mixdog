@@ -59,6 +59,7 @@ struct Answering {
 
 #[async_trait]
 impl p::ProviderAdapter for Answering {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.inner.id()
     }

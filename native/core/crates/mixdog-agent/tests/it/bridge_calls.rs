@@ -633,6 +633,7 @@ struct Replies {
 
 #[async_trait]
 impl ProviderAdapter for Replies {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

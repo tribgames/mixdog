@@ -91,6 +91,11 @@ impl MultiWireAdapter {
 
 #[async_trait]
 impl ProviderAdapter for MultiWireAdapter {
+    fn release_send(&self, group: &str) {
+        for (_, engine) in &self.engines {
+            engine.release_send(group);
+        }
+    }
     fn id(&self) -> &ProviderId {
         &self.id
     }

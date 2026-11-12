@@ -217,6 +217,7 @@ impl HttpAdapter {
 
 #[async_trait]
 impl ProviderAdapter for HttpAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

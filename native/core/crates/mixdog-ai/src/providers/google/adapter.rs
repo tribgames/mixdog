@@ -376,6 +376,7 @@ struct Cached {
 
 #[async_trait]
 impl ProviderAdapter for GoogleAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

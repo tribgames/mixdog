@@ -776,6 +776,9 @@ mod tests {
         ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, mixdog_core_api::domain::provider::ProviderError> {
             self.inner.attempt(request).await
         }
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
         fn release_session(&self, session_id: &str) {
             self.released.lock().unwrap().push(format!("{}:{session_id}", self.name));
         }
@@ -996,6 +999,7 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Warming {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
             self.0.id()
         }
