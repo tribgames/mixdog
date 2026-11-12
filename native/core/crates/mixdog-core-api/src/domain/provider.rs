@@ -994,9 +994,26 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
-    /// The base64 of the one image a local preparation refused (Node `failingImageData` of
-    /// `AnthropicImagePreparationError`): the image-strip recovery removes exactly that image. Never part of the message.
-    pub failing_image: Option<Box<str>>,
+    /// The one image a local preparation refused (Node `failingImageData` of `AnthropicImagePreparationError`): the
+    /// image-strip recovery removes exactly that image. Never part of the message. Boxed to keep `Result<_, ProviderError>`
+    /// small.
+    pub failing_image: Option<Box<FailingImage>>,
+}
+
+/// The image a preparation refused: its base64, and the SHA-256 (lower-case hex) of its bytes when they decoded, which is
+/// the content address of a stored copy. The preparation has the bytes in hand, so the recovery decodes and hashes
+/// nothing.
+#[derive(Clone, PartialEq, Eq)]
+pub struct FailingImage {
+    pub data: Box<str>,
+    pub sha256: Option<Box<str>>,
+}
+
+/// Length and hash only: the base64 is megabytes of a user's image, and an error is formatted into logs.
+impl std::fmt::Debug for FailingImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FailingImage").field("base64_len", &self.data.len()).field("sha256", &self.sha256).finish()
+    }
 }
 
 impl ProviderError {

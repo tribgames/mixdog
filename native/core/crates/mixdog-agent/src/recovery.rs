@@ -3,8 +3,6 @@
 //! replay block it refuses to take back, and a tool schema it refuses. Each is
 //! tried once; the deterministic refusal otherwise surfaces.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -131,8 +129,9 @@ fn is_failing_image(part: &ContentPart, data: &str, reference: Option<&str>) -> 
 /// wherever the transcript holds it, healed out of the transcript on success only when it is in the latest turn.
 /// `None` when the error names no image the transcript holds.
 fn failing_image_strip(messages: &[AgentMessage], error: &ProviderError) -> Option<ImageStrip> {
-    let data = error.failing_image.as_deref().filter(|d| !d.is_empty())?;
-    let reference = STANDARD.decode(data).ok().map(|bytes| crate::compact::tool_schema::sha256_hex(&bytes));
+    // The preparation that refused the image decoded it and hashed it already; nothing is decoded here.
+    let failing = error.failing_image.as_deref().filter(|f| !f.data.is_empty())?;
+    let (data, reference) = (&*failing.data, failing.sha256.as_deref());
     let latest = latest_turn_start(messages);
     let mut ids: Vec<ContentPart> = Vec::new();
     let mut in_latest_turn = false;
@@ -141,7 +140,7 @@ fn failing_image_strip(messages: &[AgentMessage], error: &ProviderError) -> Opti
         if !matches!(message.role(), Role::User | Role::Tool) {
             continue;
         }
-        for part in parts.iter().filter(|p| is_failing_image(p, data, reference.as_deref())) {
+        for part in parts.iter().filter(|p| is_failing_image(p, data, reference)) {
             let identity = image_identity(part);
             if !ids.contains(&identity) {
                 ids.push(identity);
@@ -384,6 +383,32 @@ mod tests {
         assert!(is_image_processing_error(&local("ANTHROPIC_IMAGE_PREPARATION_FAILED")));
         assert!(confirmed_image_rejection(&local("ANTHROPIC_IMAGE_PREPARATION_FAILED")));
         assert!(!is_image_processing_error(&local("ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE")));
+    }
+
+    /// The recovery finds the stored copy of the refused image by the hash the preparation carried, with nothing decoded
+    /// or hashed on the turn's thread: the base64 here is not base64 at all, so only the carried hash can name the ref.
+    #[test]
+    fn a_refused_stored_image_is_found_by_the_carried_hash_without_decoding() {
+        use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, FailingImage};
+        let file = |digit: &str| ContentPart::File {
+            source: BinarySource::AttachmentRef(digit.repeat(32)),
+            mime_type: "image/png".into(),
+            filename: Some("a.png".into()),
+            text: None,
+        };
+        let (stored, other) = (file("ab"), file("cd"));
+        let messages = vec![AgentMessage::user_content(Content::Parts(vec![other.clone(), stored.clone()]))];
+        let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
+        error.status = Some(400);
+        error.code = Some("ANTHROPIC_IMAGE_PREPARATION_FAILED".into());
+        error.failing_image = Some(Box::new(FailingImage { data: "not base64!".into(), sha256: Some("ab".repeat(32).into()) }));
+        let strip = latest_turn_strip(&messages, &error).unwrap();
+        let stripped = with_images_stripped(&messages, &strip);
+        assert_eq!(
+            stripped[0].message.content,
+            Content::Parts(vec![other, ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None)])
+        );
+        assert!(strip.persist);
     }
 
     #[test]

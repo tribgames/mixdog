@@ -239,10 +239,19 @@ impl AnthropicAdapter {
         }
     }
 
-    /// Prepares the images of every request with `resizer` ([`super::images::prepare_request`]).
+    /// Prepares the images of every request body with `fitter` ([`super::images::ImageFitter::fit_wire`]).
     pub fn with_images(mut self, fitter: Option<super::images::ImageFitter>) -> Self {
         self.images = fitter;
         self
+    }
+
+    /// The request as `prepareAnthropicImages` leaves it: the lowered body with its images fitted.
+    async fn plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
+        let mut plain = self.codec.encode_plain(request)?;
+        if let Some(fitter) = &self.images {
+            plain.wire = fitter.fit_wire(request, plain.wire).await?;
+        }
+        Ok(plain)
     }
 
     /// The process settings read from `settings` instead of the process environment.
@@ -461,12 +470,8 @@ impl CacheWarmSend for AnthropicAdapter {
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
         let warm = cache_warm_request(request);
-        let warm = match &self.images {
-            Some(fitter) => super::images::prepare_request(Arc::new(warm), fitter).await.map_err(|e| WarmFailure::new(e.message))?,
-            None => Arc::new(warm),
-        };
         // A warm never threads: Node builds its body with the plain request builder.
-        let wire = self.codec.encode_plain(&warm).map_err(|e| WarmFailure::new(e.message))?.wire;
+        let wire = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.message))?.wire;
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
@@ -520,11 +525,7 @@ impl ProviderAdapter for AnthropicAdapter {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(ANTHROPIC_ORIGIN);
         }
-        let request = match &self.images {
-            Some(fitter) => super::images::prepare_request(request, fitter).await?,
-            None => request,
-        };
-        let mut plain = self.codec.encode_plain(&request)?;
+        let mut plain = self.plain(&request).await?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
         let mut directive = None;
@@ -552,7 +553,7 @@ impl ProviderAdapter for AnthropicAdapter {
                     {
                         // A fresh send (`withAnthropicCapabilityFallback`): its thread is planned again, with no directive.
                         directive = None;
-                        plain = self.codec.encode_plain(&request)?;
+                        plain = self.plain(&request).await?;
                         continue 'plan;
                     }
                     return Ok(Box::new(opened));
@@ -570,7 +571,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 }
                 if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
                     directive = None;
-                    plain = self.codec.encode_plain(&request)?;
+                    plain = self.plain(&request).await?;
                     continue 'plan;
                 }
                 let mut err = self.codec.classify(&rejected);
@@ -588,7 +589,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 let refusal = String::from_utf8_lossy(&rejected.body);
                 if let Some(next) = plan.as_ref().and_then(|plan| plan.classify(rejected.status.unwrap_or(0), &refusal)) {
                     directive = Some(next);
-                    plain = self.codec.encode_plain(&request)?;
+                    plain = self.plain(&request).await?;
                     continue 'plan;
                 }
                 return Err(err);
