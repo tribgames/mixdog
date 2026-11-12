@@ -334,6 +334,10 @@ impl crate::session::NewThreadPlace for ScmNewThreadPlace {
         self.folders.projects().await
     }
 
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.folders.touch_selected(path).await
+    }
+
     async fn enter_worktree(&self, thread: &ThreadId, worktree: &JsonValue, input: Option<&JsonValue>, cancel: &CancellationToken) -> Result<(), CoreError> {
         self.scm.enter_new_thread_worktree(thread, worktree, input, cancel).await
     }

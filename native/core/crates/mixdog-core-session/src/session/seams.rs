@@ -686,6 +686,8 @@ impl TaskWorkspace for mixdog_core_agents::agents::AgentDefinitions {
 pub trait NewThreadPlace: Send + Sync + 'static {
     /// Every registered Project's path (`listProjectsStrict`).
     async fn projects(&self) -> Result<Vec<String>, String>;
+    /// `touchProject(path)` of `submitNewTask`: the Project becomes the most recently selected once the first prompt is accepted.
+    async fn touch_project(&self, path: &str) -> Result<(), String>;
     /// `createNewTask`'s worktree step, before the first prompt (`session-host-lifecycle.ts:847-897`): the created
     /// `thread` enters the draft's `worktree` (`{branch?, create?, confirmLarge?, fromDefault?}`) through the workspace
     /// service. `input` is the start's `initialInput` (its prompt titles the worktree, its submission id keys it).
