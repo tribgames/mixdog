@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import test from 'node:test';
 
 import { spawnSync } from 'node:child_process';
@@ -20,6 +20,24 @@ test('zip extraction on Windows does not expand $ in paths', {
     await mkdir(dest);
     extractZip(zip, dest);
     assert.equal(await readFile(join(dest, 'a.txt'), 'utf8'), 'hello');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('zip extraction on Windows takes relative paths from the process cwd', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  // Under the cwd, so the relative spellings exist whatever drive TEMP is on.
+  const root = await mkdtemp(join(process.cwd(), '.zip-relative-'));
+  try {
+    await writeFile(join(root, 'a.txt'), 'hello');
+    const zip = join(root, 'a.zip');
+    assert.equal(spawnSync('tar', ['-a', '-cf', zip, '-C', root, 'a.txt']).status, 0);
+    await mkdir(join(root, 'data', 'staging'), { recursive: true });
+    const here = relative(process.cwd(), root);
+    extractZip(join(here, 'a.zip'), join(here, 'data', 'staging'));
+    assert.equal(await readFile(join(root, 'data', 'staging', 'a.txt'), 'utf8'), 'hello');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
