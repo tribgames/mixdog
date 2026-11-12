@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
-  "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines.",
+  "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-canonical-credential.patch",
+  "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines. The OpenAI OAuth route is built with the recording host's Codex client identity (user agent, version, beta features: the values its first request carries, the host's OS named in the user agent) and its `x-client-request-id`s are the world's 16-byte `randomBytes` draws (`draws.bytes16First`/`bytes16Count`).",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 252919,
+      "bytes": 304694,
       "path": "cases.json",
-      "sha256": "9c0ffe82427decf204eb06203a41671f7bdb15e30ab3f3f2f44a77d197fdd126"
+      "sha256": "029554fb0c7c6eb901de9137156dd44e308431764f20918aaeeac4bca3fd7856"
     }
   ],
   "inputs": [
@@ -151,6 +151,14 @@
       "level": "wire"
     },
     {
+      "id": "gemini-keeps-an-ordinary-field-named-code-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again",
+      "level": "wire"
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "level": "wire"
     },
@@ -195,6 +203,34 @@
       "level": "wire"
     },
     {
+      "id": "gemini-redacts-a-double-percent-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-mixed-case-percent-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-wrapped-base64-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-html-entity-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-json-escaped-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-a-utf16-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-each-segment-of-a-jwt-credential-in-a-400",
+      "level": "wire"
+    },
+    {
       "id": "antigravity-redacts-an-opaque-credential-in-a-400",
       "level": "wire"
     },
@@ -210,7 +246,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9140,
+    "files": 9142,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -250,26 +286,36 @@
           "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
         ],
         "sha256": "40ed377b904db9019af7cb040c9c5a3a0d5858a90d683f30ae5424b75df7b825"
+      },
+      {
+        "file": "node-fix-scrub-canonical-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs"
+        ],
+        "sha256": "9eb700733f801f3ed280e3c86f8c2f799bead0b5df9023c8a70f074c52acf6a1"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 18
+      "filesDifferingFromCommit": 20
     },
-    "srcSha256": "6bb4e47e91cd66bec2a3bc0cf1bfee6484806e47146f75a672a727cef04843ef",
+    "srcSha256": "6b10a4dd2eea980237299408a76c8a22da09508fb397793a0e33b1eb370ac91d",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "11719402e3979a261fb7312cb23f9220104afb4cfc0ba610b295b1ca9023892a",
+  "recorderSha256": "c6c3abb7845ce6bef4d4d1759f81ca3346b602ee1c4d18447383627b60c9e73b",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 252919,
+  "totalBytes": 304694,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

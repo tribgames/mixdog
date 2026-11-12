@@ -382,6 +382,31 @@ async fn an_http_attempt_raises_requesting_and_names_its_attempt() {
     assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", Some(first)), ("requesting", Some(second))]);
 }
 
+/// A request whose mid-conversation effort update the model rejects is sent again without it (`withEffortConfigurationFallback`
+/// runs the whole send again, `effort-configuration.mjs:112`): the resend raises `requesting` as a first attempt.
+#[tokio::test]
+async fn an_http_resend_without_the_effort_update_raises_requesting_as_a_first_attempt() {
+    let messages = ["a", "b", "c"].iter().zip([Role::User, Role::Assistant, Role::User]).map(|(text, role)| ChatMessage::new(role, Content::Text((*text).into()))).collect();
+    let sent = Arc::new(ModelRequest {
+        model: "gpt-fixture".into(),
+        messages,
+        tools: vec![],
+        options: RequestOptions {
+            transport_scope: Some("scope".into()),
+            effort_projection: Some(mixdog_core_api::domain::provider::EffortProjection { initial_effort: "low".into(), updates: std::collections::BTreeMap::from([(2, "high".into())]) }),
+            ..Default::default()
+        },
+    });
+    let http = ScriptedHttp::with(vec![(400, vec![], vec![Bytes::from_static(br#"{"error":{"code":"invalid_value","param":"input[2].reasoning"}}"#)]), (200, vec![], sse("text"))]);
+    let adapter = adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("tok", None));
+    collect(&adapter, sent.clone()).await.unwrap();
+    let bodies: Vec<serde_json::Value> = http.seen.lock().unwrap().iter().map(|r| serde_json::from_slice(&r.body).unwrap()).collect();
+    assert_eq!(bodies[0]["input"][2]["type"], "configuration_update", "the first request carries the update");
+    assert_eq!(bodies[1]["input"].as_array().unwrap().len(), bodies[0]["input"].as_array().unwrap().len() - 1, "the resend carries none");
+    let first = serde_json::json!({ "attempt": 1, "maxAttempts": 5, "retry": false });
+    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", Some(first.clone())), ("requesting", Some(first))]);
+}
+
 // ---- WebSocket --------------------------------------------------------------
 
 fn frame(json: &str) -> Message {
@@ -408,16 +433,28 @@ async fn ws_attempt_sends_one_create_frame_and_streams_frames() {
     assert_eq!(header(&handshake[0], "chatgpt-account-id"), Some("acct"));
 }
 
-/// Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`): one per attempt.
+/// Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`), the one that replays a refused
+/// upgrade with the reloaded credential included (`dispatchWs(true)`, `openai-oauth.mjs:293`): item 4 of review 1122y.
 #[tokio::test]
-async fn each_ws_attempt_raises_requesting_before_its_socket_is_acquired() {
+async fn each_ws_acquisition_raises_requesting_the_credential_resend_included() {
     let done = || frame(r#"{"type":"response.completed","response":{"id":"r","model":"m","status":"completed","output":[]}}"#);
     let dial = ScriptedDial::with(vec![Dialed::Rejected(401), Dialed::Socket(vec![done()])]);
     let adapter = adapter(TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial, Credentials::new("old", Some("new")));
     let sent = request(None);
     collect(&adapter, sent.clone()).await.unwrap();
-    // The upgrade refused and replayed with the reloaded credential is one acquisition of the attempt.
-    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", None)]);
+    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", None), ("requesting", None)]);
+}
+
+/// The HTTP/SSE request re-sent with the reloaded credential is a new `postWithRetries` (`openai-oauth-dispatch.mjs:209`):
+/// it raises `requesting` again, and its attempts count from the first.
+#[tokio::test]
+async fn an_http_resend_with_a_reloaded_credential_raises_requesting_as_a_first_attempt() {
+    let http = ScriptedHttp::with(vec![(401, vec![], vec![Bytes::from_static(b"{}")]), (200, vec![], sse("text"))]);
+    let adapter = adapter(TransportKind::Http1, http, ScriptedDial::with(vec![]), Credentials::new("old", Some("new")));
+    let sent = request(None);
+    collect(&adapter, sent.clone()).await.unwrap();
+    let first = serde_json::json!({ "attempt": 1, "maxAttempts": 5, "retry": false });
+    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", Some(first.clone())), ("requesting", Some(first))]);
 }
 
 #[tokio::test]

@@ -123,7 +123,9 @@
           "first": 1,
           "count": 2,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -459,7 +461,9 @@
           "first": 3,
           "count": 1,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -684,7 +688,9 @@
           "first": 4,
           "count": 1,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -931,7 +937,9 @@
           "first": 5,
           "count": 2,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -1246,7 +1254,9 @@
           "first": 7,
           "count": 1,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -1507,7 +1517,9 @@
           "first": 8,
           "count": 3,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -1828,7 +1840,9 @@
           "first": 11,
           "count": 2,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -2130,7 +2144,9 @@
           "first": 13,
           "count": 2,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -2429,7 +2445,9 @@
           "first": 15,
           "count": 3,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -2743,7 +2761,9 @@
           "first": 18,
           "count": 3,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -3057,7 +3077,9 @@
           "first": 21,
           "count": 0,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -3317,7 +3339,9 @@
           "first": 21,
           "count": 0,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -3623,7 +3647,9 @@
           "first": 21,
           "count": 2,
           "uuidFirst": 1,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -3969,7 +3995,9 @@
           "first": 23,
           "count": 3,
           "uuidFirst": 1,
-          "uuidCount": 1
+          "uuidCount": 1,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -4340,7 +4368,9 @@
           "first": 26,
           "count": 1,
           "uuidFirst": 2,
-          "uuidCount": 1
+          "uuidCount": 1,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -4616,7 +4646,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -4842,7 +4874,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -5025,7 +5059,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -5251,7 +5287,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -5448,7 +5486,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -5749,7 +5789,9 @@
           "first": 27,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -5846,6 +5888,595 @@
             "status": 403,
             "contentType": "application/json",
             "body": "{\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"This organization is not allowed to use this model\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-keeps-an-ordinary-field-named-code-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {},
+        "history": [
+          {
+            "role": "user",
+            "content": "run it"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "python",
+                "arguments": {
+                  "code": "print(1)"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "call_1",
+            "content": "1"
+          }
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the tool call print(1) is not allowed\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the tool call print(1) is not allowed",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the tool call print(1) is not allowed",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 27,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "run it"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "python",
+                    "arguments": {
+                      "code": "print(1)"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "1"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "383"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"run it\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"python\",\"args\":{\"code\":\"print(1)\"},\"id\":\"call_1\"},\"thoughtSignature\":\"skip_thought_signature_validator\"}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"python\",\"response\":{\"result\":\"1\"},\"id\":\"call_1\"}}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the tool call print(1) is not allowed\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "openai-oauth-http-resends-with-a-reloaded-credential-and-raises-the-stage-again",
+      "source": "src/runtime/agent/orchestrator/providers/openai-oauth-dispatch.mjs:209",
+      "input": {
+        "provider": "openai-oauth",
+        "credentials": {
+          "openai-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000,
+            "account_id": "acct-fixture",
+            "email": "fixture@example.invalid"
+          }
+        },
+        "env": {
+          "MIXDOG_OAI_TRANSPORT": "http-sse"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth HTTP fallback 400: bad field",
+          "code": "invalid_request_error",
+          "props": {
+            "initialResponseError": true,
+            "providerError": {
+              "message": "bad field",
+              "type": "invalid_request_error"
+            },
+            "providerErrorCode": "invalid_request_error",
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting",
+            "payload": {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "retry": false
+            }
+          },
+          {
+            "stage": "requesting",
+            "payload": {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "retry": false
+            }
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 2
+          }
+        ],
+        "stderr": [
+          "[openai-oauth-http] 401 — forcing refresh and retrying once over HTTP/SSE\n",
+          "[openai-oauth] Token 401, refreshing...\n",
+          "[openai-oauth] Token refreshed, expires in 3600s\n"
+        ],
+        "attemptRequests": [
+          0,
+          2
+        ],
+        "draws": {
+          "first": 27,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0,
+          "bytes16First": 0,
+          "bytes16Count": 2
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://chatgpt.com",
+          "path": "/backend-api/codex/responses",
+          "headers": [
+            [
+              "host",
+              "chatgpt.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "OpenAI-Beta",
+              "responses=experimental"
+            ],
+            [
+              "originator",
+              "codex_cli_rs"
+            ],
+            [
+              "chatgpt-account-id",
+              "acct-fixture"
+            ],
+            [
+              "x-client-request-id",
+              "2b94d07a22339d69c88f1e7d29672eb6"
+            ],
+            [
+              "User-Agent",
+              "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+            ],
+            [
+              "version",
+              "0.166.0"
+            ],
+            [
+              "x-codex-beta-features",
+              "remote_compaction_v2"
+            ],
+            [
+              "session_id",
+              "mixdog-codex"
+            ],
+            [
+              "session-id",
+              "mixdog-codex"
+            ],
+            [
+              "thread-id",
+              "mixdog-codex"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "498"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"expired token\",\"type\":\"invalid_request_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://auth.openai.com",
+          "path": "/oauth/token",
+          "headers": [
+            [
+              "host",
+              "auth.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "99"
+            ]
+          ],
+          "body": "grant_type=refresh_token&refresh_token=fixture-refresh-token&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"access_token\":\"fixture-refreshed-token\",\"refresh_token\":\"fixture-refresh-token-2\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://chatgpt.com",
+          "path": "/backend-api/codex/responses",
+          "headers": [
+            [
+              "host",
+              "chatgpt.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-refreshed-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "OpenAI-Beta",
+              "responses=experimental"
+            ],
+            [
+              "originator",
+              "codex_cli_rs"
+            ],
+            [
+              "chatgpt-account-id",
+              ""
+            ],
+            [
+              "x-client-request-id",
+              "15564abbf59b4dd1ed3fda0fab4c34a5"
+            ],
+            [
+              "User-Agent",
+              "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+            ],
+            [
+              "version",
+              "0.166.0"
+            ],
+            [
+              "x-codex-beta-features",
+              "remote_compaction_v2"
+            ],
+            [
+              "session_id",
+              "mixdog-codex"
+            ],
+            [
+              "session-id",
+              "mixdog-codex"
+            ],
+            [
+              "thread-id",
+              "mixdog-codex"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "498"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}],\"internal_chat_message_metadata_passthrough\":{}}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"bad field\",\"type\":\"invalid_request_error\"}}"
           }
         }
       ]
@@ -5992,7 +6623,9 @@
           "first": 27,
           "count": 2,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -6308,7 +6941,9 @@
           "first": 29,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -6624,7 +7259,9 @@
           "first": 29,
           "count": 2,
           "uuidFirst": 3,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -6979,7 +7616,9 @@
           "first": 31,
           "count": 0,
           "uuidFirst": 3,
-          "uuidCount": 2
+          "uuidCount": 2,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -7330,7 +7969,9 @@
           "first": 31,
           "count": 1,
           "uuidFirst": 5,
-          "uuidCount": 5
+          "uuidCount": 5,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -7735,7 +8376,9 @@
           "first": 32,
           "count": 2,
           "uuidFirst": 10,
-          "uuidCount": 5
+          "uuidCount": 5,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -8116,7 +8759,9 @@
           "first": 34,
           "count": 1,
           "uuidFirst": 15,
-          "uuidCount": 4
+          "uuidCount": 4,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -8367,7 +9012,9 @@
           "first": 35,
           "count": 1,
           "uuidFirst": 19,
-          "uuidCount": 4
+          "uuidCount": 4,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -8573,7 +9220,9 @@
           "first": 36,
           "count": 0,
           "uuidFirst": 23,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -8748,7 +9397,9 @@
           "first": 36,
           "count": 0,
           "uuidFirst": 23,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -8925,7 +9576,9 @@
           "first": 36,
           "count": 0,
           "uuidFirst": 23,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -9009,6 +9662,1259 @@
             "status": 400,
             "contentType": "application/json",
             "body": "{\"error\":{\"code\":400,\"message\":\"the credential fixture%2Fodd%2Bkey%261, Zml4dHVyZS9vZGQra2V5JjE and fixture/odd+key&1 was refused for this model\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-double-percent-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential long%252Fkey%252Bvalue was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-mixed-case-percent-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential long%2fkey%2Bvalue was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-wrapped-base64-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential bG9uZy9rZXkrdmFs\\ndWU= was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-html-entity-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] and [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] and [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] and [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential long&#47;key&#x2B;value and long&sol;key&plus;value was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-json-escaped-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] and [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] and [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] and [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential long\\/key+value and long\\u002fkey\\u002Bvalue was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-a-utf16-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED] was refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED] was refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED] was refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "long/key+value",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "long/key+value"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential l\u0000o\u0000n\u0000g\u0000/\u0000k\u0000e\u0000y\u0000+\u0000v\u0000a\u0000l\u0000u\u0000e\u0000 was refused\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gemini-redacts-each-segment-of-a-jwt-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the payload [REDACTED] and the signature [REDACTED] were refused\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the payload [REDACTED] and the signature [REDACTED] were refused",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the payload [REDACTED] and the signature [REDACTED] were refused",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "eyJ0eXAi.cGF5bG9hZC1maXh0dXJlLWtleQ.c2lnbmF0dXJlLWZpeHR1cmU",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "eyJ0eXAi.cGF5bG9hZC1maXh0dXJlLWtleQ.c2lnbmF0dXJlLWZpeHR1cmU"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the payload cGF5bG9hZC1maXh0dXJlLWtleQ and the signature c2lnbmF0dXJlLWZpeHR1cmU were refused\",\"status\":\"INVALID_ARGUMENT\"}}"
           }
         }
       ]
@@ -9109,7 +11015,9 @@
           "first": 36,
           "count": 0,
           "uuidFirst": 23,
-          "uuidCount": 1
+          "uuidCount": 1,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [
@@ -9305,7 +11213,9 @@
           "first": 36,
           "count": 0,
           "uuidFirst": 24,
-          "uuidCount": 0
+          "uuidCount": 0,
+          "bytes16First": 2,
+          "bytes16Count": 0
         }
       },
       "calls": [

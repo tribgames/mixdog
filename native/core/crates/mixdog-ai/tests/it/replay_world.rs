@@ -200,6 +200,19 @@ pub async fn builder_versioned(
     context: SessionContext,
     versioned: bool,
 ) -> DefaultProviderBuilder {
+    let blank = CodexIdentity { installation_id: String::new(), user_agent: "".into(), version: "".into(), beta_features: String::new() };
+    builder_identified(endpoint, home, env, context, versioned, blank).await
+}
+
+/// [`builder_versioned`] whose Codex client identity is the recording host's (its user agent names that host's OS).
+pub async fn builder_identified(
+    endpoint: &Endpoint,
+    home: &std::path::Path,
+    env: Vec<(String, String)>,
+    context: SessionContext,
+    versioned: bool,
+    codex_identity: CodexIdentity,
+) -> DefaultProviderBuilder {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let env: Arc<dyn Environment> = Arc::new(CaseEnv(env));
@@ -228,12 +241,7 @@ pub async fn builder_versioned(
         route_traits: Arc::new(move |id| Some(Arc::new(traits_of.traits(mixdog_protocol::ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>)),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(context),
-        codex_identity: CodexIdentity {
-            installation_id: String::new(),
-            user_agent: "".into(),
-            version: "".into(),
-            beta_features: String::new(),
-        },
+        codex_identity,
         pace: Arc::new(PausedPace),
         gzip_lane: tokens.cpu_bulk,
         client_version: String::new(),

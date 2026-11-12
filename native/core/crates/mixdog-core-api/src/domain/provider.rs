@@ -371,6 +371,12 @@ impl SendIdentity {
         self.attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// The send's attempts count from the first again: the adapter re-sends the request as a new request of its own (Node
+    /// runs its request loop anew).
+    pub fn restart_attempts(&self) {
+        self.attempts.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// The send's id, minted with `mint` by the first caller.
     pub fn get_or_mint(&self, mint: impl FnOnce() -> String) -> String {
         self.id.get_or_init(mint).clone()
