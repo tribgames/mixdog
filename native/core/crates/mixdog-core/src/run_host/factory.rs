@@ -20,7 +20,7 @@ use mixdog_agent::env::{
     ToolHooks, TranscriptSink, TurnGuards,
 };
 use mixdog_agent::compact::blob_reads::with_blobs;
-use mixdog_agent::env::{CommitError, NotDurable};
+use mixdog_agent::env::CommitError;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
@@ -378,8 +378,6 @@ struct DraftClock {
 struct PortSink {
     jobs: Jobs,
     done: watch::Receiver<u64>,
-    /// Each commit the store refused, by ticket: a settled ticket that is listed here was never made durable.
-    failed: Arc<Mutex<Vec<(u64, String)>>>,
     port: RunPort,
     rows: Arc<StoredRows>,
     live: LiveTurnPublisher,
@@ -504,24 +502,19 @@ impl PortSink {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
-        let failed = Arc::new(Mutex::new(Vec::new()));
-        let failures = failed.clone();
         drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
             while let Some(job) = queue.recv().await {
-                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`); the failure is also kept
-                // for the wait that gates the next step, which must never take a refused row for a saved one.
+                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                 let n = match job {
                     Job::Commit(n, item) => {
                         if let Err(error) = worker.commit_item(item).await {
                             tracing::warn!("[session] message save failed: {error:?}");
-                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
                     Job::Compact(n, compaction) => {
                         if let Err(error) = worker.compacted(compaction).await {
                             tracing::warn!("[session] compaction save failed: {error:?}");
-                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
@@ -543,7 +536,7 @@ impl PortSink {
             #[cfg(any(test, feature = "test-support"))]
             taken: Mutex::default(),
         };
-        Arc::new(Self { jobs, done, failed, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
+        Arc::new(Self { jobs, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
     }
 
     /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
@@ -754,19 +747,15 @@ impl TranscriptSink for PortSink {
         }
     }
 
-    /// Waits for the row as Node's turn waits for its save (`awaitPreviousTurnDurable`, `turn-durability.mjs:99`): with no bound of its
-    /// own (a cancelled run stops waiting, `Run::until_durable`), and a row the store refused is the turn's storage error.
-    async fn durable(&self, ticket: Ticket) -> Result<(), NotDurable> {
-        let not_saved = |cause: String| NotDurable(format!("Session {}: the conversation is not saved to disk, so the next turn cannot start ({cause})", self.port.thread().as_str()));
+    /// Waits for the save to end, with no bound of its own (a cancelled run stops waiting, `Run::until_durable`). A refused
+    /// row does not fail the running turn: Node gates only the next turn's open on durability (`turn-durability.mjs`).
+    async fn durable(&self, ticket: Ticket) {
         if ticket.0 == 0 {
-            return self.port.input_durable().await.map_err(|error| not_saved(format!("{error:?}")));
+            let _ = self.port.input_durable().await;
+            return;
         }
         let mut done = self.done.clone();
-        done.wait_for(|d| *d >= ticket.0).await.map_err(|_| not_saved("the session's writer ended".to_owned()))?;
-        match lock(&self.failed).iter().find(|(n, _)| *n <= ticket.0) {
-            Some((_, cause)) => Err(not_saved(cause.clone())),
-            None => Ok(()),
-        }
+        let _ = done.wait_for(|d| *d >= ticket.0).await;
     }
 }
 
@@ -2264,20 +2253,28 @@ mod tests {
         }
     }
 
-    /// A row the store refused is no acknowledgement (Node: `TurnPersistenceError`, `turn-durability.mjs:20`): the tool the
-    /// assistant row gated does not run, no second request is made, and the turn fails with the storage error.
+    /// `fixtures/turn-durability` `save-failure-tool-rounds`: while the saves fail Node carries the turn on through its tool
+    /// rounds to the answer (it gates only the next turn's open on durability, `turn-durability.mjs`). A row the store refuses
+    /// here neither stops the tool the row carried nor the requests after it: the recorded number of requests is sent, every
+    /// tool runs, the answer is stored, and no storage error is raised inside the turn.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_refused_row_save_fails_the_turn_before_the_tool_it_gated() {
+    async fn a_refused_row_save_does_not_stop_the_running_turn_as_node_carries_it_on() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-durability/golden.json")).expect("golden");
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "save-failure-tool-rounds").expect("the recorded case");
+        let recorded_sends = case["steps"][0]["sends"].as_u64().expect("sends") as usize;
+        let round = |text: &str, id: &str| {
+            vec![
+                StreamEvent::TextDelta(text.into()),
+                StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: "echo".into(), arguments: json!({ "a": id }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ]
+        };
         let scripted = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
-            script: Mutex::new(VecDeque::from([vec![
-                StreamEvent::TextDelta("looking".into()),
-                StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
-                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
-            ]])),
+            script: Mutex::new(VecDeque::from([round("reading", "c1"), round("reading again", "c2"), says("answer")])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
@@ -2294,9 +2291,10 @@ mod tests {
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
 
         let stored = || format!("{:?}", rig.store.records(&id));
-        eventually_on_awaiting(|| "the turn's storage failure in the store".to_owned(), &[handle.stepped()], || stored().contains("is not saved to disk").then_some(())).await;
-        assert_eq!(lock(&scripted.requests).len(), 1, "no request follows a row that was not saved");
-        assert!(!stored().contains("echo:"), "the tool did not run: {}", stored());
+        eventually_on_awaiting(|| "the answer in the store".to_owned(), &[handle.stepped()], || (stored().contains("answer") && !handle.turn_busy()).then_some(())).await;
+        assert_eq!(lock(&scripted.requests).len(), recorded_sends, "the requests Node sent while its saves failed");
+        assert!(["c1", "c2"].iter().all(|id| stored().contains(&format!("echo:{{\\\"a\\\":\\\"{id}\\\"}}")) || stored().contains(&format!("echo:{{\"a\":\"{id}\"}}"))), "both tool rounds ran: {}", stored());
+        assert!(!stored().contains("is not saved to disk"), "no storage error inside the turn: {}", stored());
     }
 
     struct TranscriptNow;
@@ -4660,10 +4658,10 @@ mod tests {
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": case["prompt"] } }), "op-1")).await.expect("turn/start");
             if let Some(queued) = queued {
                 mixdog_core_session::session::testing::awaiting(|| format!("{label}: the held tool to start"), started.notified()).await;
-                handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), "op-2")).await.expect("the queued prompt");
-                // The drain hands over durable entries only: the tool is let go once the queued entry is in the store.
-                let durable = || rig.store.records(&id).iter().any(|(_, record)| matches!(record, Record::Queue(_)));
-                eventually_on_awaiting(|| format!("{label}: the queued entry in the store"), &[&rig.store.committed, handle.stepped()], || durable().then_some(())).await;
+                // Node queued it with `enqueuePendingMessage` (the session manager's pending queue), which only the terminal
+                // boundary drains; a prompt typed through `turn/start` is the host's own queue, taken after every tool batch.
+                // The call answers once the entry is durable, which the drain needs before it hands the entry over.
+                directory.queue_pending_prompt(&id, queued.to_owned()).await.expect("the queued prompt");
                 release.notify_one();
             }
             let chips = |lines: Vec<(String, Value)>| lines.into_iter().map(|(_, chips)| chips).collect::<Vec<_>>();
@@ -4681,6 +4679,15 @@ mod tests {
                     == replies
             };
             eventually_on_awaiting(|| format!("{label}: the turn's reply in the store"), &[handle.stepped()], || replied().then_some(())).await;
+            if queued.is_some() {
+                // The pending queue is drained at the terminal boundary only (`ask-turn-steering-drain.mjs`): the request after
+                // the tool batch does not carry the queued prompt, the one after the first reply does.
+                let sent: Vec<Vec<Role>> = lock(&provider.requests).iter().map(|r| r.messages.iter().map(|m| m.role).collect()).collect();
+                // (The queued prompt's loaded skills follow it as records of their own.)
+                assert_eq!(sent.len(), 3, "{label}: the requests");
+                assert_eq!(sent[..2], [vec![Role::User], vec![Role::User, Role::Assistant, Role::Tool]], "{label}: the requests before the terminal boundary");
+                assert!(sent[2].starts_with(&[Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]), "{label}: the request after the first reply carries the queued prompt: {:?}", sent[2]);
+            }
             // A turn without its terminal record is one the process died in, which opening a thread again recovers (a restart line
             // is stored): the turn has ended in the store before the thread is opened again.
             let ended = || {

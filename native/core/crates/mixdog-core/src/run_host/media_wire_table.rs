@@ -93,9 +93,7 @@ impl TranscriptSink for Kept {
     fn message_id(&self) -> String {
         format!("m{}", self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
     }
-    async fn durable(&self, _: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
-        Ok(())
-    }
+    async fn durable(&self, _: Ticket) {}
 }
 
 struct Reply(std::collections::VecDeque<StreamEvent>);
