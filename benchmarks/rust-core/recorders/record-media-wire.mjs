@@ -8,10 +8,16 @@
 // HTTP provider is sent to with `fetch` replaced by a capture that answers 400, so the body is the one its transport was
 // handed (Messages, Chat, the compat Responses wire, Gemini, the managed local model's own `send`); the built-in
 // Responses wire's `buildRequestBody` (its socket send serialises it), Devin's `buildDevinChatRequest` encoded as
-// `GetChatMessageRequest`, and Cursor's `parseMessages` result (its frame is built from it). The attachments are stored in
-// Node's real attachment store, which every lowering reads them back from (`readAttachmentBase64`).
+// `GetChatMessageRequest`, and Cursor's run frame as its HTTP/2 transport is handed it. The Messages wire's images are
+// the resized ones, annotation included (`prepareAnthropicImages`). The attachments are stored in Node's real attachment
+// store, which every lowering reads them back from (`readAttachmentBase64`).
+import nodeCrypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import http2 from 'node:http2';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
+import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -32,8 +38,6 @@ const PROVIDERS = 'src/runtime/agent/orchestrator/providers/';
 const store = await load('src/runtime/attachments/store.mjs');
 const media = await load(`${PROVIDERS}media-normalization.mjs`);
 const { buildRequestBody } = await load(`${PROVIDERS}openai-responses-payload.mjs`);
-const { __cursorModelInternals: { toCursorMessages } } = await load(`${PROVIDERS}cursor.mjs`);
-const { parseMessages } = await load(`${PROVIDERS}cursor-wire-request.mjs`);
 const JSZip = (await import(pathToFileURL(join(tree, 'node_modules/jszip/lib/index.js')).href)).default;
 
 // ---- the attachments ----
@@ -67,6 +71,40 @@ zip.file('word/document.xml', `<w:document xmlns:w="${WORD_NS}"><w:body><w:p><w:
 const docx = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE', date: new Date(0) });
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
+// Images that pin `prepareAnthropicImages` (the Messages wire resizes every image it carries): one per side of each rule
+// of `resizeImageBuffer` under the `anthropic` profile (edge limit 1568, patch budget 1568 of 28 px, floor 200 px on the
+// short edge, 3.75 MB raw / 5 MiB base64 / token budget) and one per outcome (kept as is, re-encoded, refused).
+const sharp = createRequire(join(tree, 'package.json'))('sharp');
+const flat = (width, height) => sharp({ create: { width, height, channels: 3, background: { r: 200, g: 30, b: 60 } } });
+// Incompressible pixels from a fixed generator (xorshift), so the recording is the same on every run.
+const noise = (width, height) => {
+  const raw = Buffer.alloc(width * height * 4);
+  let state = 0x2545f491;
+  for (let i = 0; i < raw.length; i += 1) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    raw[i] = state & 255;
+  }
+  return sharp(raw, { raw: { width, height, channels: 4 } });
+};
+const MESSAGES_ONLY = ['anthropic-messages'];
+const imageKind = (name, bytes, mimeType, extra = {}) => ({ name, type: 'image', bytes, mimeType, filename: `${name}.img`, families: MESSAGES_ONLY, ...extra });
+const imageKinds = [
+  imageKind('image-below-minimum', await flat(100, 50).png().toBuffer(), 'image/png'),
+  imageKind('image-in-range', await flat(640, 480).png().toBuffer(), 'image/png'),
+  imageKind('image-wide', await flat(2000, 300).png().toBuffer(), 'image/png'),
+  imageKind('image-tall', await flat(300, 2000).png().toBuffer(), 'image/png'),
+  imageKind('image-patch-budget', await flat(2000, 1500).png().toBuffer(), 'image/png'),
+  imageKind('image-jpeg-below-minimum', await flat(100, 100).jpeg().toBuffer(), 'image/jpeg'),
+  imageKind('image-jpeg-in-range', await flat(640, 480).jpeg().toBuffer(), 'image/jpeg'),
+  imageKind('image-webp-below-minimum', await flat(64, 64).webp().toBuffer(), 'image/webp'),
+  imageKind('image-mislabelled', await flat(640, 480).png().toBuffer(), 'image/jpeg'),
+  imageKind('image-undecodable', Buffer.from('this is not an image'), 'image/png'),
+  // 1090x1090 RGBA noise: inside the patch budget (39 x 39) yet 4.7 MB raw, so only the byte cap and the token budget act.
+  imageKind('image-over-byte-cap', await noise(1090, 1090).png({ compressionLevel: 0 }).toBuffer(), 'image/png', { providers: ['anthropic'] }),
+];
+
 // `gone`: a reference whose blob this store never held.
 const GONE = 'c'.repeat(64);
 const kinds = [
@@ -80,6 +118,7 @@ const kinds = [
   { name: 'binary', type: 'file', bytes: Buffer.from([0, 1, 2, 255]), mimeType: 'application/octet-stream', filename: 'blob.bin' },
   { name: 'gone-file', type: 'file', ref: GONE, mimeType: 'application/pdf', filename: 'C:\\old\\gone.pdf' },
   { name: 'gone-image', type: 'image', ref: GONE, mimeType: 'image/png', filename: 'gone.png' },
+  ...imageKinds,
 ];
 
 const blobs = {};
@@ -128,6 +167,8 @@ const { OpenAICompatProvider } = await load(`${PROVIDERS}openai-compat.mjs`);
 const { OpenAIDirectProvider } = await load(`${PROVIDERS}openai-ws.mjs`);
 const { GeminiProvider } = await load(`${PROVIDERS}gemini.mjs`);
 const { CursorApiProvider } = await load(`${PROVIDERS}cursor.mjs`);
+const cursorRuntime = await load(`${PROVIDERS}cursor-wire.mjs`);
+const { FALLBACK_MODELS, withCanonicalAutoModels } = await load(`${PROVIDERS}cursor-wire-normalization.mjs`);
 const { MixdogLocalProvider } = await load(`${PROVIDERS}mixdog-local.mjs`);
 const { DevinOAuthProvider } = await load(`${PROVIDERS}devin.mjs`);
 
@@ -136,10 +177,13 @@ const { DevinOAuthProvider } = await load(`${PROVIDERS}devin.mjs`);
 // leaves the machine and the send ends on that error (a send that fails before it reaches `fetch` is the row's error).
 const sent = [];
 globalThis.fetch = async (url, init) => {
-  sent.push({ url: String(url?.url ?? url), body: init?.body === undefined ? null : String(init.body) });
+  sent.push({ url: String(url?.url ?? url), body: init?.body === undefined ? null : typeof init.body === 'string' ? init.body : Buffer.from(init.body) });
   return new Response('{"error":{"message":"stop"}}', { status: 400, headers: { 'content-type': 'application/json' } });
 };
 const MODEL = 'model-under-test';
+// The Cursor row's conversation (its id derives from this scope) and the value `crypto.randomUUID` is pinned to.
+const CURSOR_SCOPE = 'media-wire';
+const CURSOR_UUID = '00000000-0000-4000-8000-000000000000';
 async function sendOnce(instance, messages, model) {
   sent.length = 0;
   try {
@@ -147,24 +191,16 @@ async function sendOnce(instance, messages, model) {
   } catch (error) {
     if (sent.length === 0) throw error;
   }
-  if (sent.length !== 1) throw new Error(`${sent.length} requests for one send`);
-  return JSON.parse(sent[0].body);
+  // A body of 8 KiB or more to the official Messages URL goes out gzip-compressed, and the answer 400 sends it once more
+  // plain (`sendWithCompression`): the two are the same request.
+  const texts = sent.map(({ body }) => (Buffer.isBuffer(body) && body[0] === 0x1f && body[1] === 0x8b ? gunzipSync(body) : body).toString());
+  if (sent.length < 1 || sent.length > 2 || texts.some((text) => text !== texts[0])) throw new Error(`${sent.length} requests for one send`);
+  return JSON.parse(texts[0]);
 }
 const viaSend = (model = MODEL) => (instance, messages) => sendOnce(instance, messages, model);
-// NORMALISED (one field, declared in the manifest): the Messages send resizes every image it carries
-// (`prepareAnthropicImages`, sharp) and annotates a resized one with a text block; the table's 1x1 PNG is enlarged to
-// 200x200. The recorded body keeps the stored bytes and drops the annotation, so everything else of the request is compared.
-const viaMessages = async (instance, messages) => {
-  const body = await sendOnce(instance, messages, MODEL);
-  for (const message of body.messages) {
-    if (!Array.isArray(message.content)) continue;
-    message.content = message.content.filter((part) => !(part.type === 'text' && /^\[Image: [^\]]*\] These display dimensions supersede/.test(part.text)));
-    for (const part of message.content) {
-      if (part.type === 'image' && part.source?.type === 'base64') part.source = { ...part.source, data: PNG.toString('base64'), media_type: 'image/png' };
-    }
-  }
-  return body;
-};
+// The Messages send resizes every image it carries (`prepareAnthropicImages`, sharp) and annotates a resized one with a
+// text block: the body recorded is the resized one, annotation included; an image it refuses is the row's error.
+const viaMessages = viaSend();
 
 // Devin: the chat request as `buildDevinChatRequest` builds it and the transport encodes it (`GetChatMessageRequest`).
 const { buildDevinChatRequest } = await load(`${PROVIDERS}devin-wire-request.mjs`);
@@ -199,19 +235,41 @@ const families = [
   { family: 'openai-responses', provider: 'openai', make: () => new OpenAIDirectProvider({ apiKey: 'k' }), build: async (instance, messages) => buildRequestBody(await media.preparePdfTextForProvider(messages, instance), MODEL, [], { promptCacheProvider: 'openai' }) },
   { family: 'gemini', provider: 'gemini', make: () => new GeminiProvider({ apiKey: 'k' }), build: viaSend('gemini-test'), model: 'gemini-test' },
   {
-    // Cursor sends a protobuf frame over HTTP/2 that `buildRunRequest` (not exported) assembles from `parseMessages`'s
-    // result; the row is that result, which is everything an attachment changes in the frame.
+    // Cursor's own `send` runs against the real wire runtime; the HTTP/2 connection it opens is the one captured
+    // (`http2.connect` answers a session whose request records what is written to it and ends with a 400), so the row is
+    // the run frame the transport was handed, whole. The two seams besides the transport: the model catalog (the runtime's
+    // `getCursorModels` would ask the network; the fallback list stands in) and `crypto.randomUUID`, which names the user
+    // message and each image of the frame and is pinned to one value for the call.
     family: 'cursor',
     provider: 'cursor-api',
-    make: () => new CursorApiProvider({ apiKey: 'k' }),
+    make: () => new CursorApiProvider({ accessToken: 'k', runtime: { ...cursorRuntime, getCursorModels: async () => Object.assign(withCanonicalAutoModels(FALLBACK_MODELS), { fallback: true }) } }),
     build: async (instance, messages) => {
-      const parsed = parseMessages(toCursorMessages(await media.preparePdfTextForProvider(messages, instance), 'cursor-api', { nativePdf: instance.nativePdf }));
-      return {
-        systems: parsed.systems,
-        history: parsed.history,
-        userText: parsed.userText,
-        userImages: parsed.userImages.map((image) => ({ mimeType: image.mimeType, data: Buffer.from(image.data).toString('base64') })),
+      const written = [];
+      const connect = http2.connect;
+      const randomUUID = nodeCrypto.randomUUID;
+      http2.connect = () => {
+        const session = Object.assign(new EventEmitter(), { close() {}, destroy() {}, ping() {} });
+        session.request = () => {
+          const request = Object.assign(new EventEmitter(), { close() {}, end() {} });
+          request.write = (bytes) => {
+            written.push(Buffer.from(bytes));
+            if (written.length === 1) queueMicrotask(() => { request.emit('response', { ':status': 400 }); request.emit('end'); });
+          };
+          return request;
+        };
+        return session;
       };
+      nodeCrypto.randomUUID = () => CURSOR_UUID;
+      try {
+        await instance.send(messages, MODEL, [], { sessionId: CURSOR_SCOPE });
+      } catch (error) {
+        if (written.length === 0) throw error;
+      } finally {
+        http2.connect = connect;
+        nodeCrypto.randomUUID = randomUUID;
+      }
+      if (written.length === 0) throw new Error('no frame was written');
+      return { frame: written[0].toString('base64') };
     },
   },
   // Devin (Cascade): no document block, and no vision on a text-only model; the whole chat request.
@@ -236,7 +294,7 @@ const rows = [];
 for (const spec of families) {
   const instance = await spec.make();
   const capabilities = { nativePdf: instance.nativePdf ?? null, nativeDocuments: instance.nativeDocuments ?? null, vision: spec.vision ?? true };
-  for (const kind of kinds) {
+  for (const kind of kinds.filter((k) => (k.families ?? [spec.family]).includes(spec.family) && (k.providers ?? [spec.provider]).includes(spec.provider))) {
     const messages = messagesOf(kind.name);
     let body;
     let error = null;
@@ -257,9 +315,9 @@ writeSetManifest(outDir, {
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <exact export of b6f10295a>`,
   extra: {
-    values: 'plain JSON: each row is the whole request body of the provider\'s own send (the JSON its transport was handed, captured at `fetch` with every provider\'s real `send`; the built-in Responses wire\'s `buildRequestBody`, which its socket send serialises; Devin\'s `GetChatMessageRequest` bytes as base64; the managed local model through its own `send`); only Cursor\'s row is a part of its request (below)',
+    values: 'plain JSON: each row is the whole request body of the provider\'s own send (the JSON its transport was handed, captured at `fetch` with every provider\'s real `send`; the built-in Responses wire\'s `buildRequestBody`, which its socket send serialises; Devin\'s `GetChatMessageRequest` bytes as base64; the managed local model through its own `send`; Cursor\'s run frame as its HTTP/2 transport was handed it, base64); the Messages wire\'s images are the ones `prepareAnthropicImages` made (resized, annotation text included) and an image it refuses is the row\'s error',
     normalised: [
-      'anthropic-messages rows, field messages[].content[] (image parts): the Messages send resizes every image (`prepareAnthropicImages`, sharp: the table\'s 1x1 PNG is enlarged to 200x200) and puts an annotation text block before a resized one. The recorder drops the annotation and writes the stored PNG bytes back, so the rest of the request is compared. The core\'s Messages send does not resize: an open difference, named in the report, not a declared equality',
+      'cursor row, the uuids of the frame: Node\'s `crypto.randomUUID` is pinned to 00000000-0000-4000-8000-000000000000 for the call (it names the user message and each image of the frame); the core draws the image uuids at random, so the replay passes the same value as the message id and writes it over every other uuid-shaped string of its frame except the conversation id (derived from the session scope on both sides, compared as is)',
       'devin row, field metadata.os of the request (the host\'s OS name): the recorder writes `<os>` and the replay sets the same value',
     ],
     exclusions: [
@@ -267,7 +325,9 @@ writeSetManifest(outDir, {
       'extraction, side node: the text of a PDF (pdf.js, first 100 pages, 256 KiB, the fixed unreadable text) and of an Office file is the extension host\'s, which runs Node\'s own code; the replay\'s DocumentText answers each file of the table with what Node\'s lowering gave for the same bytes (`extraction`, the text after the label line of Node\'s own lowering). The table\'s PDFs are one page, so the page and size limits and the truncation of a long extraction are compared by the media-text set instead (`fixtures/tools/media-text/pdf.json`: 105 pages, 300 KB of text; replayed by mixdog-exthost tests/it/pool.rs); the unreadable PDF and the unreadable Office container are exercised here',
       'opencode-go and deepseek-chat flags, side core: both are now built by the product\'s builder (`opencode-go-oauth` on a model its routing sends to Messages, `deepseek` on the one-shot Chat route) and their flags compared with these rows by mixdog-ai registry::builder::tests::each_route_takes_the_documents_nodes_instance_declared',
       'mixdog-local flags, side core: the registry never builds the managed local route (`builder.rs`: "built per turn from the managed runtime\'s endpoint"); the product builds its media layer per turn (`ManagedLocalModels::media`: `MediaLowering::new(.., LOCAL_PROVIDER_ID)`, the text-only route), which is what the replay runs (`TextOnlyInput`). That route lowers every PDF to text and every image to the omitted text whatever flags an adapter declares, so `nativePdf` / `vision` of the Node instance are not read from a core adapter',
-      'cursor row, side node and core: Cursor sends a protobuf frame over HTTP/2 that `buildRunRequest` (not exported) assembles from `parseMessages`\'s result; the core\'s `CursorCodec::encode` frames the run it was built with. The row is `parseMessages`\'s result (systems, history, user text, user images), which is everything an attachment changes in the frame, not the frame',
+      'cursor row, side node: the model catalog (`getCursorModels`, which asks the network) is the runtime\'s fallback list; every other part of Cursor\'s send runs, the HTTP/2 session being the captured transport. Side core: the replay builds the frame with `build_run` and the connect envelope `CursorCodec::encode` writes, on the model Node\'s send resolved the same name to (no catalog entry: the name itself, no parameters)',
+      'anthropic-messages rows, side core: the images are fitted by the extension host\'s `sharp` (Node\'s own `resizeImageBuffer` run by the real worker, the same code that produced the recorded bytes), so no encoder differs and the bytes are compared as they are; the replay starts that worker (node and `sharp` from the repository\'s node_modules)',
+      'anthropic-messages rows, kinds image-below-minimum .. image-over-byte-cap: recorded for the five Messages providers (the over-byte-cap image for the built-in API only, its recording being 6 MB); the other families lower an image to the provider\'s own block and carry the stored bytes, which the table\'s one image row pins',
       'families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows\' lowering with nativePdf false; opencode-go\'s and command-code\'s Gemini and Responses engines take the rows of their families',
       'refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core\'s refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here',
       'anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded',
