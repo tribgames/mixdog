@@ -399,6 +399,11 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
     }
 
+    /// `turnHopOf(session)`: the bot-to-bot depth of the turn the loaded thread is in; 0 for a thread not loaded.
+    pub fn turn_hop(&self, id: &ThreadId) -> u32 {
+        self.handle(id).map_or(0, |handle| handle.cell.turn_chain.hop())
+    }
+
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
@@ -452,6 +457,21 @@ impl SessionDirectory {
             let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::abort_session_turn(id.as_str(), reason));
         }
         true
+    }
+
+    /// The stored transcript of a thread, loaded or not, oldest first: what `session action=read` quotes.
+    pub async fn transcript_items(&self, id: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        super::reads::history_items(&self.inner.deps, id).await
+    }
+
+    /// `rt.pendingCompactSessionIds.add(id)` of the `session` tool's compact: the loaded thread compacts
+    /// when its turn settles (once, whatever the turn's outcome). A thread that is not loaded has no turn to wait for.
+    pub fn schedule_compact_after_turn(&self, id: &ThreadId) -> Result<(), CoreError> {
+        let Some(handle) = self.inner.loaded(id).filter(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)) else {
+            return Err(mixdog_core_base::support::failed("session", format!("session: {} is not loaded", id.as_str())));
+        };
+        handle.cell.pending_compact.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
     }
 
     /// `abortSession({sessionId})` for the `session` tool's cancel: the user's interrupt of the
@@ -1419,12 +1439,15 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            pending_compact: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             unacked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            retry_blocked: Default::default(),
             #[cfg(test)]
             ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

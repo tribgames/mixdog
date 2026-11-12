@@ -120,6 +120,8 @@ mod summary_mode_node_tests;
 mod presend_goal_reminder_node_tests;
 #[cfg(test)]
 mod offload_prune_tests;
+#[cfg(test)]
+mod fork_compact_node_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;

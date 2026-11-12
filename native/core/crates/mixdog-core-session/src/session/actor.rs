@@ -1248,6 +1248,7 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.retry_blocked.store(self.retry_blocked(), SeqCst);
                 self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.stepped.notify_waiters();
             }
@@ -2961,6 +2962,12 @@ impl SessionActor {
             self.delete_turn_ended();
         }
         self.run_deferred_prune();
+        // A compaction the model scheduled (`takePendingCompact`, `turn-settle.mjs`) runs once the turn is over; the
+        // answer has no reader.
+        if self.cell.pending_compact.swap(false, SeqCst) {
+            let (tx, _) = oneshot::channel();
+            self.compact_start(None, tx, None);
+        }
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }
@@ -4690,6 +4697,12 @@ impl SessionActor {
             let starts = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner());
             let start = starts.get(submission)?;
             let mut meta = serde_json::Map::new();
+            if let Some(sender) = start.sender {
+                meta.insert("sender".into(), json!(sender));
+            }
+            if let Some(agent) = &start.from_agent {
+                meta.insert("fromAgent".into(), json!(agent));
+            }
             if let Some(hop) = start.hop {
                 meta.insert("hop".into(), json!(hop));
             }
@@ -5566,6 +5579,12 @@ impl SessionActor {
                 body["meta"]["transcript"]["submissionIds"] = json!([submission]);
                 if let Some(trigger) = &routine.trigger {
                     body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
+                }
+                if let Some(sender) = routine.sender {
+                    body["meta"]["transcript"]["sender"] = json!(sender);
+                }
+                if let Some(agent) = &routine.from_agent {
+                    body["meta"]["transcript"]["fromAgent"] = json!(agent);
                 }
                 if let Some(hop) = routine.hop {
                     body["meta"]["transcript"]["hop"] = json!(hop);

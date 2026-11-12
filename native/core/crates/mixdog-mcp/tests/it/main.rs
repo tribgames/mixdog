@@ -9,6 +9,7 @@ mod discovery_suite;
 mod extension_suite;
 mod global_extensions_suite;
 mod golden_suite;
+mod google_mcp_suite;
 mod hookscope_suite;
 mod http_suite;
 mod login_feed_suite;
