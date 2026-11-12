@@ -2,7 +2,7 @@
   "command": "node benchmarks/rust-core/recorders/record-turn-effort.mjs --tree <b6f10295a export>",
   "exclusions": [
     "client.published: the session id the runtime names (process id and clock) is written <session>",
-    "client.published: every publication is compared whole, in order, with the core's (its route frames' turnEffort, its first context frame's windows and limits for the first publication); the keys that differ are named and asserted exactly, not left out: in the first publication sessionId and agentScope (no core frame carries them: the frame's threadId names the thread), sessionProvider and sessionModel (the replay thread stores no route) and contextWindow, rawContextWindow, effectiveContextWindowPercent (the replay route has no catalog window: null where the recording has 500000, 500000, 100); no key differs in a later publication. The publication without turnEffort (scenario none: a route that never changed) is compared as it is: the core has no route frame and no such key"
+    "client.published: every publication is compared whole, in order, with the core's (its route frames' turnEffort, its first context frame's windows and limits for the first publication); the replay session has the recording's provider, model and catalog window (anthropic, claude-opus-5, 500000, 500000, 100), so sessionProvider, sessionModel and the windows are compared; the keys that differ are named and asserted exactly, not left out: in the first publication sessionId and agentScope (no core frame carries them: the frame's threadId names the thread); no key differs in a later publication. The publication without turnEffort (scenario none: a route that never changed) is compared as it is: the core has no route frame and no such key"
   ],
   "fileCount": 3,
   "files": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-effort.mjs",
-  "recorderSha256": "8b131f3c84d286d9f483e09de341b0eb01b7969342d9d5474d5074812ae91b8f",
+  "recorderSha256": "6fad5f36d84d2210644904b46c822815badbe41f2cb5a1c22ae9f023a190c504",
   "scenarios": [
     "fixed",
     "none",
