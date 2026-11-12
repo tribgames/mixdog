@@ -23,10 +23,40 @@ pub trait AttachmentText: Send + Sync {
     /// transient read failure is an error; a blob that is permanently gone reads as its
     /// unavailable text. Cancel-safe.
     async fn text_of(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>>;
+
+    /// The part a stored image or file reference stands for in a request: the bytes it names
+    /// (`readAttachmentBase64`, what every provider's media normalization sends), or the
+    /// unavailable-attachment text for a blob that is permanently gone. `None` leaves the part as
+    /// it is (not a media reference, a PDF for a provider that takes PDFs as text, or a host
+    /// that cannot read the store). A transient read failure is an error. Cancel-safe.
+    async fn media_of(&self, part: &ContentPart, native_pdf: bool) -> Result<Option<ContentPart>, Box<ProviderError>> {
+        let _ = (part, native_pdf);
+        Ok(None)
+    }
 }
 
 fn is_reference(part: &ContentPart) -> bool {
     matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: Some(_), .. })
+}
+
+/// The messages with every stored image or file reference replaced, in place, by what
+/// [`AttachmentText::media_of`] answers for it.
+pub async fn resolve_media_attachments(
+    mut messages: Vec<Message>,
+    resolver: &dyn AttachmentText,
+    native_pdf: bool,
+) -> Result<Vec<Message>, Box<ProviderError>> {
+    for message in &mut messages {
+        let Content::Parts(parts) = &mut message.content else { continue };
+        for part in parts.iter_mut() {
+            if matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: None, .. })
+                && let Some(resolved) = resolver.media_of(part, native_pdf).await?
+            {
+                *part = resolved;
+            }
+        }
+    }
+    Ok(messages)
 }
 
 /// The messages with every text-attachment reference replaced, in place, by its text part.

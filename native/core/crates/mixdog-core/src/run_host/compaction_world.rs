@@ -690,12 +690,16 @@ pub(crate) mod tests {
             keepalive: KeepaliveSchedule,
             codec: MockCodec,
             reply: ProviderState,
+            native_pdf: bool,
             requests: std::sync::Mutex<Vec<Arc<ModelRequest>>>,
         }
         #[async_trait]
         impl ProviderAdapter for Responses {
             fn id(&self) -> &ProviderId {
                 &self.id
+            }
+            fn native_pdf(&self) -> bool {
+                self.native_pdf
             }
             fn codec(&self) -> &dyn WireCodec {
                 &self.codec
@@ -787,7 +791,7 @@ pub(crate) mod tests {
             };
             let compactor = compactors.compactor(&thread(), &header(provider), &[], input).await.expect("a compactor");
             let native = case["nativePdf"] == true;
-            let reader = mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io };
+            let reader = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io });
             struct Ctx;
             impl mixdog_ai::providers::openai::config::WireContext for Ctx {
                 fn request_id(&self) -> String {
@@ -839,6 +843,7 @@ pub(crate) mod tests {
                     keepalive: KeepaliveSchedule::SPEC,
                     codec: MockCodec,
                     reply: state_of(&turn["providerState"]).expect("the reply's continuation"),
+                    native_pdf: native,
                     requests: std::sync::Mutex::new(Vec::new()),
                 });
                 let io = mixdog_rt::testing::tokens();
@@ -882,6 +887,7 @@ pub(crate) mod tests {
                 };
                 let mut config = RunConfig::new(thread(), TurnId::from("r"), "gpt-test");
                 config.compact = None;
+                config.attachments = Some(reader.clone());
                 config.options.provider_state = continuation.clone();
                 let output = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript.clone(), RunCarry::default())
                     .run()
@@ -893,14 +899,9 @@ pub(crate) mod tests {
                     let mut send = json!({});
                     if native {
                         // The request body the Responses route sends for this request (`wire`: Node's `buildRequestBody`),
-                        // from the real body builder. Node's provider reads a stored PDF's bytes as it builds the body
-                        // (`readAttachmentBase64`, media-normalization.mjs); the core's builder lowers a stored file
-                        // reference to the text `[attachment: <ref>]` (providers/openai/input.rs), and no stage of the
-                        // provider path reads the blob first: that is a named absence (manifest). The reference is
-                        // resolved here with the model proxy's own inlining, the one reader of stored files for a wire.
-                        let mut sent = (**r).clone();
-                        mixdog_ai::service::model_proxy_inline::inline_attachments(&mut sent.messages, &reader, mixdog_ai::service::model_proxy_inline::MODEL_PROXY_INLINE_MAX_BYTES).await.expect("the stored files read");
-                        let body = serde_json::to_string(&Value::Object(mixdog_ai::providers::openai::body::build(&wire_config, &sent).map)).unwrap();
+                        // from the real body builder over the request the run handed the provider: the run itself read
+                        // the stored files before it (`attachments` of the run's config).
+                        let body = serde_json::to_string(&Value::Object(mixdog_ai::providers::openai::body::build(&wire_config, r).map)).unwrap();
                         send["wire"] = serde_json::from_str(&body.replace(&data[1..data.len() - 1], "<data>")).unwrap();
                     } else {
                         send["messages"] = sent_rows(&r.messages);

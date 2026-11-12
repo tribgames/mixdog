@@ -171,10 +171,13 @@ fn part_to_block(part: &ContentPart) -> Value {
                     "type": "text",
                     "text": format!("[file: {} ({mime_type})]", filename.as_deref().unwrap_or("unnamed")),
                 }),
-                BinarySource::AttachmentRef(reference) => json!({
-                    "type": "text",
-                    "text": format!("[attachment: {reference}]"),
-                }),
+                // The product path reads a stored file before the request is built; one still a
+                // reference here could not be (`unavailableAttachmentText`).
+                BinarySource::AttachmentRef(_) => {
+                    let name = filename.as_deref().and_then(|f| f.rsplit(['/', '\\']).next()).unwrap_or("");
+                    let label = [name, mime_type.as_str(), "file"].into_iter().find(|v| !v.is_empty()).unwrap_or("file");
+                    json!({ "type": "text", "text": format!("[attachment unavailable: {label}]") })
+                }
             }
         }
         ContentPart::Document { source, title } => {

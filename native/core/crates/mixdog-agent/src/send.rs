@@ -379,6 +379,16 @@ impl Run {
                 let resolved = or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref()))
                     .await
                     .ok_or(AgentError::Aborted)?;
+                let resolved = match resolved {
+                    // A text-only route reads and lowers its stored files itself.
+                    Ok(messages) if self.config.text_only.is_none() => {
+                        let native_pdf = self.provider.native_pdf();
+                        or_cancelled(&self.cancel, crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), native_pdf))
+                            .await
+                            .ok_or(AgentError::Aborted)?
+                    }
+                    other => other,
+                };
                 match resolved {
                     Ok(messages) => {
                         built.messages = messages;
