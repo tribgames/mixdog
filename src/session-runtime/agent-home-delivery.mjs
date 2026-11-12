@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readAgentDefinitionKind } from '../runtime/shared/agent-kind.mjs';
+import { runInPacedBatches } from '../runtime/shared/paced-batches.mjs';
 import { BOT_AGENT_KIND, WORKFLOW_AGENT_KIND, isContactAgentId } from '../runtime/shared/agent-route-config.mjs';
 import { botStoreActive, isStoreBot } from '../runtime/shared/agent-store.mjs';
 import { readMarkdownDocument } from '../runtime/shared/markdown-frontmatter.mjs';
@@ -1167,7 +1168,11 @@ function createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain 
       log(`reading the report watches failed: ${error?.message || error}`);
     }
     const homes = await queue.pendingHomes();
-    for (const homeId of homes) void drain(homeId);
+    // Bounded batches, the loop turning between them: one home's drain reads
+    // and writes its queue, and every home at once froze the main thread.
+    await runInPacedBatches(homes, (homeId) => {
+      void drain(homeId);
+    });
     return homes;
   }
 

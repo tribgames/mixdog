@@ -41,6 +41,7 @@ import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { runInPacedBatches } from '../runtime/shared/paced-batches.mjs';
 import { collectTurnArtifacts, handoffContent, sessionRoots, turnSlice } from './handoff-attachments.mjs';
 import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
@@ -1359,10 +1360,12 @@ async function recoverTaskWatches({ watches, settleAgentResults, rearm, processT
     rearm(work, options).catch((error) =>
       log(`re-attaching ${work?.taskSessionId} failed: ${error?.message || error}`)
     );
-  await Promise.all([
-    ...pending.map((watch) => reattach(watch)),
-    ...quiet.map((work) => reattach(work, { quiet: true })),
-  ]);
+  // In bounded batches, reporting turns first as before: twenty agents coming
+  // back after a restart must not be one run of loads that freezes the loop.
+  await runInPacedBatches([
+    ...pending.map((watch) => () => reattach(watch)),
+    ...quiet.map((work) => () => reattach(work, { quiet: true })),
+  ], (start) => start());
   return pending.length + quiet.length;
 }
 
