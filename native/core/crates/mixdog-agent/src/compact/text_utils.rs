@@ -275,7 +275,7 @@ mod tests {
     fn media_parts_are_marked_so_the_summarizer_knows_they_existed() {
         let text = extract_text(&user(vec![
             ContentPart::Text("compare these".into(), None),
-            ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() }),
+            ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into(), width: None, height: None }),
             file(BinarySource::AttachmentRef("b".repeat(64)), "application/pdf", "spec.pdf"),
             file(BinarySource::AttachmentRef("c".repeat(64)), "application/zip", "bundle.zip"),
             ContentPart::Document { source: DocumentSource::Base64 { media_type: "application/pdf".into(), data: "AAAA".into() }, title: Some("read.pdf".into()) },
