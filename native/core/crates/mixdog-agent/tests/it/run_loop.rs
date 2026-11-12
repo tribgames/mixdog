@@ -92,17 +92,8 @@ enum Attempt {
     Reject(ProviderError),
 }
 
-impl Attempt {
-    /// This attempt when its stream ends in a failure; an attempt that completes is no part of an error's exposure.
-    fn failing(&self) -> &[Step] {
-        match self {
-            Attempt::Stream(steps) if steps.iter().any(|s| matches!(s, Step::Fail(_))) => steps,
-            _ => &[],
-        }
-    }
-}
-
-struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>);
+/// The stream, and the count of completed tool calls it has handed to the core.
+struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>, Arc<std::sync::atomic::AtomicU64>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
@@ -110,7 +101,12 @@ impl ModelStream for ScriptedStream {
         loop {
             return match self.0.pop_front() {
                 None => None,
-                Some(Step::Event(event)) => Some(Ok(event)),
+                Some(Step::Event(event)) => {
+                    if matches!(event, StreamEvent::ToolCallDone(_)) {
+                        self.2.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Some(Ok(event))
+                }
                 Some(Step::Fail(error)) => Some(Err(error)),
                 Some(Step::Hang) => std::future::pending().await,
                 Some(Step::Until(mut count, at, what)) => {
@@ -151,6 +147,8 @@ struct Scripted {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     /// Every `settle_send` the loop made, in order.
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
+    /// Completed tool calls the streams handed to the core.
+    calls_handed: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Scripted {
@@ -167,6 +165,7 @@ impl Scripted {
             script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
+            calls_handed: Arc::default(),
         })
     }
 
@@ -203,7 +202,7 @@ impl ProviderAdapter for Scripted {
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, self.calls_handed.clone()))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
@@ -2466,19 +2465,14 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();
         let first = &case["first"];
         let attempts: Vec<Attempt> = case["script"].as_array().expect("script").iter().map(attempt_of).collect();
-        // What the stream gives the core before it fails: its text and its completed calls.
-        *seen.borrow_mut() = attempts.iter().fold((String::new(), 0), |(mut t, mut n), a| {
-            for step in a.failing() {
-                match step {
-                    Step::Event(StreamEvent::TextDelta(d)) => t.push_str(d),
-                    Step::Event(StreamEvent::ToolCallDone(_)) => n += 1,
-                    _ => {}
-                }
-            }
-            (t, n)
-        });
         let h = Harness::new(attempts);
-        let (result, error, mut transcript) = match h.run(config(), vec![], messages).run().await {
+        let ended = h.run(config(), vec![], messages).run().await;
+        // What the core took from the stream before it failed: the text of the deltas it emitted to its observer and the
+        // completed calls the stream handed it. The recording's counts (the error's `partialContent`, `partialToolCalls`)
+        // are what the error row is compared with.
+        let emitted: String = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(t) = e { Some(t) } else { None }).collect();
+        *seen.borrow_mut() = (emitted, h.provider.calls_handed.load(Ordering::SeqCst));
+        let (result, error, mut transcript) = match ended {
             Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
             Err(failure) => (None, error_row(&failure.error), failure.transcript),
         };
