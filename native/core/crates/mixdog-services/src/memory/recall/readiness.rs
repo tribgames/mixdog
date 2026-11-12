@@ -53,7 +53,7 @@ const QUERY: EmbedRequest = EmbedRequest { priority: true, input_type: crate::me
 /// The embedder as the recall's wait sees it (Node's `isReady` / `canWarmup` / `warmup` / `embed` / `onWarmupError`).
 #[async_trait]
 pub trait ColdEmbed: Send + Sync + 'static {
-    type Error: Clone + Send + 'static;
+    type Error: Clone + std::fmt::Debug + Send + 'static;
     fn is_ready(&self) -> bool;
     fn can_warmup(&self) -> bool;
     /// Loads the model; the returned work runs on after a recall stops waiting for it.
@@ -61,6 +61,10 @@ pub trait ColdEmbed: Send + Sync + 'static {
     /// `embed(clean, { priority: true, inputType: 'query' })`.
     async fn embed(&self, text: &str, request: EmbedRequest) -> Result<Vec<f32>, Self::Error>;
     fn on_warmup_error(&self, error: &Self::Error);
+    /// How a recall's embedding ended in failure or panic after its request was cancelled and nobody awaited it.
+    fn on_cancelled_embed_failure(&self, what: &str) {
+        tracing::warn!("[memory-service] recall embedding after its request was cancelled {what}");
+    }
 }
 
 /// `embedRecallQuery(query, { …, signal, waitMs })`. `cancel` is the request's signal and `abort_reason` its reason (`abortReason`).
@@ -84,12 +88,12 @@ pub async fn embed_recall_query<E: ColdEmbed>(
     if !embedder.can_warmup() {
         return Ok(RecallEmbedding::Unavailable);
     }
-    let deadline = tokio::time::Instant::now() + wait;
+    let deadline = mixdog_rt::time::Instant::now() + wait;
     timer_event(TimerEvent::Armed(wait));
     // `setTimeout(…, waitMs)` fires on a later turn than the warmup's continuation: a zero wait still lets an already-settled warmup win.
     let timer = async move {
         tokio::task::yield_now().await;
-        mixdog_rt::ticker().wait_until(deadline.into_std()).await;
+        mixdog_rt::time::sleep_until(deadline).await;
     };
     // `Promise.resolve().then(() => warmup())`: the warmup is called after the caller's turn and runs on when the recall stops waiting.
     let warm: BoxFuture<'static, Result<(), E::Error>> = {
@@ -121,13 +125,13 @@ pub async fn embed_recall_query<E: ColdEmbed>(
         // The warmup goes on alone; after a timeout its late failure is reported (`void warmupOutcome.then(…)`).
         let embedder = embedder.clone();
         let report = matches!(raced, Raced::Timeout);
-        tokio::spawn(async move {
+        drop(mixdog_rt::spawn("recall-warmup", mixdog_rt::TaskClass::Work, async move {
             if let Err(error) = running.await
                 && report
             {
                 embedder.on_warmup_error(&error);
             }
-        });
+        }));
     }
     match raced {
         Raced::Aborted => Err(abort_reason()),
@@ -153,15 +157,35 @@ async fn embed_owned<E: ColdEmbed>(
     abort_reason: &impl Fn() -> E::Error,
 ) -> Result<Vec<f32>, E::Error> {
     let (embedder, text) = (embedder.clone(), text.to_owned());
-    let work = tokio::spawn(async move { embedder.embed(&text, QUERY).await });
+    let reporter = embedder.clone();
+    let mut work = mixdog_rt::spawn("recall-embed", mixdog_rt::TaskClass::Work, async move { embedder.embed(&text, QUERY).await });
     tokio::select! {
         biased;
-        () = cancel.cancelled() => Err(abort_reason()),
-        joined = work => match joined {
+        () = cancel.cancelled() => {
+            // The caller is gone, so nobody awaits the handle: a task of its own reports what the embedding ends with.
+            drop(mixdog_rt::spawn("recall-embed-report", mixdog_rt::TaskClass::Work, async move {
+                report_detached_embedding(&*reporter, work.await);
+            }));
+            Err(abort_reason())
+        }
+        joined = &mut work => match joined {
             Ok(outcome) => outcome,
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
             Err(_) => Err(abort_reason()),
         },
+    }
+}
+
+/// What a cancelled recall's embedding ends with, as the awaited path would have surfaced it: an error or a panic is a warning.
+fn report_detached_embedding<E: ColdEmbed, T>(embedder: &E, joined: Result<Result<T, E::Error>, tokio::task::JoinError>) {
+    match joined {
+        Ok(Err(error)) => embedder.on_cancelled_embed_failure(&format!("failed: {error:?}")),
+        Err(error) if error.is_panic() => {
+            let payload = error.into_panic();
+            let text = payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_default();
+            embedder.on_cancelled_embed_failure(&format!("panicked: {text}"));
+        }
+        Ok(Ok(_)) | Err(_) => {}
     }
 }
 
@@ -243,5 +267,92 @@ impl QueryEmbedder for RecallEmbedder {
             Err(_) if cancel.is_cancelled() => Err(crate::memory::recall::aborted()),
             Err(_) => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// A cold embedder whose warmup never ends and whose embed is scripted.
+    struct Probe {
+        ready: bool,
+        embed: Mutex<Option<tokio::sync::oneshot::Receiver<Result<Vec<f32>, String>>>>,
+        panic_with: Option<&'static str>,
+        reports: Mutex<Option<tokio::sync::oneshot::Sender<String>>>,
+    }
+
+    #[async_trait]
+    impl ColdEmbed for Probe {
+        type Error = String;
+        fn is_ready(&self) -> bool {
+            self.ready
+        }
+        fn can_warmup(&self) -> bool {
+            true
+        }
+        fn warmup(&self) -> BoxFuture<'static, Result<(), String>> {
+            Box::pin(std::future::pending())
+        }
+        async fn embed(&self, _: &str, _: EmbedRequest) -> Result<Vec<f32>, String> {
+            let gate = self.embed.lock().unwrap().take().expect("embed is called once");
+            let answer = gate.await.expect("the embed gate is settled");
+            if let Some(text) = self.panic_with {
+                panic!("{text}");
+            }
+            answer
+        }
+        fn on_warmup_error(&self, _: &String) {}
+        fn on_cancelled_embed_failure(&self, what: &str) {
+            if let Some(sender) = self.reports.lock().unwrap().take() {
+                let _ = sender.send(what.to_owned());
+            }
+        }
+    }
+
+    fn probe(ready: bool, panic_with: Option<&'static str>) -> (Arc<Probe>, tokio::sync::oneshot::Sender<Result<Vec<f32>, String>>, tokio::sync::oneshot::Receiver<String>) {
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let (report, reports) = tokio::sync::oneshot::channel();
+        (Arc::new(Probe { ready, embed: Mutex::new(Some(gate)), panic_with, reports: Mutex::new(Some(report)) }), release, reports)
+    }
+
+    /// The wait is measured on the clock the recall runs on: a 30 s wait started after 3 600 s of advancement ends 30 s later, not 3 630 s.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn the_cold_wait_counts_virtual_time_once() {
+        mixdog_rt::testing::tokens();
+        let (embedder, _release, _reports) = probe(false, None);
+        tokio::time::advance(Duration::from_secs(3_600)).await;
+        let cancel = CancellationToken::new();
+        let call = embed_recall_query(&embedder, Some("q"), Duration::from_secs(30), &cancel, String::new);
+        tokio::pin!(call);
+        assert!(futures::poll!(&mut call).is_pending());
+        tokio::time::advance(Duration::from_secs(30)).await;
+        let outcome = tokio::time::timeout(Duration::from_secs(1), call).await.expect("the wait ended 30 s after it began");
+        assert_eq!(outcome, Ok(RecallEmbedding::Timeout));
+    }
+
+    async fn cancelled_embedding(panic_with: Option<&'static str>, answer: Result<Vec<f32>, String>) -> String {
+        mixdog_rt::testing::tokens();
+        let (embedder, release, reports) = probe(true, panic_with);
+        let cancel = CancellationToken::new();
+        let call = embed_recall_query(&embedder, Some("q"), Duration::from_secs(30), &cancel, || "aborted".to_owned());
+        tokio::pin!(call);
+        assert!(futures::poll!(&mut call).is_pending());
+        cancel.cancel();
+        assert_eq!(call.await, Err("aborted".to_owned()));
+        release.send(answer).expect("the embedding is running");
+        tokio::time::timeout(Duration::from_secs(5), reports).await.expect("a report for the cancelled embedding").expect("report")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_embedding_error_after_the_cancel_is_reported() {
+        assert_eq!(cancelled_embedding(None, Err("model gone".to_owned())).await, "failed: \"model gone\"");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_embedding_panic_after_the_cancel_is_reported() {
+        assert_eq!(cancelled_embedding(Some("boom"), Ok(vec![])).await, "panicked: boom");
     }
 }

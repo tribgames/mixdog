@@ -261,7 +261,7 @@ impl Db {
             return outcome.map(drop);
         }
         let deadline = since().unwrap_or_else(tokio::time::Instant::now) + limit;
-        match tokio::time::timeout_at(deadline, opening).await {
+        match mixdog_rt::time::timeout_at(deadline, opening).await {
             Ok(outcome) => outcome.map(drop),
             Err(_) => Err(MemoryError::Runtime(format!("the memory database did not open within {} s of its opening", limit.as_secs()))),
         }
@@ -337,7 +337,7 @@ mod tests {
             }
         });
         let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1).unwrap();
-        let outcome = tokio::time::timeout(BUDGET.connect * 3, pool.get()).await;
+        let outcome = mixdog_rt::time::timeout(BUDGET.connect * 3, pool.get()).await;
         assert!(
             matches!(outcome, Ok(Err(_))),
             "the budget ends the checkout, the test timeout does not"

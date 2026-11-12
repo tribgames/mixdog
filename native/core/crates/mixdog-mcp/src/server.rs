@@ -302,7 +302,7 @@ impl McpServer {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.state.send_replace(Arc::new(ServerState::Starting));
         let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
-        let outcome = match tokio::time::timeout(self.config.startup_timeout, self.handshake(&opened)).await {
+        let outcome = match mixdog_rt::time::timeout(self.config.startup_timeout, self.handshake(&opened)).await {
             Ok(result) => result,
             Err(_) => Err(ConnectError::StartupTimeout {
                 name: self.config.name.clone(),
@@ -431,7 +431,7 @@ impl McpServer {
     }
 
     async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
-        let listed = tokio::time::timeout(self.config.startup_timeout, list_tools(client)).await;
+        let listed = mixdog_rt::time::timeout(self.config.startup_timeout, list_tools(client)).await;
         let tools = match listed {
             Ok(Ok(tools)) => tools,
             Ok(Err(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),

@@ -89,7 +89,7 @@ async fn a_full_or_lossy_lane_is_waited_out_or_reported_never_hidden_as_empty_da
         let lane = lane.clone();
         tokio::spawn(async move {
             for _ in 0..200 {
-                tokio::time::sleep(Duration::from_millis(5)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
                 lane.freed.notify_waiters();
             }
         })

@@ -171,7 +171,7 @@ async fn a_stage_by_another_process_inside_the_index_refresh_is_never_overwritte
     let git_dir = repo.join(".git");
     let (reached, release) = crate::commit_tx::commit_gate::arm(&git_dir);
     let competing = async {
-        tokio::time::timeout(std::time::Duration::from_secs(60), reached.notified()).await.expect("the refresh never reached its gate");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reached.notified()).await.expect("the refresh never reached its gate");
         let ran = Command::new("git").args(["add", "other.txt"]).current_dir(&repo).output().unwrap();
         release.notify_one();
         ran
@@ -1442,7 +1442,7 @@ async fn a_status_read_does_not_wait_on_the_repository_write_lock() {
     let cancel = CancellationToken::new();
     let open = scm.open(&repo, &cancel).await.unwrap();
     let held = open.lock_repository().await.unwrap();
-    let read = tokio::time::timeout(std::time::Duration::from_secs(20), scm.git_status(&repo, &cancel)).await;
+    let read = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), scm.git_status(&repo, &cancel)).await;
     assert!(read.expect("the read waited on the lock").is_ok());
     drop(held);
 }

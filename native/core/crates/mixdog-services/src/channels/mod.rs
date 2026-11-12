@@ -26,6 +26,8 @@ mod tests_runtime;
 mod replays_owned_runtime;
 #[cfg(test)]
 mod replays_call_ids;
+#[cfg(test)]
+mod schedule_error_wire_replay_tests;
 
 pub use admin::{AdminDeps, AdminError, ChannelAdmin};
 pub use bridge::BridgeCalls;

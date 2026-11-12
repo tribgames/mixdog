@@ -42,6 +42,15 @@ impl WorkerStore for Store {
             maps.insert(0, (session.to_owned(), map));
         }
     }
+
+    /// This store never stops listing a session's map: nothing is kept apart.
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        self.write(session, worker);
+    }
+
+    fn kept(&self, _: &str) -> bool {
+        false
+    }
 }
 
 struct Idle;

@@ -41,7 +41,11 @@ pub fn mtime_ns(meta: &Metadata) -> i128 {
 /// Node's `mtimeMs` (`msFromTimeSpec` in lib/internal/fs/utils.js): whole seconds times 1000 plus the nanosecond remainder over 1e6,
 /// each a double. One division of the whole nanosecond count rounds differently from it in the last bits.
 pub fn mtime_ms(meta: &Metadata) -> f64 {
-    let ns = mtime_ns(meta);
+    ms_from_ns(mtime_ns(meta))
+}
+
+/// [`mtime_ms`]'s conversion of a time in nanoseconds since the epoch (also Node's `ctimeMs`).
+pub fn ms_from_ns(ns: i128) -> f64 {
     let secs = ns.div_euclid(1_000_000_000);
     let nanos = ns.rem_euclid(1_000_000_000);
     secs as f64 * 1000.0 + nanos as f64 / 1_000_000.0
@@ -76,6 +80,16 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::*;
+
+    /// Node's `mtimeMs` is a double: times a nanosecond apart at today's epoch are one number, which is what
+    /// the media index signature compares.
+    #[test]
+    fn times_a_nanosecond_apart_are_one_millisecond_double() {
+        let ns: i128 = 1_780_000_000_123_456_789;
+        assert_ne!(ns, ns + 1);
+        assert_eq!(ms_from_ns(ns), ms_from_ns(ns + 1));
+        assert_ne!(ms_from_ns(ns), ms_from_ns(ns + 1_000_000));
+    }
 
     #[test]
     fn one_platform_rule_decides_name_equality() {

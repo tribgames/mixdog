@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-anthropic-request-gzip.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "body": "each body is the test's 16 KiB (or tiny) JSON; the replay sends a request of the same size class through the Rust codec, so a body is compared as gzip-of-the-request or the request itself",
+    "compressFailure": ":137 injects a throwing compressor; the Rust gzip lane has no injection point",
+    "countTokens": ":48 also sends /v1/messages/count_tokens; the Rust adapter has no count_tokens send",
+    "headersInstance": ":38 is the fetch `Headers` object (no counterpart: headers are a list)",
+    "offThread": ":156 asserts the compressor is awaited off the main thread; the Rust compressor is a CPU-lane job by construction",
+    "providerWiring": ":74 custom-name and gateway Messages engines: Rust builds them as an HttpAdapter that never compresses (registry/builder.rs custom_messages_engine); the official and custom-base adapters are replayed here",
+    "sseFraming": "the test regions are written with Anthropic content_block_delta payloads so the Rust decoder (its consumer) yields them as text"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8706,
+      "path": "golden.json",
+      "sha256": "97860f64268361532e5f0d528a33a9543d98eb559e67248694bd63bfa526ec59"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-anthropic-request-gzip.mjs",
+  "recorderSha256": "2ebb72f29855aae655c962c92a3e39bcb8cd528044a62f69e66309c6838ef816",
+  "set": "anthropic-request-gzip",
+  "tests": [
+    "src/runtime/agent/orchestrator/providers/anthropic-api-key-fetch.test.mjs (:28, :48, :62, :100, :117, :128, :152)",
+    "src/runtime/agent/orchestrator/providers/lib/sse-framing.test.mjs (every case)"
+  ],
+  "totalBytes": 8706
+}

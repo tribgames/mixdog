@@ -575,10 +575,19 @@ fn positive_number(value: Option<&Value>) -> Option<f64> {
 
 /// The route `refreshRouteEffort` (route-resolution.mjs:36) leaves on the runtime: the effort, Fast,
 /// context and display fields derived from `target` and its model row. `live_provider` is the
-/// provider of the runtime's current route, whose ladder lists the effort options.
-pub fn refresh_route_fields(config: &Obj, target: &Obj, meta: Option<&Value>, live_provider: &str, fast: FastCapable<'_>) -> Obj {
+/// provider of the runtime's current route, whose ladder lists the effort options. `windows` is
+/// `cachedRouteWindows(provider, model)`, asked only for a row that states no window itself.
+pub fn refresh_route_fields(
+    config: &Obj,
+    target: &Obj,
+    meta: Option<&Value>,
+    live_provider: &str,
+    fast: FastCapable<'_>,
+    windows: &dyn Fn(&str, &str) -> Option<Value>,
+) -> Obj {
     let (effective_effort, fast_capable) = resolve_route_effort_state(target, meta, fast);
-    let state = resolve_route_context_state(target, meta);
+    let cached = if states_window(meta) { None } else { windows(&clean(target.get("provider")), &clean(target.get("model"))) };
+    let state = resolve_route_context_state(target, window_meta_of(meta, cached.as_ref()));
     let context_value = clean(target.get("modelParameters").and_then(|p| p.get("context")));
     let context_option = meta
         .and_then(|m| m.get("modelParameterOptions"))
@@ -764,10 +773,11 @@ pub fn required_model_selection(value: &Value) -> Result<Obj, String> {
 /// The model row whose windows size a route: the row itself when it states one, else the
 /// cached provider row, else the row (`resolveRouteContextState`'s `windowMeta`).
 pub fn window_meta_of<'a>(meta: Option<&'a Value>, cached: Option<&'a Value>) -> Option<&'a Value> {
-    let states = |m: Option<&Value>| {
-        number(m.and_then(|m| m.get("contextWindow"))) > 0.0 || number(m.and_then(|m| m.get("maxContextWindow"))) > 0.0
-    };
-    if states(meta) { meta } else { cached.or(meta) }
+    if states_window(meta) { meta } else { cached.or(meta) }
+}
+
+fn states_window(meta: Option<&Value>) -> bool {
+    number(meta.and_then(|m| m.get("contextWindow"))) > 0.0 || number(meta.and_then(|m| m.get("maxContextWindow"))) > 0.0
 }
 
 /// `tunesNonMainModel`: re-tuning the live model is not a Main-model choice.

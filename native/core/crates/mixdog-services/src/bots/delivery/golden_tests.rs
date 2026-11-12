@@ -61,6 +61,8 @@ struct World {
     /// Every delay a retry was asked for, in order.
     scheduled: Mutex<Vec<u64>>,
     uuids: AtomicU64,
+    /// The process's sensitive values (the `mark` op).
+    marks: Arc<crate::memory::sensitive::SensitiveStore>,
 }
 
 struct Threads(Arc<World>);
@@ -201,7 +203,7 @@ fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, lim
     let queue = Arc::new(RoutineResultQueue::new(state, limit, QUEUE_CAPS, clock.clone(), Arc::new(NoHandoffs)).with_uuids(uuids));
     let live = LiveSlot::new();
     live.set(Some(Arc::new(Live(world.clone()))));
-    AgentHomeDelivery::new(
+    let delivery = AgentHomeDelivery::new(
         Arc::new(Threads(world.clone())),
         Arc::new(Directory(world.clone())),
         live,
@@ -210,7 +212,9 @@ fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, lim
         clock.clone(),
         Arc::new(Retries(world.clone())),
         DeliveryConfig::node(),
-    )
+    );
+    assert!(delivery.redact_with(world.marks.clone()));
+    delivery
 }
 
 impl Replay {
@@ -224,6 +228,7 @@ impl Replay {
             retries: Mutex::default(),
             scheduled: Mutex::default(),
             uuids: AtomicU64::new(0),
+            marks: Arc::default(),
         });
         let clock = Arc::new(FixedClock(Mutex::new(T0)));
         let dir = tempfile::tempdir().unwrap();
@@ -236,22 +241,9 @@ impl Replay {
         std::fs::read_to_string(self.dir.path().join("routine-results.json")).ok().and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or(Value::Null)
     }
 
-    /// What can still move: the queue file, the thread lengths and the counts of what the
-    /// delivery emitted.
-    fn fingerprint(&self) -> String {
-        let lengths: Vec<usize> = self.world.threads.lock().unwrap().values().map(Vec::len).collect();
-        format!(
-            "{}{lengths:?}{}{}{}",
-            self.queue_file(),
-            self.world.notices.lock().unwrap().len(),
-            self.world.wakes.lock().unwrap().len(),
-            self.world.scheduled.lock().unwrap().len()
-        )
-    }
-
     /// The step's end: with xtraDrains every home is drained twice (joining a pass in flight),
-    /// then the passes the delivery started on its own (a fired retry, a settled wake) are waited
-    /// for until nothing moves, as the recorder does.
+    /// as the recorder does, then every pass still running (one the delivery started on its own: an
+    /// enqueue's, a fired retry's, a settled wake's) and the passes it started are over.
     async fn quiesce(&self) {
         let extra = self.world.ctl.lock().unwrap().extra_drains;
         if extra {
@@ -261,13 +253,7 @@ impl Replay {
                 }
             }
         }
-        let (mut last, mut same) = (String::new(), 0);
-        while same < 5 {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-            let now = self.fingerprint();
-            same = if now == last { same + 1 } else { 0 };
-            last = now;
-        }
+        self.delivery.idle().await;
     }
 
     /// One operation of the script: what it returned.
@@ -289,6 +275,12 @@ impl Replay {
             }
             "before" => {
                 d.post_before_turn(&text(o, "home")).await;
+                Value::Null
+            }
+            "mark" => {
+                let fields: Vec<Value> = o["values"].as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
+                let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } });
+                assert!(self.world.marks.remember(&text(o, "session"), &[fill]));
                 Value::Null
             }
             "thread" => {
@@ -333,7 +325,10 @@ impl Replay {
             "settle" => {
                 let turn = self.world.turns.lock().unwrap().pop_front();
                 if let Some(turn) = turn {
+                    // The settled turn's task drains its home: that call is the step's, so it is waited for.
+                    let mut calls = d.drain_calls();
                     turn.send(text(o, "status")).unwrap();
+                    calls.changed().await.unwrap();
                 }
                 Value::Null
             }
@@ -376,15 +371,54 @@ impl Replay {
     }
 }
 
+/// A task's report and a routine run's result leaving their session against `fixtures/sensitive-gaps/golden.json`
+/// (`home`), recorded from Node with the sensitive-value patches (`record-sensitive-gaps.mjs`): the script with its
+/// `mark` ops, the same per-step values as the delivery script below.
+#[tokio::test(start_paused = true)]
+async fn replays_the_patched_node_script_of_reports_from_marked_sessions() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
+    let steps = golden["home"].as_array().unwrap();
+    assert_eq!(steps.len(), 18);
+    replay_steps(steps).await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn replays_the_node_delivery_script() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    replay_steps(golden["steps"].as_array().unwrap()).await;
+}
+
+/// `wait`, or a failure naming `what` once 30 s of the machine's clock passed. The runtime's clock is paused, so a deadline on
+/// it would say nothing about the delivery's work; the step ends on its own signal, this is only the failure path of one that
+/// never comes. A blocking task keeps the paused clock from advancing by itself meanwhile.
+async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
+    let (_over, ended) = std::sync::mpsc::channel::<()>();
+    let (fire, fired) = oneshot::channel::<()>();
+    #[allow(clippy::disallowed_methods, reason = "a test's deadline on the machine's clock")]
+    tokio::task::spawn_blocking(move || {
+        if ended.recv_timeout(Duration::from_secs(30)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            let _ = fire.send(());
+        }
+    });
+    tokio::select! {
+        biased;
+        value = wait => value,
+        Ok(()) = fired => panic!("{what}: the delivery's work was not over after 30 s"),
+    }
+}
+
+/// Each step's operation, then the same result, queue file, threads, notices, wakes and retry delays as recorded.
+async fn replay_steps(steps: &[Value]) {
     let mut replay = Replay::new();
     let (mut seen_notices, mut seen_wakes, mut seen_delays) = (0, 0, 0);
-    for (index, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
-        let out = replay.run(step).await;
-        replay.quiesce().await;
+    for (index, step) in steps.iter().enumerate() {
         let label = format!("step {index} {}", step["op"]);
+        let out = within(&label, async {
+            let out = replay.run(step).await;
+            replay.quiesce().await;
+            out
+        })
+        .await;
         let notices = replay.world.notices.lock().unwrap().clone();
         let wakes = replay.world.wakes.lock().unwrap().clone();
         let threads = replay.world.threads.lock().unwrap().iter().map(|(id, messages)| (id.clone(), Value::Array(messages.clone()))).collect::<serde_json::Map<_, _>>();

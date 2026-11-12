@@ -10,7 +10,7 @@ use std::sync::Arc;
 use mixdog_agent::step_effort::StepInput;
 use tokio_util::sync::CancellationToken;
 
-use super::tests::{Route, Server, big, config, embed_config_with, lane, manifest, real_ort};
+use super::tests::{Route, Server, big, config, embed_config_with, manifest, real_ort};
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::judge::JudgeOptions;
@@ -71,7 +71,7 @@ fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool,
     let mut model = config(dir);
     model.explicit = explicit;
     model.ort_library = crate::effort_judge::model::OrtRuntime::Library(ort_library);
-    EffortJudgeModel::with_options(model, lane(), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), progress: None })
+    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), ..JudgeOptions::default() })
         .expect("judge")
 }
 

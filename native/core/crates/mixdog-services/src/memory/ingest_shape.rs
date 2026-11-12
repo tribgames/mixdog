@@ -217,3 +217,7 @@ pub fn should_exclude_ingest_message(message: &Value) -> bool {
     })
 }
 
+#[cfg(test)]
+#[path = "ingest_shape_node_cases_tests.rs"]
+mod node_cases_tests;
+

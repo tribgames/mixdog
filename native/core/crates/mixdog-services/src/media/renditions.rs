@@ -508,7 +508,7 @@ pub(super) mod tests {
     #[async_trait]
     impl EventSource<ExtFrame> for One {
         async fn next(&mut self) -> Option<ExtFrame> {
-            tokio::time::sleep(self.1).await;
+            mixdog_rt::time::sleep(self.1).await;
             self.0.take()
         }
     }
@@ -685,7 +685,7 @@ pub(super) mod tests {
         // The cooldown is per variant.
         assert_eq!(ask(RenditionVariant::Display).await.unwrap(), None);
         assert_eq!(host.calls.lock().unwrap().len(), 2);
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(400)).await;
         assert_eq!(ask(RenditionVariant::Thumb).await.unwrap(), None);
         assert_eq!(host.calls.lock().unwrap().len(), 3, "asked again once the cooldown has ended");
     }
@@ -719,7 +719,7 @@ pub(super) mod tests {
     }
 
     async fn settled<T>(handle: &tokio::task::JoinHandle<T>) -> bool {
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(40)).await;
         handle.is_finished()
     }
 

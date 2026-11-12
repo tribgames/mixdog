@@ -418,7 +418,8 @@ fn same_id(value: &Value, id: &str) -> bool {
 pub(crate) fn definition_from_dir(dir: &Path, entry: &str, id: &str) -> Option<Definition> {
     let manifest = read_raw(&dir.join("agent.json"))
         .filter(|text| !text.is_empty())
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        // An agent Node saved with half of an emoji in its name holds `\ud83d`: read as U+FFFD, not as no manifest.
+        .and_then(|text| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&text)).ok())
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     let named = one_line(manifest.get("entry"));

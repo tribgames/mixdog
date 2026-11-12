@@ -23,9 +23,6 @@ use tokio::sync::mpsc;
 
 use super::delegated_host::{Answered, ApprovalQueue, Delegated};
 
-#[cfg(test)]
-mod tests;
-
 /// Where the questions go: the approvals section of the holding thread.
 pub trait QuestionPublisher: Send + Sync {
     /// `set({ handoffQuestions })`: the records, then the questions, each as its request.

@@ -255,6 +255,3 @@ impl ToolSurface<'_> {
         Some(added.into_iter().map(|(name, _)| name).chain(removed.into_iter().map(|(name, _)| name)).collect())
     }
 }
-
-#[cfg(test)]
-mod tests;

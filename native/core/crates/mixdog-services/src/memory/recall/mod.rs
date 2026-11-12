@@ -369,7 +369,7 @@ impl Recall {
             }
             Ok::<_, MemoryError>(parts.into_iter().flatten().collect::<Vec<_>>())
         };
-        let parts = tokio::time::timeout(FAN_OUT_DEADLINE, gather)
+        let parts = mixdog_rt::time::timeout(FAN_OUT_DEADLINE, gather)
             .await
             .map_err(|_| MemoryError::rejected("memory fan-out deadline exceeded (180s)"))??;
         let header = if dropped > 0 {

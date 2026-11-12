@@ -1,0 +1,41 @@
+// The bytes of every file of a replay's world, to compare what a call refused by decision leaves behind: before and after it, every
+// file is there with the same bytes and no file was added. A path the set's manifest declares (`skip`, with its reason there) is not
+// read.
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** `{ '<name>/<path>': Buffer }` of every file under each folder of `roots` (`{ name: absolute folder }`), `/`-separated, but those
+ *  of a `skip` entry: its path (`<name>/<path>`) exactly or a file under it when it is a folder, and, for an entry with
+ *  `atomicTemp`, the temporary file of an atomic write of it, `<path>.mixdog-tmp-<16 lowercase hex>` exactly, and for an entry
+ *  with `lockStaging`, a lock's staged record and reclaim guard (mixdog-statefile lock.rs publish_lock, reclaim):
+ *  `<path>.reclaim`, and `<path>[.reclaim].<pid>.<16 lowercase hex>.tmp` exactly. */
+export function worldFiles(roots, skip = []) {
+  const files = new Map();
+  const atomicTemp = (path, entry) => entry.atomicTemp && path.startsWith(`${entry.path}.mixdog-tmp-`) && /^[0-9a-f]{16}$/.test(path.slice(`${entry.path}.mixdog-tmp-`.length));
+  const lockStaging = (path, entry) =>
+    entry.lockStaging &&
+    (path === `${entry.path}.reclaim` || (path.startsWith(`${entry.path}.`) && /^(reclaim\.)?[0-9]+\.[0-9a-f]{16}\.tmp$/.test(path.slice(`${entry.path}.`.length))));
+  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || atomicTemp(path, entry) || lockStaging(path, entry));
+  const walk = (dir, at) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = `${at}/${entry.name}`;
+      if (skipped(path)) continue;
+      if (entry.isDirectory()) walk(join(dir, entry.name), path);
+      else {
+        try {
+          files.set(path, readFileSync(join(dir, entry.name)));
+        } catch (error) {
+          throw new Error(`${path}: ${error.message}`);
+        }
+      }
+    }
+  };
+  for (const [name, dir] of Object.entries(roots)) walk(dir, name);
+  return files;
+}
+
+/** The files added, removed or changed from `before` to `after` (both `worldFiles`), sorted. */
+export function changedFiles(before, after) {
+  const paths = new Set([...before.keys(), ...after.keys()]);
+  return [...paths].filter((path) => !(before.has(path) && after.has(path) && before.get(path).equals(after.get(path)))).sort();
+}
