@@ -19,11 +19,11 @@ const SRC = 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.m
 const AUTH = { type: 'openai-oauth', access_token: 'fixture-access-token', account_id: 'acct-fixture' };
 // The provider's real client dials a server that refuses the upgrade with a non-101 response (status, headers, body chunks as the server writes them);
 // attachHandshakeFailureHandlers (through acquireWebSocket) settles the connect with the error, recorded whole.
-const handshake = async (refusal) => {
+const handshake = async (refusal, auth = AUTH) => {
   world.reset({ refuse: () => refusal });
   let outcome;
   try {
-    outcome = { value: await acquireWebSocket({ auth: AUTH, poolKey: '', cacheKey: 'ws-handshake-test', forceFresh: true }) };
+    outcome = { value: await acquireWebSocket({ auth, poolKey: '', cacheKey: 'ws-handshake-test', forceFresh: true }) };
   } catch (error) {
     outcome = { error };
   }
@@ -39,4 +39,15 @@ await rec.run('non-json-body-keeps-status-and-headers', `${SRC}:46`, { refusal: 
 // (node-patches/node-fix-scrub-echoed-credential.patch).
 const refusalEcho = { status: 400, headers: [['x-request-id', 'req_2']], bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: 'the credential fixture-access-token was refused for this account' } })] };
 await rec.run('unexpected-response-redacts-the-credential-it-echoes', `${SRC}:28`, { refusal: refusalEcho }, () => handshake(refusalEcho));
+// The same rejection for a token with characters an encoder rewrites, repeated in the spellings a server uses (percent-encoded as in a query
+// string, URL-safe base64, as sent), in the body and in a header: the error text, the kept body and the kept headers carry each redacted
+// (node-patches/node-fix-scrub-echoed-credential.patch).
+const ODD_TOKEN = 'fixture/odd+token&1';
+const spellings = `${encodeURIComponent(ODD_TOKEN)}, ${Buffer.from(ODD_TOKEN).toString('base64url')} and ${ODD_TOKEN}`;
+const refusalForms = {
+  status: 400,
+  headers: [['x-request-id', 'req_3'], ['x-echo', `token ${spellings}`]],
+  bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: `the credential ${spellings} was refused for this account` } })],
+};
+await rec.run('unexpected-response-redacts-the-credential-in-each-spelling-it-echoes', `${SRC}:28`, { refusal: refusalForms, accessToken: ODD_TOKEN }, () => handshake(refusalForms, { ...AUTH, access_token: ODD_TOKEN }));
 await rec.finish();

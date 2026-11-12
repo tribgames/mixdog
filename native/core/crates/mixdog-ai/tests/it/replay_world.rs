@@ -263,6 +263,10 @@ pub struct Events {
     pub cancel_on_text: Option<CancellationToken>,
     /// The stages the send raised (`onStageChange(stage, payload)`), in order.
     pub stages: Vec<(String, Option<Value>)>,
+    /// How many requests had arrived at the endpoint when each stage was delivered (parallel to `stages`), read from
+    /// `arrival_probe` when the replay sets one.
+    pub stage_arrivals: Vec<usize>,
+    pub arrival_probe: Option<Box<dyn Fn() -> usize + Send + Sync>>,
 }
 
 impl AttemptSink for Events {
@@ -278,6 +282,7 @@ impl AttemptSink for Events {
         self.discards += 1;
     }
     fn stage(&mut self, stage: &str, payload: Option<Value>) {
+        self.stage_arrivals.push(self.arrival_probe.as_ref().map_or(0, |probe| probe()));
         self.stages.push((stage.to_owned(), payload));
     }
 }

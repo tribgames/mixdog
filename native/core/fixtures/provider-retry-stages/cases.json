@@ -98,6 +98,20 @@
             }
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
           "[anthropic] retry attempt 2 after 503 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}, delay 2000ms (retry-after)\n"
         ],
@@ -429,6 +443,14 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0
@@ -565,6 +587,231 @@
       ]
     },
     {
+      "id": "anthropic-api-key-redacts-an-encoded-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109",
+      "input": {
+        "provider": "anthropic"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED], [REDACTED] and [REDACTED] was refused for this model\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "workspaceID": null,
+            "error": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "the credential [REDACTED], [REDACTED] and [REDACTED] was refused for this model"
+              }
+            },
+            "type": "invalid_request_error",
+            "httpStatus": 400,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 4,
+          "count": 1,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture/odd+key&1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture/odd+key&1"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential fixture%2Fodd%2Bkey%261, Zml4dHVyZS9vZGQra2V5JjE and fixture/odd+key&1 was refused for this model\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-429",
       "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109",
       "input": {
@@ -659,6 +906,20 @@
             }
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
           "[anthropic] retry attempt 2 after 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"the credential [REDACTED] is over its limit\"}}, delay 30000ms (retry-after)\n"
         ],
@@ -667,7 +928,7 @@
           1
         ],
         "draws": {
-          "first": 4,
+          "first": 5,
           "count": 2,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -966,12 +1227,23 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0
         ],
         "draws": {
-          "first": 6,
+          "first": 7,
           "count": 1,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1193,15 +1465,35 @@
               "reasonClass": "other",
               "attempt": 1,
               "max": 3,
-              "waitMs": 293,
-              "retryAt": 1794225632293,
+              "waitMs": 285,
+              "retryAt": 1794225632285,
               "reason": "Connection interrupted",
               "classifier": null,
-              "message": "Connection interrupted · retry 1/3 in 293ms"
+              "message": "Connection interrupted · retry 1/3 in 285ms"
             }
           },
           {
             "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
           }
         ],
         "stderr": [
@@ -1212,7 +1504,7 @@
           1
         ],
         "draws": {
-          "first": 7,
+          "first": 8,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1248,14 +1540,14 @@
       ],
       "clock": [
         {
-          "advanceMs": 293,
+          "advanceMs": 285,
           "fromMs": 32000,
           "fired": [
             {
-              "dueMs": 32293
+              "dueMs": 32285
             }
           ],
-          "toMs": 32293
+          "toMs": 32285
         }
       ],
       "requests": [
@@ -1513,13 +1805,27 @@
             }
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 10,
+          "first": 11,
           "count": 2,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1799,6 +2105,20 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
           "[provider] Auth error, re-reading provider authentication...\n"
         ],
@@ -1807,7 +2127,7 @@
           1
         ],
         "draws": {
-          "first": 12,
+          "first": 13,
           "count": 2,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -2076,23 +2396,37 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 2101,
-              "retryAt": 1794225634394,
+              "waitMs": 2081,
+              "retryAt": 1794225634366,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
             }
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
-          "[xai:responses] retry attempt 2 after 503 busy, delay 2101ms (retry-after)\n"
+          "[xai:responses] retry attempt 2 after 503 busy, delay 2081ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 14,
+          "first": 15,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -2130,17 +2464,17 @@
       ],
       "clock": [
         {
-          "advanceMs": 2101,
-          "fromMs": 32293,
+          "advanceMs": 2081,
+          "fromMs": 32285,
           "fired": [
             {
-              "dueMs": 32792
+              "dueMs": 32784
             },
             {
-              "dueMs": 34394
+              "dueMs": 34366
             }
           ],
-          "toMs": 34394
+          "toMs": 34366
         }
       ],
       "requests": [
@@ -2370,8 +2704,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 1980,
-              "retryAt": 1794225636374,
+              "waitMs": 2259,
+              "retryAt": 1794225636625,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
@@ -2381,15 +2715,32 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
-          "[xai] retry attempt 2 after 503 busy, delay 1980ms (retry-after)\n"
+          "[xai] retry attempt 2 after 503 busy, delay 2259ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 17,
+          "first": 18,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -2428,20 +2779,20 @@
       ],
       "clock": [
         {
-          "advanceMs": 1980,
-          "fromMs": 34394,
+          "advanceMs": 2259,
+          "fromMs": 34366,
           "fired": [
             {
-              "dueMs": 35293
+              "dueMs": 35285
             },
             {
-              "dueMs": 35293
+              "dueMs": 35285
             },
             {
-              "dueMs": 36374
+              "dueMs": 36625
             }
           ],
-          "toMs": 36374
+          "toMs": 36625
         }
       ],
       "requests": [
@@ -2683,13 +3034,27 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 20,
+          "first": 21,
           "count": 0,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -2727,13 +3092,13 @@
       "clock": [
         {
           "advanceMs": 1000,
-          "fromMs": 36374,
+          "fromMs": 36625,
           "fired": [
             {
-              "dueMs": 37374
+              "dueMs": 37625
             }
           ],
-          "toMs": 37374
+          "toMs": 37625
         }
       ],
       "requests": [
@@ -2913,7 +3278,7 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225639374,
+              "retryAt": 1794225639625,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
@@ -2921,6 +3286,23 @@
           },
           {
             "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
           }
         ],
         "stderr": [
@@ -2932,7 +3314,7 @@
           1
         ],
         "draws": {
-          "first": 20,
+          "first": 21,
           "count": 0,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -2967,13 +3349,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 37374,
+          "fromMs": 37625,
           "fired": [
             {
-              "dueMs": 39374
+              "dueMs": 39625
             }
           ],
-          "toMs": 39374
+          "toMs": 39625
         }
       ],
       "requests": [
@@ -3209,11 +3591,25 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225641374,
+              "retryAt": 1794225641625,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
             }
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 1
           }
         ],
         "stderr": [
@@ -3224,7 +3620,7 @@
           1
         ],
         "draws": {
-          "first": 20,
+          "first": 21,
           "count": 2,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -3263,13 +3659,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 39374,
+          "fromMs": 39625,
           "fired": [
             {
-              "dueMs": 41374
+              "dueMs": 41625
             }
           ],
-          "toMs": 41374
+          "toMs": 41625
         }
       ],
       "requests": [
@@ -3540,23 +3936,37 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 1916,
-              "retryAt": 1794225643290,
+              "waitMs": 1735,
+              "retryAt": 1794225643360,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
             }
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [
-          "[xai:responses] retry attempt 2 after 503 busy, delay 1916ms (retry-after)\n"
+          "[xai:responses] retry attempt 2 after 503 busy, delay 1735ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 22,
+          "first": 23,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 1
@@ -3590,14 +4000,14 @@
       ],
       "clock": [
         {
-          "advanceMs": 1916,
-          "fromMs": 41374,
+          "advanceMs": 1735,
+          "fromMs": 41625,
           "fired": [
             {
-              "dueMs": 43290
+              "dueMs": 43360
             }
           ],
-          "toMs": 43290
+          "toMs": 43360
         }
       ],
       "requests": [
@@ -3880,7 +4290,7 @@
               "attempt": 2,
               "max": 4,
               "waitMs": 2000,
-              "retryAt": 1794225645290,
+              "retryAt": 1794225645360,
               "reason": "Provider overloaded",
               "classifier": "model_capacity_exhausted",
               "message": "Provider overloaded · retry 2/4 in 2s"
@@ -3893,6 +4303,32 @@
             "stage": "model_thinking"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "model_thinking"
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "model_thinking"
+          },
+          {
+            "request": 2
+          }
+        ],
         "stderr": [
           "[antigravity] retry 2 after Antigravity 503 (https://daily-cloudcode-pa.googleapis.com): overloaded\n"
         ],
@@ -3901,7 +4337,7 @@
           2
         ],
         "draws": {
-          "first": 25,
+          "first": 26,
           "count": 1,
           "uuidFirst": 2,
           "uuidCount": 1
@@ -3936,13 +4372,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 43290,
+          "fromMs": 43360,
           "fired": [
             {
-              "dueMs": 45290
+              "dueMs": 45360
             }
           ],
-          "toMs": 45290
+          "toMs": 45360
         }
       ],
       "requests": [
@@ -4162,6 +4598,14 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [
           "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"rejected Bearer [REDACTED] and [REDACTED] {\\\"refresh_token\\\":\\\"[REDACTED]\\\"}\"}}\n"
         ],
@@ -4169,7 +4613,7 @@
           0
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4382,12 +4826,20 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4555,6 +5007,14 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [
           "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED] was refused for this model\"}}\n"
         ],
@@ -4562,7 +5022,7 @@
           0
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4775,12 +5235,20 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4951,6 +5419,23 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 2
+          }
+        ],
         "stderr": [
           "[anthropic-oauth] 403 — forcing refresh and retrying once\n",
           "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}\n"
@@ -4960,7 +5445,7 @@
           2
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -5246,6 +5731,14 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [
           "[anthropic-oauth] API error 403: {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"This organization is not allowed to use this model\"}}\n"
         ],
@@ -5253,7 +5746,7 @@
           0
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -5454,8 +5947,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 10,
-              "waitMs": 6340,
-              "retryAt": 1794225651630,
+              "waitMs": 5545,
+              "retryAt": 1794225650905,
               "reason": "Provider server error",
               "classifier": "unavailable",
               "message": "Provider server error · retry 2/10 in 6s"
@@ -5463,6 +5956,29 @@
           },
           {
             "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
           }
         ],
         "stderr": [
@@ -5473,7 +5989,7 @@
           1
         ],
         "draws": {
-          "first": 26,
+          "first": 27,
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -5519,23 +6035,20 @@
       ],
       "clock": [
         {
-          "advanceMs": 6340,
-          "fromMs": 45290,
+          "advanceMs": 5545,
+          "fromMs": 45360,
           "fired": [
             {
-              "dueMs": 48290
+              "dueMs": 48360
             },
             {
-              "dueMs": 50290
+              "dueMs": 50360
             },
             {
-              "dueMs": 51290
-            },
-            {
-              "dueMs": 51630
+              "dueMs": 50905
             }
           ],
-          "toMs": 51630
+          "toMs": 50905
         }
       ],
       "requests": [
@@ -5762,11 +6275,28 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225653630,
+              "retryAt": 1794225652905,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
             }
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 2
           }
         ],
         "stderr": [],
@@ -5775,7 +6305,7 @@
           2
         ],
         "draws": {
-          "first": 28,
+          "first": 29,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -5814,13 +6344,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 51630,
+          "fromMs": 50905,
           "fired": [
             {
-              "dueMs": 53630
+              "dueMs": 52905
             }
           ],
-          "toMs": 53630
+          "toMs": 52905
         }
       ],
       "requests": [
@@ -6053,7 +6583,7 @@
               "attempt": 2,
               "max": 5,
               "waitMs": 2000,
-              "retryAt": 1794225655630,
+              "retryAt": 1794225654905,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/5 in 2s"
@@ -6061,6 +6591,26 @@
           },
           {
             "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 2
           }
         ],
         "stderr": [
@@ -6071,7 +6621,7 @@
           2
         ],
         "draws": {
-          "first": 28,
+          "first": 29,
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -6110,13 +6660,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 53630,
+          "fromMs": 52905,
           "fired": [
             {
-              "dueMs": 55630
+              "dueMs": 54905
             }
           ],
-          "toMs": 55630
+          "toMs": 54905
         }
       ],
       "requests": [
@@ -6404,12 +6954,29 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 2
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           2
         ],
         "draws": {
-          "first": 30,
+          "first": 31,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 2
@@ -6718,7 +7285,7 @@
               "attempt": 2,
               "max": 6,
               "waitMs": 2000,
-              "retryAt": 1794225657630,
+              "retryAt": 1794225656905,
               "reason": "Provider server error",
               "classifier": "unavailable",
               "message": "Provider server error · retry 2/6 in 2s"
@@ -6728,13 +7295,39 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 2
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 3
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           1,
           3
         ],
         "draws": {
-          "first": 30,
+          "first": 31,
           "count": 1,
           "uuidFirst": 5,
           "uuidCount": 5
@@ -6770,13 +7363,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 55630,
+          "fromMs": 54905,
           "fired": [
             {
-              "dueMs": 57630
+              "dueMs": 56905
             }
           ],
-          "toMs": 57630
+          "toMs": 56905
         }
       ],
       "requests": [
@@ -7096,15 +7689,41 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 6,
-              "waitMs": 223,
-              "retryAt": 1794225657853,
+              "waitMs": 251,
+              "retryAt": 1794225657156,
               "reason": "Provider server error",
               "classifier": "unavailable",
-              "message": "Provider server error · retry 2/6 in 223ms"
+              "message": "Provider server error · retry 2/6 in 251ms"
             }
           },
           {
             "stage": "streaming"
+          }
+        ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 1
+          },
+          {
+            "stage": "reconnecting"
+          },
+          {
+            "request": 2
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 3
           }
         ],
         "stderr": [],
@@ -7113,7 +7732,7 @@
           3
         ],
         "draws": {
-          "first": 31,
+          "first": 32,
           "count": 2,
           "uuidFirst": 10,
           "uuidCount": 5
@@ -7148,14 +7767,14 @@
       ],
       "clock": [
         {
-          "advanceMs": 223,
-          "fromMs": 57630,
+          "advanceMs": 251,
+          "fromMs": 56905,
           "fired": [
             {
-              "dueMs": 57853
+              "dueMs": 57156
             }
           ],
-          "toMs": 57853
+          "toMs": 57156
         }
       ],
       "requests": [
@@ -7475,12 +8094,26 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           1
         ],
         "draws": {
-          "first": 33,
+          "first": 34,
           "count": 1,
           "uuidFirst": 15,
           "uuidCount": 4
@@ -7712,12 +8345,26 @@
             "stage": "streaming"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           1
         ],
         "draws": {
-          "first": 34,
+          "first": 35,
           "count": 1,
           "uuidFirst": 19,
           "uuidCount": 4
@@ -7915,10 +8562,15 @@
           }
         },
         "stages": [],
+        "sequence": [
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [],
         "draws": {
-          "first": 35,
+          "first": 36,
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0
@@ -8074,12 +8726,26 @@
             "stage": "requesting"
           }
         ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           0
         ],
         "draws": {
-          "first": 35,
+          "first": 36,
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 0
@@ -8171,6 +8837,183 @@
       ]
     },
     {
+      "id": "gemini-redacts-an-encoded-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/gemini.mjs:194",
+      "input": {
+        "provider": "gemini",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"the credential [REDACTED], [REDACTED] and [REDACTED] was refused for this model\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "the credential [REDACTED], [REDACTED] and [REDACTED] was refused for this model",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "the credential [REDACTED], [REDACTED] and [REDACTED] was refused for this model",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "sequence": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "request": 0
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 36,
+          "count": 0,
+          "uuidFirst": 23,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture/odd+key&1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture/odd+key&1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"the credential fixture%2Fodd%2Bkey%261, Zml4dHVyZS9vZGQra2V5JjE and fixture/odd+key&1 was refused for this model\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "antigravity-redacts-an-opaque-credential-in-a-400",
       "source": "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs:55",
       "input": {
@@ -8244,12 +9087,26 @@
             "stage": "model_thinking"
           }
         ],
+        "sequence": [
+          {
+            "request": 0
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "model_thinking"
+          },
+          {
+            "request": 1
+          }
+        ],
         "stderr": [],
         "attemptRequests": [
           1
         ],
         "draws": {
-          "first": 35,
+          "first": 36,
           "count": 0,
           "uuidFirst": 23,
           "uuidCount": 1
@@ -8437,10 +9294,15 @@
           }
         },
         "stages": [],
+        "sequence": [
+          {
+            "request": 0
+          }
+        ],
         "stderr": [],
         "attemptRequests": [],
         "draws": {
-          "first": 35,
+          "first": 36,
           "count": 0,
           "uuidFirst": 24,
           "uuidCount": 0

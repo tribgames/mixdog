@@ -499,7 +499,7 @@ fn excluded_kind(exclusion: &str, item: &Exact) -> bool {
         // `onStreamDelta('transport')`: the delta kinds Node recorded as strings.
         "onStreamDelta('transport')" => item.as_str() == "transport",
         // The stage the run loop raises when a stream opens: `streaming`, and no other.
-        "streaming stages" => item.get("stage").as_str() == "streaming",
+        "streaming stages" => item.try_get("stage").is_some_and(|stage| stage.as_str() == "streaming"),
         other => panic!("no kind is known for the exclusion `{other}`"),
     }
 }
@@ -1202,6 +1202,12 @@ impl Endpoint {
                 );
             }),
         }
+    }
+
+    /// How many requests have arrived so far, read when a stage is delivered: the stage's place among the arrivals.
+    pub fn arrival_probe(&self) -> Box<dyn Fn() -> usize + Send + Sync> {
+        let inner = self.inner.clone();
+        Box::new(move || inner.state.lock().unwrap().arrivals.len())
     }
 
     /// Each request as it arrived, in the recorded shape.

@@ -173,16 +173,28 @@ pub struct RedirectedDialer {
     pub keys: KeySource,
 }
 
+/// The dialer before its exchanges are redacted of the credentials they carried: only [`super::guard::Guarded`] reaches it,
+/// as production's [`super::link::KeepaliveDialer`] is reached.
+struct Bare<'a>(&'a RedirectedDialer);
+
 #[async_trait]
 impl WsDial for RedirectedDialer {
+    async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        super::guard::Guarded(Bare(self)).dial(request).await
+    }
+}
+
+#[async_trait]
+impl WsDial for Bare<'_> {
     async fn dial(&self, mut request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        let this = self.0;
         let uri = request.uri().clone();
         let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
-        (self.tap)(uri.host().unwrap_or_default(), port);
-        if let Some(key) = (self.keys)() {
+        (this.tap)(uri.host().unwrap_or_default(), port);
+        if let Some(key) = (this.keys)() {
             request.extensions_mut().insert(ws::ScriptedKey(key));
         }
-        let (connection, response) = ws::connect_redirected(request, self.addr, &self.schedule).await?;
+        let (connection, response) = ws::connect_redirected(request, this.addr, &this.schedule).await?;
         Ok((Box::new(connection), response))
     }
 }

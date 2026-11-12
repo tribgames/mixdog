@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
-  "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.",
+  "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 233473,
+      "bytes": 252919,
       "path": "cases.json",
-      "sha256": "fca49d0fe9384cc352ea2d3298666ba8557b907d51e341334f524450254268bf"
+      "sha256": "9c0ffe82427decf204eb06203a41671f7bdb15e30ab3f3f2f44a77d197fdd126"
     }
   ],
   "inputs": [
@@ -72,6 +72,10 @@
     },
     {
       "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-encoded-credential-in-a-400",
       "level": "wire"
     },
     {
@@ -187,6 +191,10 @@
       "level": "wire"
     },
     {
+      "id": "gemini-redacts-an-encoded-credential-in-a-400",
+      "level": "wire"
+    },
+    {
       "id": "antigravity-redacts-an-opaque-credential-in-a-400",
       "level": "wire"
     },
@@ -218,19 +226,23 @@
       {
         "file": "node-fix-scrub-echoed-credential.patch",
         "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic.mjs",
-          "src/runtime/agent/orchestrator/providers/gemini.mjs",
           "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
-          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
           "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
           "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
-          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
-          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
           "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
-          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs"
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs"
         ],
-        "sha256": "ec5517ec9dba1abf3a4d58e9f17e8121a7e1775668b4a17780f74e95f6ca04b4"
+        "sha256": "932615ff535e360cf1ec4567f79ea278c42e780308576cd82d276b30ca7138e2"
       },
       {
         "file": "node-fix-cursor-end-frame-error.patch",
@@ -244,20 +256,20 @@
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 17
+      "filesDifferingFromCommit": 18
     },
-    "srcSha256": "2f7a45be69239bc9fe42539db08d83077550873c9c2fc352ff143e456a3c9946",
+    "srcSha256": "6bb4e47e91cd66bec2a3bc0cf1bfee6484806e47146f75a672a727cef04843ef",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "69c973fdff8f1606c93cb98caa821e1440850d4a8bc2a6dd91016d25e850f171",
+  "recorderSha256": "11719402e3979a261fb7312cb23f9220104afb4cfc0ba610b295b1ca9023892a",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 233473,
+  "totalBytes": 252919,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

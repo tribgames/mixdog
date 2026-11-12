@@ -36,6 +36,23 @@ pub const REPLAYS: &[Replay] = &[Replay { set: "retry-stages", run: every_case_r
 /// The manifest's line for the stages the core raises outside the provider send.
 const OTHER_STAGES: &str = "streaming stages";
 
+/// The stages the send raised and the requests that arrived as one sequence, in the order they happened: each stage
+/// stands after the requests that had arrived when it was delivered.
+fn interleaved(events: &replay_world::Events, arrivals: usize) -> Exact {
+    let mut sequence = Vec::new();
+    for at in 0..=arrivals {
+        for ((stage, _), seen) in events.stages.iter().zip(&events.stage_arrivals) {
+            if *seen == at {
+                sequence.push(Exact::Object(vec![("stage".to_owned(), Exact::String(stage.clone()))]));
+            }
+        }
+        if at < arrivals {
+            sequence.push(Exact::Object(vec![("request".to_owned(), Exact::Number(at as f64))]));
+        }
+    }
+    Exact::Array(sequence)
+}
+
 /// The builder's config of the case's recorded constructor call.
 fn config(case: &Case, provider: &str) -> serde_json::Value {
     let class = match provider {
@@ -71,12 +88,14 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         | "gateway-messages-raises-the-stage"
         | "vertex-maas-raises-the-stage" => (2, None),
         "anthropic-api-key-redacts-an-opaque-credential-in-a-400"
+        | "anthropic-api-key-redacts-an-encoded-credential-in-a-400"
         | "anthropic-api-key-redacts-an-opaque-credential-in-a-stream-error"
         | "cursor-end-frame-error-redacts-an-opaque-credential" => (1, None),
         // Two requests of the SDK client and the one backoff sample of the stream's re-issue (the wait of 293 ms).
         "anthropic-api-key-reissues-a-dropped-stream-and-raises-the-stage-again" => (3, Some((1, 1))),
         "anthropic-api-key-falls-back-to-a-non-streaming-request" | "xai-chat-raises-the-stage-again-after-a-key-reload" => (2, None),
         "gemini-redacts-an-opaque-credential-in-a-400"
+        | "gemini-redacts-an-encoded-credential-in-a-400"
         | "antigravity-redacts-an-opaque-credential-in-a-400"
         | "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh"
         | "cursor-token-exchange-redacts-an-opaque-credential" => (0, None),
@@ -108,7 +127,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 32, "the recorded cases");
+    assert_eq!(set.cases.len(), 34, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -206,7 +225,8 @@ async fn every_case_replays_as_nodes() {
         mixdog_ai::wall::follow(Some(T0_MS + endpoint.now_ms()));
         let (lines, guard) = mixdog_rt::node_log::capture();
         let cancel = CancellationToken::new();
-        let send = replay_world::send_with(adapter.as_ref(), request, &cancel, Default::default());
+        let probe = replay_world::Events { arrival_probe: Some(endpoint.arrival_probe()), ..Default::default() };
+        let send = replay_world::send_with(adapter.as_ref(), request, &cancel, probe);
         // Each retry wait is taken once the attempt before it failed (its response body dropped): the arrivals that are
         // attempts are the ones the recording lists (the others are token grants and the like).
         let attempt_requests: Vec<usize> = case.recorded().get("attemptRequests").raw().as_array().iter().map(|at| at.as_f64() as usize).collect();
@@ -248,6 +268,9 @@ async fn every_case_replays_as_nodes() {
         // `requesting` is the provider's own stage, raised where its Node send raises it and compared whole with the
         // `reconnecting` ones; only the `streaming` stage the run loop raises is left out.
         recorded.get("stages").assert_filtered(&format!("{what}: stages"), OTHER_STAGES, &stages);
+        // The stages and the requests as one sequence: a stage delivered after the request it announces went out and came
+        // back sits after that request, not before it.
+        recorded.get("sequence").assert_filtered(&format!("{what}: stages among the requests"), OTHER_STAGES, &interleaved(&events, endpoint.arrivals().len()));
         let stderr = Exact::Array(
             lines
                 .lock()
@@ -265,4 +288,18 @@ async fn every_case_replays_as_nodes() {
       }
     }
     assert!(failures.is_empty(), "{} of {} cases differ from Node:\n{}", failures.len(), set.cases.len(), failures.join("\n"));
+}
+
+/// A stage delivered after its request went out and came back is not where Node raised it: it sits after the request in
+/// the sequence, which the recorded one (the stage before the request) does not equal.
+#[test]
+fn a_stage_delivered_after_its_request_is_out_of_place() {
+    let mut events = replay_world::Events::default();
+    let stage = |name: &str| Exact::Object(vec![("stage".to_owned(), Exact::String(name.to_owned()))]);
+    let request = Exact::Object(vec![("request".to_owned(), Exact::Number(0.0))]);
+    events.stages.push(("requesting".to_owned(), None));
+    events.stage_arrivals.push(0);
+    assert_eq!(interleaved(&events, 1), Exact::Array(vec![stage("requesting"), request.clone()]));
+    events.stage_arrivals[0] = 1;
+    assert_eq!(interleaved(&events, 1), Exact::Array(vec![request, stage("requesting")]));
 }

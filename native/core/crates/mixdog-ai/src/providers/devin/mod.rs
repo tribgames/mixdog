@@ -404,7 +404,7 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable")))
+        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable").with_fault_prefix("Devin connection failed: ")))
     }
 }
 

@@ -62,6 +62,15 @@ async fn replay(case: &Case) {
         Err(other) => panic!("{SET} {id}: the upgrade failed otherwise: {other:?}"),
         Ok(_) => panic!("{SET} {id}: the upgrade was accepted"),
     };
+    // The refusal's headers as the core's dialer hands them on: the credential the upgrade carried redacted from each, as the
+    // error Node makes of the same refusal keeps them.
+    let Exact::Error { props, .. } = recorded.get("outcome").get("error").raw() else { panic!("{SET} {id}: the recorded outcome is an error") };
+    let kept = &props.iter().find(|(name, _)| name == "headers").expect("the error's headers").1;
+    for (name, value) in refused.headers() {
+        if let Some(want) = kept.try_get(name.as_str()) {
+            assert_eq!(value.to_str().expect("a text header"), want.as_str(), "{SET} {id}: header {name}");
+        }
+    }
     endpoint.until("the refusal in the trace", |e| e.trace().len() >= events.len()).await;
     recorded.get("events").assert_eq(&format!("{SET} {id} events"), &Exact::Array(endpoint.trace()));
 
@@ -73,11 +82,9 @@ async fn replay(case: &Case) {
     let product = Endpoint::start().await;
     product.ws_script(events);
     let home = tempfile::tempdir().expect("a home");
-    std::fs::write(
-        home.path().join("openai-oauth.json"),
-        r#"{"access_token":"fixture-access-token","refresh_token":"r","expires_at":4102444800000,"account_id":"acct-fixture"}"#,
-    )
-    .expect("the credential");
+    let token = case.input.try_get("accessToken").map_or("fixture-access-token", Exact::as_str);
+    let credential = serde_json::json!({ "access_token": token, "refresh_token": "r", "expires_at": 4_102_444_800_000_u64, "account_id": "acct-fixture" });
+    std::fs::write(home.path().join("openai-oauth.json"), credential.to_string()).expect("the credential");
     let builder = crate::replay_world::builder(&product, home.path(), vec![("MIXDOG_OAI_TRANSPORT".into(), "ws-full".into())]).await;
     let adapter = crate::replay_world::adapter(&builder, "openai-oauth", &serde_json::json!({})).await;
     let request = ModelRequest {
@@ -97,7 +104,7 @@ pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Rep
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 3, "the recorded cases");
+    assert_eq!(set.cases.len(), 4, "the recorded cases");
     for case in &set.cases {
         replay(case).await;
     }

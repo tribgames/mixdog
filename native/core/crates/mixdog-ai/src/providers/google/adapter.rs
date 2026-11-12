@@ -461,8 +461,10 @@ impl ProviderAdapter for GoogleAdapter {
             // Antigravity (antigravity-transport.mjs:216) and Vertex AI's open models (openai-compat-chat-send.mjs:276) raise
             // `requesting` before every attempt of their ladder; Vertex AI's Claude (anthropic.mjs:300) and Gemini models
             // (vertex-ai.mjs:382) once, before it.
-            let each_attempt = model_thinking || self.codec.maas_model(model).is_some();
-            return SendStages { preparing: u32::from(!each_attempt), each_attempt, ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
+            // The open models raise it themselves, once their credential is in hand ([`Self::exchange`]).
+            let own = self.codec.maas_model(model).is_some();
+            let each_attempt = model_thinking;
+            return SendStages { preparing: u32::from(!each_attempt && !own), each_attempt, ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
         }
         SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true, model_thinking: false }
     }
@@ -609,6 +611,10 @@ impl GoogleAdapter {
         let mut queue = VecDeque::new();
         // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
         if let Some(model) = self.codec.maas_model(&request.model) {
+            // The compat send raises `requesting` before every attempt of its ladder (openai-compat-chat-send.mjs:276), after
+            // the access token has been fetched.
+            self.auth.authorize().await?;
+            request.options.send_identity.raise_stage("requesting");
             let mut response = self.dispatch_on(&*self.maas_http, &self.codec.maas_wire(request, &model, false)?).await?;
             let global = response.status == 404 && self.codec.falls_back_to_global(request);
             if global {
