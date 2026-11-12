@@ -332,6 +332,15 @@ impl ControlCell {
         self.closed.store(true, SeqCst);
     }
 
+    /// A close that failed is undone (`SessionActor::close_undone`): attaches are admitted again and the thread is live.
+    pub fn reopen(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
+        *ended = false;
+        self.subscribers.fetch_and(!CLOSING, SeqCst);
+        self.closed.store(false, SeqCst);
+    }
+
     /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).
     pub fn subscribed(&self, ok: bool) {
         if !ok {

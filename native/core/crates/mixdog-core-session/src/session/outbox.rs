@@ -410,8 +410,8 @@ impl Outbox {
     /// Nothing accepted after it is handed before it is handed again, the store keeps nothing of a failed write
     /// (`durability.rs`), and every batch is a prefix of what is handed, so what the log holds is always the accepted
     /// sequence less what was failed to its waiter, whatever fails, retries, arrives meanwhile or closes; a crash loses what
-    /// was not written, never reorders it, and a close whose write fails loses everything not written, told
-    /// (`SessionActor::lose_unsaved`, the close rule).
+    /// was not written, never reorders it, and a close whose write fails keeps the session open with everything not written
+    /// held (`SessionActor::close_undone`, the close rule).
     pub fn handoff(&mut self, room: usize, retry: bool) -> Vec<HandedUnit> {
         // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
         let mut end = 0;

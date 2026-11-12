@@ -143,7 +143,8 @@ impl DeleteHold {
     }
 
     /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
-    /// and a later open finds it gone. False when the mark was not applied.
+    /// and a later open finds it gone. False when the mark was not applied: the close failed, and the thread stays
+    /// open with what it holds (`SessionActor::close_undone`).
     pub(crate) async fn mark(self, directory: &DirInner) -> bool {
         let mut set = serde_json::Map::new();
         set.insert(mixdog_store::summary::DELETED.into(), Value::Bool(true));
@@ -157,7 +158,7 @@ impl DeleteHold {
         let applied = matches!(self.marked.await, Ok(Ok(())));
         let id = &self.handle.id;
         let mut shard = lock(directory.shard(id));
-        if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
+        if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
             shard.remove(id);
             #[cfg(any(test, feature = "test-support"))]
             directory.left.notify_waiters();
@@ -996,6 +997,18 @@ impl DirInner {
             #[cfg(any(test, feature = "test-support"))]
             self.left.notify_waiters();
         }
+    }
+
+    /// A close of the thread of `cell` failed on a write (`SessionActor::close_undone`): while its slot is still this
+    /// thread's, the thread is open again, under the shard lock, and the session stays loaded. False when the directory
+    /// let it go (shutdown, a failed create).
+    pub(crate) fn reopen(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+        let shard = lock(self.shard(id));
+        let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
+        if ours {
+            cell.reopen();
+        }
+        ours
     }
 
     /// Holds the minted `id` of a control start ([`Starting`]).

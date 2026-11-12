@@ -691,8 +691,10 @@ const TOAST_TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 /// `saveSession`'s debounce (`store.mjs`: "debounced (150 ms) unless `opts.immediate`").
 const USAGE_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 
-/// How long a draft file whose removal failed waits before it is removed again ([`SessionActor::draft_failed`]).
+/// How long a draft file whose removal failed first waits before it is removed again ([`SessionActor::draft_failed`]); each
+/// round that still owes a write doubles the wait, up to [`DRAFT_RETRY_MAX`].
 const DRAFT_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+const DRAFT_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(300);
 
 pub(crate) struct ActorChannels {
     pub ctl_rx: mpsc::Receiver<Ctl>,
@@ -831,13 +833,20 @@ pub(crate) struct SessionActor {
     /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
     /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
     ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
-    /// Drafts whose removal failed, by run id: removed again after [`DRAFT_RETRY`] until it succeeds.
+    /// Drafts whose removal failed, by run id: removed again on the retry schedule until it succeeds.
     drafts_removing: std::collections::HashSet<String>,
-    /// The open's sweep failed: it runs again after [`DRAFT_RETRY`], keeping these runs' drafts.
+    /// The open's sweep failed: it runs again on the retry schedule, keeping these runs' drafts.
     sweep_due: Option<Vec<String>>,
-    draft_retry_armed: bool,
-    /// A closing session's write failed: nothing more is written ([`Self::lose_unsaved`]).
-    write_lost: Option<CoreError>,
+    /// While a draft write is owed: the wait before the next round ([`DRAFT_RETRY`] doubling up to [`DRAFT_RETRY_MAX`]).
+    draft_backoff: Option<std::time::Duration>,
+    /// The armed round of owed draft writes; aborted when the session ends.
+    draft_retry: Option<tokio::task::JoinHandle<()>>,
+    /// The session unloads once everything it accepted is on disk ([`Self::unload`]).
+    unload_due: bool,
+    /// Core shutdown stops the thread (`Ctl::Shutdown`).
+    shutting_down: bool,
+    /// Shutdown's write failed: nothing more is written ([`Self::exit_unwritten`]).
+    exit_failed: Option<CoreError>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released: sent once the pump has
@@ -1194,8 +1203,11 @@ impl SessionActor {
             ended_drafts: std::collections::HashMap::new(),
             drafts_removing: std::collections::HashSet::new(),
             sweep_due: None,
-            draft_retry_armed: false,
-            write_lost: None,
+            draft_backoff: None,
+            draft_retry: None,
+            unload_due: false,
+            shutting_down: false,
+            exit_failed: None,
             after_publish: Vec::new(),
             releasing: false,
             replies_after_publish: Vec::new(),
@@ -1308,6 +1320,13 @@ impl SessionActor {
                 self.take_inbox(msg).await;
             }
             self.pump();
+            // An unload that waited for its writes: everything accepted is on disk now.
+            if self.unload_due && self.outbox.is_empty() {
+                self.unload_due = false;
+                if self.quiet() {
+                    self.unload();
+                }
+            }
             if let Some(follow) = &settings {
                 follow.shown();
             }
@@ -1333,6 +1352,13 @@ impl SessionActor {
             {
                 break;
             }
+        }
+        // A draft write still owed is left to the next open's sweep (or its recovery, then removal).
+        if let Some(retry) = self.draft_retry.take() {
+            retry.abort();
+        }
+        if self.draft_backoff.is_some() {
+            tracing::warn!("session {}: it ends owing draft file writes; the next open takes them", self.id.as_str());
         }
         // `dispose` (`dispose.mjs:23`).
         self.cancel_toast_timers();
@@ -1434,6 +1460,8 @@ impl SessionActor {
         self.delete_mark = None;
         let Some(marked) = self.delete_marked.take() else { return };
         let Some(set) = go else {
+            // It stops once what it accepted is on disk: what a failed write left is written first ([`Self::close_undone`]).
+            self.retry_due |= self.outbox.awaits_retry();
             return;
         };
         let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
@@ -1526,7 +1554,17 @@ impl SessionActor {
         }
     }
 
+    /// The close of a quiet session (`closeSession`'s teardown, the last unsubscribe, the idle clock). It completes only once
+    /// everything the session accepted is on disk: what a failed write left goes first, in accept order, and a write that
+    /// fails meanwhile fails the close, the session staying open with all of it held ([`Self::on_durability`]), as Node keeps
+    /// the runtime whose close barrier did not land (`session-close.mjs` `finishClose`). So an unloaded session leaves nothing
+    /// to write behind a reopen.
     fn unload(&mut self) {
+        if !self.outbox.is_empty() {
+            self.unload_due = true;
+            self.retry_due |= self.outbox.awaits_retry();
+            return;
+        }
         let Some(directory) = self.ch.directory.upgrade() else {
             return;
         };
@@ -1754,18 +1792,27 @@ impl SessionActor {
     /// The draft rule: a draft file is owned until its clear bytes are provably gone (a redaction or a removal of it
     /// succeeded): by its run while it streams, by `ended_drafts` (with the run's mark subscription, so a value marked
     /// meanwhile is redacted out of it) while its run's records wait to land, then by its removal. A removal that fails,
-    /// a redaction's fallback included, stays owed in `drafts_removing` and runs again after [`DRAFT_RETRY`] until it
-    /// succeeds; a failed sweep at open likewise. A session that ends first leaves the file itself as the record the next
-    /// open acts on: `recover` sweeps the drafts of runs that ended, and recovers, then removes, those of runs left open.
+    /// a redaction's fallback included, stays owed in `drafts_removing` and runs again until it succeeds, first after
+    /// [`DRAFT_RETRY`], each round after twice the wait of the one before, up to [`DRAFT_RETRY_MAX`]; a failed sweep at open
+    /// likewise. Only the first failure, the wait reaching its ceiling and the success are logged. A session that ends first
+    /// stops trying and leaves the file itself as the record the next open acts on: `recover` sweeps the drafts of runs that
+    /// ended, and recovers, then removes, those of runs left open.
     fn draft_failed(&mut self, write: &super::turn_draft::DraftWrite, error: &CoreError) {
         use super::turn_draft::DraftWrite;
-        tracing::error!("session {}: a draft write failed: {error:?}", self.id.as_str());
-        if let DraftWrite::Remove { rid } = write {
-            self.drafts_removing.insert(rid.clone());
-            self.arm_draft_retry();
+        match write {
+            DraftWrite::Remove { rid } => {
+                self.drafts_removing.insert(rid.clone());
+            }
+            DraftWrite::Sweep { open } => self.sweep_due = Some(open.clone()),
+            DraftWrite::Append { .. } | DraftWrite::Replace { .. } => {
+                tracing::error!("session {}: a draft write failed: {error:?}", self.id.as_str());
+            }
         }
-        if let DraftWrite::Sweep { open } = write {
-            self.sweep_due = Some(open.clone());
+        if matches!(write, DraftWrite::Remove { .. } | DraftWrite::Sweep { .. }) {
+            if self.draft_backoff.is_none() {
+                tracing::error!("session {}: a draft file could not be removed ({error:?}); it is tried again until it is", self.id.as_str());
+                self.draft_backoff = Some(DRAFT_RETRY);
+            }
             self.arm_draft_retry();
         }
         match write {
@@ -1792,28 +1839,59 @@ impl SessionActor {
     }
 
     fn arm_draft_retry(&mut self) {
-        if std::mem::replace(&mut self.draft_retry_armed, true) {
+        if self.draft_retry.is_some() {
             return;
         }
         let jobs = self.jobs_tx.clone();
-        let due = self.deps.clock.sleep(DRAFT_RETRY);
-        drop(tokio::spawn(async move {
+        let due = self.deps.clock.sleep(self.draft_backoff.unwrap_or(DRAFT_RETRY));
+        self.draft_retry = Some(tokio::spawn(async move {
             due.await;
             let _ = jobs.send(JobDone::DraftRetryDue);
         }));
     }
 
-    /// The owed draft removals run again; the sweep keeps, besides the runs open at open, every draft this session still
-    /// owns: the live run's and the ended runs' kept for their records.
+    /// The owed draft removals run again, each staying owed until it succeeds; the sweep keeps, besides the runs open at
+    /// open, every draft this session still owns: the live run's and the ended runs' kept for their records. The next round
+    /// waits twice as long.
     fn draft_retry(&mut self) {
-        self.draft_retry_armed = false;
-        for rid in std::mem::take(&mut self.drafts_removing) {
+        self.draft_retry = None;
+        if let Some(wait) = self.draft_backoff {
+            let next = (wait * 2).min(DRAFT_RETRY_MAX);
+            if next == DRAFT_RETRY_MAX && wait < DRAFT_RETRY_MAX {
+                tracing::warn!("session {}: a draft file still cannot be removed; it is tried again every {}s", self.id.as_str(), next.as_secs());
+            }
+            self.draft_backoff = Some(next);
+        }
+        let mut removing: Vec<String> = self.drafts_removing.iter().cloned().collect();
+        removing.sort();
+        for rid in removing {
             self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
         }
-        if let Some(mut open) = self.sweep_due.take() {
+        if let Some(mut open) = self.sweep_due.clone() {
             open.extend(self.run.as_ref().map(|run| run.turn.as_str().to_owned()));
             open.extend(self.ended_drafts.keys().cloned());
+            open.sort();
+            open.dedup();
             self.draft_push(super::turn_draft::DraftWrite::Sweep { open }, None);
+        }
+    }
+
+    /// A removal or sweep succeeded: what it owed is settled, and once nothing is owed the schedule ends.
+    fn draft_settled(&mut self, write: &super::turn_draft::DraftWrite) {
+        use super::turn_draft::DraftWrite;
+        match write {
+            DraftWrite::Remove { rid } => {
+                self.drafts_removing.remove(rid);
+            }
+            DraftWrite::Sweep { .. } => self.sweep_due = None,
+            DraftWrite::Append { .. } | DraftWrite::Replace { .. } => return,
+        }
+        if self.draft_backoff.is_some() && self.drafts_removing.is_empty() && self.sweep_due.is_none() {
+            tracing::info!("session {}: the draft files owed removal are removed", self.id.as_str());
+            self.draft_backoff = None;
+            if let Some(retry) = self.draft_retry.take() {
+                retry.abort();
+            }
         }
     }
 
@@ -1979,11 +2057,9 @@ impl SessionActor {
             }
             JobDone::DraftWritten { write, result, ack } => {
                 self.draft_busy = false;
-                if let Err(error) = &result {
-                    self.draft_failed(&write, error);
-                }
-                if result.is_ok() && let super::turn_draft::DraftWrite::Remove { rid } = &write {
-                    self.drafts_removing.remove(rid);
+                match &result {
+                    Err(error) => self.draft_failed(&write, error),
+                    Ok(()) => self.draft_settled(&write),
                 }
                 if let Some(ack) = ack {
                     let _ = ack.send(Ok(()));
@@ -2393,15 +2469,11 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        // A closing thread gives what a failed barrier left one more barrier before it stops (Node's exit drain writes what
-        // is queued); once a write failed while it closes, nothing is written again ([`Self::lose_unsaved`]).
-        if let Some(error) = self.write_lost.clone()
+        // Once shutdown's write failed, nothing more is written ([`Self::exit_unwritten`]).
+        if let Some(error) = self.exit_failed.clone()
             && !self.outbox.is_empty()
         {
-            self.lose_unsaved(error);
-        }
-        if self.cell.closed.load(SeqCst) && self.outbox.awaits_retry() {
-            self.retry_due = true;
+            self.fail_all(error);
         }
         for unit in self.outbox.handoff(self.ch.dur_tx.capacity(), std::mem::take(&mut self.retry_due)) {
             let msg = ToDurability::Append {
@@ -2925,27 +2997,37 @@ impl SessionActor {
         self.projected = self.acked.clone();
     }
 
-    /// The close rule: a closing session gives everything it holds one write, in accept order (its exit drain, [`Self::pump`]).
-    /// When a write fails while it closes, nothing more of it is written, ever: every record not yet durable (rows released
-    /// unsaved, units kept whole, records still queued or accepted after) is lost together, the session is told once, in
-    /// accept order, exactly which ([`super::notices::SessionNotices::records_lost`], and the log), and every waiter hears
-    /// the failure. So the log keeps a prefix of what was accepted: no unit lands without every unit accepted before it,
-    /// and an actor that is ending keeps nothing to write behind a reopen's back. (After an indeterminate write, a told
-    /// record may have landed.)
-    fn lose_unsaved(&mut self, error: CoreError) {
-        self.write_lost = Some(error.clone());
-        let lost: Vec<Arc<Record>> = self.outbox.unsaved_records().cloned().collect();
-        if !lost.is_empty() {
-            let kinds: Vec<String> = lost
-                .iter()
-                .map(|record| match &**record {
-                    Record::Item(item) => format!("item {}", item.iid.as_str()),
-                    other => serde_json::to_value(other).ok().and_then(|value| value.get("k").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default(),
-                })
-                .collect();
-            tracing::error!("session {}: {} records not on disk are lost as the session closes ({error:?}): {kinds:?}", self.id.as_str(), lost.len());
-            self.deps.notices.records_lost(self.id.as_str(), &lost);
+    /// A write failed while the thread is closed. The close rule (Node's `finishClose`: a close whose barrier did not land
+    /// leaves the runtime intact and answers `false`): a close that has not completed is undone. A delete still waiting for
+    /// its turn or its mark stays closed and holds what failed for its mark's write, which carries it first; any other close
+    /// (a delete whose mark failed, one that gave up) reopens the thread while it is still the directory's, and the session
+    /// stays open with everything unwritten held in accept order. False: the directory let the thread go (its shutdown, or a
+    /// create that failed), so there is no session left to keep it in ([`Self::exit_unwritten`]).
+    fn close_undone(&mut self) -> bool {
+        if self.delete_closed.is_some() || self.delete_mark.is_some() {
+            return true;
         }
+        let Some(directory) = self.ch.directory.upgrade() else { return false };
+        if !directory.reopen(&self.id, &self.cell) {
+            return false;
+        }
+        tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
+        self.deleting = false;
+        self.arm_idle_evict();
+        true
+    }
+
+    /// Shutdown's write failed (Node's exit drain: `[session-store] drain save failed`, after which the process exits): what
+    /// is not on disk goes with the process, and nothing more is written, so the log keeps a prefix of what was accepted. A
+    /// run whose end did not land keeps its draft, which the next open recovers, as Node's turn checkpoint is kept when
+    /// its close fails.
+    fn exit_unwritten(&mut self, error: CoreError, cause: &str) {
+        let unwritten = self.outbox.unsaved_records().count();
+        if self.shutting_down {
+            mixdog_rt::node_stderr!("[session-store] drain save failed: {cause}");
+        }
+        tracing::error!("session {}: it ends with {unwritten} records not written ({error:?})", self.id.as_str());
+        self.exit_failed = Some(error.clone());
         self.fail_all(error);
     }
 
@@ -3096,10 +3178,15 @@ impl SessionActor {
                         )
                     }
                 };
-                // A closing thread had its retry: what is still unsaved is lost with it, told.
-                if self.cell.closed.load(SeqCst) {
-                    self.lose_unsaved(error);
+                if self.cell.closed.load(SeqCst) && !self.close_undone() {
+                    self.exit_unwritten(error, &cause);
                     return;
+                }
+                // An unload waiting for this write does not complete: the session stays open, and the next close or turn
+                // writes what is held first.
+                if std::mem::take(&mut self.unload_due) {
+                    tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
+                    self.arm_idle_evict();
                 }
                 self.hold_failed(&error, cause, retain);
             }
@@ -3203,6 +3290,9 @@ impl SessionActor {
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.close();
+                // Node's exit drain: what a failed write left is written once more, in accept order.
+                self.shutting_down = true;
+                self.retry_due |= self.outbox.awaits_retry();
                 if let Some(run) = &self.run {
                     // Teardown's `quiesce('cli-exit')`.
                     run.cancel.abort_with(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
