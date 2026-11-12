@@ -210,22 +210,28 @@ pub(crate) fn build_catalog(server: &str, tools: &[Value]) -> ToolCatalog {
     ToolCatalog { digest: digest.iter().map(|b| format!("{b:02x}")).collect(), entries }
 }
 
+/// One page of `tools/list`, and the cursor of the next one when there is one.
+async fn list_page(client: &RpcClient, cursor: Option<&str>) -> Result<(Vec<Value>, Option<String>), RpcError> {
+    let params = match cursor {
+        Some(c) => json!({"cursor": c}),
+        None => json!({}),
+    };
+    let page = client.request("tools/list", params, RequestOptions::default()).await?;
+    let tools = page.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
+    let next = page.get("nextCursor").and_then(Value::as_str).filter(|next| !next.is_empty()).map(str::to_owned);
+    Ok((tools, next))
+}
+
 /// Follows `nextCursor` to the end: a server returning many pages is a server fact.
 async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, RpcError> {
     let mut tools = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
-        let params = match &cursor {
-            Some(c) => json!({"cursor": c}),
-            None => json!({}),
-        };
-        let page = client.request("tools/list", params, RequestOptions::default()).await?;
-        if let Some(items) = page.get("tools").and_then(Value::as_array) {
-            tools.extend(items.iter().cloned());
-        }
-        match page.get("nextCursor").and_then(Value::as_str) {
-            Some(next) if !next.is_empty() => cursor = Some(next.to_owned()),
-            _ => return Ok(tools),
+        let (page, next) = list_page(client, cursor.as_deref()).await?;
+        tools.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(tools),
         }
     }
 }
@@ -444,16 +450,30 @@ impl McpServer {
     }
 
     async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
-        // Node's refresh lists under the call timeout (`runToolRefresh`: `sdkTimeoutMs`), whatever the startup budget is.
-        let listed = match self.config.call_timeout {
-            Some(bound) => mixdog_rt::time::timeout(bound, list_tools(client)).await,
-            None => Ok(list_tools(client).await),
-        };
-        let tools = match listed {
-            Ok(Ok(tools)) => tools,
-            Ok(Err(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
-            Err(_) => return tracing::warn!(server = self.name(), "tools/list timed out after list_changed"),
-        };
+        // Node's refresh gives each page's request the call timeout (`runToolRefresh`, `listAllMcpTools`), whatever the
+        // startup budget is; with the call timeout disabled a page is not bounded.
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = list_page(client, cursor.as_deref());
+            let page = match self.config.call_timeout {
+                Some(bound) => match mixdog_rt::time::timeout(bound, page).await {
+                    Ok(page) => page,
+                    Err(_) => return tracing::warn!(server = self.name(), "tools/list timed out after list_changed"),
+                },
+                None => page.await,
+            };
+            match page {
+                Ok((items, next)) => {
+                    tools.extend(items);
+                    match next {
+                        Some(next) => cursor = Some(next),
+                        None => break,
+                    }
+                }
+                Err(error) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+            }
+        }
         let catalog = build_catalog(&self.config.name, &tools);
         let current = self.state();
         let ServerState::Ready(ready) = &*current else { return };
