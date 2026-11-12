@@ -1,6 +1,6 @@
 {
   "besideDaemon": "the beside-daemon case starts Node's daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case's data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon's own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended",
-  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch --only beside-daemon",
+  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
   "exact": true,
   "exclusions": {
     "chunking": "consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process",
@@ -58,9 +58,9 @@
       "sha256": "84c48f72a388e78447fb6f712763bc03cdabf1c9b4cdd6dde2a9cdea0f9d8276"
     },
     {
-      "bytes": 29097,
+      "bytes": 28964,
       "path": "text.json",
-      "sha256": "9c03f404ee3a3c88e1e886028cbf902c02b611282bffcdf1159576c661e423a4"
+      "sha256": "d4dad342698685d8d579ffe8172552edcabce4973158ec22f6dfdcb0946f1c9a"
     }
   ],
   "inputs": [
@@ -71,6 +71,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/exec-cli-tap.mjs",
       "sha256": "536f99eb99fa8f9f5abd42f3039e8d5b1dca48afdc6833fbcea428c71471e2c5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/own-tree.mjs",
+      "sha256": "d1a05dc93cc58836f3ae0a1658b43f5c8ceba95a780336b3ddae2e7a9a57e4a4"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -183,7 +187,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "a6d6d940aa78fb5a9cda36984fe3dc3b68e8ccb0bb16436386b2c4db2d8d7e5e",
+  "recorderSha256": "101b899881523aa6cd2e384ce6b3a007a469164ec61e70896e80544a44922730",
   "set": "exec-cli",
   "stderrNotCompared": [
     {
@@ -266,5 +270,5 @@
       "side": "core"
     }
   ],
-  "totalBytes": 229396
+  "totalBytes": 229263
 }

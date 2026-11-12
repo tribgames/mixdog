@@ -561,6 +561,10 @@
       "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/own-tree.mjs",
+      "sha256": "d1a05dc93cc58836f3ae0a1658b43f5c8ceba95a780336b3ddae2e7a9a57e4a4"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
       "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
     }
@@ -631,7 +635,7 @@
     "oracles/xai-tool-search-head-parity.json": "src/runtime/agent/orchestrator/providers/xai-tool-search-head-parity.json"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
-  "recorderSha256": "fa5797651fc246fbb01edc1cd192ca94f6ca7f8b21de48d8387011602f84d54d",
+  "recorderSha256": "265b2f5fbd62517dec738b08b9869e601ab63473b3f00016cb6d16172cb9ef4e",
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",
