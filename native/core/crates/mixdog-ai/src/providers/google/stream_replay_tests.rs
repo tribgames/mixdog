@@ -14,9 +14,9 @@
 //!   Node's retry bookkeeping: `partialContent` is checked against the text deltas, the others have no core field.
 //! - The guard's own "tool" progress is not in the recording (the recorder did not hand the guard `onStreamDelta`), so the
 //!   core's guard progress is left out of the progress list.
-//! - The core's guard always holds recovered calls until a clean finish (`deferToolCalls: true`); the recorded
-//!   `deferToolCalls: false` case (`leaked-call-dispatched`) compares the recovered call list but not the dispatch
-//!   exposure (`emittedToolCall`), which only that mode sets.
+//! - A case that ran a leak guard records its options (`input.leakGuard`: the known tool names and `deferToolCalls`);
+//!   the decoder is built from them, and the calls Node's guard dispatched (`dispatched`) are the decoder's `ToolCallDone`
+//!   events before the error.
 //! - Not replayed here: `first-chunk-window-follows-caller-and-names-phase` runs the transport's first-byte timer on a
 //!   virtual clock, a timer the decoder does not own (the adapter's transport tests cover it).
 
@@ -53,15 +53,16 @@ fn progress_name(kind: Option<ProgressKind>) -> &'static str {
 
 /// The body as the transport delivers it to the decoder: one line at a time, so what the decoder produced before an error
 /// is kept (the decoder returns the events of one `feed` only when it succeeds).
-fn decode(chunks: &[Value], leak_tools: Option<&[&str]>) -> (GeminiDecoder, Vec<StreamEvent>, Option<ProviderError>) {
+fn decode(chunks: &[Value], leak_guard: Option<&Value>) -> (GeminiDecoder, Vec<StreamEvent>, Option<ProviderError>) {
     let mut decoder = GeminiDecoder::new(DecodeDialect {
         owner: ProviderId::from("gemini"),
         envelope: false,
         usage: UsageStyle::Inclusive,
         errors: ErrorDialect { capacity_by_status: false },
     });
-    if let Some(tools) = leak_tools {
-        decoder = decoder.with_known_tools(tools.iter().map(|t| (*t).to_owned()).collect::<HashSet<_>>());
+    if let Some(guard) = leak_guard {
+        let tools = guard["knownToolNames"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_owned()).collect::<HashSet<_>>();
+        decoder = decoder.with_known_tools(tools).with_deferred_calls(guard["deferToolCalls"].as_bool().unwrap());
     }
     let mut events = Vec::new();
     for chunk in chunks {
@@ -92,8 +93,7 @@ fn every_recorded_gemini_body_is_decoded_as_node_consumes_it() {
         }
         replayed += 1;
         let node = without_undefined(&case["result"]);
-        let leaked_case = id.starts_with("leaked-call-");
-        let (decoder, events, error) = decode(case["input"]["served"]["chunks"].as_array().unwrap(), leaked_case.then_some(&["read"][..]));
+        let (decoder, events, error) = decode(case["input"]["served"]["chunks"].as_array().unwrap(), case["input"].get("leakGuard"));
 
         let progress: Vec<&str> = events.iter().filter_map(|e| if let StreamEvent::ChunkProgress(kind) = e { Some(progress_name(*kind)) } else { None }).collect();
         let node_progress: Vec<&str> = node["progress"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
@@ -102,9 +102,11 @@ fn every_recorded_gemini_body_is_decoded_as_node_consumes_it() {
         let node_text: Vec<&str> = node["text"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
         assert_eq!(text, node_text, "{id}: the text deltas");
 
-        if leaked_case {
+        if node.get("leakedToolCalls").is_some() {
             let held: Vec<Value> = decoder.held_leaked_calls().iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
             assert_eq!(Value::Array(held), node["leakedToolCalls"], "{id}: the calls recovered from text");
+            let dispatched: Vec<Value> = events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(json!({"id": c.id, "name": c.name, "arguments": c.arguments})) } else { None }).collect();
+            assert_eq!(Value::Array(dispatched), node["dispatched"], "{id}: the calls dispatched");
         }
 
         match (node.get("response"), node.get("error")) {
@@ -134,11 +136,9 @@ fn every_recorded_gemini_body_is_decoded_as_node_consumes_it() {
                     other => panic!("{id}: a Node error this replay does not know: {other}"),
                 }
                 assert_eq!(error.exposure.text_emitted, props["liveTextEmitted"].as_bool().unwrap_or(false), "{id}: text exposed");
-                if id != "leaked-call-dispatched" {
-                    assert_eq!(error.exposure.tool_dispatched, props["emittedToolCall"].as_bool().unwrap_or(false), "{id}: call dispatched");
-                }
+                assert_eq!(error.exposure.tool_dispatched, props["emittedToolCall"].as_bool().unwrap_or(false), "{id}: call dispatched");
                 let unsafe_to_retry = error.exposure.text_emitted || error.exposure.tool_dispatched;
-                assert_eq!(unsafe_to_retry || id == "leaked-call-dispatched", props["unsafeToRetry"].as_bool().unwrap_or(false), "{id}: unsafe to retry");
+                assert_eq!(unsafe_to_retry, props["unsafeToRetry"].as_bool().unwrap_or(false), "{id}: unsafe to retry");
                 if let Some(partial) = props["partialContent"].as_str() {
                     assert_eq!(text.concat(), partial, "{id}: the partial content");
                 }
