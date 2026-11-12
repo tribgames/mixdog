@@ -1,10 +1,12 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
   "exclusions": {
+    "flows/close_failures.json \"calls\" entries other than \"close\" and \"ownerClosed\"": "forgetTerminalSession, removeWorkerRow, markReleased and purgeWorkerRows are the scripted worker index's own log of the rows it was told to drop; the Rust registry that takes them is replayed by its own sets, so the replay compares the closes attempted and the owner closes recorded, whole and in order",
+    "flows/close_failures.json \"terminal\" and \"status\" (per member)": "Node's runtime flag and tree descriptor; the Rust session keeps no descriptor, so the replay compares what the same close leaves durably on each member (a detach stamp, an owner-close stamp) with the members whose runtime was recorded terminal",
     "flows/spawn.json \"staleNotifyCalls\" (the stale-context scenario)": "the context Node is handed carries a routing session id (routingSessionId) and a notify callback (notifyFn) that the core's SpawnContext has no field for: neither input exists on the Rust side. The number of calls Node's callback got (recorded 0) is compared with the notices the replay delivered to the stale session id it passes in the context's session id (sessionId, which Node ignores while a caller session id is set); the completion reaching the caller alone is compared through the notices, whole",
     "run events other than the text deltas (golden/*.json \"deltas\")": "the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run's RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario"
   },
-  "fileCount": 92,
+  "fileCount": 93,
   "files": [
     {
       "bytes": 47880,
@@ -122,6 +124,11 @@
       "sha256": "113c9fb002137e43ff754ddee0424ee337b6d2648099adae38341703b68fb4e5"
     },
     {
+      "bytes": 20365,
+      "path": "flows/close_failures.json",
+      "sha256": "c663ed88d1d064b572992b7b847de1c522195a301c9180bfd0616793456599df"
+    },
+    {
       "bytes": 53869,
       "path": "flows/preset.json",
       "sha256": "dd7faf8bd9fa24bafdb87b7e6a2c8aaddab2bb5f78bc6659729669247429f0c1"
@@ -137,9 +144,9 @@
       "sha256": "aa000941a85ba2d4c750bfe0a823fa9f002bd00272cbd829cd317b1c9883f668"
     },
     {
-      "bytes": 294918,
+      "bytes": 320954,
       "path": "flows/spawn.json",
-      "sha256": "f8a4ca4861b329e9c7a531c35c245b20423c25fa3477763f3b86861b8fbfe93f"
+      "sha256": "6855fbe479f3252347f87c6d22327a877454286e341ccce4b261c74c70199ca7"
     },
     {
       "bytes": 1549,
@@ -302,9 +309,9 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
-      "bytes": 61948,
+      "bytes": 69758,
       "path": "record-flows.mjs",
-      "sha256": "898b1db05cef99ea58e549256d5fe6bacb37de4f0f8d6b69a8ca1c6610b0de0f"
+      "sha256": "368c2961cb5e0132f605834f153ea6507d15594e1b0680849f8de5e7545d07bc"
     },
     {
       "bytes": 25624,
@@ -493,5 +500,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 5025787
+  "totalBytes": 5079998
 }
