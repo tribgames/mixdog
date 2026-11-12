@@ -128,8 +128,6 @@ struct Dial {
     script: Mutex<VecDeque<Dialed>>,
     sent: Arc<Mutex<Vec<String>>>,
     dials: Mutex<u32>,
-    /// When each dial began.
-    began: Mutex<Vec<mixdog_rt::time::Instant>>,
 }
 
 impl Dial {
@@ -145,7 +143,6 @@ impl WsDial for Dial {
         _: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         *self.dials.lock().unwrap() += 1;
-        self.began.lock().unwrap().push(mixdog_rt::time::Instant::now());
         let next = self.script.lock().unwrap().pop_front().expect("a scripted dial");
         match next {
             Dialed::Stuck => std::future::pending().await,
@@ -409,16 +406,33 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
         script.extend((script.len()..8).map(|_| Dialed::Stuck));
         let dial = Dial::with(script);
         let adapter = adapter(node["auth"] == "openai-oauth", Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta);
-        let began = mixdog_rt::time::Instant::now();
-        let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), adapter.attempt(request(vec![say(Role::User, "hi")])))
-            .await
-            .unwrap_or_else(|_| panic!("{id}: the acquire did not end within 60 s of virtual time: a stuck upgrade is never replaced"));
-        let took = began.elapsed().as_millis() as u64;
-        let dials: Vec<u64> = dial.began.lock().unwrap().iter().map(|at| at.duration_since(began).as_millis() as u64).collect();
         let dials_node: Vec<u64> = node["events"].as_array().unwrap().iter().filter(|e| e["on"] == "dial").map(|e| e["t"].as_u64().unwrap()).collect();
-        assert_eq!(dials, dials_node, "{id}: when each dial began");
         let want = &node["outcome"];
-        assert_eq!(took, want["t"].as_u64().unwrap(), "{id}: when the acquire ended");
+        let ends_at = want["t"].as_u64().unwrap();
+        // The clock moves only to the instants Node's recording names (a dial began, the acquire ended); the acquire is polled
+        // at each one, and the dials made by then are those Node had made.
+        let mut instants: Vec<u64> = dials_node.iter().copied().chain([ends_at]).collect();
+        instants.sort_unstable();
+        instants.dedup();
+        let mut acquire = Box::pin(adapter.attempt(request(vec![say(Role::User, "hi")])));
+        let mut now = 0;
+        let mut outcome = None;
+        for at in instants {
+            tokio::time::advance(std::time::Duration::from_millis(at - now)).await;
+            now = at;
+            let polled = futures::poll!(acquire.as_mut());
+            assert_eq!(
+                *dial.dials.lock().unwrap() as usize,
+                dials_node.iter().filter(|t| **t <= at).count(),
+                "{id}: the dials begun by {at} ms"
+            );
+            if let std::task::Poll::Ready(done) = polled {
+                outcome = Some(done);
+                break;
+            }
+        }
+        let Some(outcome) = outcome else { panic!("{id}: the acquire had not ended by its recorded end, {ends_at} ms: a stuck upgrade is never replaced") };
+        assert_eq!(now, ends_at, "{id}: when the acquire ended");
         match (outcome, want["ok"].as_bool().unwrap()) {
             (Ok(_), true) => {}
             (Err(error), false) => {
