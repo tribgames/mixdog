@@ -1,16 +1,16 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-spawn-model-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
   "exclusions": [
-    "the answer of a spawn that started: it names the job of the recorder's stand-in task (`job-1`), which is the Rust board's own id; the answer of a request that failed is compared whole",
+    "the job id in the answer of a spawn that started: the recorder's stand-in task is `job-1`, the Rust board generates its own id, so the replay reads the board's id as `job-1` (the rest of every answer is compared whole)",
     "of the session spec the real spawn preparer hands to session creation only the agent, the preset name and the preset are compared: the rest (directory, runtime spec, owner ids, prompt) is the spawn flow's own recording (fixtures/agent/flows)",
     "the session itself, the tag binding and the model catalog behind the listing are stand-ins on both sides (the catalog rows are the recorded input, as the model picker hydrates them)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 126825,
+      "bytes": 176308,
       "path": "cases.json",
-      "sha256": "3b118111b25d69277af42fbe5f78c83060c6177dab0d7f6c9dbd20af1577e107"
+      "sha256": "4f20f5aefb48cc0db5404d46134695310c2e7a4af2432acba5d29e6fd1805b17"
     }
   ],
   "inputs": [
@@ -40,7 +40,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
     },
     "patches": [
       {
@@ -52,7 +52,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
       }
     ],
     "refComparison": {
@@ -61,13 +61,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "cec629a2f6a0695e1310d5262b254be09b57f991d37f65fd6024b6fab087dca2",
+    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-spawn-model-settings.mjs",
-  "recorderSha256": "061c79522e632cbdade192ba79ff1b6ddb3b54236c2aa31b864673b554470f12",
+  "recorderSha256": "c52e7c76617c9f4067e1ac888ad5126b3454f04f9522f80283b12be38ed91cc2",
   "scenarios": [
     {
       "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
@@ -107,7 +107,37 @@
     {
       "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
       "created": 1,
-      "name": "a_model_that_does_not_support_fast_or_the_effort"
+      "name": "a_model_that_does_not_offer_the_effort"
+    },
+    {
+      "answer": "Error: agent spawn: model \"xai/grok-plain\" does not support fast; leave fast out",
+      "created": 0,
+      "name": "fast_on_a_model_without_fast_is_refused"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "fast_off_on_a_model_without_fast"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_a_stored_effort_it_does_not_offer"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_a_stored_effort_and_an_effort_it_does_not_offer"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_without_effort_options"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_an_effort_it_offers"
     },
     {
       "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
@@ -166,5 +196,5 @@
     }
   ],
   "set": "spawn-model-settings",
-  "totalBytes": 126825
+  "totalBytes": 176308
 }

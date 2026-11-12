@@ -130,18 +130,25 @@ fn catalog_default_effort(row: &Value, values: &[&str]) -> Option<String> {
 
 /// The route a pinned model runs on takes what the model picker would select for it:
 /// `modelDefaults` (its effort and fast), which the spawn's preset uses where the agent's own route
-/// is not on this model. An effort or fast the caller asked for is held to what the model offers.
+/// is not on this model. An effort the caller asked for is held to what the model offers (one it
+/// does not offer is dropped: the model's own default applies); `fast: true` on a model that has no
+/// fast mode is refused, so the caller is told instead of running without it. `modelDefaults.efforts`
+/// is what the model offers, which the preset holds every effort of the final route to.
 /// A row that carries no picker facts leaves the route as asked.
-fn with_model_settings(args: &Value, hit: &ModelRow) -> Value {
+fn with_model_settings(args: &Value, hit: &ModelRow) -> Result<Value, String> {
     let mut out = args.clone();
     out["provider"] = Value::String(hit.provider.clone());
     out["model"] = Value::String(hit.id.clone());
-    let Some(options) = hit.row.get("effortOptions").and_then(Value::as_array) else { return out };
+    let Some(options) = hit.row.get("effortOptions").and_then(Value::as_array) else { return Ok(out) };
     let values: Vec<&str> = options.iter().filter_map(|o| o.get("value").and_then(Value::as_str)).filter(|v| !v.is_empty()).collect();
     let fast_capable = hit.row.get("fastCapable") == Some(&Value::Bool(true));
+    if args.get("fast") == Some(&Value::Bool(true)) && !fast_capable {
+        return Err(format!("agent spawn: model \"{}\" does not support fast; leave fast out or pick a model that offers it", label(hit)));
+    }
     out["modelDefaults"] = serde_json::json!({
         "effort": catalog_default_effort(&hit.row, &values),
         "fast": fast_capable && hit.row.get("fastPreferred") == Some(&Value::Bool(true)),
+        "efforts": values,
     });
     let asked = clean(args.get("effort")).to_lowercase();
     if !asked.is_empty() {
@@ -153,9 +160,9 @@ fn with_model_settings(args: &Value, hit: &ModelRow) -> Value {
         }
     }
     if let Some(fast) = args.get("fast") {
-        out["fast"] = Value::Bool(fast == &Value::Bool(true) && fast_capable);
+        out["fast"] = Value::Bool(fast == &Value::Bool(true));
     }
-    out
+    Ok(out)
 }
 
 /// Resolves `args.provider`/`args.model` to one exact catalog route. Without a catalog
@@ -196,7 +203,7 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         hits = match_models(&pool, &model);
     }
     if hits.len() == 1 {
-        return Ok(with_model_settings(args, &hits[0]));
+        return with_model_settings(args, &hits[0]);
     }
     let scope = if provider.is_empty() { String::new() } else { format!(" for provider \"{provider}\"") };
     if hits.len() > 1 {
