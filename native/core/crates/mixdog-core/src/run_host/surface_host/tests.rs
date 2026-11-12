@@ -122,6 +122,10 @@ impl McpScopes for Scopes {
         self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
         Ok(())
     }
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
+        Ok(())
+    }
     fn release(&self, owner: &str) {
         self.released.lock().unwrap().push(owner.to_owned());
     }

@@ -180,6 +180,10 @@ pub trait McpScopes: Send + Sync {
     /// the scope's first connect settled (a second opener waits for the first's). `Err`: the scope
     /// or the owner was released, so nothing is opened.
     async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
+    /// [`open`](Self::open) without the wait: the scope is registered and its first connect started, and the
+    /// caller goes on while it runs, as a Node runtime's boot starts `connectConfiguredMcp()` unawaited
+    /// (`boot/tools.mjs:56`).
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
     /// Releases every scope `owner` holds, exactly once: its servers close. Not awaited.
     fn release(&self, owner: &str);
     /// The runtime scope (the one `rt.mcpScopeId` of the runtime the daemon's own callers act as,
@@ -267,6 +271,12 @@ impl McpGlue {
     pub async fn connect_runtime_scope(&self) -> Result<(), String> {
         let cwd = self.surface.current_cwd(None).await?;
         self.scopes.open_runtime(&cwd.to_string_lossy()).await.map(drop).map_err(|error| error.to_string())
+    }
+
+    /// Returns once the first connect of every open scope settled: the signal a recording or replay waits on before it
+    /// submits a turn, so the first request does not depend on which server finished connecting first.
+    pub async fn connections_settled(&self) {
+        self.scopes.all_settled().await;
     }
 
     /// Starts [`connect_runtime_scope`](Self::connect_runtime_scope) in the background and does not wait
@@ -708,6 +718,10 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
 impl McpScopes for McpGlue {
     async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
         self.scopes.open(scope, owner, &cwd.to_string_lossy()).await
+    }
+
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.scopes.start(scope, owner, &cwd.to_string_lossy())
     }
 
     fn release(&self, owner: &str) {
