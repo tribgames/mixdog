@@ -229,6 +229,10 @@ pub(crate) enum Projection {
 /// How long a tool call may run, from its spec.
 pub type DeadlineFn = Arc<dyn Fn(&ToolSpec) -> Option<Duration> + Send + Sync>;
 
+/// The session's folder as it stands now (`resolveLiveToolCwd`: the session's own `cwd`, which a Project switch inside the
+/// turn updates in place); none when the session holds none, and a call then starts in the folder its turn began in.
+pub type LiveCwd = Arc<dyn Fn() -> Option<AbsPath> + Send + Sync>;
+
 /// What every tool call of a run shares.
 #[derive(Clone)]
 pub struct ToolEnv {
@@ -583,6 +587,8 @@ pub(crate) struct CallEnv {
     pub(crate) observer: Arc<dyn crate::env::RunObserver>,
     pub(crate) guards: Arc<dyn TurnGuards>,
     pub(crate) tool_env: ToolEnv,
+    /// Each call reads the session's folder when it starts, not the turn's (`prepareToolCall`, `call-prep.mjs:69`).
+    pub(crate) live_cwd: Option<LiveCwd>,
     pub(crate) cancel: CancellationToken,
     /// The run's abort signal over `cancel`: a call its abort ends reads its reason.
     pub(crate) signal: crate::cancel::Cancel,
@@ -590,6 +596,13 @@ pub(crate) struct CallEnv {
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
+}
+
+impl CallEnv {
+    /// The folder a call starts in: the session's live one, else the turn's.
+    pub(crate) fn cwd_now(&self) -> AbsPath {
+        self.live_cwd.as_ref().and_then(|live| live()).unwrap_or_else(|| self.tool_env.cwd.clone())
+    }
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -831,7 +844,7 @@ pub async fn run_nested(
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
-    let mut running = Box::pin(tool.call(&nested, args));
+    let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
         .cancel(&ctx.cancel)
         .deadline(nested.deadline)
@@ -967,6 +980,9 @@ impl Drop for AbortOnDrop {
 
 async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
+    // `prepareToolCall` reads the session's folder before anything of the call awaits: calls of one batch all start from the
+    // folder the session holds when the batch reaches them, whatever a sibling's Project switch does meanwhile.
+    let cwd = env.cwd_now();
     let call = call.clone();
     let name = call.name.clone();
     // A call the turn's abort ends settles with the abort's text.
@@ -1034,7 +1050,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         thread_id: env.tool_env.thread_id.clone(),
         turn_id: env.tool_env.turn_id.clone(),
         tool: spec.name.clone(),
-        cwd: env.tool_env.cwd.clone(),
+        cwd,
         surface: env.tool_env.surface,
         // Tool tokens are children of the run's token.
         cancel: env.cancel.child_token(),
@@ -1059,8 +1075,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         return cancelled();
     }
     let execution_started_at = env.clock.now_ms();
+    // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
+    let label = mixdog_rt::tool_label(&spec.name);
     let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
-        tool.call(&ctx, args).await
+        mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await
     });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
@@ -1255,6 +1273,7 @@ impl Run {
             log.batch(&batch);
         }
         self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
@@ -1290,6 +1309,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
+#[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1451,6 +1474,7 @@ mod tests {
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
+            live_cwd: None,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),

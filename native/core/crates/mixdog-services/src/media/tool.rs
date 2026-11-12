@@ -715,7 +715,7 @@ impl MediaToolService {
             if self.now() > deadline {
                 return Err(ToolFailure::new(format!("generation is still running after {}s on {lane_id}; poll media status job:{job_id}", timeout_ms / 1000)).with("job", json!(job_id)));
             }
-            tokio::time::sleep(self.poll).await;
+            mixdog_rt::time::sleep(self.poll).await;
             job = self.graph.get(&job_id).unwrap_or(job);
         }
         let asset_id = text(&job, "assetId");

@@ -45,7 +45,7 @@ fn strings(value: &Value) -> Vec<String> {
 /// `cfg`'s plugin), every server ready.
 async fn live_hub(dir: &Path, scope: &str, servers: &[(String, Vec<String>, Value)]) -> std::sync::Arc<McpHub> {
     let tokens = mixdog_rt::testing::tokens();
-    let hub = McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, dir.join("artifacts"), OutputPolicy::default());
+    let hub = McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, dir.join("artifacts"), OutputPolicy::default());
     let env = std::env::vars().collect();
     let configs = servers
         .iter()

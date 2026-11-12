@@ -119,18 +119,18 @@ mod tests {
         });
         let running = start(store.clone(), paused_clock());
 
-        tokio::time::sleep(3 * DAY - SWEEP_INTERVAL).await;
+        mixdog_rt::time::sleep(3 * DAY - SWEEP_INTERVAL).await;
         assert!(store.archived.lock().unwrap().is_empty(), "idle less than three days");
-        tokio::time::sleep(2 * SWEEP_INTERVAL).await;
+        mixdog_rt::time::sleep(2 * SWEEP_INTERVAL).await;
         let mut archived = store.archived.lock().unwrap().clone();
         archived.sort();
         assert_eq!(archived, ["sess_idle_leaf", "sess_idle_top"], "the whole idle tree, nothing live or recent");
         assert!(store.deleted.lock().unwrap().is_empty());
 
         // Day 29 and a half: the idle tree is not yet idle thirty days.
-        tokio::time::sleep(26 * DAY + DAY / 2).await;
+        mixdog_rt::time::sleep(26 * DAY + DAY / 2).await;
         assert!(store.deleted.lock().unwrap().is_empty(), "idle less than thirty days");
-        tokio::time::sleep(DAY).await;
+        mixdog_rt::time::sleep(DAY).await;
         let mut deleted = store.deleted.lock().unwrap().clone();
         deleted.sort();
         assert_eq!(deleted, ["sess_idle_leaf", "sess_idle_top"]);
@@ -153,7 +153,7 @@ mod tests {
         });
         let running = start(store.clone(), paused_clock());
         running.end().await;
-        tokio::time::sleep(4 * DAY).await;
+        mixdog_rt::time::sleep(4 * DAY).await;
         assert!(store.archived.lock().unwrap().is_empty());
     }
 }

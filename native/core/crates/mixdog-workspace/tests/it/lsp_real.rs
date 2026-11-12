@@ -55,7 +55,7 @@ async fn settled(events: &Events, rel: &str, ready: impl Fn(&[Value]) -> bool, q
     let mut last_change = Instant::now();
     let mut seen = *events.diagnostic_events.lock().unwrap();
     while Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         let now = *events.diagnostic_events.lock().unwrap();
         if now != seen {
             seen = now;
@@ -149,13 +149,13 @@ async fn real_typescript_server_matches_the_recorded_node_behavior() {
             break found;
         }
         assert!(Instant::now() < deadline, "no stopped status");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     };
     let recorded_crash = &entry(&golden, "crash(kill server)")["result"][0];
     assert_eq!(stopped["status"], recorded_crash["status"]);
     assert!(stopped["detail"].as_str().unwrap().ends_with("Retrying after 1s."));
 
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(1500)).await;
     let reopened = manager.document(&project_path, &project, doc("open", 3, bad)).await;
     assert_eq!(reopened["status"], "ready");
     let after_restart = settled(&events, "src/a.ts", |l| !l.is_empty(), Duration::from_millis(1200)).await;

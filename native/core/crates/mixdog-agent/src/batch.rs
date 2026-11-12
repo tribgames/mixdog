@@ -284,7 +284,8 @@ pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Opt
 }
 
 /// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
-/// (builtin), the `mcp__` prefix, a tool of the surface that is not a builtin (an internal tool), else builtin.
+/// (builtin), the `mcp__` prefix, a tool the session runs that is not a builtin (an internal tool: Node's scope
+/// provider registers the deferred tools too, so one reached through the registry, as `browser`, is internal), else builtin.
 fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     if matches!(name, "Skill" | "skills_list" | "skill_view") {
         "skill"
@@ -292,7 +293,7 @@ fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
         "builtin"
     } else if name.starts_with("mcp__") {
         "mcp"
-    } else if tools.get(name).is_some() && !tools.builtin_names().contains(&name) {
+    } else if tools.resolve(name).is_some() && !tools.builtin_names().contains(&name) {
         "internal"
     } else {
         "builtin"
@@ -333,11 +334,18 @@ impl Run {
             observer: Arc::clone(&self.env.observer),
             guards: Arc::clone(&self.env.guards),
             tool_env: self.tool_env.clone(),
+            live_cwd: self.config.live_cwd.clone(),
             cancel: self.cancel.clone(),
             signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
         })
+    }
+
+    /// The session's folder now (`resolveLiveToolCwd`), else the turn's.
+    fn cwd_now(&self) -> std::path::PathBuf {
+        let live = self.config.live_cwd.as_ref().and_then(|live| live());
+        live.as_ref().unwrap_or(&self.tool_env.cwd).as_path().to_path_buf()
     }
 
     fn requires_read_body(&self, name: &str) -> bool {
@@ -410,7 +418,7 @@ impl Run {
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
         // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that one of Node's barriers holds back
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
-        let cwd = self.tool_env.cwd.as_path().to_path_buf();
+        let cwd = self.cwd_now();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
@@ -681,7 +689,7 @@ impl Run {
         }
         let groups = edit_groups(&calls);
         let wrap_up = self.turn_limits().and_then(|l| l.wrap_up_at_ms);
-        let cwd = self.tool_env.cwd.as_path().to_path_buf();
+        let cwd = self.cwd_now();
 
         let mut staged: Vec<Option<AgentMessage>> = vec![None; n];
         let mut executed: Vec<Option<Executed>> = (0..n).map(|_| None).collect();

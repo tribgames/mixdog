@@ -135,6 +135,14 @@ impl Scheduler {
         }
     }
 
+    /// The names with a cron job or a one-shot timer armed, sorted.
+    #[cfg(test)]
+    pub(super) fn armed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.inner.state.lock().unwrap().tasks.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     pub fn find_schedule(&self, name: &str) -> Option<Schedule> {
         self.inner.find(name)
     }
@@ -216,11 +224,12 @@ impl Scheduler {
         self.inner.fire_one_shot(name).await;
     }
 
-    /// Runs `rename` (which moves schedule `name`'s row) while no run of `name` can start
-    /// or be in flight: the check and the reservation are one step under the state lock.
+    /// Runs `rename` (which moves schedule `name`'s row to `new_name`) while no run of `name` can
+    /// start or be in flight: the check and the reservation are one step under the state lock.
     pub async fn rename_locked<R, Fut, RlFut>(
         &self,
         name: &str,
+        new_name: &str,
         rename: impl FnOnce() -> Fut,
         reload: impl FnOnce() -> RlFut,
     ) -> Result<Option<R>, ScheduleError>
@@ -241,8 +250,10 @@ impl Scheduler {
             if let Err(cause) = reload().await {
                 // The row moved but the reload that arms the new name failed: nothing may
                 // keep running under the old one.
+                // The refusal names the row's new name, the one that is armed on the next reload
+                // (`scheduler.mjs:541`).
                 self.inner.drop_schedule(name);
-                return Err(ScheduleError::RenameReloadFailed { name: name.into(), cause });
+                return Err(ScheduleError::RenameReloadFailed { name: new_name.into(), cause });
             }
             Ok(Some(saved))
         }
@@ -388,7 +399,7 @@ impl Inner {
             // logged; the next wait is computed from now, never replayed.
             while let Some(slot) = expected {
                 let wait = (slot - inner.clock.now()).num_milliseconds();
-                tokio::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
+                mixdog_rt::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
                 let plan = plan_beat(slot, whole_seconds(inner.clock.now()), MISSED_TOLERANCE_MS, |d| {
                     expr.next_after(d, tz)
                 });
@@ -425,7 +436,7 @@ impl Inner {
                 if wait <= 0 {
                     break;
                 }
-                tokio::time::sleep(std_delay(wait)).await;
+                mixdog_rt::time::sleep(std_delay(wait)).await;
             }
             inner.fire_one_shot(&n).await;
         });
@@ -523,7 +534,7 @@ impl Inner {
                 Err(err) => {
                     mixdog_rt::node_stderr!("mixdog scheduler: {name} markDone failed (attempt {attempt}/3): {err}");
                     if attempt < 3 {
-                        tokio::time::sleep(StdDuration::from_millis(250)).await;
+                        mixdog_rt::time::sleep(StdDuration::from_millis(250)).await;
                     }
                 }
             }

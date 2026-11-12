@@ -3,8 +3,10 @@
 pub(crate) mod common;
 mod edit;
 mod edit_plan;
+mod grep_context;
 mod hints;
 mod list;
+mod not_found;
 mod patch;
 mod patch_guard;
 mod patch_hunk;
@@ -56,3 +58,4 @@ pub fn read_state_key(path: &std::path::Path) -> String {
 pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;
+pub use search::SearchTimer;

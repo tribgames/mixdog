@@ -227,6 +227,22 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
     options.thread = Some(identity);
 }
 
+/// `...session.providerCacheOpts`, spread last into every send's options (`ask-turn-loop-options.mjs:74-77`): the
+/// session's cache policy. Its `cacheStrategy` is what the Anthropic body reads as `model_parameters.cacheStrategy`
+/// (a lead session's message breakpoints are `1h`), its `promptCacheScope` the request's cache scope.
+pub(crate) fn apply_cache_opts(options: &mut mixdog_core_api::domain::provider::RequestOptions, header: &Header) {
+    let Some(opts) = header.get("providerCacheOpts").and_then(Value::as_object) else { return };
+    if let Some(strategy) = opts.get("cacheStrategy").filter(|strategy| strategy.is_object()) {
+        let parameters = options.model_parameters.get_or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(parameters) = parameters.as_object_mut() {
+            parameters.insert("cacheStrategy".to_owned(), strategy.clone());
+        }
+    }
+    if let Some(scope) = opts.get("promptCacheScope").and_then(Value::as_str) {
+        options.prompt_cache_scope = Some(scope.to_owned());
+    }
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -315,11 +331,17 @@ impl HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
         let provider_id = text(header, "provider");
-        let provider = s
-            .registry
-            .get(provider_id)
-            .await
-            .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
+        // Node readies the route's provider when a stored session is resumed (`resume.mjs:108` `refreshRouteEffort` ->
+        // `route-resolution.mjs:38` `ensureProvidersReady(ensureProviderEnabled(config, provider))`); a thread opened
+        // after a restart has had no such step here, so the first request readies it the same way.
+        let provider = match s.registry.get(provider_id).await {
+            Some(provider) => Some(provider),
+            None => match seams.hop_host(thread, header) {
+                Some(host) => host.provider(provider_id).await.map_err(refuse)?,
+                None => None,
+            },
+        }
+        .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
         let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
@@ -344,6 +366,7 @@ impl HostRunParts {
         options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
+        apply_cache_opts(&mut options, header);
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
         options.wire_pin = wire_pin_of(header.get("wireRoute"));
@@ -569,6 +592,11 @@ impl RunParts for HostRunParts {
         // a side question's attempts do not (Node's `send-phase` is the loop's).
         config.request_begin = Some(super::tool_exclusions::request_begin(s.exclusions.clone(), thread.clone(), s.directory.clone()));
         config.options = options;
+        // `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
+        config.live_cwd = {
+            let live = directory.live_header(thread);
+            Some(Arc::new(move || live.header().get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()).and_then(AbsPath::new)))
+        };
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
@@ -605,6 +633,7 @@ impl RunParts for HostRunParts {
             let grants = directory.grants(thread);
             let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
             let (thread, cwd) = (thread.clone(), cwd.clone());
+            let live_cwd = config.live_cwd.clone();
             let observer = observer.clone();
             let approvals = s.approvals.clone();
             Box::new(move |context: GateContext| {
@@ -622,10 +651,11 @@ impl RunParts for HostRunParts {
                     thread_id: thread,
                     cwd,
                     cancel: context.cancel,
-                }))
+                }).with_live_cwd(live_cwd.clone()))
             })
         };
         let session_id = thread.as_str();
+        let live_cwd_for_hooks = config.live_cwd.clone();
         let read_body = config.read_body_required;
         // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
         let rows = Arc::new(mixdog_core_session::session::StoredRows::new());
@@ -657,7 +687,7 @@ impl RunParts for HostRunParts {
                     Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection)) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
-            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
+            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()).with_live_cwd(live_cwd_for_hooks))),
             reuse: Some({
                 let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
                 s.reuses.track(&reuse);

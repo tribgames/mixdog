@@ -8,6 +8,7 @@ pub mod chat_routes;
 pub mod model_catalog_feed;
 pub mod model_list;
 pub mod model_warmup;
+pub mod provider_warmup;
 pub mod statusline_warmup;
 #[cfg(test)]
 mod statusline_warmup_tests;

@@ -199,7 +199,7 @@ impl HostPacer {
             // Node's pacer has no shutdown; the caller's own cancel (`Pipeline::run`) ends the wait and the operation.
             .run(&mixdog_rt::CancellationToken::new(), async {
                 let ready_at = *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                tokio::time::sleep_until(tokio::time::Instant::from_std(ready_at)).await;
+                mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(ready_at)).await;
                 let result = operation.await;
                 let mut next = Instant::now() + HOST_INTERVAL;
                 if let Err(error) = &result
@@ -328,7 +328,7 @@ impl Pipeline {
                     last = Some(error);
                     tokio::select! {
                         () = cut.cancel.cancelled() => return Err(cut.aborted()),
-                        () = tokio::time::sleep(delay) => {}
+                        () = mixdog_rt::time::sleep(delay) => {}
                     }
                 }
             }
@@ -362,7 +362,7 @@ impl Pipeline {
                 } else {
                     remaining.max(Duration::from_millis(1))
                 };
-                let page = tokio::time::timeout(budget, self.execute(stage, url, budget))
+                let page = mixdog_rt::time::timeout(budget, self.execute(stage, url, budget))
                     .await
                     .map_err(|_| FetchError::new(FetchKind::StageTimeout, format!("{stage} timed out")))??;
                 assert_readable(&page.content)?;
@@ -374,7 +374,7 @@ impl Pipeline {
             biased;
             () = cut.cancel.cancelled() => Err(cut.aborted()),
             result = work => result,
-            () = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => Err(cut.total()),
+            () = mixdog_rt::time::sleep_until(mixdog_rt::time::Instant::from_std(deadline)) => Err(cut.total()),
         };
         let elapsed_ms = started.elapsed().as_millis();
         match result {

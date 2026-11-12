@@ -96,7 +96,7 @@ impl HeldPushNotifier {
         if waiting.is_empty() {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(DESKTOP_HOLD_MS)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(DESKTOP_HOLD_MS)).await;
         if !(self.enabled)() {
             return;
         }
@@ -339,7 +339,7 @@ mod tests {
     }
 
     async fn run_tasks() {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 
     #[tokio::test(start_paused = true)]

@@ -73,6 +73,25 @@ pub(crate) fn invalid(field: &str, reason: &str, message: impl Into<String>) -> 
     )
 }
 
+/// The optional scope `key` of list, find or glob as Node's argument guard leaves it (arg-guard.mjs
+/// `validateBuiltinArgs`): null and a blank string are absent (the cwd); an array is flattened one level with null and
+/// blank entries dropped, and is absent when that left nothing of a non-empty array; any other value, an array included,
+/// is refused with `refusal(<type>)`.
+pub(crate) fn optional_path_arg<'a>(args: &'a JsonValue, key: &str, refusal: impl Fn(&str) -> String) -> Result<Option<&'a str>, ToolError> {
+    let blank = |v: &JsonValue| v.is_null() || v.as_str().is_some_and(|s| mixdog_js::js_trim(s).is_empty());
+    match args.get(key) {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(s)) => Ok((!mixdog_js::js_trim(s).is_empty()).then_some(s.as_str())),
+        Some(JsonValue::Array(items))
+            if !items.is_empty()
+                && items.iter().flat_map(|item| item.as_array().map_or(std::slice::from_ref(item), Vec::as_slice)).all(blank) =>
+        {
+            Ok(None)
+        }
+        Some(other) => Err(invalid(key, "type", refusal(super::read_legacy::describe_type(other)))),
+    }
+}
+
 pub(crate) fn cancelled() -> ToolError {
     fail(ToolErrorCode::Cancelled, "Error: tool call cancelled")
 }
@@ -132,7 +151,7 @@ pub(crate) async fn guarded<F: Future>(
 ) -> Result<F::Output, ToolError> {
     let deadline = async {
         match ctx.deadline {
-            Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+            Some(at) => mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(at)).await,
             None => std::future::pending().await,
         }
     };
@@ -217,28 +236,51 @@ pub(crate) enum PullEnd {
     Exhausted,
     Cancelled,
     Deadline,
+    /// The pull's own timer passed first ([`pull_until`]).
+    Timer,
 }
 
-/// Pulls `source` into `sink` until it ends, `sink` returns `false`, the call
-/// is cancelled or the deadline passes. Dropping the source cancels it.
-pub(crate) async fn pull_all<T: Send>(
+/// [`pull_all`], ended also by `timer`.
+pub(crate) async fn pull_until<T: Send>(
     ctx: &ToolContext,
     source: &mut dyn EventSource<T>,
+    timer: impl Future<Output = ()>,
     mut sink: impl FnMut(T) -> bool,
 ) -> PullEnd {
-    loop {
-        let next = guarded(ctx, "pull", source.next()).await;
+    let mut timer = std::pin::pin!(timer);
+    let end = loop {
+        let next = tokio::select! {
+            biased;
+            next = guarded(ctx, "pull", source.next()) => next,
+            () = &mut timer => break PullEnd::Timer,
+        };
         match next {
             Ok(Some(item)) => {
                 if !sink(item) {
-                    return PullEnd::Exhausted;
+                    break PullEnd::Exhausted;
                 }
             }
-            Ok(None) => return PullEnd::Exhausted,
-            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return PullEnd::Cancelled,
-            Err(_) => return PullEnd::Deadline,
+            Ok(None) => break PullEnd::Exhausted,
+            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => break PullEnd::Cancelled,
+            Err(_) => break PullEnd::Deadline,
         }
-    }
+    };
+    let _ = guarded(ctx, "close", source.close()).await;
+    end
+}
+
+/// Pulls `source` into `sink` until it ends, `sink` returns `false`, the call
+/// is cancelled or the deadline passes, then closes it within the same
+/// deadline and cancellation, as Node ends its search child. The source's
+/// `close` says what has ended when it returns; one the deadline or the
+/// cancellation cuts short is dropped, which stops its producer without
+/// waiting for it.
+pub(crate) async fn pull_all<T: Send>(
+    ctx: &ToolContext,
+    source: &mut dyn EventSource<T>,
+    sink: impl FnMut(T) -> bool,
+) -> PullEnd {
+    pull_until(ctx, source, std::future::pending(), sink).await
 }
 
 // ---- paths ----
@@ -295,6 +337,21 @@ pub(crate) fn display_under(path: &Path, root: &Path) -> String {
 
 pub(crate) fn has_glob_magic(s: &str) -> bool {
     s.contains(['*', '?', '[', '{'])
+}
+
+/// Node `extractGlobBaseDirectory`: the directory written before the first wildcard (none when the
+/// pattern starts in its first segment) and the rest of the pattern, without leading slashes.
+pub(crate) fn extract_glob_base_directory(pattern: &str) -> (Option<String>, String) {
+    let wild = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
+    let Some(sep) = pattern[..wild].rfind(['/', '\\']) else {
+        return (None, pattern.to_owned());
+    };
+    let mut base = pattern[..sep].to_owned();
+    if cfg!(windows) && base.len() == 2 && base.as_bytes()[0].is_ascii_alphabetic() && base.as_bytes()[1] == b':' {
+        base.push('\\');
+    }
+    let rest = pattern[sep + 1..].trim_start_matches('/').to_owned();
+    ((!base.is_empty()).then_some(base), rest)
 }
 
 /// Directory entry order of `list`: case-insensitive, lowercase first on ties.

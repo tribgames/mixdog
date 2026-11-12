@@ -44,6 +44,7 @@ use mixdog_core_run::run_host::progress::ProgressPublisher;
 use mixdog_core_run::run_host::progress::StreamKind;
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
+use super::quiet_watch::QuietWatch;
 use super::tool_progress::{RunToolProgress, ToolHints};
 use mixdog_core_session::session::turn_snapshot::ReviewGate;
 use mixdog_core_session::session::failure_record::provider_turn_error;
@@ -240,9 +241,7 @@ impl RunFactory for RunHostFactory {
     }
 }
 
-pub(super) fn new_item_id() -> ItemId {
-    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
-}
+pub(super) use mixdog_core_session::session::run::new_item_id;
 
 fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
     RunOutcome::Failed(TurnError { message: message.into(), data, provider_error: None })
@@ -389,6 +388,25 @@ impl PortSink {
                 completion["checkpointId"] = json!(checkpoint);
             }
             transcript.entry("completion").or_insert(completion);
+        }
+        // Node's key order: the tool-call message opens with `role, createdAt` (`buildToolCallAssistantMessage`), the
+        // terminal reply puts its `meta` right after `content` (`appendAssistantTurnMessage`).
+        let lead: &[&str] = if !message.tool_calls().is_empty() {
+            &["role", "createdAt"]
+        } else if terminal.is_some() {
+            &["role", "content", "meta"]
+        } else {
+            &[]
+        };
+        if !lead.is_empty() {
+            let mut ordered = serde_json::Map::new();
+            for key in lead {
+                if let Some(value) = object.shift_remove(*key) {
+                    ordered.insert((*key).into(), value);
+                }
+            }
+            ordered.append(object);
+            *object = ordered;
         }
     }
 
@@ -565,6 +583,8 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The thread's model context, whose sensitive marks a tool batch's execution calls set.
+    context: mixdog_core_session::session::run::ModelContext,
 }
 
 impl PortObserver {
@@ -716,6 +736,11 @@ impl RunObserver for PortObserver {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
+            // On the loop's own task, before the assistant turn carrying the calls is committed (its encode reads the marks).
+            RunEvent::ExecutionCalls(calls) => {
+                let calls: Vec<Value> = calls.iter().map(|call| json!({ "id": call.id, "name": call.name, "arguments": call.arguments })).collect();
+                self.context.remember_sensitive(&calls);
+            }
             RunEvent::ToolCalls { calls, .. } => {
                 {
                     let mut observed = lock(&self.observed);
@@ -751,6 +776,29 @@ impl RunObserver for PortObserver {
 
     fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
         Retracted::Refused
+    }
+}
+
+/// The run's failure log with each failed call's arguments through the thread's sensitive projection and its result text
+/// with the thread's values replaced: the log is a file (`history/tool-failures.jsonl`), so a failed sensitive fill's
+/// value goes there as its marker, also where the tool's error repeats it. Node summarizes the arguments as they are
+/// (`agent-trace-format.mjs:526`, `summarizeToolArgs`) and takes the error line from the result text as it is, and so
+/// writes the value to disk: fixed on both sides (`redactSensitiveToolCall(sessionId, { arguments: toolArgs })`,
+/// `redactSensitiveText(sessionId, resultText)`, `node-fix-sensitive-side-writes.patch`).
+struct SensitiveFailures {
+    inner: Arc<dyn mixdog_agent::env::ToolFailureLog>,
+    context: mixdog_core_session::session::run::ModelContext,
+}
+
+impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
+    fn failed(&self, mut call: mixdog_agent::env::FailedCall) {
+        call.tool_args = self.context.redact_arguments(&call.tool_args);
+        call.result_text = self.context.redact_text(&call.result_text);
+        self.inner.failed(call);
+    }
+
+    fn stall_abort(&self, ctx: serde_json::Map<String, Value>) {
+        self.inner.stall_abort(ctx);
     }
 }
 
@@ -915,6 +963,7 @@ async fn drive(
     };
     parts.reset_turn_shells(&thread);
     let hints = ToolHints::start(progress.subscribe(), port.clone());
+    let quiet_changes = progress.subscribe();
     let watched = progress.subscribe();
     let tool_progress = RunToolProgress::new(progress.clone());
     let mut stored = match context.read().await {
@@ -967,6 +1016,7 @@ async fn drive(
     let Assembled {
         provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
+    let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context: context.clone() }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
     // before the first save.
@@ -1111,6 +1161,11 @@ async fn drive(
     } else {
         None
     };
+    // The quiet-time cue of a turn a person watches (`startQuietWatch` in the lead turn, `turn.mjs:781`), against the lead's warn point.
+    let quiet_watch = (!unattended).then(|| {
+        let warn_ms = mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
+        QuietWatch::start(quiet_changes, port.clone(), clock.clone(), Arc::new(TimerWait), warn_ms as f64)
+    });
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
     drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
@@ -1143,7 +1198,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), context: context.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1181,7 +1236,7 @@ async fn drive(
         sink: sink.clone(),
         gate,
         guards,
-        compactor,
+        compactor: compactor.map(|inner| Arc::new(super::goal_reminder_compactor::GoalReminderCompactor::new(inner, port.clone())) as Arc<dyn Compactor>),
         route,
         skills,
         hooks,
@@ -1207,6 +1262,9 @@ async fn drive(
     closing.end_reasoning();
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
+    if let Some(quiet_watch) = quiet_watch {
+        quiet_watch.finish().await;
+    }
     // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
     // A cancelled run's token has fired, but Node saves after the abort (`finalizeCancelledTurn`).
     let end_port = if cancel.is_cancelled() { port.closing() } else { port.clone() };
@@ -1232,6 +1290,7 @@ async fn drive(
             let mut transcript = output.transcript.clone();
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
+                message.turn_reminder.clone_from(&output.last_reminder);
                 *lock(&sink.terminal) = Some((output.iterations, output.tool_calls_total));
                 if let Err(error) = sink.commit(&message).await {
                     sink.flush().await;
@@ -1593,7 +1652,7 @@ mod tests {
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         // Woken by each step of the thread's actor; the frame is searched for before waiting.
-        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+        let shown = mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async { loop {
             let stepped = handle.stepped().notified();
             tokio::pin!(stepped);
             stepped.as_mut().enable();
@@ -2167,7 +2226,7 @@ mod tests {
         fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
             Default::default()
         }
-        fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        fn settings_changes(&self, _: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
             None
         }
         fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
@@ -2287,10 +2346,27 @@ mod tests {
         }
     }
 
-    struct NoHopSessions;
-    impl mixdog_core_run::run_host::hop_host::HopSessions for NoHopSessions {
+    /// Every thread is open for a hop; a hop never runs here (the scripted provider never fails), so the session's writes refuse.
+    struct OpenHopSessions;
+    impl mixdog_core_run::run_host::hop_host::HopSessions for OpenHopSessions {
         fn open(&self, _: &ThreadId) -> Option<Arc<dyn mixdog_core_run::run_host::hop_host::HopSession>> {
+            Some(Arc::new(NoHopWrites))
+        }
+    }
+    struct NoHopWrites;
+    #[async_trait]
+    impl mixdog_core_run::run_host::hop_host::HopSession for NoHopWrites {
+        fn header(&self) -> Option<Arc<mixdog_store::schema::record::Header>> {
             None
+        }
+        async fn write_hop(&self, _: mixdog_core_ports::ports::domain_sessions::Obj, _: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn write_wire_pin(&self, _: Value) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn rebuild_tool_surface(&self, _: &str) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
         }
     }
 
@@ -2400,13 +2476,18 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
+        turn_world_with(provider, vec![named("list"), named("Skill")], Arc::new(MockFileService::default()), false).await
+    }
+
+    /// [`turn_world`] over the tools `pool` and the file service `files` its tools read and write through; with
+    /// `header_surfaces` the tool surface of a thread is the one its header names (`HeaderToolSurfaces`), not the rig's empty one.
+    async fn turn_world_with(provider: Arc<dyn ProviderAdapter>, pool: Vec<Arc<dyn Tool>>, files: Arc<dyn mixdog_core_api::domain::fs::FileService>, header_surfaces: bool) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
         let ledger = Arc::new(Ledger::default());
         let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
         let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
-        let pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
         let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(MockProcessManager::default());
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let connectors: Arc<dyn mixdog_tools::policy::ConnectorPermissions> = mixdog_mcp::permissions::ConnectorPolicy::new(
@@ -2416,8 +2497,8 @@ mod tests {
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
             mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
-            tokens.cpu_bulk,
-            mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
+            mixdog_services::effort_judge::JudgeLanes::of(&tokens),
+            mixdog_services::effort_judge::judge::JudgeOptions::default(),
         )
         .unwrap();
         let compaction = super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await;
@@ -2442,7 +2523,7 @@ mod tests {
                 clock: clock.clone(),
             },
             next: next.clone(),
-            files: Arc::new(MockFileService::default()),
+            files,
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
@@ -2452,7 +2533,7 @@ mod tests {
             exclusions: Arc::default(),
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
-            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
+            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, workspace.path().to_path_buf(), Default::default())),
             blobs: Arc::new(NoBlobs),
             tool_pool: pool,
             mcp: Arc::new(NoMcp),
@@ -2478,6 +2559,9 @@ mod tests {
                     let mut deps = rig_deps;
                     deps.runs = runs;
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
+                    if header_surfaces {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                    }
                     deps
                 }
             }),
@@ -2497,13 +2581,14 @@ mod tests {
                             errors: Arc::new(|e| e.message.clone()),
                             wiring: Arc::new(NoWiring),
                         },
-                        Arc::new(NoHopSessions),
+                        Arc::new(OpenHopSessions),
                     )
                 }
             }),
         };
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
-        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        // No provider is registered ahead: as after a restart, the turn's first request readies the thread's provider.
+        assert!(path.registry.get("scripted").await.is_none());
         let directory = path.directory.clone();
         // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a
         // turn start writes into the header when it moved (`settings`, empty: nothing moved).
@@ -2719,7 +2804,7 @@ mod tests {
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started", "{op}");
-        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+        let sent = mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
             .expect("the provider is alive");
@@ -2752,7 +2837,7 @@ mod tests {
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
         let before = stored_state(&world, &id, &handle);
         let first = snapshot_call(&tools_status(&world), &id, "go").await;
@@ -2795,6 +2880,12 @@ mod tests {
     #[path = "../completion_node_cases.rs"]
     mod completion_node_cases;
 
+    #[path = "../live_cwd_node_cases.rs"]
+    mod live_cwd_node_cases;
+
+    #[path = "../../offload_prune_turn_tests.rs"]
+    mod offload_prune_turn_tests;
+
     /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
     /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
     /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.
@@ -2815,7 +2906,7 @@ mod tests {
         let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
         let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
         settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
         let (directory, parts) = world.next.bound().expect("bound");
         let directory = directory.upgrade().expect("directory");
@@ -2866,4 +2957,10 @@ mod tests {
         assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
         assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
     }
+
+    #[path = "../../restart_prefix_tests.rs"]
+    mod restart_prefix;
+
+    #[path = "../../session_message_sanitize_replay.rs"]
+    mod session_message_sanitize_replay;
 }

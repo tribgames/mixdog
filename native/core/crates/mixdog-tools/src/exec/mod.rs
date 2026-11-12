@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-mod archive;
+pub(crate) mod archive;
 mod bashism;
 mod benign;
 pub mod codepage;
@@ -25,6 +25,7 @@ mod shell_choice;
 pub mod shell_control;
 mod snapshot;
 mod spill;
+mod standby;
 mod task;
 mod text;
 mod wake;
@@ -34,6 +35,7 @@ pub use fold::fold_carriage_return_frames;
 pub use fold::fold_consecutive_duplicate_lines;
 pub use text::escape_harness_tags;
 pub use hoist::ExtSyntax;
+pub use invocation::POWERSHELL_BOOTSTRAP;
 pub use invocation::SkillRuntime;
 pub use invocation::skill_launcher_dir;
 pub use hoist::ScriptSyntax;
@@ -66,3 +68,6 @@ pub(crate) const KILL_VERIFY: Duration = Duration::from_secs(5);
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod prefilter_tests;

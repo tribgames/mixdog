@@ -67,7 +67,7 @@ fn inline_prompt_text(message: &Value) -> Option<String> {
 
 /// `promptContentImageMeta` (`queue-helpers.mjs:146`): the image parts of a queued prompt, byte-free, each named by the pasted image
 /// at its position (`options.pastedImages`, in the order Node's `Object.values` gives).
-fn image_meta(entry: &Value) -> Vec<Value> {
+pub fn image_meta(entry: &Value) -> Vec<Value> {
     let Some(parts) = entry.get("message").and_then(Value::as_array) else { return Vec::new() };
     let named: Vec<&Value> = entry.pointer("/options/pastedImages").and_then(Value::as_object).map(|map| map.values().collect()).unwrap_or_default();
     parts
@@ -105,13 +105,10 @@ fn image_meta(entry: &Value) -> Vec<Value> {
         .collect()
 }
 
-#[cfg(test)]
-#[path = "transcript_golden.rs"]
-mod transcript_golden;
 #[path = "transcript_response.rs"]
 mod transcript_response;
 #[path = "transcript_rows.rs"]
-mod transcript_rows;
+pub(crate) mod transcript_rows;
 
 pub use self::transcript_response::Completion;
 pub use self::transcript_response::Delivery;

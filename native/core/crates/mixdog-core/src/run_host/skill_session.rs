@@ -225,7 +225,7 @@ fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], un
     // `toolSearchNativePayload` without its summary: the result's own stands in.
     let payload = native.then(|| tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)).flatten().map(|mut payload| {
         if let Some(map) = payload.as_object_mut() {
-            map.remove("summary");
+            map.shift_remove("summary");
         }
         payload
     });
@@ -351,5 +351,3 @@ impl TranscriptTexts for ThreadTranscript {
     }
 }
 
-#[cfg(test)]
-mod tests;

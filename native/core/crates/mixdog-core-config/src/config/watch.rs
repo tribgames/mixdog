@@ -78,7 +78,7 @@ impl ConfigWatcher {
         let task = tokio::spawn(async move {
             while events.recv().await.is_some() {
                 // Trailing debounce: the reload reads after the last batch of the burst.
-                while let Ok(Some(())) = tokio::time::timeout(DEBOUNCE, events.recv()).await {}
+                while let Ok(Some(())) = mixdog_rt::time::timeout(DEBOUNCE, events.recv()).await {}
                 // A file that does not parse yet is a write in progress: the document stays, and
                 // the completing write raises the next event.
                 let _ = config.reload().await;

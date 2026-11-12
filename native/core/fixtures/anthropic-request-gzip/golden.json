@@ -1,0 +1,369 @@
+{
+  "note": "Node's Anthropic API-key fetch and SSE framing at b6f10295a2f698afc85332467192de28500bd146 over their unit tests' cases",
+  "minBytes": 8192,
+  "gzip": [
+    {
+      "name": "official origin: a large body is gzipped",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": "gzip",
+              "body": "gzip"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    },
+    {
+      "name": "a small body is not compressed",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "small",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    },
+    {
+      "name": "the kill switch turns compression off",
+      "env": "0",
+      "extraHeaders": null,
+      "statuses": [
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    },
+    {
+      "name": "custom bases and look-alike origins are never compressed",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://proxy.example.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "http://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "https://api.anthropic.com.evil.test",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "https://api.anthropic.com:8443",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "http://localhost:8080",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    },
+    {
+      "name": "400 on a gzipped request: one plain resend, latch after it succeeds",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        400,
+        200,
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": "gzip",
+              "body": "gzip"
+            },
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": true
+    },
+    {
+      "name": "415 on a gzipped request: one plain resend, latch after it succeeds",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        415,
+        200,
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": "gzip",
+              "body": "gzip"
+            },
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": true
+    },
+    {
+      "name": "no latch when the plain resend also fails; its response is returned",
+      "env": null,
+      "extraHeaders": null,
+      "statuses": [
+        400,
+        401,
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 401,
+          "sent": [
+            {
+              "encoding": "gzip",
+              "body": "gzip"
+            },
+            {
+              "encoding": null,
+              "body": "plain"
+            }
+          ]
+        },
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": "gzip",
+              "body": "gzip"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    },
+    {
+      "name": "a request that already has Content-Encoding is not double-encoded",
+      "env": null,
+      "extraHeaders": {
+        "content-encoding": "br"
+      },
+      "statuses": [
+        200
+      ],
+      "sends": [
+        {
+          "base": "https://api.anthropic.com",
+          "size": "large",
+          "status": 200,
+          "sent": [
+            {
+              "encoding": "br",
+              "body": "plain"
+            }
+          ]
+        }
+      ],
+      "latched": false
+    }
+  ],
+  "framing": [
+    {
+      "region": "event:content_block_delta\ndata:{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"b\"}}\n\n",
+      "frames": [
+        {
+          "name": "content_block_delta",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}"
+        },
+        {
+          "name": "content_block_delta",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"b\"}}"
+        }
+      ],
+      "currentEvent": "content_block_delta",
+      "events": [
+        {
+          "name": "content_block_delta",
+          "value": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "a"
+            }
+          }
+        },
+        {
+          "name": "content_block_delta",
+          "value": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "b"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "region": ": ping\nid: 7\ndata:\ndata: \nretry: 5\ndata:{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"c\"}}\n",
+      "frames": [
+        {
+          "name": "content_block_delta",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"c\"}}"
+        }
+      ],
+      "currentEvent": "content_block_delta",
+      "events": [
+        {
+          "name": "content_block_delta",
+          "value": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "c"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "region": "data:{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"d\"}}\n",
+      "frames": [
+        {
+          "name": "content_block_delta",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"d\"}}"
+        }
+      ],
+      "currentEvent": "content_block_delta",
+      "events": [
+        {
+          "name": "content_block_delta",
+          "value": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "d"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

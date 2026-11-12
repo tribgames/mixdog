@@ -43,3 +43,5 @@ pub use server::ConnectionHandle;
 pub use server::Inbound;
 pub use server::is_control;
 pub use server::OriginOf;
+#[cfg(feature = "replay-controls")]
+pub use server::REPLAY_STORES_SETTLED;

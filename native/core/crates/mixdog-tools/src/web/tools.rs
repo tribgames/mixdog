@@ -290,7 +290,7 @@ impl WebService {
         };
         let outcome = tokio::select! {
             () = cancel.cancelled() => Err(FetchError::new(super::error::FetchKind::Cancelled, "Fetch cancelled")),
-            result = tokio::time::timeout(self.timeout, run) => match result {
+            result = mixdog_rt::time::timeout(self.timeout, run) => match result {
                 Ok(result) => result,
                 Err(_) => Err(FetchError::new(
                     super::error::FetchKind::Timeout,

@@ -207,7 +207,7 @@ fn conversation(name: &str) -> Vec<Value> {
 }
 
 async fn settle(time: Duration) {
-    tokio::time::sleep(time).await;
+    mixdog_rt::time::sleep(time).await;
     // Let the spawned timer task run its check.
     for _ in 0..20 {
         tokio::task::yield_now().await;
@@ -234,7 +234,7 @@ async fn a_final_delivery_that_yields_is_not_cancelled_by_the_stop_it_follows() 
                 for _ in 0..5 {
                     tokio::task::yield_now().await;
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(50)).await;
                 sink.lock().unwrap().push((status, text, id));
                 Ok(())
             })
