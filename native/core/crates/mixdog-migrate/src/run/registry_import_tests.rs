@@ -69,7 +69,7 @@ fn with_root(value: &Value, root: &str) -> Value {
 }
 
 fn migrate(roots: &MigrationRoots) {
-    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault: None }).run().unwrap();
+    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault: None, verified: None }).run().unwrap();
 }
 
 fn catalog(roots: &MigrationRoots) -> Catalog {

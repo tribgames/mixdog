@@ -488,6 +488,16 @@ impl ComposedCore {
         self.real.sweep_store(data_dir, stop)
     }
 
+    /// The one catalog index: the migration that converts the sessions behind the serving core takes each one in through it.
+    pub fn catalog_index(&self) -> Arc<mixdog_store::sqlite::SqliteStore> {
+        self.real.catalog_index.clone()
+    }
+
+    /// Binds the sessions that are listed before they are there: an open of one waits for its conversion, which that open asks for first.
+    pub fn set_arriving(&self, arriving: Arc<dyn mixdog_core_session::session::ArrivingThreads>) -> Result<(), &'static str> {
+        self.real.directory.set_arriving(arriving)
+    }
+
     /// The webhook event pipeline, which `serve` runs once startup has finished.
     pub fn event_pipeline(&self) -> &Arc<crate::event_pipeline::EventPipeline> {
         &self.real.event_pipeline

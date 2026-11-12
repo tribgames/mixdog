@@ -146,7 +146,7 @@ fn a_log_that_is_not_the_manifests_publishes_nothing() {
             Ok(())
         })
     };
-    let (_runtime, migrator) = migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook) });
+    let (_runtime, migrator) = migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook), verified: None });
     let Err(Blocked::SourceChanged { path: refused }) = migrator.run() else {
         panic!("a log that is not the manifest's was migrated");
     };

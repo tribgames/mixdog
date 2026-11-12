@@ -222,7 +222,7 @@ fn fixture(root: &Path) -> MigrationRoots {
 }
 
 fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
-    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault })
+    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault, verified: None })
 }
 
 /// The `reason.json` bodies of unexpected quarantines.
@@ -1101,6 +1101,96 @@ fn v145_model_switches_become_records() {
     assert_eq!(Value::Array(records), switches);
     let again = Migrator::new(roots.clone(), drivers(), MigrateOptions::default()).run().unwrap();
     assert_eq!(again, complete);
+}
+
+/// The open index of a serving core, as far as the migration sees it: the sessions it was given, in the order it got
+/// them, and a database holding their rows.
+#[derive(Default)]
+struct ServingStandIn {
+    given: Mutex<Vec<String>>,
+}
+
+impl crate::index::ServingIndex for ServingStandIn {
+    fn adopt(&self, data: &Path, session: &str) -> std::result::Result<(), String> {
+        let mut given = self.given.lock().unwrap();
+        given.push(session.to_owned());
+        let mut held = given.clone();
+        held.sort();
+        held.dedup();
+        let db = data.join(crate::index::INDEX_PATH);
+        std::fs::create_dir_all(db.parent().unwrap()).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&db);
+        TestProjector.project(data, &db, &held)
+    }
+}
+
+impl IndexProjector for ServingStandIn {
+    fn project(&self, _: &Path, db: &Path, _: &[String]) -> std::result::Result<(), String> {
+        Err(format!("a serving core's migration built an index of its own at {}", db.display()))
+    }
+
+    fn serving(&self) -> Option<&dyn crate::index::ServingIndex> {
+        Some(self)
+    }
+}
+
+/// The first start after the update: the core serves once the front is settled (the settings rewritten, no session
+/// converted, nothing disposed, no marker), and the sessions convert behind it, each handed to its index once verified.
+/// What it completes with is what the one-shot run completes with.
+#[test]
+fn the_sessions_convert_behind_a_core_that_serves_from_the_front() {
+    let whole = tempfile::tempdir().unwrap();
+    let expected = migrator(&fixture(whole.path()), None).run().unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let index = Arc::new(ServingStandIn::default());
+    let told: Arc<Mutex<Vec<String>>> = Arc::default();
+    let serving = || {
+        let told = told.clone();
+        Migrator::new(
+            roots.clone(),
+            product_drivers(index.clone(), crate::session::context_blobs::testing::office(Arc::default())),
+            MigrateOptions { workers: 1, fault: None, verified: Some(Arc::new(move |id| told.lock().unwrap().push(id.to_owned()))) },
+        )
+    };
+    let Front::Pending(back) = serving().front().unwrap() else { panic!("the front completed a migration with sessions left") };
+    let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join("mixdog-config.json")).unwrap()).unwrap();
+    assert_eq!(config["quotaAutoResume"], json!(false), "the settings a core composes from are rewritten");
+    assert_eq!(back.sessions(), 2);
+    for waiting in ["sessions/sess_a.json", "sessions/sess_b.log.jsonl", "agent-workers.json"] {
+        assert!(roots.data.join(waiting).exists(), "{waiting} is a source of a session still to convert");
+    }
+    for absent in ["sessions/sess_a", "sessions/sess_b", "index/store.sqlite", COMPLETE_PATH] {
+        assert!(!roots.data.join(absent).exists(), "{absent}");
+    }
+    assert!(told.lock().unwrap().is_empty());
+    assert!(index.given.lock().unwrap().is_empty());
+
+    // Both are listed as still to come; a person opens the second, which is then converted ahead of the first.
+    let waiting = back.waiting();
+    assert_eq!(waiting.pending(), ["sess_a", "sess_b"]);
+    let opened = Arc::new(AtomicUsize::new(0));
+    let there = opened.clone();
+    assert!(waiting.first("sess_b", Box::new(move || drop(there.fetch_add(1, Ordering::SeqCst)))));
+    assert!(!waiting.first("sess_gone", Box::new(|| panic!("no session of the migration"))));
+
+    // The serving core writes a cache under a name 1.4.5 used too: the file is the core's now, and stays.
+    write(&roots.data, "client-versions.json", br#"{"core":1}"#);
+    let complete = back.run().unwrap();
+    assert_eq!(complete.kinds, expected.kinds);
+    assert_eq!(std::fs::read(roots.data.join("client-versions.json")).unwrap(), br#"{"core":1}"#);
+    assert_eq!(*told.lock().unwrap(), ["sess_b", "sess_a"]);
+    assert_eq!(opened.load(Ordering::SeqCst), 1, "the open that asked was told once");
+    assert!(waiting.pending().is_empty());
+    assert!(!waiting.first("sess_a", Box::new(|| panic!("settled already"))));
+    for gone in ["sessions/sess_a.json", "sessions/sess_b.log.jsonl", "agent-workers.json"] {
+        assert!(!roots.data.join(gone).exists(), "{gone}");
+    }
+    for present in ["sessions/sess_a/log.000000", "sessions/sess_b/log.000000"] {
+        assert!(roots.data.join(present).exists(), "{present}");
+    }
+    assert!(matches!(serving().front().unwrap(), Front::Complete(again) if again == complete));
 }
 
 #[test]

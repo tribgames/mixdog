@@ -186,6 +186,8 @@ pub(crate) struct DirInner {
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
     exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
+    /// The threads that are listed before they are there (`ArrivingThreads`).
+    arriving: std::sync::OnceLock<Arc<dyn ArrivingThreads>>,
     /// Where a thread's moved live facts republish its roster row (every cell holds it).
     live_rows: super::control::LiveRowsCell,
     /// The shutdown began: the session service is closed.
@@ -253,6 +255,13 @@ impl DurabilitySettling {
             })
             .collect()
     }
+}
+
+/// Threads that are listed before they are there: the sessions of the earlier version, which convert behind the serving
+/// core. One that is opened is asked for ahead of the rest, and its open waits for it.
+pub trait ArrivingThreads: Send + Sync {
+    /// The wait for `thread` to be there, when it is still to arrive; `None` for every other thread.
+    fn arriving(&self, thread: &ThreadId) -> Option<futures::future::BoxFuture<'static, ()>>;
 }
 
 pub struct SessionDirectory {
@@ -343,6 +352,7 @@ impl SessionDirectory {
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
+            arriving: std::sync::OnceLock::new(),
             live_rows: Default::default(),
             closed: Default::default(),
             teardowns: Default::default(),
@@ -857,6 +867,11 @@ impl SessionDirectory {
         self.inner.owner_teardown.set(hook).map_err(|_| "the owner teardown is already bound")
     }
 
+    /// Binds the threads that are listed before they are there; once.
+    pub fn set_arriving(&self, arriving: Arc<dyn ArrivingThreads>) -> Result<(), &'static str> {
+        self.inner.arriving.set(arriving).map_err(|_| "the arriving threads are already bound")
+    }
+
     /// Binds what a runtime's teardown does to its own session; once.
     pub fn set_exit_close(&self, hook: Arc<dyn ExitClose>) -> Result<(), &'static str> {
         self.inner.exit_close.set(hook).map_err(|_| "the exit close is already bound")
@@ -1291,6 +1306,10 @@ impl DirInner {
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
                         me.settle_teardowns(&thread).await;
+                        // A session of the earlier version that is listed and not yet converted is converted now, ahead of the rest.
+                        if let Some(there) = me.arriving.get().and_then(|arriving| arriving.arriving(&thread)) {
+                            there.await;
+                        }
                         let result = me.load(&thread).await;
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,

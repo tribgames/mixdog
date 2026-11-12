@@ -657,6 +657,12 @@ fn handles(kind: ItemKind) -> bool {
     ) || STORES.iter().any(|s| s.kind == kind)
 }
 
+/// A preserved store as it stands. It is its own target, verified in its wave; the core that serves while the sessions
+/// convert may have written it since, so its links are read from the file there is, not from the planned bytes.
+fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::SourceFile) -> Result<Vec<u8>> {
+    durable::read(&cx.source_path(source)?)
+}
+
 /// Session ids named by a preserved keyed store (SM §11.6 `links`).
 fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<String>> {
     let mut ids = Vec::new();
@@ -676,7 +682,7 @@ fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<Stri
         K::ConnectorAccounts => {
             for s in &item.sources {
                 if s.path == "connector-accounts-by-conversation.json" {
-                    let value = json::parse_source(&cx.read_source(s)?).map_err(Blocked::journal)?.value;
+                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
                     if let Some(map) = value.as_object() {
                         ids.extend(map.keys().cloned());
                     }
@@ -700,7 +706,7 @@ fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<Stri
             }
             for s in &item.sources {
                 if s.path.ends_with(".json") {
-                    let value = json::parse_source(&cx.read_source(s)?).map_err(Blocked::journal)?.value;
+                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
                     owners(&value, &mut ids);
                 }
             }
@@ -741,7 +747,7 @@ impl ItemDriver for StoresDriver {
 
     fn wave(&self, item: &ManifestItem) -> Wave {
         if [LEGACY_COMPACTION_ITEM, LEGACY_QUOTA_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
-            Wave::Late
+            Wave::Settings
         } else {
             Wave::Stores
         }
@@ -801,10 +807,13 @@ impl ItemDriver for StoresDriver {
 
     fn dangling(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<u64> {
         let migrated: std::collections::BTreeSet<&str> = cx.verified_sessions().collect();
-        Ok(linked_sessions(item, cx)?
-            .iter()
-            .filter(|id| !migrated.contains(id.as_str()))
-            .count() as u64)
+        let mut dangling = 0;
+        for id in linked_sessions(item, cx)? {
+            // A session the serving core created since is named by the store as it stands, and is there.
+            let created = crate::session::source::is_session_id(&id) && durable::exists(&cx.roots.data.join(crate::session::SESSIONS_DIR).join(&id))?;
+            dangling += u64::from(!migrated.contains(id.as_str()) && !created);
+        }
+        Ok(dangling)
     }
 
     fn keeps_sources(&self, item: &ManifestItem) -> bool {

@@ -77,6 +77,8 @@ pub struct PlanSink {
     roots: MigrationRoots,
     items: BTreeMap<String, ManifestItem>,
     shared: BTreeMap<(Root, String), (SourceFile, BTreeSet<String>)>,
+    /// Size and SHA-256 of the files [`Self::hash_ahead`] read.
+    hashed: BTreeMap<(Root, String), (u64, String)>,
 }
 
 impl PlanSink {
@@ -85,13 +87,42 @@ impl PlanSink {
             roots: roots.clone(),
             items: BTreeMap::new(),
             shared: BTreeMap::new(),
+            hashed: BTreeMap::new(),
         }
+    }
+
+    /// Hashes the files `rels` of `root` on every core, for the [`Self::source`] calls that follow: a session's log is the
+    /// bulk of what a plan reads, and one file after another is what a person waits for at the first start.
+    pub fn hash_ahead(&mut self, root: Root, rels: &[String]) -> Result<()> {
+        let paths: Vec<_> = rels.iter().map(|rel| self.roots.resolve(root, rel)).collect::<Result<_>>()?;
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let done = std::sync::Mutex::new(Vec::with_capacity(paths.len()));
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(paths.len().max(1));
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(path) = paths.get(i) else { break };
+                        let hashed = durable::hash_file(path);
+                        done.lock().expect("hashed").push((i, hashed));
+                    }
+                });
+            }
+        });
+        for (i, hashed) in done.into_inner().expect("hashed") {
+            self.hashed.insert((root, rels[i].clone()), hashed?);
+        }
+        Ok(())
     }
 
     /// A source file entry: size and SHA-256 of the file as it is now.
     pub fn source(&self, root: Root, rel: &str, secret: bool) -> Result<SourceFile> {
         let path = self.roots.resolve(root, rel)?;
-        let (size, sha256) = durable::hash_file(&path)?;
+        let (size, sha256) = match self.hashed.get(&(root, rel.to_string())) {
+            Some(hashed) => hashed.clone(),
+            None => durable::hash_file(&path)?,
+        };
         Ok(SourceFile {
             root,
             path: rel.to_string(),

@@ -90,13 +90,21 @@ impl MigrationRoots {
 pub enum Wave {
     /// Preserved stores (settings first by key order), retire, retain, the ledger.
     Stores,
+    /// Items that need verified settings (profile config keys, state tables, the record of the
+    /// session metadata). None reads a migrated session, so they settle before the sessions do.
+    Settings,
     /// Session items (CPU-bound conversion, bounded parallelism).
     Sessions,
-    /// The index build over every published session.
+    /// The index over every published session.
     Index,
-    /// Items that need verified settings and published sessions (profile config keys,
-    /// state tables, session metadata).
-    Late,
+}
+
+impl Wave {
+    /// Whether the core waits for this wave before it serves: everything but the sessions and their index, which a
+    /// serving core takes in one by one ([`crate::run::Back`]).
+    pub fn before_serving(self) -> bool {
+        self <= Wave::Settings
+    }
 }
 
 /// Outcome of `ItemDriver::stage`.
@@ -177,7 +185,7 @@ pub enum BlobStatus {
 pub struct BlobStatuses(Mutex<HashMap<String, BlobStatus>>);
 
 /// The migrated sessions as items of a later wave see them (SPEC §4.11): the session wave
-/// is settled before `Wave::Index` and `Wave::Late` start.
+/// is settled before `Wave::Index` starts.
 pub trait SessionView {
     /// Whether `session/<id>` reached `verified`.
     fn is_migrated(&self, session_id: &str) -> bool;

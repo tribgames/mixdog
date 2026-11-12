@@ -320,7 +320,7 @@ fn crash_child() {
     BASE.set(Path::new(&base).to_path_buf()).expect("once");
     durable::set_step_hook(on_step);
     let roots = roots_at(Path::new(&base));
-    migrator(&roots, MigrateOptions { workers: 1, fault: None }).run().expect("the run the child was not stopped in");
+    migrator(&roots, MigrateOptions { workers: 1, fault: None, verified: None }).run().expect("the run the child was not stopped in");
     if let Some(log) = std::env::var_os("MIG145_LOG") {
         std::fs::write(log, LOG.lock().expect("log").join("\n")).expect("step log");
     }
@@ -431,13 +431,13 @@ fn crash_points(chunk: usize, chunks: usize, prepare: Prepare) {
                 // The manifest names the dir a run was in, so every run of this worker is in one path: the
                 // uninterrupted run first, then a kill and a resume for each of its steps.
                 prepare(&base);
-                migrator(&roots_at(&base), MigrateOptions { workers: 1, fault: None }).run().expect("the uninterrupted run");
+                migrator(&roots_at(&base), MigrateOptions { workers: 1, fault: None, verified: None }).run().expect("the uninterrupted run");
                 let want = tree_digest(&roots_at(&base));
                 durable::remove_dir_all(&base).expect("clean");
                 for &(stop_at, step) in mine.iter().skip(worker).step_by(CHUNK_WORKERS) {
                     let roots = prepare(&base);
                     assert_eq!(child(&base, Some(stop_at), None), Some(KILLED), "step {stop_at} ({step}) was not reached");
-                    migrator(&roots, MigrateOptions { workers: 1, fault: None })
+                    migrator(&roots, MigrateOptions { workers: 1, fault: None, verified: None })
                         .run()
                         .unwrap_or_else(|e| panic!("resume after a kill in step {stop_at} ({step}): {e}"));
                     let got = tree_digest(&roots);

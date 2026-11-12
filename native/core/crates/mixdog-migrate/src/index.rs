@@ -46,6 +46,17 @@ const STAGED_FILE: &str = "store.sqlite";
 /// database at `db` (absent before the call; closed, without WAL, after it).
 pub trait IndexProjector: Send + Sync {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> std::result::Result<(), String>;
+
+    /// The index a core is serving from, when the sessions convert behind one: the item then builds no database of its own.
+    fn serving(&self) -> Option<&dyn ServingIndex> {
+        None
+    }
+}
+
+/// The open index of a serving core, which holds the database the item would otherwise publish.
+pub trait ServingIndex: Send + Sync {
+    /// Brings the published session `session` of `data` into the index; one it already holds is left as it is.
+    fn adopt(&self, data: &Path, session: &str) -> std::result::Result<(), String>;
 }
 
 pub struct IndexDriver {
@@ -88,6 +99,25 @@ fn sessions(cx: &ItemContext<'_>) -> Vec<String> {
     cx.verified_sessions().map(str::to_string).collect()
 }
 
+/// The sha256 of the migrated session ids, one per line: what the item of a serving index stages and verifies. The rows
+/// themselves move with the core's own writes, so only that each session is held is the migration's to say.
+fn held(sessions: &[String]) -> String {
+    durable::sha256_hex(sessions.iter().map(|id| format!("{id}\n")).collect::<String>().as_bytes())
+}
+
+/// Every verified session brought into the serving index (a session verified by a run that ended before it was taken in
+/// included).
+fn adopt_all(cx: &ItemContext<'_>, index: &dyn ServingIndex, sessions: &[String]) -> Result<()> {
+    for id in sessions {
+        index.adopt(&cx.roots.data, id).map_err(|os_error| Blocked::Io {
+            op: "adopt_session",
+            path: cx.roots.data.join("sessions").join(id),
+            os_error,
+        })?;
+    }
+    Ok(())
+}
+
 impl ItemDriver for IndexDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let _ = roots;
@@ -110,6 +140,14 @@ impl ItemDriver for IndexDriver {
     }
 
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
+        if let Some(index) = self.projector.serving() {
+            let sessions = sessions(cx);
+            adopt_all(cx, index, &sessions)?;
+            return Ok(Staged::Output {
+                output_sha256: held(&sessions),
+                replaced_surrogates: 0,
+            });
+        }
         let stage = cx.stage_dir(item.key.as_str());
         durable::create_dir_all(&stage)?;
         let db = stage.join(STAGED_FILE);
@@ -130,6 +168,10 @@ impl ItemDriver for IndexDriver {
     }
 
     fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry) -> Result<()> {
+        // The serving core's index is the target, and it is in place.
+        if self.projector.serving().is_some() {
+            return Ok(());
+        }
         let target = cx.roots.data.join(INDEX_PATH);
         let stage = cx.stage_dir(item.key.as_str()).join(STAGED_FILE);
         if !durable::exists(&stage)? {
@@ -154,6 +196,18 @@ impl ItemDriver for IndexDriver {
 
     fn verify(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Verdict> {
         let db = cx.roots.data.join(INDEX_PATH);
+        if let Some(index) = self.projector.serving() {
+            // A run that staged, then ended, may have verified sessions the index was never given.
+            let sessions = sessions(cx);
+            adopt_all(cx, index, &sessions)?;
+            let have = projected(&db)?;
+            if let Some(missing) = sessions.iter().find(|id| !have.contains_key(*id)) {
+                return Err(Blocked::journal(format!("the serving index holds no row of {missing}")));
+            }
+            return Ok(Verdict::Verified {
+                digest: Some(crate::json::hex_digest(&held(&sessions))),
+            });
+        }
         let want = expected(cx, &sessions(cx))?;
         let have = projected(&db)?;
         if want != have {
@@ -172,6 +226,9 @@ impl ItemDriver for IndexDriver {
     }
 
     fn withdraw(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<()> {
+        if self.projector.serving().is_some() {
+            return Ok(());
+        }
         // A derived index that does not verify is rebuilt by the runtime from the logs.
         durable::remove_file(&cx.roots.data.join(INDEX_PATH)).map(drop)
     }
