@@ -223,6 +223,11 @@ impl AccessToken for ApiKeyAccess {
             return Ok(access);
         }
         let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
+        // The exchanged token is a credential before any request carries it; the key's next one replaces it.
+        crate::oauth::carried::keep(
+            &crate::oauth::carried::derived_source("cursor exchange", &self.api_key),
+            &[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()],
+        );
         let access = tokens.access_token.clone();
         self.cached.store(Some(std::sync::Arc::new(tokens)));
         Ok(access)

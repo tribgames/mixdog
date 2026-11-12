@@ -60,11 +60,14 @@ pub trait Environment: Send + Sync {
     fn var(&self, name: &str) -> Option<String>;
 
     /// A read of a credential or key variable. Every such read in production goes through here, so the work counter
-    /// sees it whichever `Environment` is injected.
+    /// sees it whichever `Environment` is injected, and what it yields is a credential before anything can carry it
+    /// (`carried::keep`, the variable its source).
     fn key_var(&self, name: &str) -> Option<String> {
         #[cfg(feature = "count-work")]
         crate::work::credential_read();
-        self.var(name)
+        let value = self.var(name);
+        crate::oauth::carried::keep(&format!("env {name}"), &value.as_deref().into_iter().collect::<Vec<_>>());
+        value
     }
 }
 
@@ -73,7 +76,10 @@ pub trait Environment: Send + Sync {
 pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
     #[cfg(feature = "count-work")]
     crate::work::credential_read();
-    std::env::var_os(name)
+    let value = std::env::var_os(name);
+    let text = value.as_ref().map(|value| value.to_string_lossy());
+    crate::oauth::carried::keep(&format!("env {name}"), &text.as_deref().into_iter().collect::<Vec<_>>());
+    value
 }
 
 /// The real process environment.
@@ -113,6 +119,11 @@ fn provider_secret_env(provider: &str) -> String {
         }
     }
     format!("MIXDOG_AGENT_{id}_APIKEY")
+}
+
+/// The source of a value read out of the keychain `account` (`carried::keep`).
+pub fn keychain_source(account: &str) -> String {
+    format!("keychain {account}")
 }
 
 /// The keychain account of a provider's primary key.
@@ -188,10 +199,19 @@ impl ApiKeyStore {
     async fn stored(&self, account: &str) -> Result<Option<String>, VaultError> {
         // Not counted here: the store behind the vault performs (and counts) the read.
         match self.vault.get(account).await {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                crate::oauth::carried::keep(&keychain_source(account), &value.as_deref().into_iter().collect::<Vec<_>>());
+                Ok(value)
+            }
             Err(error) if error.unrun => Err(error),
             Err(_) => Ok(None),
         }
+    }
+
+    /// A configured key: its source is the provider's config entry.
+    fn configured(provider: &str, key: &str) -> String {
+        crate::oauth::carried::keep(&format!("config {provider}"), &[key]);
+        key.to_owned()
     }
 
     /// Presence-only probe.
@@ -222,7 +242,7 @@ impl ApiKeyStore {
             return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
-            return Ok(key.to_owned());
+            return Ok(Self::configured(provider, key));
         }
         Ok(self.get(provider).await?.unwrap_or_default())
     }
@@ -247,7 +267,7 @@ impl ApiKeyStore {
         if let Some(key) = self.get(provider).await? {
             return Ok(key);
         }
-        Ok(config.api_key.clone().unwrap_or_default())
+        Ok(config.api_key.as_deref().filter(|k| !k.is_empty()).map(|key| Self::configured(provider, key)).unwrap_or_default())
     }
 
     /// Stores `provider`'s key in the keychain (`setSecret`).

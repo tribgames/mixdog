@@ -302,6 +302,8 @@ pub async fn exchange_user_jwt(
     if decoded.user_jwt.is_empty() {
         return Err(protocol_error("Devin GetUserJwt returned no user JWT"));
     }
+    // The user JWT every chat call carries is a credential before any does; the account's next one replaces it.
+    crate::oauth::carried::keep(&crate::oauth::carried::derived_source("devin user jwt", session_token), &[&decoded.user_jwt]);
     let custom = decoded.custom_api_server_url.trim();
     Ok(UserSession {
         jwt: decoded.user_jwt,

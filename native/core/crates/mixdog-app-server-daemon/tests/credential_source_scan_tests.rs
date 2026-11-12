@@ -86,6 +86,12 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/anthropic/adapter.rs", "settings: Arc::new(|name| std::env::var(name).ok())", "the adapter's settings reader over the process environment (the request-gzip switch MIXDOG_ANTHROPIC_REQ_GZIP, the keep-alive time)"),
     ("mixdog-ai/src/providers/anthropic/codec.rs", "MIXDOG_ANTHROPIC_MESSAGE_THREADS", "the message-threads switch"),
     ("mixdog-ai/src/providers/anthropic/threads.rs", "MIXDOG_QUIET_PROVIDER_LOG", "the switch that silences the provider's stderr line"),
+    ("mixdog-ai/src/providers/anthropic/catalog_caps.rs", "MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT", "a feature flag"),
+    // The Gemini wire's process settings: the cache tuning variables (`semantic_idle_ms` and the cache policy) and the
+    // Antigravity function-calling mode, none a credential.
+    ("mixdog-ai/src/providers/google/adapter.rs", "var: Arc::new(|name| std::env::var(name).ok())", "the adapter's settings reader over the process environment (cache tuning variables)"),
+    ("mixdog-ai/src/providers/google/codec.rs", "MIXDOG_ANTIGRAVITY_FC_MODE", "Antigravity's function-calling mode"),
+    ("mixdog-ai/src/registry/builder.rs", "Arc::new(move |name| env.var(name))", "the Gemini adapter's settings reader (with_settings): the cache tuning variables"),
     ("mixdog-ai/src/registry/builder.rs", "Arc::new(move |name| context.var(name))", "the wire settings reader over the process's request context (WireContext::var), the same switches"),
     ("mixdog-ai/src/admission/settings.rs", "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE", "a queue bound"),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
@@ -106,7 +112,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core/src/run_host/process.rs", "MIXDOG_CODEX_INSTALLATION_ID", "an installation identifier"),
     ("mixdog-core/src/run_host/builder_env.rs", "env.var(name).map(|v| mixdog_js::js_trim(&v)", "set(): MIXDOG_CODEX_USER_AGENT, _ORIGINATOR, _VERSION, TERM_PROGRAM: header texts"),
     ("mixdog-core/src/run_host/builder_env.rs", "MIXDOG_CODEX_BETA_FEATURES", "a feature list"),
-    ("mixdog-core/src/run_host/builder_env.rs", "MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT", "a feature flag"),
 ];
 
 fn crates_dir() -> PathBuf {

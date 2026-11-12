@@ -340,11 +340,11 @@ struct StoredKey {
 impl FileKey {
     async fn read(&self) -> Result<String, ProviderError> {
         match self.file.load::<StoredKey>().await {
-            Probe::Present(stored) => stored
-                .api_key
-                .or(stored.access_token)
-                .filter(|k| !k.is_empty())
-                .ok_or_else(|| reauth(&format!("not signed in to {}", self.provider))),
+            Probe::Present(stored) => {
+                let key = stored.api_key.or(stored.access_token).filter(|k| !k.is_empty()).ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
+                self.file.keep(&[&key]);
+                Ok(key)
+            }
             Probe::Absent => Err(reauth(&format!("not signed in to {}", self.provider))),
             Probe::Unreadable => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);

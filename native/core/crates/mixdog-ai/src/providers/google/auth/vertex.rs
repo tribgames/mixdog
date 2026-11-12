@@ -344,13 +344,16 @@ impl VertexAuth {
                 form_body(&[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)])
             }
         };
-        let reply = self.post(TOKEN_URI, form_header, body, "Vertex AI token request").await?;
-        let token = parse_token_grant(&reply, "Vertex AI token")?;
+        // The login's secrets are credentials before the grant request carries any of them; the grant's token joins them.
         let secret = match grant {
             Grant::AuthorizedUser { client_secret, refresh_token, .. } => [client_secret.as_str(), refresh_token.as_str()],
             Grant::ServiceAccount { private_key, .. } => [private_key.as_str(), ""],
         };
-        crate::oauth::carried::keep(&format!("vertex {}", self.credential.identity), &[&token.access_token, secret[0], secret[1]]);
+        let source = format!("vertex {}", self.credential.identity);
+        crate::oauth::carried::keep(&source, &secret);
+        let reply = self.post(TOKEN_URI, form_header, body, "Vertex AI token request").await?;
+        let token = parse_token_grant(&reply, "Vertex AI token")?;
+        crate::oauth::carried::keep(&source, &[&token.access_token, secret[0], secret[1]]);
         Ok(token)
     }
 
