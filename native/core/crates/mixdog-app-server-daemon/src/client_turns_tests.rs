@@ -25,8 +25,9 @@
 //!    of which the default scenarios reach); the tool's name and the absence of an expiry are compared, and the real-path test
 //!    additionally asserts the reattached client is sent the identical request frame;
 //!  - the text of an allowed call in `toolMessages`: it is the `read` tool's output, not the approval's; every denial is compared exactly;
-//!  - the two scenarios that set `MIXDOG_TOOL_APPROVAL_TIMEOUT_MS`, the opt-in limit (its source says "tests and ops use"): Rust has no such
-//!    setting, its cards carry no expiry (`expires_after: None`), which is Node's default; they are asserted to be exactly those two.
+//!  - the two scenarios that set `MIXDOG_TOOL_APPROVAL_TIMEOUT_MS`, the opt-in limit (its source says "tests and ops use"): the core reads it
+//!    once per process (`approvals::default_limit`), which this test process does not set, so its cards carry no expiry (`expires_after:
+//!    None`, Node's default); they are asserted to be exactly those two.
 
 use super::*;
 

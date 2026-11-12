@@ -6868,6 +6868,7 @@
         "closed": false,
         "tools": [],
         "lastProviderSendAt": 1700000043993,
+        "lastProviderCachedPrefixTokens": 5200,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false

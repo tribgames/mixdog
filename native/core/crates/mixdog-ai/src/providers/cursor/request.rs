@@ -258,7 +258,8 @@ pub fn parse_messages(messages: &[Message]) -> Result<ParsedMessages, ProviderEr
     let mut tool_names: HashMap<String, String> = HashMap::new();
     // The last entry, kept structured while it may become the active turn.
     let mut last_user: Option<(usize, String, Vec<UserImage>)> = None;
-    for message in messages {
+    // A file is the text it lowers to on every wire (`toCursorMessages` over `toOpenAIMessages`).
+    for message in crate::providers::file_text::files_as_text(messages).iter() {
         match message.role {
             Role::System | Role::Developer => {
                 let text = text_of(&message.content);

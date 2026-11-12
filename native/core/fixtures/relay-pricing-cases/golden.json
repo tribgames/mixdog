@@ -1,0 +1,381 @@
+{
+  "note": "Node's relay pricing at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-relay-pricing-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/providers/model-catalog-relay-pricing.test.mjs",
+  "litellm": {
+    "claude-relay-test-1": {
+      "litellm_provider": "anthropic",
+      "input_cost_per_token": 0.000003,
+      "output_cost_per_token": 0.000015,
+      "cache_read_input_token_cost": 3e-7,
+      "max_input_tokens": 200000,
+      "mode": "chat"
+    },
+    "gemini/gemini-relay-test-1": {
+      "litellm_provider": "gemini",
+      "input_cost_per_token": 0.000001,
+      "output_cost_per_token": 0.000004,
+      "max_input_tokens": 1000000,
+      "max_output_tokens": 65536,
+      "mode": "chat"
+    }
+  },
+  "cases": [
+    {
+      "case": "a relayed model is priced at the rate of the vendor that served it",
+      "recorded": {
+        "meta": [
+          {
+            "model": "claude-relay-test-1",
+            "provider": "anthropic-oauth",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 3,
+              "outputCostPerM": 15,
+              "cacheReadCostPerM": 0.3,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "displayName": null,
+              "pricingModel": "claude-relay-test-1",
+              "pricingProvider": "anthropic"
+            }
+          },
+          {
+            "model": "claude-relay-test-1",
+            "provider": "cursor-oauth",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 3,
+              "outputCostPerM": 15,
+              "cacheReadCostPerM": 0.3,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "pricingProvider": "anthropic",
+              "displayName": null,
+              "pricingModel": "claude-relay-test-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "repricing reaches the prefixed catalog keys too",
+      "recorded": {
+        "meta": [
+          {
+            "model": "gemini-relay-test-1",
+            "provider": "cursor-oauth",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 1,
+              "outputCostPerM": 4,
+              "cacheReadCostPerM": null,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "pricingProvider": "google",
+              "displayName": null,
+              "pricingModel": "gemini-relay-test-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "relay pricing does not inherit vendor context or output limits",
+      "recorded": {
+        "meta": [
+          {
+            "model": "gemini-relay-test-1",
+            "provider": "google",
+            "meta": {
+              "contextWindow": 1000000,
+              "outputTokens": 65536,
+              "inputCostPerM": 1,
+              "outputCostPerM": 4,
+              "cacheReadCostPerM": null,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "pricingSource": "litellm",
+              "pricingModel": "gemini-relay-test-1",
+              "pricingProvider": "google"
+            }
+          },
+          {
+            "model": "gemini-relay-test-1",
+            "provider": "cursor-oauth",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 1,
+              "outputCostPerM": 4,
+              "cacheReadCostPerM": null,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "pricingProvider": "google",
+              "displayName": null,
+              "pricingModel": "gemini-relay-test-1"
+            }
+          },
+          {
+            "model": "gemini-relay-test-1",
+            "provider": "cursor-api",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 1,
+              "outputCostPerM": 4,
+              "cacheReadCostPerM": null,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "pricingProvider": "google",
+              "displayName": null,
+              "pricingModel": "gemini-relay-test-1"
+            }
+          },
+          {
+            "model": "gemini-relay-test-1",
+            "provider": "antigravity-oauth",
+            "meta": {
+              "contextWindow": null,
+              "outputTokens": null,
+              "inputCostPerM": 1,
+              "outputCostPerM": 4,
+              "cacheReadCostPerM": null,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "outputImageCostPerM": null,
+              "outputVideoCostPerM": null,
+              "outputCostPerImage": null,
+              "outputCostPerSecond": null,
+              "outputCostPerSecondByResolution": {},
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": null,
+              "pricingSource": "litellm",
+              "pricingProvider": "google",
+              "displayName": null,
+              "pricingModel": "gemini-relay-test-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a relayed turn costs what the same turn costs on the vendor directly",
+      "recorded": {
+        "cost": [
+          {
+            "usage": {
+              "inputTokens": 1000000,
+              "outputTokens": 100000,
+              "cacheReadTokens": 500000,
+              "provider": "anthropic-oauth",
+              "model": "claude-relay-test-1"
+            },
+            "costUsd": 4.65,
+            "priced": {
+              "input": 1000000,
+              "costUsd": 4.65,
+              "rates": {
+                "requestedModel": null,
+                "pricingModel": "claude-relay-test-1",
+                "pricingProvider": "anthropic",
+                "pricingSource": "litellm",
+                "inputCostPerM": 3,
+                "outputCostPerM": 15,
+                "cacheReadCostPerM": 0.3,
+                "cacheWriteCostPerM": null
+              }
+            }
+          },
+          {
+            "usage": {
+              "inputTokens": 1500000,
+              "outputTokens": 100000,
+              "cacheReadTokens": 500000,
+              "provider": "cursor-oauth",
+              "model": "claude-relay-test-1"
+            },
+            "costUsd": 4.65,
+            "priced": {
+              "input": 1000000,
+              "costUsd": 4.65,
+              "rates": {
+                "requestedModel": null,
+                "pricingModel": "claude-relay-test-1",
+                "pricingProvider": "anthropic",
+                "pricingSource": "litellm",
+                "inputCostPerM": 3,
+                "outputCostPerM": 15,
+                "cacheReadCostPerM": 0.3,
+                "cacheWriteCostPerM": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a model no vendor claims is left unpriced rather than guessed at",
+      "recorded": {
+        "meta": [
+          {
+            "model": "kimi-relay-test-1",
+            "provider": "cursor-oauth",
+            "meta": null
+          }
+        ],
+        "cost": [
+          {
+            "usage": {
+              "provider": "cursor-oauth",
+              "model": "kimi-relay-test-1",
+              "inputTokens": 1000000
+            },
+            "costUsd": 0,
+            "priced": {
+              "input": 1000000,
+              "costUsd": null,
+              "rates": {
+                "requestedModel": null,
+                "pricingModel": "kimi-relay-test-1",
+                "pricingProvider": "cursor-oauth",
+                "pricingSource": null,
+                "unpricedReason": "model-not-found"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a local model stays free: nothing is relayed and nothing is priced",
+      "recorded": {
+        "meta": [
+          {
+            "model": "claude-relay-test-1",
+            "provider": "mixdog-local",
+            "meta": null
+          }
+        ],
+        "cost": [
+          {
+            "usage": {
+              "provider": "mixdog-local",
+              "model": "claude-relay-test-1",
+              "inputTokens": 1000000
+            },
+            "costUsd": 0,
+            "priced": {
+              "input": 1000000,
+              "costUsd": null,
+              "rates": {
+                "requestedModel": null,
+                "pricingModel": "claude-relay-test-1",
+                "pricingProvider": "mixdog-local",
+                "pricingSource": null,
+                "unpricedReason": "model-not-found"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "an ordinary provider is never repriced by a name that merely resembles one",
+      "recorded": {
+        "meta": [
+          {
+            "model": "claude-relay-test-1",
+            "provider": "openai-oauth",
+            "meta": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "enrichment preserves unknown and id-less rows by reference and in order",
+      "recorded": {
+        "rows": [
+          {
+            "id": "unknown-fixture",
+            "provider": "fixture",
+            "display": "Native label"
+          },
+          {
+            "provider": "fixture"
+          }
+        ],
+        "enriched": [
+          {
+            "id": "unknown-fixture",
+            "provider": "fixture",
+            "display": "Native label"
+          },
+          {
+            "provider": "fixture"
+          }
+        ],
+        "same": [
+          true,
+          true
+        ]
+      }
+    }
+  ]
+}

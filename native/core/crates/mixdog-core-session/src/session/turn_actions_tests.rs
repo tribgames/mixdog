@@ -486,6 +486,44 @@ async fn a_turn_claims_the_originals_it_names_before_it_is_submitted() {
     assert_eq!(kept, vec![bystander], "the claimed original left the staged set, the other stayed");
 }
 
+/// A message the attachment intake refuses (`preparePromptSubmissionForProvider` throws in `submitAdmitted`) is the
+/// submit's error with the intake's text: no turn runs, and the originals it names stay staged (the claim comes after).
+#[tokio::test(start_paused = true)]
+async fn a_message_the_intake_refuses_answers_its_text_and_claims_nothing() {
+    use super::testing::Rig;
+    struct Refuse;
+    #[async_trait::async_trait]
+    impl super::PromptIntake for Refuse {
+        async fn admit(&self, _: &mixdog_core_api::ids::ThreadId, _: &str, params: &Value) -> Result<(), String> {
+            assert_eq!(params["opId"], "op-refused");
+            Err("PDF exceeds the 20 MiB input limit".into())
+        }
+    }
+    let rig = Rig::new();
+    let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = ran.clone();
+    rig.set_script(std::sync::Arc::new(move |_| {
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { super::seams::RunOutcome::Completed(Default::default()) })
+    }));
+    let mut parts = rig.deps_parts(rig.store.clone());
+    parts.prompt_intake = std::sync::Arc::new(Refuse);
+    let deps = std::sync::Arc::new(parts);
+    let directory = super::SessionDirectory::new(deps.clone());
+    let handle = super::tests::start_thread(&directory).await;
+    let staged = stage_bytes(&deps.staged_originals, b"original".to_vec(), StageLimits { now_ms: 5, ..FRESH }).await.unwrap();
+    let image = json!({ "id": 1, "type": "image", "mediaType": "image/jpeg", "originalRef": staged, "originalMediaType": "image/png" });
+    let params = json!({ "threadId": handle.id, "opId": "op-refused", "input": { "prompt": "look", "options": { "pastedImages": { "1": image } } } });
+    use mixdog_core_api::ThreadHandle as _;
+    let refused = handle.request(request("turn/start", params, Some(1))).await.expect_err("refused");
+    let CoreError::DomainError { message, code, .. } = refused else { panic!("a domain error: {refused:?}") };
+    assert_eq!((message.as_deref(), code), (Some("PDF exceeds the 20 MiB input limit"), None));
+    assert!(!ran.load(std::sync::atomic::Ordering::SeqCst), "no turn ran");
+    let at = dir_of(&deps).join("prompt-attachments");
+    let kept: Vec<String> = io(move |lane| snapshot(lane, &at)).await["index"].as_str().map(|t| serde_json::from_str::<Vec<Value>>(t).unwrap()).unwrap().iter().map(|e| e["ref"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(kept, vec![staged], "the original stays staged");
+}
+
 fn dir_of(deps: &super::SessionDeps) -> std::path::PathBuf {
     deps.attachments.0.clone()
 }

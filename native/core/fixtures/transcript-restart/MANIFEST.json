@@ -1,0 +1,50 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-transcript-restart.mjs --tree <b6f10295a export> --pg-runtime <bundled postgres runtime dir>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 17663,
+      "path": "restart-kill.json",
+      "sha256": "5a1cf6531ee482ad82e09058fbe59911d5896b567da9640f086e6c903a5d3f16"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "native/core/fixtures/session-transcript/writer.json",
+      "sha256": "dd892ab34d98cc3682a79b332b24deed427a9fba3198e9cf38c4c529b5033afd"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-transcript-restart.mjs",
+  "recorderSha256": "f7e28c075b0e4c84eb5c7dcb87a7759b9fcdc42187c55afe57bda605851d585c",
+  "scenarios": [
+    "restart-kill"
+  ],
+  "set": "transcript-restart",
+  "totalBytes": 17663
+}

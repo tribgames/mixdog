@@ -1,0 +1,41 @@
+{
+  "scenario": "turn-exec",
+  "script": [
+    {
+      "text": "looking with swordfish42",
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ]
+      ]
+    },
+    {
+      "text": "all done"
+    }
+  ],
+  "secret": "swordfish42",
+  "sessionId": null,
+  "name": "turn-exec",
+  "code": 0,
+  "memoryFeature": false,
+  "cwd": "<cwd>",
+  "provider": {
+    "sends": 2
+  },
+  "prompt": "go",
+  "atClose": {
+    "homeIsTheUsers": false,
+    "memoryIngestDisabled": "1",
+    "daemonSkipMemory": "1",
+    "files": {
+      "<slug>/<session>.jsonl": "{\"type\":\"user\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"go\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"looking with swordfish42\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"all done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n"
+    }
+  },
+  "afterExec": {
+    "userProjects": [],
+    "pristineHomeLeft": false
+  }
+}

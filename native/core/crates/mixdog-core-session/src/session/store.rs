@@ -71,6 +71,7 @@ use super::seams::SessionLog;
 use super::seams::StoredOp;
 use super::seams::ThreadStore;
 use super::seams::WindowRead;
+use super::turn_draft::RunDraft;
 
 /// UI window rows read at open (P §5.3).
 const WINDOW_ROWS: usize = 200;
@@ -270,9 +271,14 @@ impl Projector {
 /// `AppendError::outcome()`: `NotApplied` → `Failed`, `Unknown` → `Indeterminate`.
 fn barrier(error: AppendError) -> BarrierError {
     let io_kind: Arc<str> = error.io_kind().into();
+    // What the disk said (`EIO: ...`), as Node's refusal names its save's error.
+    let cause: Arc<str> = match &error {
+        AppendError::BarrierFailed(e) | AppendError::Indeterminate(e) | AppendError::Refused(e) => e.source.to_string().into(),
+        _ => io_kind.clone(),
+    };
     match error.outcome() {
-        Outcome::NotApplied => BarrierError::Failed { io_kind },
-        Outcome::Unknown => BarrierError::Indeterminate { io_kind },
+        Outcome::NotApplied => BarrierError::Failed { io_kind, cause },
+        Outcome::Unknown => BarrierError::Indeterminate { io_kind, cause },
     }
 }
 
@@ -356,7 +362,7 @@ impl Drop for Rewriting {
 }
 
 fn writer_lost() -> BarrierError {
-    BarrierError::Indeterminate { io_kind: "writerLost".into() }
+    BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "writerLost".into() }
 }
 
 /// A test build's hold at a named point of a sensitive rewrite, run on the rewrite's own lane thread: `planned` once the plan
@@ -485,7 +491,7 @@ impl StoreLog {
         let mut replace = redaction.marks.rewriter(&redaction.thread);
         for (record, out) in batch.iter().zip(&mut encoded) {
             if let Some(next) = replace(record.record.as_ref()) {
-                *out = mixdog_store::encode::encode_record(next).map_err(|e| BarrierError::Failed { io_kind: format!("encode:{e}").into() })?;
+                *out = mixdog_store::encode::encode_record(next).map_err(|e| BarrierError::failed(&format!("encode:{e}")))?;
             }
         }
         Ok(encoded)
@@ -795,6 +801,42 @@ impl StoreThreads {
         Ok(levels)
     }
 
+    /// The draft of the run `rid` that `started` begins: the `draft` records a log written before held, folded over every
+    /// frame from there to the log's end (a checkpoint between them does not carry it), then the run's draft file.
+    fn run_draft(&self, lane: &InLane<InteractiveIo>, dir: &Path, rid: &str, started: FramePos) -> Result<RunDraft, CoreError> {
+        let mut draft = RunDraft::default();
+        let mut landed = std::collections::HashSet::new();
+        let mut from = started;
+        loop {
+            let read = log::read_forward(lane, dir, from, 1 << 20).map_err(|e| internal("drafts", &e))?;
+            for (record, _, _) in &read.frames {
+                match record {
+                    Record::Draft(record) if record.rid.as_str() == rid => {
+                        if let Slot::Inline(body) = self.resolve(lane, &record.body)? {
+                            draft.apply(&body);
+                        }
+                    }
+                    Record::Item(item)
+                        if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid)
+                            && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") =>
+                    {
+                        landed.insert(item.iid.as_str().to_owned());
+                        draft.message_committed();
+                    }
+                    _ => {}
+                }
+            }
+            match read.next {
+                log::ForwardEnd::More(next) => from = next,
+                log::ForwardEnd::Done { .. } => break,
+                log::ForwardEnd::Damaged(damage) => return Err(internal("drafts", &format!("{damage:?}"))),
+            }
+        }
+        let bodies = mixdog_store::draft_file::read(lane, dir, rid).map_err(|e| internal("drafts", &e))?;
+        draft.apply_file(&bodies, |iid| landed.contains(iid));
+        Ok(draft)
+    }
+
     fn frame_at(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -874,6 +916,23 @@ impl StoreThreads {
         out.sort_by_key(|divider| divider.before);
         Ok(out)
     }
+}
+
+/// The window rows a compaction took out of the context, which a restored window still shows (1.4.5 `archived: true`): the model
+/// rows it dropped, and the display rows (a turn's end) of a turn none of whose messages is left.
+fn archived_ordinals(rows: &[HistoryRow]) -> Vec<u64> {
+    use std::collections::HashSet;
+    let turn_of = |row: &HistoryRow| row.turn.clone();
+    let gone: HashSet<String> = rows.iter().filter(|row| row.model && row.archived).filter_map(turn_of).collect();
+    let live: HashSet<String> = rows.iter().filter(|row| row.model && !row.archived).filter_map(turn_of).collect();
+    rows.iter()
+        .filter(|row| match (row.model, &row.turn) {
+            (true, _) => row.archived,
+            (false, Some(turn)) => gone.contains(turn) && !live.contains(turn),
+            (false, None) => false,
+        })
+        .map(|row| row.ordinal)
+        .collect()
 }
 
 /// Context rows read per page.
@@ -1124,6 +1183,7 @@ impl SensitiveMarksOf {
             Record::Op(op) => prompt_changed = self.text_redacted(session, op.detail.as_mut()),
             Record::Approval(approval) => prompt_changed = self.text_redacted(session, approval.body.as_mut()),
             Record::Queue(queue) => prompt_changed = self.text_redacted(session, queue.entry.as_mut()),
+            Record::Draft(draft) => prompt_changed = self.text_redacted(session, Some(&mut draft.body)),
             // No text: positions, ids, a provider and model id.
             Record::Rewind(_) | Record::ModelSwitch(_) => return (None, Vec::new()),
         }
@@ -1232,22 +1292,34 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
             }
         }
     }
+
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_settled_text(thread.as_str(), text)
+    }
 }
 
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
-/// memory was not started this run (today's `getMemoryModPromise()` returning null).
-pub struct MemoryCloseIngest(pub Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>);
+/// memory was not started this run (today's `getMemoryModPromise()` returning null). The messages
+/// go out with the session's sensitive values redacted, as its log is written
+/// (`node-fix-memory-sensitive.patch`: 1.4.5 fed them in plain text).
+pub struct MemoryCloseIngest {
+    memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+    sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+}
 
 impl MemoryCloseIngest {
     /// Over the memory module the daemon started (`LocalMemory`), or `None` when memory is off.
-    pub fn new(memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>) -> Self {
-        Self(memory)
+    pub fn new(
+        memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+        sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    ) -> Self {
+        Self { memory, sensitive }
     }
 }
 
 impl super::seams::CloseIngest for MemoryCloseIngest {
     fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
-        let Some(memory) = self.0.clone() else {
+        let Some(memory) = self.memory.clone() else {
             return Box::pin(async {});
         };
         if std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
@@ -1263,7 +1335,7 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
             "action": "ingest_session",
             "sessionId": id.as_str(),
             "cwd": cwd,
-            "messages": messages,
+            "messages": self.sensitive.redact_messages(id.as_str(), &messages),
         });
         Box::pin(async move {
             memory.memory(args).await;
@@ -1274,10 +1346,12 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
+    archived: Vec<u64>,
     dividers: Vec<super::seams::WindowDivider>,
     has_older: bool,
     prompts: Vec<String>,
     runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
+    drafts: Vec<(String, RunDraft)>,
     approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
     queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
 }
@@ -1297,7 +1371,12 @@ impl ThreadStore for StoreThreads {
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
-        Ok(HeadRead(Box::new(self.open(lane, id)?)))
+        let opened = self.open(lane, id)?;
+        // A session kept only to host a worker row has no record: no thread opens over it (Node reads its header as null).
+        if opened.fold.header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true) {
+            return Err(Self::not_found(id));
+        }
+        Ok(HeadRead(Box::new(opened)))
     }
 
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
@@ -1340,6 +1419,7 @@ impl ThreadStore for StoreThreads {
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
+        let archived = archived_ordinals(&rows);
         let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some())?;
         let prompts = self
             .index
@@ -1347,6 +1427,7 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
+        let mut drafts = Vec::new();
         for run in &fold.runs {
             let Record::Run(mut record) = self.frame_at(lane, id, dir, run.started)? else {
                 return Err(unexpected("run"));
@@ -1354,6 +1435,14 @@ impl ThreadStore for StoreThreads {
             if let Some(detail) = &record.detail {
                 record.detail = Some(self.resolve(lane, detail)?);
             }
+            let mut draft = self.run_draft(lane, dir, &run.rid, run.started)?;
+            // The run's input row is the row just before its start; past the window (a turn of many rows) it is read here.
+            if let Some(cursor) = cursor {
+                let before = mixdog_store::sqlite::PageCursor { level: 0, before: run.started.ordinal, ..cursor };
+                let (input, _) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, Some(before), 1).map_err(|e| internal("window", &e))?;
+                draft.input = input.into_iter().find(|row| row.turn.as_deref() == Some(run.rid.as_str())).map(|row| row.iid);
+            }
+            drafts.push((run.rid.clone(), draft));
             runs.push((run.started.ordinal, record));
         }
         let mut approvals = Vec::new();
@@ -1381,10 +1470,12 @@ impl ThreadStore for StoreThreads {
         }
         Ok(WindowRead(Box::new(Window {
             window,
+            archived,
             dividers,
             has_older: cursor.is_some(),
             prompts,
             runs,
+            drafts,
             approvals,
             queue,
         })))
@@ -1415,12 +1506,14 @@ impl ThreadStore for StoreThreads {
             approvals: read.approvals,
             queue: read.queue,
             window: read.window,
+            archived: read.archived,
             dividers: read.dividers,
             has_older: read.has_older,
             prompts: read.prompts,
             log_id: fold.log_id.clone(),
             next_ordinal: fold.next_ordinal,
             tail: Vec::new(),
+            drafts: read.drafts,
             append: AppendPosition(Box::new(opened)),
         })
     }
@@ -1585,6 +1678,14 @@ impl ThreadStore for StoreThreads {
         })
     }
 
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        let (index, child) = (self.index.clone(), child.as_str().to_owned());
+        Box::pin(async move {
+            let parents = index.archived_agent_parents(&child).await.map_err(|e| internal("archived agent", &e))?;
+            Ok(parents.into_iter().map(ThreadId::from).collect())
+        })
+    }
+
     fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
         let (rewrites, projector) = (self.rewrites.clone(), self.projector.clone());
         Box::pin(async move {
@@ -1718,15 +1819,12 @@ impl ThreadStore for StoreThreads {
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
         self.wait(lane, self.index.mark_dirty(id.as_str()))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
-            OpenAppendError::StoreDamaged(_) => BarrierError::Failed {
-                io_kind: "storeDamaged".into(),
-            },
+            OpenAppendError::StoreDamaged(_) => BarrierError::failed("storeDamaged"),
             OpenAppendError::Io(e) => BarrierError::Failed {
                 io_kind: e.op.to_string().into(),
+                cause: e.source.to_string().into(),
             },
         })?;
         Ok(self.store_log(id, writer))
@@ -1739,9 +1837,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
-        let failed = |kind: &str| BarrierError::Failed {
-            io_kind: kind.into(),
-        };
+        let failed = BarrierError::failed;
         let Record::Session(record) = session.record.as_ref() else {
             return Err(failed("notASession"));
         };
@@ -1767,9 +1863,7 @@ impl ThreadStore for StoreThreads {
             },
         );
         self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let (writer, ack) = LogWriter::create(
             lane,
             &self.dir(id.as_str()),
@@ -1780,6 +1874,21 @@ impl ThreadStore for StoreThreads {
         let ordinal = ack.positions[0].ordinal;
         self.projector.send(ack.projection);
         Ok((self.store_log(id, writer), ordinal))
+    }
+
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use mixdog_store::draft_file;
+        use super::turn_draft::DraftWrite;
+        let dir = self.dir(id.as_str());
+        let done = match write {
+            DraftWrite::Append { rid, body } => draft_file::append(lane, &dir, rid, body),
+            DraftWrite::Replace { rid, body } => draft_file::replace(lane, &dir, rid, body),
+            DraftWrite::Remove { rid } => draft_file::remove(lane, &dir, rid),
+            DraftWrite::Sweep { open } => draft_file::list(lane, &dir).and_then(|rids| {
+                rids.iter().filter(|rid| !open.contains(rid)).try_for_each(|rid| draft_file::remove(lane, &dir, rid))
+            }),
+        };
+        done.map_err(|e| internal("draft", &e))
     }
 }
 
@@ -1827,6 +1936,47 @@ fn prompt_row(text: String) -> ItemRecord {
         prompt: Some(Slot::Inline(text)),
         refs: Vec::new().try_into().expect("empty list fits"),
         body: Slot::Inline(serde_json::Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod archived_tests {
+    use super::*;
+    use mixdog_store::schema::record::Form;
+
+    fn row(ordinal: u64, turn: &str, model: bool, archived: bool) -> HistoryRow {
+        HistoryRow {
+            session: "sess_a".into(),
+            ordinal,
+            iid: format!("i{ordinal}"),
+            turn: Some(turn.into()),
+            form: if model { Form::Message } else { Form::Display },
+            model,
+            pos: mixdog_store::schema::checkpoint::FramePos { ordinal, file_no: 0, offset: 0 },
+            frame_len: 0,
+            amend: None,
+            archived,
+            dropped_text: archived,
+            dropped_calls: Vec::new(),
+            kept: Vec::new(),
+            model_switches: Vec::new(),
+        }
+    }
+
+    /// A restored window marks the rows a compaction took out: its model rows, and the end row of a turn none of whose messages
+    /// is left; a turn that kept a message stays live whole.
+    #[test]
+    fn a_window_marks_the_rows_a_compaction_took_out_and_the_end_of_a_turn_left_with_nothing() {
+        let rows = [
+            row(1, "t1", true, true),
+            row(2, "t1", false, false),
+            row(3, "t2", true, true),
+            row(4, "t2", true, false),
+            row(5, "t2", false, false),
+            row(6, "t3", true, false),
+            row(7, "t3", false, false),
+        ];
+        assert_eq!(archived_ordinals(&rows), vec![1, 2, 3]);
     }
 }
 

@@ -1,0 +1,47 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-fetch-output-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "each whole rendered text. windows: through paginate and format_fetch; search: through format_results; pages, blocked, fallback: through the web_fetch tool against a local server (and a fake render stage), the url written as <url> and elapsed times as <n>ms",
+  "excluded": {
+    "empty searches retain warnings and crawls retain the actual failure cause: crawl": "GONE: the core has no crawl tool (Node's `formatResponse('crawl')` has no Rust caller); the case's two search outputs are replayed"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 30600,
+      "path": "golden.json",
+      "sha256": "dc65f848d6846288a60e83ac5383f28fa21b82ad77fdbaab85aa3c54721767c8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-fetch-output-cases.mjs",
+  "recorderSha256": "0b62c25657ec5078c70acf7f14a65313bf7e402f02e300db2874a4ee670b4430",
+  "set": "fetch-output-cases",
+  "totalBytes": 30600
+}

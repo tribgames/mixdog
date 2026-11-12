@@ -224,6 +224,10 @@ impl IngestOffsets for Offsets {
         self.1.add_permits(1);
         paths.len()
     }
+
+    async fn rewrite_transcript(&self, _: &std::path::Path, _: mixdog_services::memory::transcript::LineRewrite) -> std::io::Result<bool> {
+        unreachable!("a delete rewrites no transcript")
+    }
 }
 
 /// The thread store's own files, which the store's delete mark purges, not a purge hook.
@@ -377,6 +381,7 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
         read_state: Arc::new(ReadState::new(Some(Persistence::new(Arc::new(FileSnapshotPersist::new(&data)), tokens.durability_io)))),
         warm,
         ingest_offsets: Some(offsets.clone()),
+        transcripts: None,
         providers: Arc::new(ProviderRegistry::new(Arc::new(NoProviders))),
         worker_turns: WorkerTurns::new(turns.clone(), turns.clone(), turns.clone(), turns, Arc::new(|| {})),
         agents,

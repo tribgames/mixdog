@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-loop-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per run: the whole transcript, the result or the thrown error with its carried report, and what reached the test's callbacks; per case: every request the loop built (output override, tool choice, messages); the crossing batch: the calls that ran and every answered tool message",
+  "excluded": {
+    "src/runtime/agent/orchestrator/session/agent-loop-carried-report.test.mjs :: a turn that throws after the report carries it on the error to the failed task :: reconcileJobStreamStalled": "the failed task's settlement from the carried report belongs to the agent tool's reconcile (job-task-reconcile cases); the loop half (the error and its carried report) is replayed",
+    "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs :: a truncated turn with text follows the same rule: escalate without keeping the partial, then resume": "not representable: the test's provider returns 'part1' without streaming it, so Node escalates; a Rust model stream carries text only as deltas, and streamed text the owner cannot withdraw is kept and resumed instead (the output-escalation cases replay that rule)",
+    "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs :: tool-call and continuation turns echo provider replay payloads under one precedence rule": "not representable: the test's provider answers with thinkingBlocks/assistantBlocks fields; a Rust model stream carries reasoning as stream events and the committed echo as a provider replay, a different shape",
+    "src/runtime/agent/orchestrator/session/agent-loop-output-escalation.test.mjs :: streamed text the owner cannot withdraw is kept: no escalation, the ladder resumes it (no onTextReset)": "difference: Node's fake provider returns 'rest' without streaming it, so onTextDelta sees only 'partial text'; a Rust model stream carries text only as deltas, so the observer also sees 'rest'",
+    "src/runtime/agent/orchestrator/session/agent-loop-output-escalation.test.mjs :: streamed text the owner cannot withdraw is kept: no escalation, the ladder resumes it (onTextReset refuses)": "difference: Node's fake provider returns 'rest' without streaming it, so onTextDelta sees only 'partial text'; a Rust model stream carries text only as deltas, so the observer also sees 'rest'",
+    "src/runtime/agent/orchestrator/session/agent-loop-request-boundaries.test.mjs :: cancellation still stops a productive loop before dispatching further tools": "difference: Node rejects with the abort reason ('requested stop'); Rust's run fails with its fixed 'agent loop aborted' (the transcript and requests match)",
+    "src/runtime/agent/orchestrator/session/agent-loop-step-limit.test.mjs :: sess-uncapped-replay: 45 rounds with no new result run to the model's own final answer": "difference: Node's onToolResult rewrites the result's toolKind to 'normal' as well as its text; Rust's after_tool hook rewrites only the text, so every result stays an error and the repeat guard notes the 13th",
+    "src/runtime/agent/orchestrator/session/agent-loop.test.mjs :: Agent dispatch preserves text deltas without requiring live projection": "unreachable through the Rust provider: the test's provider streams 'secret-preamble' and answers 'final'; a Rust model stream's answer is the text it streamed",
+    "src/runtime/agent/orchestrator/session/agent-loop.test.mjs :: a batch that crosses the wrap-up time starts none of its later calls": "difference: Node checks the wrap-up time before starting each call, so s1c1 and s1c2 are refused once s1c0 ran past it; Rust decides every call of the batch before the first runs, so all three run and answer 'ok'",
+    "src/runtime/agent/orchestrator/session/agent-loop.test.mjs :: a heartbeat turn's tool calls are capped: calls past the cap never run, then it must reply without tools :: heartbeatTurnLimits": "which session is a heartbeat and the limits it gets are mixdog-core's (run_host/settings.rs); the loop replays the limits Node's heartbeatTurnLimits resolved",
+    "src/runtime/agent/orchestrator/session/agent-loop.test.mjs :: explicit liveProjection permits provider onTextDelta without persisting a session flag": "unreachable through the Rust provider: the test's provider streams 'live-chunk' and answers 'final'; a Rust model stream's answer is the text it streamed"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7099840,
+      "path": "golden.json",
+      "sha256": "6d7e5c41ba0ae5d54c9832205e66ca0babce59aaf0d4523b9ad485e2a83a351c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-loop-cases.mjs",
+  "recorderSha256": "3a42d73cb3fbbd46573b83f3ef1012164b32d905a9fb5aeac9b5858b1c596572",
+  "set": "agent-loop-cases",
+  "totalBytes": 7099840
+}

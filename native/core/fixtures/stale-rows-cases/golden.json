@@ -1,0 +1,356 @@
+{
+  "note": "Node's stale-row transition at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-stale-rows-cases.mjs",
+  "test": "src/session-runtime/services/agent-tool/terminal-reaper/stale-rows.test.mjs",
+  "now": 1793923200000,
+  "cases": [
+    {
+      "case": "expired settled and orphan rows still follow the configured retention, loading config once",
+      "config": {
+        "autoClear": {
+          "providerIdleMs": {
+            "anthropic": 129600000
+          }
+        }
+      },
+      "rows": [
+        {
+          "tag": "old",
+          "sessionId": "s-old",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "within",
+          "sessionId": "s-within",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T18:00:00.000Z",
+          "finishedAt": "2026-11-04T18:00:00.000Z"
+        },
+        {
+          "tag": "orphan-old",
+          "sessionId": "s-orphan-old",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "waiting",
+          "stage": "waiting",
+          "updatedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "orphan-within",
+          "sessionId": "s-orphan-within",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "waiting",
+          "stage": "waiting",
+          "updatedAt": "2026-11-04T18:00:00.000Z"
+        }
+      ],
+      "sessions": [
+        {
+          "id": "old",
+          "agentTag": "old",
+          "agent": "worker",
+          "provider": "anthropic",
+          "status": "idle",
+          "createdAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z",
+          "updatedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "id": "within",
+          "agentTag": "within",
+          "agent": "worker",
+          "provider": "anthropic",
+          "status": "idle",
+          "createdAt": "2026-11-04T18:00:00.000Z",
+          "finishedAt": "2026-11-04T18:00:00.000Z",
+          "updatedAt": "2026-11-04T18:00:00.000Z"
+        }
+      ],
+      "recorded": {
+        "workers": [
+          "s-orphan-within",
+          "s-within"
+        ],
+        "tombstoned": [
+          "old:s-old",
+          "orphan-old:s-orphan-old"
+        ],
+        "blocked": [
+          true,
+          false
+        ]
+      }
+    },
+    {
+      "case": "settled rows past 1 day and their reap window leave the index, leaving a tombstone",
+      "config": {},
+      "rows": [
+        {
+          "tag": "old",
+          "sessionId": "s-old",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "recent",
+          "sessionId": "s-recent",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-05T22:00:00.000Z",
+          "finishedAt": "2026-11-05T22:00:00.000Z"
+        },
+        {
+          "tag": "lead",
+          "sessionId": "s-lead",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "lead",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "owed",
+          "sessionId": "s-owed",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "failed",
+          "stage": "failed",
+          "failureReason": "process-restart",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "running",
+          "sessionId": "s-running",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "running",
+          "stage": "running",
+          "updatedAt": "2026-11-06T00:00:00.000Z"
+        },
+        {
+          "tag": "stamped",
+          "sessionId": "s-stamped",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z",
+          "reapAt": "2026-11-07T00:00:00.000Z"
+        }
+      ],
+      "recorded": {
+        "workers": [
+          "s-owed",
+          "s-recent",
+          "s-running",
+          "s-stamped"
+        ],
+        "tombstoned": [
+          "old:s-old"
+        ]
+      }
+    },
+    {
+      "case": "a row whose configured reap window is longer than its age is kept",
+      "config": {
+        "autoClear": {
+          "providerIdleMs": {
+            "anthropic": 259200000
+          }
+        }
+      },
+      "rows": [
+        {
+          "tag": "long",
+          "sessionId": "s-long",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        }
+      ],
+      "recorded": {
+        "workers": [
+          "s-long"
+        ],
+        "tombstoned": []
+      }
+    },
+    {
+      "case": "a settled row whose session is live in this process is kept",
+      "config": {},
+      "rows": [
+        {
+          "tag": "a",
+          "sessionId": "s-running",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "b",
+          "sessionId": "s-queued",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "c",
+          "sessionId": "s-active",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        },
+        {
+          "tag": "d",
+          "sessionId": "s-gone",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        }
+      ],
+      "live": {
+        "s-running": "turn",
+        "s-queued": "queued",
+        "s-active": "streaming"
+      },
+      "recorded": {
+        "workers": [
+          "s-active",
+          "s-queued",
+          "s-running"
+        ],
+        "tombstoned": [
+          "d:s-gone"
+        ]
+      }
+    },
+    {
+      "case": "pruning and scan admission share one age rule over the latest activity stamp",
+      "config": {},
+      "rows": [
+        {
+          "tag": "touched",
+          "sessionId": "s-touched",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "finishedAt": "2026-11-04T00:00:00.000Z",
+          "updatedAt": "2026-11-05T23:00:00.000Z"
+        },
+        {
+          "tag": "aged",
+          "sessionId": "s-aged",
+          "parentSessionId": "lead-a",
+          "ownerSessionId": "lead-a",
+          "agent": "worker",
+          "provider": "anthropic",
+          "clientHostPid": 4242,
+          "status": "idle",
+          "updatedAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z"
+        }
+      ],
+      "sessions": [
+        {
+          "id": "s-touched",
+          "agentTag": "touched",
+          "agent": "worker",
+          "status": "idle",
+          "createdAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z",
+          "updatedAt": "2026-11-05T23:00:00.000Z"
+        },
+        {
+          "id": "s-aged",
+          "agentTag": "aged",
+          "agent": "worker",
+          "status": "idle",
+          "createdAt": "2026-11-04T00:00:00.000Z",
+          "finishedAt": "2026-11-04T00:00:00.000Z",
+          "updatedAt": "2026-11-04T00:00:00.000Z"
+        }
+      ],
+      "recorded": {
+        "workers": [
+          "s-touched"
+        ],
+        "tombstoned": [
+          "aged:s-aged"
+        ],
+        "blocked": [
+          false,
+          true
+        ]
+      }
+    }
+  ]
+}

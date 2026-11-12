@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-job-views-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "list/jobs: the whole agent tool text (renderResult) of each list, job list and status card, each lookup error, and whether each refresh scanned sessions; meta: the identity fields of each meta object (the extra fields are the named difference)",
+  "excluded": {
+    "a worker session without a task answers read/status with a synthetic job built from its last assistant output": "the stand-in job reads its result from the session record (workerResultText), which the core reads in mixdog-core-session agent_registry/workers.rs; replayed with that crate",
+    "job rows read live progress ... (the running job's card by task id, tag or sessionId)": "difference: Node's card for an unarmed running worker has `watchdog: not armed (no registered progress watchdog)` from the role's default policy; Rust's Workers::live carries no policy for an unarmed worker (run_host/progress.rs), so the card has no watchdog line",
+    "list projects agent sessions ... unless terminal rows are asked for (includeTerminal list, closed row)": "difference: Node shows the closed row as `c  closed/streaming  streaming` (status/worker_stage); Rust shows `c  closed  streaming` (its WorkerRow.stage is the row stage `closed`, not the worker stage)",
+    "list publishes the worker index turnStartedAt for a continued working row, and omits it when idle": "difference: Node's list row carries the worker index turnStartedAt and createdAt; the Rust list row (WorkerRow) carries neither (the Agents pane reads them from agent_registry)",
+    "spawn meta builders, meta merge and the busy check (isSessionBusy)": "isSessionBusy is the core's send world (mixdog-core run_host/agent_send_world.rs), not the views; replayed with mixdog-core",
+    "spawn meta builders, meta merge and the busy check (mergeJobMeta of a partial update)": "the core merges only a whole prepared meta over the pending one (merge_prepared_meta, every identity key replaced); a partial update such as the test's { tag, sessionId } has no core entry",
+    "spawn meta builders, meta merge and the busy check (pendingSpawnMeta extra fields)": "difference: Node's pendingSpawnMeta spreads the caller's extra fields (note: 'x') into the meta; the Rust JobMeta has only the identity fields",
+    "worker fallback picks the last nonempty assistant output without changing message order": "workerResultText: mixdog-core-session agent_registry/workers.rs; replayed with that crate"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 9301,
+      "path": "golden.json",
+      "sha256": "a743f01b1aa58d8f60b088788c6cc6c08336f654c02104e9bcdbfc0daac9d1b5"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-job-views-cases.mjs",
+  "recorderSha256": "0fe9a4206e04a07bc0d052fd72375a810693e93bbfdf0f3da7738a789850fa9b",
+  "set": "job-views-cases",
+  "totalBytes": 9301
+}

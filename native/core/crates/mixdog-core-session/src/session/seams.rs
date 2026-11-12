@@ -78,10 +78,17 @@ pub trait RecordCodec: Send + Sync + 'static {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BarrierError {
     /// Rolled back to the acked end (`RollingBack → Clean`): nothing of the batch is applied.
-    Failed { io_kind: Arc<str> },
+    Failed { io_kind: Arc<str>, cause: Arc<str> },
     /// The rollback failed too (`PendingRollback`): the batch's outcome is unknown until a
     /// later commit or retry truncates it.
-    Indeterminate { io_kind: Arc<str> },
+    Indeterminate { io_kind: Arc<str>, cause: Arc<str> },
+}
+
+impl BarrierError {
+    /// A failure with no error of its own to tell: its cause is its kind.
+    pub fn failed(io_kind: &str) -> Self {
+        Self::Failed { io_kind: io_kind.into(), cause: io_kind.into() }
+    }
 }
 
 /// The SM §8 `LogWriter` of one session, owned by its `DurabilityTask` alone (I1, SPEC R26).
@@ -181,6 +188,8 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// Calls `listener` whenever `thread` gains a sensitive value, until the returned guard
     /// drops.
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send>;
+    /// `redactSettledText`: what of streaming `text` can be journaled now, the thread's values redacted.
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String;
 
     /// `rememberSensitiveValues(sessionId, executionCalls)` (`loop/tool-phase.mjs:49`): the values the sensitive fills of
     /// `calls` (`{name, arguments}` objects, the execution view) carry are marked for `thread`, before any of the calls is
@@ -289,6 +298,8 @@ pub struct OpenedLog {
     /// The newest visible, non-superseded rows before the checkpoint, oldest first, bounded
     /// by the UI window (≤ 200 rows, ≤ 2 MiB bodies).
     pub window: Vec<(u64, ItemRecord)>,
+    /// The ordinals of the `window` rows a compaction took out of the context: shown marked `archived`.
+    pub archived: Vec<u64>,
     /// The compaction dividers among the window's rows, in display order.
     pub dividers: Vec<WindowDivider>,
     /// Rows older than `window` exist.
@@ -301,6 +312,9 @@ pub struct OpenedLog {
     pub next_ordinal: u64,
     /// Committed frames after the checkpoint, in ordinal order.
     pub tail: Vec<(u64, Record)>,
+    /// The drafts of `runs` folded over the whole log (a draft may precede the checkpoint), by run id; empty when `tail`
+    /// holds every record of the open runs.
+    pub drafts: Vec<(String, super::turn_draft::RunDraft)>,
     pub append: AppendPosition,
 }
 
@@ -427,6 +441,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
+    /// The sessions, not deleted, whose header carries `child`'s archived agent result (one index range).
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
+
     /// Resolves once the index holds every write acknowledged so far (the exact class: an error when it is behind past
     /// the bound, or when a write of `id` failed to go in). A store without an index holds its writes at once.
     fn indexed(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
@@ -481,6 +498,9 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+
+    /// A write of a run's draft file beside the thread's log (`mixdog_store::draft_file`).
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
 }
 
 /// One item a history row shows.
@@ -762,6 +782,8 @@ pub struct AgentTurn {
 
 /// What the actor hands a new run.
 pub struct RunStart {
+    /// The conversation transcripts the turn appends its prompt and assistant texts to.
+    pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
     /// A routine fire's trusted skill-selection text (`options.skillSelection`).
@@ -820,9 +842,33 @@ pub enum RunOutcome {
     Interrupted,
 }
 
+/// A run the process died in: no terminal record ends it (recovery at open, `recoverTurnCheckpoint`).
+pub struct CrashedRun {
+    /// The model context as the log holds it (the run's rows included), oldest first.
+    pub context: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+    /// The run's input row, when the opened state names it.
+    pub input: Option<mixdog_core_api::ids::ItemId>,
+    pub draft: super::turn_draft::RunDraft,
+}
+
+/// What a crashed run leaves (`replayCheckpoint`): a finished one (`sealed`, its answer committed) stays as it is;
+/// otherwise its draft and the marker are finalized as `finalizeTurnInterruptionSnapshot(.., 'process-crash')` does.
+#[derive(Default)]
+pub struct CrashedRows {
+    pub sealed: bool,
+    /// The rows to commit, in order.
+    pub rows: Vec<super::run::ItemCommit>,
+    /// The model context to restart on (a silent compaction), when the finalization changed it.
+    pub context: Option<Vec<(mixdog_core_api::ids::ItemId, Value)>>,
+    /// The draft's last context reading, restored as `lastContextTokens` (`restoreCheckpointContext`).
+    pub context_tokens: Option<u64>,
+}
+
 /// The run loop (RL §5.2): owned by the actor, reports only to it.
 pub trait RunFactory: Send + Sync + 'static {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>>;
+    /// The rows the crashed `run` leaves; pure work on cpu-interactive.
+    fn crashed(&self, run: CrashedRun) -> CrashedRows;
 }
 
 /// The thread feed of one actor instance (`feed.id = threadId`, a fresh epoch per load).

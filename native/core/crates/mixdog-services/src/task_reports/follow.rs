@@ -45,6 +45,10 @@ pub trait RuntimeView: Send + Sync + 'static {
     fn busy(&self) -> bool;
     /// The ids of the submissions queued behind the running turn.
     fn queued_ids(&self) -> Vec<String>;
+    /// `state.toolApproval.id`: the approval the session waits on now, `None` while it waits on none.
+    fn tool_approval_id(&self) -> Option<String> {
+        None
+    }
     /// `runtime.subscribe`: a message on every state change; dropping the receiver unsubscribes.
     fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<()>;
 }

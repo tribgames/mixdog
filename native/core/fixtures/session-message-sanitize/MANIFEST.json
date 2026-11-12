@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-message-sanitize.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "command": "node benchmarks/rust-core/recorders/record-session-message-sanitize.mjs --tree <tree>",
   "entry": "Ran message-sanitize.mjs (filterModelVisibleSessionMessages), loop/steering.mjs (createSteeringDrain), provider-prefix-guard.mjs (prepareProviderPrefixGuard), manager/turn-interruption.mjs (finalizeTurnInterruptionSnapshot) and shared/task-notification-envelope.mjs on the test file's inputs. Did not run persistCompactedOutgoingAfterAskFailure (needs the store) nor a real turn.",
   "exclusions": [
     "meta.transcript.messageId of a drained notification (msg_ + 32 hex, random per run), at that path only, is recorded as msg_<id>",
@@ -23,7 +23,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -35,7 +35,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
+      "sha256": "567e31cf4d690d0623a96e871e1190bf780ea698f93c57e6ab7534dfd3a6dc31"
     }
   ],
   "nodeVersion": "v22.20.0",

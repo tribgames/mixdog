@@ -51,6 +51,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core-domains/src/domains/ai_account/keychain_live.rs", "self.probe.get(PROBE_ACCOUNT)", "a SecretStore lookup: the store counts it"),
     ("mixdog-core-config/src/config/secret_changes.rs", "self.inner.get(account)", "a wrapper that delegates to the SecretStore, which counts"),
     ("mixdog-ai/src/accounts/rotation.rs", "state.last_probe.get(", "a map of probe times, not a secret store"),
+    ("mixdog-ai/src/accounts/mod.rs", "env.var(variable)", "a provider's *_OAUTH_CREDENTIALS_PATH: the path of a credential file, not a secret; the file read is counted"),
     ("mixdog-ai/src/providers/compat/xai_cache.rs", "self.var(", "the cache-routing switches (scope, shards, auto), not a credential"),
     ("mixdog-ai/src/providers/compat/xai_cache.rs", "env.var(name)", "the cache-routing switches (scope, shards, auto), not a credential"),
     ("mixdog-core-domains/src/domains/ai_account/setup_world.rs", "self.vault.get(account)", "the store behind the vault performs and counts the read"),

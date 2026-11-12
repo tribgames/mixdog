@@ -978,7 +978,8 @@ pub struct ProviderError {
     pub exposure: Exposure,
     pub delivery: DeliveryState,
     pub transport: Option<TransportFault>,
-    /// Provider message for logs; never matched.
+    /// Provider message for logs; matched only by the agent's image-strip
+    /// recovery (`isImageProcessingError` reads the same text).
     pub message: String,
     /// The usage the stream reported before it failed (its last
     /// `StreamEvent::Usage`, or the usage the failing frame carried). Set on
@@ -1032,6 +1033,26 @@ pub struct ProviderError {
     /// The failure came from a WebSocket send, and where (Node `wsFailurePhase`); the loop keeps such a failure
     /// when a retry follows it, since an outage that ends later surfaces that one.
     pub ws_phase: Option<WsPhase>,
+    /// The one image a local preparation refused (Node `failingImageData` of `AnthropicImagePreparationError`): the
+    /// image-strip recovery removes exactly that image. Never part of the message. Boxed to keep `Result<_, ProviderError>`
+    /// small.
+    pub failing_image: Option<Box<FailingImage>>,
+}
+
+/// The image a preparation refused: its base64, and the SHA-256 (lower-case hex) of its bytes when they decoded, which is
+/// the content address of a stored copy. The preparation has the bytes in hand, so the recovery decodes and hashes
+/// nothing.
+#[derive(Clone, PartialEq, Eq)]
+pub struct FailingImage {
+    pub data: Box<str>,
+    pub sha256: Option<Box<str>>,
+}
+
+/// Length and hash only: the base64 is megabytes of a user's image, and an error is formatted into logs.
+impl std::fmt::Debug for FailingImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FailingImage").field("base64_len", &self.data.len()).field("sha256", &self.sha256).finish()
+    }
 }
 
 impl ProviderError {
@@ -1060,6 +1081,7 @@ impl ProviderError {
             timed_out: false,
             quota_limit: None,
             ws_phase: None,
+            failing_image: None,
             notices: Vec::new(),
         }
     }
@@ -1128,6 +1150,13 @@ pub trait ModelStream: Send {
     fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>);
 }
 
+/// The document capabilities of one route (`providerTakesNativePdf`, `provider.nativeDocuments`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MediaSupport {
+    pub native_pdf: bool,
+    pub native_documents: Option<bool>,
+}
+
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &ProviderId;
@@ -1190,6 +1219,18 @@ pub trait ProviderAdapter: Send + Sync {
     /// inherits `true`. `None` leaves the answer to the name (`accounted::input_excludes_cache`).
     fn input_excludes_cache(&self) -> Option<bool> {
         None
+    }
+    /// What the route `request` goes to takes as a document: Node asks the engine that sends it (a gateway's Messages
+    /// engine declares its own `nativePdf` / `nativeDocuments`, apart from the provider's flags for its Chat and
+    /// Responses wires). The provider's own flags by default; a wrapper forwards its inner provider's.
+    async fn media_support(&self, _request: &ModelRequest) -> MediaSupport {
+        MediaSupport { native_pdf: self.native_pdf(), native_documents: self.native_documents() }
+    }
+    /// Whether the route `request` goes to takes an image at all. A model without vision gets the fixed omitted text for a
+    /// stored image and its blob is never read (Node's `degradeMediaParts` lowers the part, not the file), so a blob that is
+    /// gone reads "omitted" like any other. True by default.
+    async fn takes_vision(&self, _request: &ModelRequest) -> bool {
+        true
     }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`
     /// may wait for its response headers and its first output, which the progress watchdog's

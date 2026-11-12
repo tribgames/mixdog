@@ -42,6 +42,7 @@ use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
+use super::maas::VertexModel;
 use super::models;
 use super::redirect;
 use crate::catalog::ListingLookup;
@@ -81,6 +82,8 @@ pub struct GoogleAdapter {
     preconnect: Option<Preconnect>,
     /// The first-byte windows and Antigravity's ladder, read from the environment as Node does.
     first_byte: FirstByteSettings,
+    /// The resizer of a Claude request's images ([`crate::providers::anthropic::images`]).
+    images: Option<crate::providers::anthropic::images::ImageFitter>,
 }
 
 impl GoogleAdapter {
@@ -112,6 +115,7 @@ impl GoogleAdapter {
             lookup: ListingLookup::new(),
             preconnect: None,
             first_byte: FirstByteSettings::process(),
+            images: None,
         }
     }
 
@@ -119,6 +123,12 @@ impl GoogleAdapter {
     /// with must come from the same settings ([`super::policy::antigravity_with`]).
     pub fn with_first_byte(mut self, settings: FirstByteSettings) -> Self {
         self.first_byte = settings;
+        self
+    }
+
+    /// Fits the images of Claude requests with `fitter`.
+    pub fn with_images(mut self, fitter: Option<crate::providers::anthropic::images::ImageFitter>) -> Self {
+        self.images = fitter;
         self
     }
 
@@ -493,6 +503,15 @@ impl GoogleAdapter {
         }
     }
 
+    /// The HTTP request of a Claude send: the API-key route's Messages body, its images fitted first.
+    async fn claude_fitted(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
+        let wire = self.codec.claude_wire(request, model, global)?;
+        match &self.images {
+            Some(fitter) => fitter.fit_wire(request, wire).await,
+            None => Ok(wire),
+        }
+    }
+
     /// `_doSend` up to the first answer: the cache to attach (made under `key`), the generate call, the replay
     /// without a cache the server refused, and the global location for a region that lacks the model.
     async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
@@ -508,10 +527,10 @@ impl GoogleAdapter {
         }
         // Claude (`_sendClaude`): an Anthropic request through streamRawPredict, no explicit cache.
         if let Some(model) = self.codec.claude_model(&request.model) {
-            let mut response = self.dispatch(&self.codec.claude_wire(request, &model, false)?).await?;
+            let mut response = self.dispatch(&self.claude_fitted(request, &model, false).await?).await?;
             let global = response.status == 404 && self.codec.falls_back_to_global(request);
             if global {
-                response = self.dispatch(&self.codec.claude_wire(request, &model, true)?).await?;
+                response = self.dispatch(&self.claude_fitted(request, &model, true).await?).await?;
             }
             return Ok(Exchanged { response, queue, global });
         }
@@ -555,9 +574,8 @@ impl GoogleAdapter {
         Ok(Exchanged { response, queue, global })
     }
 
-    async fn attempt_served(&self, request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
+    async fn attempt_served(&self, mut request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
         let key = self.current_key().await?;
-        let mut request = request;
         let mut sent = self.exchange(&request, key.as_deref()).await?;
         // `GeminiProvider.send`: a typed 401 re-reads the provider's key, drops every cache made under the old one and
         // the session's saved cache, and sends the whole request once more when the re-read finds a key. A second

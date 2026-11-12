@@ -1,0 +1,86 @@
+{
+  "cases": 15,
+  "command": "node benchmarks/rust-core/recorders/record-turn-durability.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exact": true,
+  "exclusions": [
+    "minted-ids: minted ids (message, attempt, session ids, also inside texts) are compared as <id:N> by first appearance, objects walked in key order: each side mints its own",
+    "row-id: view.items: each row's own `id` (finalAssistantId is compared as the position of the row it names) and `expanded`, the client's open/closed state of a tool card",
+    "view-messages: view.messages: the same transcript as view.items, which is compared",
+    "system-message: disk.messages: the `system` message, the assembled system prompt Node stores and Rust assembles per request",
+    "rust-disk-stamps: disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
+    "end-row-message-id: the end row's messageId in the process that ran the turn: Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection",
+    "checkpoint-seal: checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
+    "queued-stamps: crash-queued-*: Node's `checkpointId` is Rust's `clientSubmissionId`; Rust's rows and stored transcript meta also carry model, modelId and provider, which Node's TUI queue flow stamps on none (rows and disk compared without them)",
+    "taken-disk: crash-queued-while-take, step `taken` (the owning process's live view): `disk`: Node's stored record lags the running turn, its checkpoint holding it; Rust's log holds it as it goes",
+    "saved-uncleared-presence: killed step of crash-saved-uncleared: only that the draft file is left is compared, not its seal or message count, which follow how far Node's async journal had flushed; two recordings of the same tree at the kill differed: {sealed:false, turnMessages:1} and {sealed:true, turnMessages:2}",
+    "secret-before-mark: killed step of crash-sensitive, `secretFilesBeforeMark`: whether a file of the data held the value before it was marked sensitive, compared as non-empty or empty, the two layouts naming different files",
+    "secret-files: secretFiles: compared as whether any file of the data holds the value, as the two layouts name different files",
+    "busy: Node's recording carries the stage of the runtime entry, not a flag: Rust's `runtime.busy` is compared with whether that entry exists (a non-null stage); the stage itself is compared whole",
+    "result: askSession's return to its caller; a Rust client is given the answer as the item the turn's end row names (finalAssistantId), whose text is compared",
+    "refusal-class: the refusal name (the JS error class): the refusal is compared through its code and message",
+    "live-view: live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
+    "queued-rows: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
+    "spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains",
+    "requests: the user messages of each request, whole, per process"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1324918,
+      "path": "golden.json",
+      "sha256": "4e04268985dc86e33a67ebbfc32a3f54655f5ac6436a20d57f9696baf4af7267"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/patched-tree.mjs",
+      "sha256": "113bc22c80f9ef1bfd66e26a734b49773d6780d65b6c0db8540825255d7892ab"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
+      "sha256": "1747294c756f1470083d26b11e519fc023c52bc8988703b7e809abfb71a87e6b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/patches/node-fix-take-kill-duplicate-answer.patch",
+      "sha256": "7468d6d59055496edadfd660dd98b72c8f16b47a6dda917be366ce65d9a629a0"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "patch": {
+    "applied": "to a temporary copy of the tree's src, for the cases named in `cases` (the other cases are recorded from the tree as it is)",
+    "cases": [
+      "crash-queued-while-take"
+    ],
+    "file": "benchmarks/rust-core/recorders/patches/node-fix-take-kill-duplicate-answer.patch",
+    "fixes": "A turn that went on past its answer to take queued input committed the answer, then reported its text to the host again (keepEndedAnswer: `onAssistantText(text, { committed: true })`). The checkpoint's interruption tracker took that text into its partial buffer, which the commit had just emptied, so the checkpoint held the answer twice (as a message and as streamed text), and the recovery of a process killed after the take appended the first answer a second time after the steered rows. The patch does not record a committed segment's own text in the tracker. New Node test ask-turn-loop-options.committed-text.test.mjs (in the patch): a committed answer reported again leaves the partial buffer empty; an uncommitted buffered segment is still recorded."
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
+  "recorderSha256": "9cce914b7fcc33868966e77ea3ffa5ec885f0088df950584dc3655d891ce6cfe",
+  "set": "turn-durability",
+  "totalBytes": 1324918
+}

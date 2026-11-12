@@ -305,7 +305,7 @@ struct Closed {
 
 /// `mgr.deleteSession`: the delete mark, the close metric once it is acknowledged, the store's
 /// purge of what no live lineage reads, then `_deleteSession`'s purge hooks and the app list's
-/// `thread/deleted`. False when the mark was not applied (the thread stays, unloaded).
+/// `thread/deleted`. False when the mark was not applied (the close failed: the thread stays open with what it holds).
 async fn remove(
     directory: &super::directory::DirInner,
     thread: &ThreadId,

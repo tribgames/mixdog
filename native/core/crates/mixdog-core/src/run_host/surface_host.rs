@@ -243,7 +243,7 @@ fn deferred_mode(mode: &str) -> &'static str {
 
 /// A thread's tool mode: the `toolMode` its start or `thread/setToolMode` wrote; a thread from
 /// before that key is `readonly` or `full` by its spec.
-fn thread_mode(header: &Header) -> &'static str {
+pub(super) fn thread_mode(header: &Header) -> &'static str {
     match header.get("toolMode").and_then(Value::as_str) {
         Some(mode) => normalize_tool_mode(mode),
         None if header.get("toolSpec") == Some(&tool_spec_for_mode("readonly")) => "readonly",
@@ -940,7 +940,9 @@ impl LeadSurfaceHost {
         session["disallowedTools"] = json!(denied);
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
-        session["sessionMode"] = json!(session_mode_of(header));
+        // Resolved from the record with its id (`sessionModeOf(session)`): an agent home's or room member's id makes it an agent session.
+        let mode = session_mode_of(session.as_object().expect("the session record is an object"));
+        session["sessionMode"] = json!(mode);
         let standalone = internal_tools(&s.pool);
         // `filterModelToolsForProfile(modelStandaloneTools())`: a headless or heartbeat thread carries its runtime's
         // profile on the header, which fences the standalone tools. The connected servers' tools are added as

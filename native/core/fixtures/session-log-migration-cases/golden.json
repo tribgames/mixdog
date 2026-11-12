@@ -1,0 +1,220 @@
+{
+  "note": "Node's legacy session migration at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-session-log-migration-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/session/store/session-log-migration.test.mjs",
+  "cases": [
+    {
+      "case": "migrates every legacy json into a proven log, never touching a json, and resumes after an exit",
+      "files": {
+        "sess_000.json": "{\"id\":\"sess_000\",\"title\":\"t0\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}",
+        "sess_001.json": "{\"id\":\"sess_001\",\"title\":\"t1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m1\"}]}",
+        "sess_002.json": "{\"id\":\"sess_002\",\"title\":\"t2\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m2\"}]}",
+        "sess_003.json": "{\"id\":\"sess_003\",\"title\":\"t3\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m3\"}]}",
+        "sess_004.json": "{\"id\":\"sess_004\",\"title\":\"t4\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m4\"}]}",
+        "sess_005.json": "{\"id\":\"sess_005\",\"title\":\"t5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m5\"}]}"
+      },
+      "steps": [
+        "interrupted",
+        "run"
+      ],
+      "observed": {
+        "sessions": {
+          "sess_000": {
+            "valid": true,
+            "header": {
+              "id": "sess_000",
+              "title": "t0"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m0"
+              }
+            ]
+          },
+          "sess_001": {
+            "valid": true,
+            "header": {
+              "id": "sess_001",
+              "title": "t1"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m1"
+              }
+            ]
+          },
+          "sess_002": {
+            "valid": true,
+            "header": {
+              "id": "sess_002",
+              "title": "t2"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m2"
+              }
+            ]
+          },
+          "sess_003": {
+            "valid": true,
+            "header": {
+              "id": "sess_003",
+              "title": "t3"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m3"
+              }
+            ]
+          },
+          "sess_004": {
+            "valid": true,
+            "header": {
+              "id": "sess_004",
+              "title": "t4"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m4"
+              }
+            ]
+          },
+          "sess_005": {
+            "valid": true,
+            "header": {
+              "id": "sess_005",
+              "title": "t5"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m5"
+              }
+            ]
+          }
+        },
+        "jsonsUnchanged": true,
+        "tmp": 0
+      }
+    },
+    {
+      "case": "a file that failed for lack of disk space is tried again at the next start",
+      "files": {
+        "sess_000.json": "{\"id\":\"sess_000\",\"title\":\"t0\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}"
+      },
+      "steps": [
+        "disk full",
+        "run"
+      ],
+      "afterFailure": {
+        "sessions": {},
+        "jsonsUnchanged": true,
+        "tmp": 0
+      },
+      "observed": {
+        "sessions": {
+          "sess_000": {
+            "valid": true,
+            "header": {
+              "id": "sess_000",
+              "title": "t0"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m0"
+              }
+            ]
+          }
+        },
+        "jsonsUnchanged": true,
+        "tmp": 0
+      }
+    },
+    {
+      "case": "a session converted by its first write is left as it is",
+      "files": {
+        "sess_000.json": "{\"id\":\"sess_000\",\"title\":\"t0\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}",
+        "sess_001.json": "{\"id\":\"sess_001\",\"title\":\"t1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m1\"}]}"
+      },
+      "logs": {
+        "sess_000": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9caa4d1c8473fff933f4b511\",\"id\":\"sess_000\",\"prev\":null,\"legacy\":{\"sha1\":\"1cef35a41dc935b01647e3d5a04f621811b9f7b5\",\"size\":133,\"mtimeMs\":1794391195264.7295},\"header\":{\"id\":\"sess_000\",\"title\":\"t0\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}\n"
+      },
+      "steps": [
+        "run"
+      ],
+      "observed": {
+        "sessions": {
+          "sess_000": {
+            "valid": true,
+            "header": {
+              "id": "sess_000",
+              "title": "t0"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m0"
+              }
+            ]
+          },
+          "sess_001": {
+            "valid": true,
+            "header": {
+              "id": "sess_001",
+              "title": "t1"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant."
+              },
+              {
+                "role": "user",
+                "content": "m1"
+              }
+            ]
+          }
+        },
+        "jsonsUnchanged": true,
+        "tmp": 0
+      }
+    }
+  ]
+}

@@ -758,6 +758,7 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }
 
+mod shared_open;
 /// A port that was free when the start looked for one and is taken before the postmaster binds it (another cluster starting on the
 /// machine: `at_quit_the_last_client_leaves…` failed on it) moves the start to the next port instead of failing it. The port is taken in
 /// the gap the start leaves between its choice and the spawn.

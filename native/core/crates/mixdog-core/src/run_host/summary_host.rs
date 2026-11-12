@@ -340,7 +340,12 @@ impl SummarySender for RegistrySender {
         };
         // Usage attribution: the summary is the session's, on a request of its own, unless the
         // step belongs to no session.
-        let options = RequestOptions { session_id: attributed_session(&self.thread, self.attributed), ..RequestOptions::default() };
+        // `runner.mjs` `sendOpts.usageSessionId = opts.sessionId`: the spend is the session's own.
+        let options = RequestOptions {
+            session_id: attributed_session(&self.thread, self.attributed),
+            usage_session_id: self.attributed.then(|| self.thread.as_str().to_owned()),
+            ..RequestOptions::default()
+        };
         let one_shot = OneShot::standalone(
             deps.clock.clone(),
             Arc::new(RandomJitter),

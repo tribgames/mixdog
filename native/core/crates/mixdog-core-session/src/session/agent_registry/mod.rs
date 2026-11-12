@@ -35,6 +35,8 @@ mod views;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod stale_node_cases;
+#[cfg(test)]
 mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
@@ -148,7 +150,7 @@ pub trait LiveSessions: Send + Sync {
     fn header(&self, session: &str) -> Option<Row>;
     /// A turn is running (`runtime.controller` not aborted).
     fn running(&self, session: &str) -> bool;
-    /// `sessionHasLiveWork`: a running turn or queued input.
+    /// A running turn or queued input (`sessionHasLiveWork` adds the runtime stage).
     fn has_live_work(&self, session: &str) -> bool;
     /// `runtime.stage`.
     fn runtime_stage(&self, session: &str) -> Option<String>;
@@ -966,6 +968,11 @@ impl AgentRegistry {
         Some(extra)
     }
 
+    /// `sessionHasLiveWork`: a running turn, queued input, or a runtime stage still doing work.
+    fn session_has_live_work(&self, id: &str) -> bool {
+        self.live.has_live_work(id) || self.live.runtime_stage(id).is_some_and(|stage| ACTIVE_STAGES.contains(&stage.as_str()))
+    }
+
     /// `transitionStaleNonterminalRows`.
     fn transition_stale(&self, st: &mut State, scope: &Scope) {
         let stale = self.stale_rows(st, scope);
@@ -991,7 +998,7 @@ impl AgentRegistry {
                 if is_terminal_row(row) {
                     return !is_unnotified_restart_failure(row)
                         && past_settled_retention(&reap, row, now)
-                        && !self.live.has_live_work(&id);
+                        && !self.session_has_live_work(&id);
                 }
                 if self.live_session_row(st, &id).is_some() {
                     return false;

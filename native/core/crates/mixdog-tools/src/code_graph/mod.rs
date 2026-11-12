@@ -7,6 +7,8 @@ mod federation;
 mod graph;
 mod hits;
 mod modes;
+#[cfg(test)]
+mod node_cases;
 mod outline;
 mod output;
 mod refs;

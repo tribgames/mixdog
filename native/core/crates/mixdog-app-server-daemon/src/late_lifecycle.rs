@@ -137,25 +137,90 @@ mod tests {
         assert!(events.iter().any(|e| e == "release_started:service calls settled"), "{events:?}");
     }
 
+    fn recorded(path: &str) -> serde_json::Value {
+        let path = format!("{}/../../fixtures/{path}", env!("CARGO_MANIFEST_DIR"));
+        #[allow(clippy::disallowed_methods, reason = "the recording is read at run time")]
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        serde_json::from_str(&text).unwrap()
+    }
+
+    fn released(events: &[String]) -> Vec<&str> {
+        events.iter().filter_map(|e| e.strip_prefix("release_started:")).collect()
+    }
+
     /// `session-transport-state-lanes` case 428: an external client and an in-daemon one attach; the in-daemon one does not hold
-    /// the daemon's lifetime, so the external one closing empties the clients. The core's in-daemon callers send through
-    /// `CallContext::internal`, never a connection, so only the handshaken connections count: the last one closing stops the core
-    /// with Node's text, through the calls the server makes at handshake and close.
+    /// the daemon's lifetime, so the external one closing empties the clients. Each recorded step is compared whole as the core
+    /// has it after the same calls the server makes at handshake and close (`ComposedCore::connection_opened` /
+    /// `connection_closed` -> `client_opened` / `client_closed`): `clientCount` is the lifecycle's client count, `clientsEmpty`
+    /// is the self-stop with Node's text. Node's `connectionCount` also counts its in-daemon transport connection
+    /// (`lifecycle:false`); the core's in-daemon callers send through `CallContext::internal`, never a connection, which the
+    /// manifest declares: it is the external connections alone here.
     #[test]
     fn the_last_client_connection_closing_stops_the_core_as_nodes_clients_empty() {
+        let recording = recorded("session-transport-state-lanes/recording.json");
+        let node = recording["cases"].as_array().unwrap().iter().find(|case| case["testLine"] == 428).unwrap();
         let fx = fixture();
         fx.lifecycle.set_serving().unwrap();
         let late = LateLifecycle::default();
         assert!(late.client_opened(ConnectionId(1), ConnectionKind::Desktop).is_err(), "not counted before the bind");
         late.bind(fx.lifecycle.clone()).unwrap();
+        let state = |late: &LateLifecycle, fx: &crate::lifecycle::testing::Fixture| {
+            let empty = released(&fx.recorder.events()).contains(&"no live session clients");
+            serde_json::json!({ "clientCount": late.get().unwrap().status().clients, "connectionCount": late.get().unwrap().status().clients, "clientsEmpty": if empty { serde_json::json!("empty") } else { serde_json::Value::Null } })
+        };
+        let in_daemon = |step: &serde_json::Value| {
+            let mut step = step.clone();
+            step["connectionCount"] = serde_json::json!(step["connectionCount"].as_u64().unwrap() - 1);
+            step.as_object_mut().unwrap().remove("step");
+            step
+        };
+        let steps = node["result"]["steps"].as_array().unwrap();
         late.client_opened(ConnectionId(2), ConnectionKind::Desktop).unwrap();
-        late.client_opened(ConnectionId(3), ConnectionKind::Phone).unwrap();
-        late.client_closed(ConnectionId(1));
-        late.client_closed(ConnectionId(3));
-        assert!(!fx.recorder.has_exited(), "the desktop connection keeps the core alive");
+        assert_eq!(state(&late, &fx), in_daemon(&steps[0]), "{}", steps[0]["step"]);
         late.client_closed(ConnectionId(2));
         fx.recorder.wait_exit();
-        let events = fx.recorder.events();
-        assert!(events.iter().any(|e| e == "release_started:no live session clients"), "{events:?}");
+        assert_eq!(state(&late, &fx), in_daemon(&steps[1]), "{}", steps[1]["step"]);
+        assert_eq!(steps.len(), 2);
+    }
+
+    /// Node's `POST /shutdown` with and without a client attached (`fixtures/self-shutdown-deferral`), with the clients attached
+    /// through the connection entry the server calls (`client_opened` / `client_closed`): a request with a client is put off
+    /// with the clients kept, and the stop that ends each case carries the text Node logged. Each case's outcome is compared
+    /// whole: whether the core is alive after the request, the clients it counts, the stop it ended with.
+    #[test]
+    fn a_quit_waits_for_the_counted_connections_as_node_s_shutdown_does() {
+        use crate::lifecycle::StopMode;
+        use crate::lifecycle::StopReason;
+        let twin = recorded("self-shutdown-deferral/twin.json");
+        let reason_of = |line: &str| line.split_once('(').and_then(|(_, rest)| rest.split_once(')')).map(|(reason, _)| reason.to_owned()).unwrap();
+        for case in twin["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let fx = fixture();
+            fx.lifecycle.set_serving().unwrap();
+            let late = LateLifecycle::default();
+            late.bind(fx.lifecycle.clone()).unwrap();
+            let clients = case["clients"].as_u64().unwrap();
+            for n in 0..clients {
+                late.client_opened(ConnectionId(n), ConnectionKind::Desktop).unwrap();
+            }
+            let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
+                kind: crate::lifecycle::ActivityKind::Turn,
+                thread_id: Some("thread-1".into()),
+                turn_id: Some("turn-1".into()),
+                title: "a turn".into(),
+            }));
+            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            let counted = fx.lifecycle.status().clients;
+            let alive = clients > 0 && !fx.recorder.has_exited();
+            for n in 0..clients {
+                late.client_closed(ConnectionId(n));
+            }
+            drop(work);
+            fx.recorder.wait_exit();
+            let ended = case["log"].as_array().unwrap().iter().filter_map(|l| l.as_str()).rfind(|l| l.starts_with("shutting down")).unwrap_or_else(|| case["log"][0].as_str().unwrap());
+            let core = serde_json::json!({ "aliveAfter": alive, "clients": counted, "ended": released(&fx.recorder.events()) });
+            let node = serde_json::json!({ "aliveAfter": case["aliveAfter"], "clients": case["clients"], "ended": [reason_of(ended)] });
+            assert_eq!(core, node, "{name}");
+        }
     }
 }

@@ -478,6 +478,7 @@ impl ToolPolicy {
                 decision.remember,
                 device,
                 decision.edited_args,
+                // "denied by user" is filled in by the human layer (`lifecycle.mjs:74`, `held-requests.mjs:198`), not here.
                 decision.reason.unwrap_or_default(),
                 false,
             ),

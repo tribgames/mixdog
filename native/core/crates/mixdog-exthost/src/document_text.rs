@@ -15,6 +15,12 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use serde_json::json;
 
+/// `PDF_INTAKE_TIMEOUT_MS` (`attachments/pdf-extract.mjs:78`).
+pub const PDF_INTAKE_TIMEOUT_MS: u64 = 60_000;
+
+/// `PDF_UNREADABLE_TEXT` (`media-normalization.mjs:197`).
+pub const PDF_UNREADABLE_TEXT: &str = "[PDF text unavailable: this PDF could not be read]";
+
 pub struct ExtDocumentText {
     pool: Arc<dyn ExtPool>,
 }
@@ -62,12 +68,26 @@ impl DocumentText for ExtDocumentText {
     }
 
     async fn pdf_text(&self, thread: &ThreadId, data_base64: &str) -> Result<String, ExtError> {
+        // Node's text extraction has no deadline of its own (page and byte limits only, applied by the worker's
+        // `extractPdfText`) and this call has none either: the turn's attachments share one bound, which the caller
+        // sets (`MediaLowering`), so several PDFs do not each add their own. Dropping the call cancels it.
         let answer = self.ask(thread, "media.pdfText", json!({ "data": data_base64 })).await?;
         answer["text"].as_str().map(str::to_owned).ok_or_else(|| malformed("media.pdfText"))
     }
 
     async fn pdf_counts(&self, thread: &ThreadId, data_base64: &str) -> Result<PdfIntake, ExtError> {
-        let answer = self.ask(thread, "media.pdfCounts", json!({ "data": data_base64 })).await?;
+        // Node's intake deadline (`PDF_INTAKE_TIMEOUT_MS`, `attachments/store.mjs:809` -> `inspectPdfBuffer`): the worker
+        // applies it too, and this bound holds when the worker itself never answers. Dropping the call cancels it.
+        let asked = self.ask(thread, "media.pdfCounts", json!({ "data": data_base64 }));
+        let answer = match mixdog_rt::scoped::Scope::new().within(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)).run(asked).await {
+            mixdog_rt::scoped::Scoped::Done(answer) => answer?,
+            _ => {
+                return Err(ExtError::Failed {
+                    code: "PDF_INSPECTION_TIMEOUT".to_owned(),
+                    message: format!("PDF inspection timed out after {PDF_INTAKE_TIMEOUT_MS} ms"),
+                });
+            }
+        };
         if let Some(message) = answer.get("rejected") {
             return message.as_str().map(|m| PdfIntake::Rejected(m.to_owned())).ok_or_else(|| malformed("media.pdfCounts"));
         }
@@ -184,5 +204,41 @@ mod tests {
         assert!(matches!(partial.pdf_counts(&thread, "x").await, Err(ExtError::Failed { .. })));
         let (missing, _) = media(Ok(json!({})));
         assert!(matches!(missing.pdf_counts(&thread, "x").await, Err(ExtError::Failed { .. })));
+    }
+
+    /// A worker that never answers.
+    struct Silent;
+    #[async_trait::async_trait]
+    impl EventSource<ExtFrame> for Silent {
+        async fn next(&mut self) -> Option<ExtFrame> {
+            std::future::pending().await
+        }
+    }
+    struct Hung;
+    impl ExtPool for Hung {
+        fn call(&self, _: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
+            Ok(Box::new(Silent))
+        }
+        fn status(&self) -> Vec<ExtWorkerStatus> {
+            Vec::new()
+        }
+        fn stop_worker(&self, _: ExtWorkerId) -> Result<(), ExtError> {
+            Err(ExtError::UnknownWorker)
+        }
+    }
+
+    /// A parser that never answers fails the intake at Node's deadline with Node's error (`timeoutError`,
+    /// `pdf-extract.mjs:91`), not a moment before; the clock is the test's.
+    #[tokio::test(start_paused = true)]
+    async fn a_pdf_inspection_that_never_answers_fails_at_nodes_intake_deadline() {
+        let media = ExtDocumentText::new(Arc::new(Hung));
+        let thread = ThreadId::from("t");
+        let started = tokio::time::Instant::now();
+        let failed = media.pdf_counts(&thread, "UERG").await;
+        assert_eq!(started.elapsed(), std::time::Duration::from_millis(60_000));
+        assert_eq!(
+            failed,
+            Err(ExtError::Failed { code: "PDF_INSPECTION_TIMEOUT".into(), message: "PDF inspection timed out after 60000 ms".into() })
+        );
     }
 }

@@ -118,7 +118,7 @@ fn release_flushing(fault: (&'static str, Fault), budgets: ReleaseBudgets, flush
     let recorder = Arc::new(Recorder::default());
     let root = tempfile::tempdir().unwrap();
     let (unwedge, hold) = mpsc::channel();
-    let lifecycle = Lifecycle::with_budgets(
+    let lifecycle = Lifecycle::with_grace(
         LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
         Ports {
             core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold), flush }),
@@ -126,6 +126,8 @@ fn release_flushing(fault: (&'static str, Fault), budgets: ReleaseBudgets, flush
             exiter: recorder.clone(),
         },
         budgets,
+        crate::lifecycle::ClientGrace::immediate(),
+        crate::lifecycle::testing::ManualTimer::new(),
     );
     lifecycle.set_serving().unwrap();
     drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));

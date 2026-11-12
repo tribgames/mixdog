@@ -59,6 +59,12 @@ pub trait Exiter: Send + Sync {
     fn exit(&self, code: i32);
 }
 
+/// The clock the no-clients grace runs on. `after` calls `fire` once `delay` has passed, on any thread; dropping the returned handle
+/// cancels it. The process runs it on real time; a test advances its own.
+pub trait GraceTimer: Send + Sync {
+    fn after(&self, delay: std::time::Duration, fire: Box<dyn FnOnce() + Send>) -> Box<dyn Send>;
+}
+
 #[derive(Clone)]
 pub struct Ports {
     pub core: Arc<dyn CorePort>,

@@ -10,9 +10,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use mixdog_rt::Scope;
-use mixdog_rt::Scoped;
-use tokio_util::sync::CancellationToken;
+use mixdog_rt::CancelView;
 use url::Url;
 
 use super::error::FetchError;
@@ -217,6 +215,28 @@ impl HostPacer {
     }
 }
 
+/// What ends a run early: the caller's cancel and the total deadline.
+struct Cut<'a> {
+    deadline: Instant,
+    budget: Duration,
+    cancel: &'a CancelView,
+}
+
+impl Cut<'_> {
+    /// Node's attempt failure for the abort reason: a caller's reason is a plain error (`NETWORK_ERROR`); an abort
+    /// without one is the platform's `AbortError` (`FETCH_CANCELLED`).
+    fn aborted(&self) -> FetchError {
+        match self.cancel.reason() {
+            Some(reason) => FetchError::new(FetchKind::Network, reason.to_string()),
+            None => FetchError::new(FetchKind::Cancelled, "This operation was aborted"),
+        }
+    }
+
+    fn total(&self) -> FetchError {
+        FetchError::new(FetchKind::Timeout, format!("Fetch exceeded {}ms total budget", self.budget.as_millis()))
+    }
+}
+
 pub struct Pipeline {
     fetcher: Arc<Fetcher>,
     renderer: Option<Arc<dyn PageRenderer>>,
@@ -240,25 +260,12 @@ impl Pipeline {
         }
     }
 
-    pub async fn run(
-        &self,
-        url: &Url,
-        budget: Duration,
-        cancel: &CancellationToken,
-    ) -> Result<Page, PipelineFailure> {
-        let deadline = Instant::now() + budget;
+    /// Runs the stages within `budget`. A caller cancel or the total deadline cuts the running attempt, which is
+    /// traced with the cut (Node aborts the stage with the abort reason); the run then fails with that reason.
+    pub async fn run(&self, url: &Url, budget: Duration, cancel: &CancelView) -> Result<Page, PipelineFailure> {
+        let cut = Cut { deadline: Instant::now() + budget, budget, cancel };
         let mut trace = Trace::default();
-        let outcome = {
-            let work = self.run_stages(url, deadline, cancel, &mut trace);
-            match Scope::new().cancel(cancel).deadline(Some(deadline)).run(work).await {
-                Scoped::Done(result) => result,
-                Scoped::Cancelled => Err(FetchError::new(FetchKind::Cancelled, "Fetch cancelled")),
-                Scoped::DeadlineExceeded => Err(FetchError::new(
-                    FetchKind::Timeout,
-                    format!("Fetch exceeded {}ms total budget", budget.as_millis()),
-                )),
-            }
-        };
+        let outcome = self.run_stages(url, &cut, &mut trace).await;
         match outcome {
             Ok(page) => Ok(Page {
                 failures: trace.failures,
@@ -266,14 +273,14 @@ impl Pipeline {
                 ..page
             }),
             Err(mut error) => {
-                // A stage cut off at the deadline is the total deadline.
-                if error.kind == FetchKind::StageTimeout
-                    && Instant::now() + Duration::from_millis(10) >= deadline
+                if cancel.is_cancelled() {
+                    error = FetchError::new(FetchKind::Cancelled, cut.aborted().message);
+                } else if Instant::now() >= cut.deadline
+                    // The last stage's budget ends with the total one; a stage cut off at the deadline is the
+                    // total deadline.
+                    || (error.kind == FetchKind::StageTimeout && Instant::now() + Duration::from_millis(10) >= cut.deadline)
                 {
-                    error = FetchError::new(
-                        FetchKind::Timeout,
-                        format!("Fetch exceeded {}ms total budget", budget.as_millis()),
-                    );
+                    error = cut.total();
                 }
                 Err(PipelineFailure {
                     code: error.code(),
@@ -285,19 +292,14 @@ impl Pipeline {
         }
     }
 
-    async fn run_stages(
-        &self,
-        url: &Url,
-        deadline: Instant,
-        cancel: &CancellationToken,
-        trace: &mut Trace,
-    ) -> Result<Page, FetchError> {
+    async fn run_stages(&self, url: &Url, cut: &Cut<'_>, trace: &mut Trace) -> Result<Page, FetchError> {
+        let deadline = cut.deadline;
         let mut last: Option<FetchError> = None;
         for retry in 0..2 {
-            match self.attempt(HTTP_STAGE, url, deadline, trace).await {
+            match self.attempt(HTTP_STAGE, url, cut, trace).await {
                 Ok(page) => return Ok(page),
                 Err(error) => {
-                    if cancel.is_cancelled() {
+                    if cut.cancel.is_cancelled() || Instant::now() >= deadline {
                         return Err(error);
                     }
                     if error.kind == FetchKind::Policy {
@@ -324,7 +326,10 @@ impl Pipeline {
                         return Err(error);
                     }
                     last = Some(error);
-                    mixdog_rt::time::sleep(delay).await;
+                    tokio::select! {
+                        () = cut.cancel.cancelled() => return Err(cut.aborted()),
+                        () = mixdog_rt::time::sleep(delay) => {}
+                    }
                 }
             }
         }
@@ -336,21 +341,21 @@ impl Pipeline {
         if self.renderer.is_none() {
             return Err(last);
         }
-        self.attempt(RENDER_STAGE, url, deadline, trace).await
+        self.attempt(RENDER_STAGE, url, cut, trace).await
     }
 
-    async fn attempt(
-        &self,
-        stage: &'static str,
-        url: &Url,
-        deadline: Instant,
-        trace: &mut Trace,
-    ) -> Result<Page, FetchError> {
+    async fn attempt(&self, stage: &'static str, url: &Url, cut: &Cut<'_>, trace: &mut Trace) -> Result<Page, FetchError> {
+        // An attempt that never starts is not traced.
+        if cut.cancel.is_cancelled() {
+            return Err(cut.aborted());
+        }
+        if Instant::now() >= cut.deadline {
+            return Err(cut.total());
+        }
+        let deadline = cut.deadline;
         let started = Instant::now();
         let host = url.host_str().unwrap_or_default().to_string();
-        let result = self
-            .pacer
-            .run(&host, async {
+        let work = self.pacer.run(&host, async {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 let budget = if stage == HTTP_STAGE {
                     Duration::from_millis(12_000.min((remaining.as_millis() as f64 * 0.45).floor() as u64).max(1))
@@ -362,8 +367,15 @@ impl Pipeline {
                     .map_err(|_| FetchError::new(FetchKind::StageTimeout, format!("{stage} timed out")))??;
                 assert_readable(&page.content)?;
                 Ok(page)
-            })
-            .await;
+            });
+        // Node's abort wins over a stage result arriving in the same tick; a stage budget ending with the total one
+        // fires first (its timer was armed later but due at the same instant, and the stage reports it).
+        let result = tokio::select! {
+            biased;
+            () = cut.cancel.cancelled() => Err(cut.aborted()),
+            result = work => result,
+            () = mixdog_rt::time::sleep_until(mixdog_rt::time::Instant::from_std(deadline)) => Err(cut.total()),
+        };
         let elapsed_ms = started.elapsed().as_millis();
         match result {
             Ok(page) => {

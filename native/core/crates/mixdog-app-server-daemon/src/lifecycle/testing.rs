@@ -4,7 +4,13 @@ use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
+use super::ClientGrace;
+use super::ReleaseBudgets;
+use super::ports::GraceTimer;
 use super::DiscoveryState;
 use super::DrainNotice;
 use super::Lifecycle;
@@ -150,10 +156,16 @@ pub struct Fixture {
     pub runtime_root: tempfile::TempDir,
 }
 
+/// A lifecycle whose last client leaving stops the core at once: most tests are about what follows the stop.
 pub fn fixture() -> Fixture {
+    fixture_with_grace(ClientGrace::immediate(), ManualTimer::new())
+}
+
+/// A lifecycle whose no-clients grace runs on `timer`.
+pub fn fixture_with_grace(grace: ClientGrace, timer: Arc<ManualTimer>) -> Fixture {
     let recorder = Arc::new(Recorder::default());
     let runtime_root = tempfile::tempdir().unwrap();
-    let lifecycle = Lifecycle::new(
+    let lifecycle = Lifecycle::with_grace(
         LifecycleConfig {
             instance_id: "instance-1".into(),
             version: "1.4.6".into(),
@@ -164,6 +176,77 @@ pub fn fixture() -> Fixture {
             discovery: recorder.clone(),
             exiter: recorder.clone(),
         },
+        ReleaseBudgets::default(),
+        grace,
+        timer,
     );
     Fixture { recorder, lifecycle, runtime_root }
+}
+
+/// The grace clock of a test: time moves only by [`ManualTimer::advance`].
+#[derive(Default)]
+pub struct ManualTimer {
+    state: Mutex<ManualState>,
+}
+
+#[derive(Default)]
+struct ManualState {
+    now: Duration,
+    timers: Vec<ManualEntry>,
+}
+
+struct ManualEntry {
+    due: Duration,
+    cancelled: Arc<AtomicBool>,
+    fire: Option<Box<dyn FnOnce() + Send>>,
+}
+
+struct ManualHandle(Arc<AtomicBool>);
+
+impl Drop for ManualHandle {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl ManualTimer {
+    pub fn new() -> Arc<Self> {
+        Arc::default()
+    }
+
+    /// Moves the clock; every timer that came due and was not cancelled fires, in due order, on this thread.
+    pub fn advance(&self, by: Duration) {
+        let due = {
+            let mut state = lock(&self.state);
+            state.now += by;
+            let now = state.now;
+            let (mut due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut state.timers).into_iter().partition(|entry| entry.due <= now);
+            state.timers = rest;
+            due.sort_by_key(|entry| entry.due);
+            due
+        };
+        for mut entry in due {
+            if !entry.cancelled.load(Ordering::SeqCst)
+                && let Some(fire) = entry.fire.take()
+            {
+                fire();
+            }
+        }
+    }
+
+    /// The time left of every armed, uncancelled timer.
+    pub fn armed(&self) -> Vec<Duration> {
+        let state = lock(&self.state);
+        state.timers.iter().filter(|entry| !entry.cancelled.load(Ordering::SeqCst)).map(|entry| entry.due - state.now).collect()
+    }
+}
+
+impl GraceTimer for ManualTimer {
+    fn after(&self, delay: Duration, fire: Box<dyn FnOnce() + Send>) -> Box<dyn Send> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut state = lock(&self.state);
+        let due = state.now + delay;
+        state.timers.push(ManualEntry { due, cancelled: cancelled.clone(), fire: Some(fire) });
+        Box::new(ManualHandle(cancelled))
+    }
 }

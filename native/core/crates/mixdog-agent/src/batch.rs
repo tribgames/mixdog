@@ -31,6 +31,7 @@ use crate::native_search::parse_native_tool_search;
 use crate::message::ToolKind;
 use crate::run::AgentError;
 use crate::run::Run;
+use mixdog_core_api::domain::common::AbsPath;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
 use crate::tools::ToolSet;
@@ -334,12 +335,22 @@ impl Run {
             observer: Arc::clone(&self.env.observer),
             guards: Arc::clone(&self.env.guards),
             tool_env: self.tool_env.clone(),
+            live_cwd: self.config.live_cwd.clone(),
             cancel: self.cancel.clone(),
             signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
             prepared: false,
         })
+    }
+
+    /// The session's folder now (`resolveLiveToolCwd`), else the turn's.
+    pub(crate) fn live_cwd(&self) -> AbsPath {
+        self.config.live_cwd.as_ref().and_then(|live| live()).unwrap_or_else(|| self.tool_env.cwd.clone())
+    }
+
+    fn cwd_now(&self) -> std::path::PathBuf {
+        self.live_cwd().as_path().to_path_buf()
     }
 
     fn requires_read_body(&self, name: &str) -> bool {
@@ -349,8 +360,10 @@ impl Run {
     /// Starts a read-only call the moment the provider streams it, when
     /// nothing in the batch could answer it differently: no limit, no guard
     /// near firing, no duplicate, receipt or cached body. A call that did not
-    /// start here is decided by the serial batch.
-    pub(crate) async fn try_eager(&mut self, call: &ToolCall) {
+    /// start here is decided by the serial batch. `cwd` is the session's folder the caller read for this start: the calls one start
+    /// takes together (`startEagerRun`) are prepared in order from one read, so a sibling's Project switch landing meanwhile moves
+    /// none of them.
+    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath) {
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
@@ -412,7 +425,8 @@ impl Run {
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
         // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that one of Node's barriers holds back
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
-        let cwd = self.tool_env.cwd.as_path().to_path_buf();
+        let start_cwd = cwd.clone();
+        let cwd = cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
         // A call with nothing to wait for reaches `prepareToolCall`'s refresh before the stream goes on (Node runs it in
         // the eager start's own microtasks, `call-prep.mjs:70`), so the tool phase projects the batch against the
@@ -423,6 +437,9 @@ impl Run {
         {
             Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
         }
+        // A call held behind a barrier is prepared once the barrier lets it go (`runEagerEntry`: `waitForPreceding`, then
+        // `execute`), so a switch that lands during the wait moves it; one that waits for nothing keeps the folder of its start.
+        let waits = !preceding.ids().is_empty();
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
         let locks = self.barriers.locks.clone();
@@ -456,7 +473,8 @@ impl Run {
                     if let Some(turn) = &mut turn {
                         turn.ready().await;
                     }
-                    execute_call(exec, env).await
+                    let cwd = if waits { env.cwd_now() } else { start_cwd };
+                    crate::tools::execute_call_at(exec, env, cwd, None).await
                 }
             };
             if executed.conflict {
@@ -692,7 +710,7 @@ impl Run {
         }
         let groups = edit_groups(&calls);
         let wrap_up = self.turn_limits().and_then(|l| l.wrap_up_at_ms);
-        let cwd = self.tool_env.cwd.as_path().to_path_buf();
+        let cwd = self.cwd_now();
 
         let mut staged: Vec<Option<AgentMessage>> = vec![None; n];
         let mut executed: Vec<Option<Executed>> = (0..n).map(|_| None).collect();
@@ -795,9 +813,10 @@ impl Run {
                 if !ready[j] || started[j] {
                     continue;
                 }
+                let started_in = self.live_cwd();
                 for k in j..n {
                     if !dups.contains_key(&k) {
-                        self.try_eager(&wire_calls[k]).await;
+                        self.try_eager(&wire_calls[k], &started_in).await;
                     }
                 }
                 let call = calls[j].clone();

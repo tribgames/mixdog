@@ -152,6 +152,9 @@ impl Drop for RepoGuard {
 }
 
 #[cfg(test)]
+mod node_cases;
+
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

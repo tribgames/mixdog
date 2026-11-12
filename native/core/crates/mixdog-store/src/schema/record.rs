@@ -53,6 +53,21 @@ pub enum Record {
     Op(OpRecord),
     Checkpoint(CheckpointRecord),
     ModelSwitch(ModelSwitchRecord),
+    Draft(DraftRecord),
+}
+
+/// What an open run produced that no `item` holds yet (the 1.4.5 turn checkpoint's interruption journal,
+/// `turn-checkpoint.mjs`): what a recovery at open commits when the run never ended. Not history and not model
+/// context. `body` is one step of the run's draft, in the order the run wrote it: `{text?, reasoning?, tools?, calls?,
+/// results?}`: `text` and `reasoning` extend the streamed text of the message in progress, `calls` and `results` add
+/// the tool calls and early tool results it announced, and `tools` is whether the run is in its tool phase. An `item`
+/// of the run's assistant message ends the message's draft (its text, reasoning and calls), as the message now holds
+/// them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRecord {
+    pub rid: Id,
+    pub body: Slot<Value>,
 }
 
 /// First frame of file `log.000000`: ordinal 0, or `base.end_ordinal_exclusive` for a fork.

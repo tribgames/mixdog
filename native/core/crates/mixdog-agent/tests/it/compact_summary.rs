@@ -79,7 +79,7 @@ async fn conversation_input_equals_node() {
     };
     let messages: Vec<_> = golden["messages"].as_array().expect("messages").iter().map(node_message).collect();
     for (key, summary) in [("plain", false), ("summary", true)] {
-        let input = conversation_compaction_input(&ctx, &messages, summary).await;
+        let input = conversation_compaction_input(&ctx, &messages, summary).await.unwrap();
         let got: Vec<_> = input
             .iter()
             .map(|m| (compact_support::node_row(m)["role"].clone(), m.text()))

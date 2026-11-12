@@ -1,0 +1,691 @@
+{
+  "note": "Node's git repository write lock at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-repo-locks-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/tools/builtin/git-repo-rw-lock.test.mjs",
+  "cases": [
+    {
+      "case": "git repo lock keys are canonical: real path, trailing separators, Windows casing",
+      "kind": "keys",
+      "spellings": [
+        "<root>\\Repo\\.git",
+        "<root>\\Repo\\.git/",
+        "<root>\\Repo\\.git",
+        "<root>\\Repo\\.git",
+        "<root>\\REPO\\.GIT",
+        "<root>/Repo/.git"
+      ],
+      "recorded": {
+        "groups": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "case": "writes on different worktrees run together; writes on one worktree run one at a time in order",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "a1",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "a2",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "b",
+          "repo": "repo",
+          "worktrees": [
+            "wt-b"
+          ],
+          "hold": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a1"
+        },
+        {
+          "op": "await",
+          "name": "a1"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a2"
+        },
+        {
+          "op": "release",
+          "name": "b"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "events": [
+            "a1:start",
+            "b:start"
+          ]
+        },
+        {
+          "await": "a1",
+          "ok": true
+        },
+        {
+          "events": [
+            "a1:start",
+            "b:start",
+            "a1:end",
+            "a2:start"
+          ]
+        },
+        {
+          "await": "a2",
+          "ok": true
+        },
+        {
+          "await": "b",
+          "ok": true
+        },
+        {
+          "events": [
+            "a1:start",
+            "b:start",
+            "a1:end",
+            "a2:start",
+            "a2:end",
+            "b:end"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "a write naming several worktrees conflicts with a write on any of them",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "move",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a",
+            "wt-new"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "a",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": false
+        },
+        {
+          "op": "write",
+          "name": "new",
+          "repo": "repo",
+          "worktrees": [
+            "wt-new"
+          ],
+          "hold": false
+        },
+        {
+          "op": "write",
+          "name": "b",
+          "repo": "repo",
+          "worktrees": [
+            "wt-b"
+          ],
+          "hold": false
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "move"
+        },
+        {
+          "op": "await",
+          "name": "move"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "new"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "await": "b",
+          "ok": true
+        },
+        {
+          "events": [
+            "move:start",
+            "b"
+          ]
+        },
+        {
+          "await": "move",
+          "ok": true
+        },
+        {
+          "await": "a",
+          "ok": true
+        },
+        {
+          "await": "new",
+          "ok": true
+        },
+        {
+          "events": [
+            "move:start",
+            "b",
+            "move:end",
+            "a",
+            "new"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "a waiting whole-repository write is never starved by later worktree writes",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "a",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "repo",
+          "repo": "repo",
+          "worktrees": null,
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "b",
+          "repo": "repo",
+          "worktrees": [
+            "wt-b"
+          ],
+          "hold": false
+        },
+        {
+          "op": "write",
+          "name": "a2",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "repo"
+        },
+        {
+          "op": "await",
+          "name": "repo"
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "events": [
+            "a:start"
+          ]
+        },
+        {
+          "await": "a",
+          "ok": true
+        },
+        {
+          "events": [
+            "a:start",
+            "a:end",
+            "repo:start"
+          ]
+        },
+        {
+          "await": "repo",
+          "ok": true
+        },
+        {
+          "await": "b",
+          "ok": true
+        },
+        {
+          "await": "a2",
+          "ok": true
+        },
+        {
+          "events": [
+            "a:start",
+            "a:end",
+            "repo:start",
+            "repo:end",
+            "b",
+            "a2"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "a later write that conflicts with nothing ahead of it is not held back by a queue",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "a",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "a2",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": false
+        },
+        {
+          "op": "write",
+          "name": "b",
+          "repo": "repo",
+          "worktrees": [
+            "wt-b"
+          ],
+          "hold": false
+        },
+        {
+          "op": "await",
+          "name": "b"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "a2"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "await": "b",
+          "ok": true
+        },
+        {
+          "events": [
+            "a:start",
+            "b"
+          ]
+        },
+        {
+          "await": "a",
+          "ok": true
+        },
+        {
+          "await": "a2",
+          "ok": true
+        },
+        {
+          "events": [
+            "a:start",
+            "b",
+            "a:end",
+            "a2"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "worktree scopes are canonical paths; an empty scope holds the whole repository",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "held",
+          "repo": "<root>/.git",
+          "worktrees": [
+            "<root>/Worktree"
+          ],
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "same",
+          "repo": "<root>/.git",
+          "worktrees": [
+            "<upper>"
+          ],
+          "hold": false
+        },
+        {
+          "op": "write",
+          "name": "whole",
+          "repo": "<root>/.git",
+          "worktrees": [],
+          "hold": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "held"
+        },
+        {
+          "op": "await",
+          "name": "held"
+        },
+        {
+          "op": "await",
+          "name": "same"
+        },
+        {
+          "op": "await",
+          "name": "whole"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "events": [
+            "held:start"
+          ]
+        },
+        {
+          "await": "held",
+          "ok": true
+        },
+        {
+          "await": "same",
+          "ok": true
+        },
+        {
+          "await": "whole",
+          "ok": true
+        },
+        {
+          "events": [
+            "held:start",
+            "held:end",
+            "same",
+            "whole"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "git repo writers on different repositories run in parallel",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "a",
+          "repo": "repo-a",
+          "worktrees": null,
+          "hold": true
+        },
+        {
+          "op": "write",
+          "name": "b",
+          "repo": "repo-b",
+          "worktrees": null,
+          "hold": true
+        },
+        {
+          "op": "tick"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "a"
+        },
+        {
+          "op": "release",
+          "name": "b"
+        },
+        {
+          "op": "await",
+          "name": "a"
+        },
+        {
+          "op": "await",
+          "name": "b"
+        }
+      ],
+      "recorded": [
+        {
+          "events": [
+            "a:start",
+            "b:start"
+          ]
+        },
+        {
+          "await": "a",
+          "ok": true
+        },
+        {
+          "await": "b",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "case": "a queued git repo lock aborts without running or blocking later work",
+      "kind": "order",
+      "steps": [
+        {
+          "op": "write",
+          "name": "writer",
+          "repo": "repo",
+          "worktrees": [
+            "wt-a"
+          ],
+          "hold": true
+        },
+        {
+          "op": "tick"
+        },
+        {
+          "op": "write",
+          "name": "queued",
+          "repo": "repo",
+          "worktrees": null,
+          "hold": false,
+          "signal": true
+        },
+        {
+          "op": "write",
+          "name": "behind",
+          "repo": "repo",
+          "worktrees": [
+            "wt-b"
+          ],
+          "hold": false
+        },
+        {
+          "op": "abort",
+          "name": "queued"
+        },
+        {
+          "op": "await",
+          "name": "queued"
+        },
+        {
+          "op": "await",
+          "name": "behind"
+        },
+        {
+          "op": "snapshot"
+        },
+        {
+          "op": "release",
+          "name": "writer"
+        },
+        {
+          "op": "await",
+          "name": "writer"
+        },
+        {
+          "op": "write",
+          "name": "after",
+          "repo": "repo",
+          "worktrees": null,
+          "hold": false
+        },
+        {
+          "op": "await",
+          "name": "after"
+        },
+        {
+          "op": "snapshot"
+        }
+      ],
+      "recorded": [
+        {
+          "await": "queued",
+          "ok": false,
+          "error": "This operation was aborted"
+        },
+        {
+          "await": "behind",
+          "ok": true
+        },
+        {
+          "events": [
+            "writer:start",
+            "behind"
+          ]
+        },
+        {
+          "await": "writer",
+          "ok": true
+        },
+        {
+          "await": "after",
+          "ok": true
+        },
+        {
+          "events": [
+            "writer:start",
+            "behind",
+            "writer:end",
+            "after"
+          ]
+        }
+      ]
+    }
+  ]
+}

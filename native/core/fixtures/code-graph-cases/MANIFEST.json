@@ -1,0 +1,99 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-code-graph-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --work <temp dir> --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "every recorded call's whole text (or thrown message) through the Rust code_graph tool's dispatch on the same workspace, <ROOT> for the workspace path",
+  "excluded": {
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: AST callees: resolving a callee never reads files that only mention its name": "gone: Node file-read accounting (the answer text is the same as the case before it)",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a corrupt sidecar leaves calls unknown instead of throwing": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a crash between the entry write and the sidecar write cannot mispair calls": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a file with malformed calls reports nothing, and no bogus column survives": "gone: hand-written malformed call tuples; a real extraction has none",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a file without call data contributes no rows and never blocks the rest": "gone: a node without call data is a binary/cache state; a real extraction always has calls",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a hydration in flight or failed exposes none of its calls to a concurrent query": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a reader that crashes mid-stream installs nothing and the next query retries": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a run that shipped call tuples proves the wire even when the probe never answers": "gone: binary wire probe",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a sidecar written for another root is ignored file by file": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a stalled reader is terminated at its deadline and the graph stays retryable": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a v1 object payload is not decoded: that file reports nothing, the v2 files still answer": "gone: binary wire format version",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: a v2 binary with no call data in the whole graph fails as a stale-cache error": "gone: binary wire format version / stale cache",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: an old binary (no callsFormat: 2) makes callers/callees fail with the remedy, not empty": "gone: binary wire format version",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: an old cache without a sidecar hydrates to null instead of failing": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: byte-budget eviction drops the entry and its sidecar together, never an orphan": "gone: Node disk cache eviction",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: concurrent persists of one root leave a self-consistent entry/sidecar pair": "gone: Node disk cache persistence",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: hydration moves the size estimate to exactly what a full walk measures": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: incremental update: unchanged files keep their sidecar entry, changed ones are refreshed": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: malformed wire-v2 tuples are rejected per FILE and never become a location": "gone: Node decoder of the binary's call tuples (Rust links mixdog-graph as a library; no wire)",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: non-call modes never open the sidecar; the first call mode opens it once": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: only the call modes trigger the sidecar read": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: real binary: --langs advertises wire v2 and --files reuse keeps calls on unchanged nodes": "gone: binary --langs / --files protocol",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: real binary: an incremental rebuild from an un-hydrated cache answers from the AST": "gone: calls sidecar hydration",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: sidecar round-trip: calls leave the main entry and come back on hydration": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: the atomic install only assigns: its time does not grow with the replaced call lists": "gone: calls sidecar",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: the calls-wire probe is memoized per BINARY, not per process": "gone: binary wire probe",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: the main cache payload carries no calls at all": "gone: Node disk cache layout",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: the record decides: a shipped array is kept, an absent field stays unknown": "gone: Node decoder of the binary record",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: unchanged non-call results stay byte-identical across the AST-only rewrite (46 queries) :: call 30 {\"mode\":\"find_symbol\",\"symbol\":\"runTask\",\"file\":\"src/store.js\"}": "difference: a file-scoped find_symbol miss: Node counts the nodes of the requested file (`graph: nodes=1`); Rust counts the whole graph (`nodes=4`) and adds a `declared outside the requested files` line",
+    "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs :: unchanged non-call results stay byte-identical across the AST-only rewrite (46 queries) :: call 31 {\"mode\":\"find_symbol\",\"symbol\":\"runTask\",\"file\":\"py/service.py\"}": "difference: a file-scoped find_symbol miss: Node counts the nodes of the requested file (`graph: nodes=1`); Rust counts the whole graph (`nodes=4`) and adds a `declared outside the requested files` line",
+    "src/runtime/agent/orchestrator/tools/code-graph/encoding-isolation.test.mjs :: invalid source encoding is isolated and remains visible on cached graph queries :: call 3 {\"mode\":\"find_symbol\",\"symbols\":[\"EncodingRepaired\"],\"body\":false}": "difference: after invalid.cs is rewritten as valid text: Node still answers from the cached graph (encoding warning, no match); Rust re-indexes the file and finds the class",
+    "src/runtime/agent/orchestrator/tools/code-graph/keyword-search-unresolved.test.mjs :: a keyword match without a declaration position is listed as unresolved": "unreachable through the tool: the extractor records a declaration line for every symbol, so no match lacks one",
+    "src/runtime/agent/orchestrator/tools/code-graph/search-references.test.mjs :: full symbol body formatting stays inside the source file": "unreachable through the tool: the extractor never records an end line past the file",
+    "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs :: a node without a native record contributes no rows and no tokens :: call 1 {\"mode\":\"symbols\",\"files\":[\"src/style.css\"]}": "difference: symbols on a .css file: Node answers that no native symbols are available (with the binary and a rebuild remedy); Rust answers that the file is not indexed",
+    "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs :: candidate lookup uses native tokens only — no full-graph fallback :: call 1 {\"mode\":\"find_symbol\",\"symbols\":[\"beta\"],\"body\":false}": "difference: a miss in a folder with no project sentinel: Node heads the answer with `# project <dir> [<lowercased path>]`; Rust answers without the project header",
+    "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs :: symbol capability probes separate \"no symbols\" from \"not an extraction language\"": "gone: Node probes of the binary's symbol capability",
+    "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs :: the token index answers the scan’s candidates, follows a token change, and is counted in the graph size": "gone: Node token index and its retained-bytes accounting",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: C# interpolated string exposes the call and keeps {{ }} literal": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: a kotlin bare $name keeps the identifier but a JS template does not": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: a kotlin raw string template interpolates": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: a non-matching same-indent closer does not end the span": "unreachable through the tool: span inference runs only for a record without an end line, which the extractor never produces",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: a plain python string is still fully masked": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: a python triple-quoted f-string interpolates": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: bash command substitution inside double quotes stays code": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: indentation span inference keeps a multiline arrow signature whole": "unreachable through the tool: span inference runs only for a record without an end line, which the extractor never produces",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: indentation span inference still ends at a plain matching closer": "unreachable through the tool: span inference runs only for a record without an end line, which the extractor never produces",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: kotlin string template exposes the call": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: python f-string interpolation keeps its call visible": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)",
+    "src/runtime/agent/orchestrator/tools/code-graph/text-span-mask.test.mjs :: resumable masking in small chunks equals the one-pass mask across every boundary": "gone: Node text masker (Rust parses with tree-sitter; k1 row 62)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 114747,
+      "path": "golden.json",
+      "sha256": "f2aee99df0f95ba6ed6823bc33d3493476ce9f4c09196622f46d63adbfababe0"
+    }
+  ],
+  "graphBinary": {
+    "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph",
+    "sha256": "0e472205653d49123de4ba4cde1d6f5b18a4c155b4aa9c164fd30ec6474533dd"
+  },
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-code-graph-cases.mjs",
+  "recorderSha256": "37306805606fc133e7a40048926a08a9c0f88e9b71cc7a4579783293bfb8d18a",
+  "set": "code-graph-cases",
+  "totalBytes": 114747
+}

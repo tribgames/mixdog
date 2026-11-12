@@ -1188,6 +1188,14 @@ impl AttachmentReader for StoreAttachments {
             Ok(bytes) if bytes.is_empty() || bytes.len() > MODEL_PROXY_INLINE_MAX_BYTES => Err(ReadError::Permanent),
             Ok(bytes) => Ok(bytes),
             Err(BlobError::Missing { .. } | BlobError::Corrupt { .. }) => Err(ReadError::Permanent),
+            // Node's `readFileSync` throws `<CODE>: <description>, open '<path>'`.
+            Err(BlobError::Io(e)) => {
+                let failure = mixdog_core_base::support::FsFailure { error: e.source, step: mixdog_core_base::support::FsStep::Open(e.path) };
+                Err(ReadError::Other(match mixdog_core_base::support::io_failure("attachments", &failure) {
+                    mixdog_core_api::error::CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+                    other => format!("{other:?}"),
+                }))
+            }
             Err(e) => Err(ReadError::Other(e.to_string())),
         }
     }
