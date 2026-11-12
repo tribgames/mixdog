@@ -150,10 +150,17 @@ fn truncate_wal(conn: &Connection) -> Result<(), String> {
 /// The writer overwrites what it deletes (`secure_delete`): a row a sensitive rewrite replaces leaves no readable page.
 /// Measured on a turn's index writes (one transaction: session row, 8 message rows, the search row replaced), its cost
 /// was within the run-to-run noise (median 0.163-0.175 ms per turn either way).
-fn open_writer(path: &Path) -> Result<Connection, DbError> {
-    let conn = open_schema(path, INDEX_DDL, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
+fn open_writer(path: &Path, ddl: &str) -> Result<Connection, DbError> {
+    let conn = open_schema(path, ddl, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
     conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
     Ok(conn)
+}
+
+/// The DDL the runtime builds an index with: a fresh generation (odd, so never the migration's 0) on top of the
+/// schema, because a reader may hold a revision of the index this one replaces (this process's registry across a
+/// reopen, or another process); the migration's index is built before any reader and keeps the DDL's fixed 0.
+fn runtime_ddl() -> String {
+    format!("{INDEX_DDL}\nUPDATE worker_revision SET gen = (random() & 0x7fffffffffffffff) | 1;")
 }
 
 /// The index database of a data dir.
@@ -182,7 +189,7 @@ fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<()
     crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
     let staged = crate::fsio::tmp_path(path);
-    project_index(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?).map_err(failed)?;
+    project_into(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?, &runtime_ddl()).map_err(failed)?;
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = path.as_os_str().to_owned();
         side.push(suffix);
@@ -745,7 +752,7 @@ fn send(acks: Vec<Ack>, result: &Result<(), String>) {
 
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
-        let conn = open_writer(path)?;
+        let conn = open_writer(path, &runtime_ddl())?;
         let stored: Option<String> = conn
             .query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0))
             .optional()?;
@@ -2267,7 +2274,12 @@ pub fn project_index(
     db: &Path,
     sessions: &[String],
 ) -> Result<(), String> {
-    let mut conn = open_writer(db).map_err(|e| e.to_string())?;
+    project_into(data, db, sessions, INDEX_DDL)
+}
+
+/// [`project_index`] with the DDL the new database is created by (the generation it sets).
+fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Result<(), String> {
+    let mut conn = open_writer(db, ddl).map_err(|e| e.to_string())?;
     let blobs = crate::blobs::BlobStore::new(data);
     let mut heads = Vec::new();
     for id in sessions {

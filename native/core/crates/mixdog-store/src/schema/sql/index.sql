@@ -112,14 +112,16 @@ CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at D
 -- changed row takes the new value in `sessions.worker_rev`; a row deleted (purged, marked or not:
 -- a mark advances its revision, the purge after it is a removal of its own) leaves its id in `worker_removed`. A reader that reads the counter and
 -- the rows past the revision it holds in one read transaction has every change since.
--- `gen` is random per index built (a rebuild starts the counter at 0 again, so a revision means
--- something only with its generation). Removals are kept for the last 4096 revisions only:
+-- `gen` names the index built (a rebuild starts the counter at 0 again, so a revision means
+-- something only with its generation). The DDL leaves it 0, so the migration's output is the same bytes however
+-- often it is interrupted; the runtime, which opens or rebuilds an index while readers of the one before may live
+-- (this process's registry across a reopen, another process's), sets a fresh odd value (`sqlite.rs` `NEW_GENERATION`). Removals are kept for the last 4096 revisions only:
 -- `floor` is the newest revision whose removals were dropped, and a reader holding a revision
 -- below it, or of another generation, is handed the whole index.
 CREATE TABLE worker_revision (
     one INTEGER PRIMARY KEY CHECK (one = 1), rev INTEGER NOT NULL, floor INTEGER NOT NULL, gen INTEGER NOT NULL
 );
-INSERT INTO worker_revision (one, rev, floor, gen) VALUES (1, 0, 0, random());
+INSERT INTO worker_revision (one, rev, floor, gen) VALUES (1, 0, 0, 0);
 CREATE TABLE worker_removed (id TEXT PRIMARY KEY, rev INTEGER NOT NULL) WITHOUT ROWID;
 CREATE INDEX worker_removed_rev ON worker_removed(rev);
 CREATE INDEX sessions_worker_rev ON sessions(worker_rev);

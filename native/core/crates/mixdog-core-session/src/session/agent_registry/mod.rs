@@ -537,7 +537,7 @@ impl AgentRegistry {
         let Ok(index) = self.store.index_since(since).await else {
             return false;
         };
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.reloads += 1);
         let mut guard = self.lock();
         let st = &mut *guard;
@@ -569,7 +569,7 @@ impl AgentRegistry {
     /// store does not show yet stays as written.
     fn apply_delta(&self, st: &mut State, maps: Vec<(String, Option<(Place, Row)>)>) {
         for (id, entry) in maps {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.maps_compared += 1);
             if let Some(held) = st.pending.get(&id) {
                 if held.as_ref() != entry.as_ref().map(|(_, map)| map) {
@@ -645,7 +645,7 @@ impl AgentRegistry {
         }
         let same_sessions = st.sessions.len() == next.len()
             && st.sessions.iter().zip(&next).all(|(a, b)| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 work::note(|c| c.sessions_compared += 1);
                 a == b
             });
@@ -668,7 +668,7 @@ impl AgentRegistry {
     /// The agent-only sessions the store wrote since the held revision.
     fn apply_sessions(st: &mut State, sessions: Vec<(String, Option<(Place, Row)>)>) {
         for (id, entry) in sessions {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.sessions_compared += 1);
             let held = st.session_at.get(&id).map(|at| (at, &st.sessions[at]));
             if held == entry.as_ref().map(|(place, row)| (place, row)) {
@@ -733,11 +733,11 @@ impl AgentRegistry {
         if id.is_empty() {
             return None;
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.sessions_visited += 1);
         self.loaded_session(id).or_else(|| {
             let at = st.session_at.get(id)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.sessions_visited += 1);
             Some(st.sessions[at].clone())
         })
@@ -980,7 +980,7 @@ impl AgentRegistry {
             .stale_candidates(scope, now)
             .into_iter()
             .filter(|row| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 work::note(|c| c.rows_visited += 1);
                 if is_lead_pool_agent(row.get("agent")) {
                     return false;
@@ -1055,7 +1055,7 @@ impl AgentRegistry {
         self.drop_expired_kept(st);
         let now = self.now();
         for row in st.rows_to_bind(scope, now) {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.rows_visited += 1);
             st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
@@ -1200,7 +1200,7 @@ impl AgentRegistry {
             None => {
                 let tags: Vec<(String, String)> = st.tags.iter().map(|(tag, id)| (tag.clone(), id.clone())).collect();
                 for (tag, id) in tags {
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-support"))]
                     work::note(|c| c.tags_visited += 1);
                     if seen.contains(&id) {
                         continue;
@@ -1299,7 +1299,8 @@ impl Registry for AgentRegistry {
     }
 
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) {
-        self.reload().await;        let mut st = self.lock();
+        self.reload().await;
+        let mut st = self.lock();
         self.refresh(&mut st, scan_sessions, scope);
     }
 
