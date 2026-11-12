@@ -1,6 +1,6 @@
 {
   "besideDaemon": "the beside-daemon case starts Node's daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case's data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon's own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended",
-  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --apply-patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch --only beside-daemon",
   "exact": true,
   "exclusions": {
     "chunking": "consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process",
@@ -28,9 +28,9 @@
   "fileCount": 7,
   "files": [
     {
-      "bytes": 29171,
+      "bytes": 29152,
       "path": "beside-daemon.json",
-      "sha256": "812e8e93c0fda874dd971401fa6c5f870aa97ea19df07b467a72eb28b26a27cb"
+      "sha256": "51dc67ad8142ad5ec386c3b07050bb9b667d457bf15afcf463c0ac56da427c44"
     },
     {
       "bytes": 28184,
@@ -58,9 +58,9 @@
       "sha256": "84c48f72a388e78447fb6f712763bc03cdabf1c9b4cdd6dde2a9cdea0f9d8276"
     },
     {
-      "bytes": 28964,
+      "bytes": 29097,
       "path": "text.json",
-      "sha256": "d4dad342698685d8d579ffe8172552edcabce4973158ec22f6dfdcb0946f1c9a"
+      "sha256": "9c03f404ee3a3c88e1e886028cbf902c02b611282bffcdf1159576c661e423a4"
     }
   ],
   "inputs": [
@@ -123,6 +123,7 @@
       "side": "core"
     }
   ],
+  "patchesApplied": "the recorder applied the patches of product.patches, in that order, to a tree it first verified to be the exact export of b6f10295a2f698afc85332467192de28500bd146",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -182,7 +183,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "f04ec0ad13079cd9d570bc6d9f3a9270761d9390cfd963bea96da1ed34f9dfb3",
+  "recorderSha256": "a6d6d940aa78fb5a9cda36984fe3dc3b68e8ccb0bb16436386b2c4db2d8d7e5e",
   "set": "exec-cli",
   "stderrNotCompared": [
     {
@@ -265,5 +266,5 @@
       "side": "core"
     }
   ],
-  "totalBytes": 229282
+  "totalBytes": 229396
 }
