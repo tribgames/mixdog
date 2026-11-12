@@ -825,8 +825,10 @@ mod tests {
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
     }
 
-    /// A worker whose extraction of a PDF takes as long as the file says: `one` 40 s, `hang` for ever.
-    struct SlowDocs;
+    /// A worker whose extraction of a PDF ends when the test says: `one` once `release_one` is notified, `hang` never.
+    struct SlowDocs {
+        release_one: Arc<tokio::sync::Notify>,
+    }
     #[async_trait]
     impl DocumentText for SlowDocs {
         async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
@@ -835,7 +837,7 @@ mod tests {
         async fn pdf_text(&self, _: &ThreadId, data: &str) -> Result<String, ExtError> {
             match String::from_utf8(STANDARD.decode(data).unwrap()).unwrap().as_str() {
                 "%PDF one" => {
-                    tokio::time::sleep(Duration::from_secs(40)).await;
+                    self.release_one.notified().await;
                     Ok("ONE".to_owned())
                 }
                 _ => std::future::pending().await,
@@ -847,14 +849,19 @@ mod tests {
     }
 
     /// The prompt's PDFs lowering on the test's clock, which moves only by `advance`.
-    struct Lowering(tokio::task::JoinHandle<Vec<String>>);
+    struct Lowering {
+        done: tokio::task::JoinHandle<Vec<String>>,
+        release_one: Arc<tokio::sync::Notify>,
+    }
 
     impl Lowering {
         fn start(files: &[&'static str]) -> Self {
             let store = Store(vec![("one", b"%PDF one".to_vec()), ("hang", b"%PDF hang".to_vec()), ("hang2", b"%PDF hang two".to_vec())]);
-            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(SlowDocs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
+            let release_one = Arc::new(tokio::sync::Notify::new());
+            let docs = SlowDocs { release_one: release_one.clone() };
+            let l = MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(docs), Arc::new(store), Arc::new(Facts), false, ProviderId::from("anthropic"));
             let parts = files.iter().map(|r| reference(r, "application/pdf", Some("p.pdf"))).collect();
-            Self(tokio::spawn(async move {
+            let done = tokio::spawn(async move {
                 let prepared = l.prepare_pdf_text(vec![Message::new(Role::User, Content::Parts(parts))]).await.unwrap();
                 let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
                 parts
@@ -864,7 +871,8 @@ mod tests {
                         other => panic!("a PDF stayed a part: {other:?}"),
                     })
                     .collect()
-            }))
+            });
+            Self { done, release_one }
         }
 
         /// Moves the clock by `ms` and lets the lowering run to wherever that takes it.
@@ -891,19 +899,21 @@ mod tests {
 
         let both = Lowering::start(&["hang", "hang2"]);
         both.advance(PDF_INTAKE_TIMEOUT_MS - 1).await;
-        assert!(!both.0.is_finished(), "answered a millisecond before the bound");
+        assert!(!both.done.is_finished(), "answered a millisecond before the bound");
         both.advance(1).await;
-        assert!(both.0.is_finished(), "the second PDF was still waiting at the turn's bound");
-        assert_eq!(both.0.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
+        assert!(both.done.is_finished(), "the second PDF was still waiting at the turn's bound");
+        assert_eq!(both.done.await.unwrap(), [unreadable.clone(), unreadable.clone()]);
 
-        // The first PDF's 40 s are spent from the same bound: the one after it has the 20 s that are left.
+        // The first PDF is read 40 s into the bound (the worker answers when released, at 40 s of the clock): the one
+        // after it has the 20 s that are left.
         let slow_then_hung = Lowering::start(&["one", "hang"]);
         slow_then_hung.advance(40_000).await;
+        slow_then_hung.release_one.notify_one();
         slow_then_hung.advance(PDF_INTAKE_TIMEOUT_MS - 40_000 - 1).await;
-        assert!(!slow_then_hung.0.is_finished(), "answered a millisecond before the bound");
+        assert!(!slow_then_hung.done.is_finished(), "answered a millisecond before the bound");
         slow_then_hung.advance(1).await;
-        assert!(slow_then_hung.0.is_finished(), "the second PDF got more than what was left of the bound");
-        assert_eq!(slow_then_hung.0.await.unwrap(), ["ONE".to_owned(), unreadable]);
+        assert!(slow_then_hung.done.is_finished(), "the second PDF got more than what was left of the bound");
+        assert_eq!(slow_then_hung.done.await.unwrap(), ["ONE".to_owned(), unreadable]);
     }
 
     #[tokio::test]
