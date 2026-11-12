@@ -661,6 +661,9 @@ struct Owner {
     kind: Kind,
 }
 
+/// A form found in a view: its start, its end and its kind.
+type Found = (usize, usize, Kind);
+
 /// One form, indexed: the credentials that have it (equal bytes are one record) and the next record of its bucket.
 struct Record {
     len: u32,
@@ -862,7 +865,7 @@ impl Index {
     }
 
     /// Every form found in `bytes`, and each place a fingerprint was seen with the longest form it begins.
-    fn scan(&self, bytes: &[u8]) -> (Vec<(usize, usize, Kind)>, Vec<(usize, usize)>) {
+    fn scan(&self, bytes: &[u8]) -> (Vec<Found>, Vec<(usize, usize)>) {
         let mut found = Vec::new();
         let mut begun = Vec::new();
         let short: Vec<usize> = (1..PRINT).filter(|len| self.short_lengths[*len] > 0).collect();
@@ -898,7 +901,7 @@ impl Index {
     }
 
     /// The second stage: the record of the bucket at `at` whose whole form is at `start`.
-    fn verify(&self, mut at: u32, start: usize, bytes: &[u8], found: &mut Vec<(usize, usize, Kind)>) {
+    fn verify(&self, mut at: u32, start: usize, bytes: &[u8], found: &mut Vec<Found>) {
         while at != NONE {
             let record = self.record(at);
             let end = start + record.len as usize;
@@ -1053,7 +1056,7 @@ pub struct Context {
 pub struct Matcher(Source);
 
 enum Source {
-    Own(Index),
+    Own(Box<Index>),
     Registry(Arc<RwLock<Registry>>),
 }
 
@@ -1083,7 +1086,7 @@ impl Matcher {
                 index.insert(Arc::from(credential.as_str()));
             }
         }
-        Self(Source::Own(index))
+        Self(Source::Own(Box::new(index)))
     }
 
     /// The matcher of values a caller names (`scrubOAuthSecrets(text, secretValues)`).
