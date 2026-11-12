@@ -215,7 +215,6 @@ test('a reload keeps the stored output style instead of falling back to the defa
     normalizeSystemShellConfig: () => ({ command: '' }),
     normalizeWebSearchRouteConfig: () => null,
     outputStyleStatus: () => ({}),
-    LAZY_SECRET_PROVIDERS: new Set(),
     clean: (value) => String(value || '').trim(),
     resolve,
     STANDALONE_DATA_DIR: dataRoot,

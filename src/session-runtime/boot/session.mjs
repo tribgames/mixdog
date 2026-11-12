@@ -40,7 +40,6 @@ export function wireSessionLifecycle(boot) {
     loadCoreMemoryContext: boot.loadCoreMemoryContext,
     awaitKeychainPrewarm: boot.awaitKeychainPrewarm,
     prepareNewSessionConfig,
-    ensureConfigForRouteProvider: boot.ensureConfigForRouteProvider,
     reg: boot.reg,
     cfgMod: boot.cfgMod,
     activeWorkflowContext: workflowHelpers.activeWorkflowContext,

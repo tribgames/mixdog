@@ -176,7 +176,6 @@ export function createConfigLifecycle({
   normalizeSystemShellConfig,
   normalizeWebSearchRouteConfig,
   outputStyleStatus,
-  LAZY_SECRET_PROVIDERS,
   clean,
   resolve,
   performanceNow = () => performance.now(),
@@ -368,16 +367,6 @@ export function createConfigLifecycle({
     return { ...status, configured: pending, current };
   }
 
-  function ensureConfigForRouteProvider() {
-    const config = getConfig();
-    const providerId = clean(getRoute().provider);
-    const providerCfg = config?.providers?.[providerId];
-    if (getConfigHasSecrets() || LAZY_SECRET_PROVIDERS.has(providerId) || providerCfg?.apiKey) {
-      return config;
-    }
-    return ensureFullConfig();
-  }
-
   // Settings and secrets persisted by this or any other runtime (or process)
   // reach this runtime's config and effects. reloadFullConfig keeps our own
   // pending edits, and the shared layer coalesces bursts into one pass per
@@ -408,6 +397,5 @@ export function createConfigLifecycle({
     applyConfigChange,
     ensureFullConfig,
     displayConfig: () => getConfig(),
-    ensureConfigForRouteProvider,
   };
 }

@@ -53,7 +53,7 @@ globalThis.fetch = async (url, init = {}) => {
 const { newProviderAccountId, readProviderAccountPool, setCustomProviderKeyIds, providerAccountBlockedUntil } =
   await import('../../../shared/provider-accounts.mjs');
 const { createCustomKeyPoolProvider } = await import('./account-pool.mjs');
-const { initProviders, getProvider } = await import('./registry.mjs');
+const { initProviders, getProvider, syncProviders } = await import('./registry.mjs');
 
 const prompt = [{ role: 'user', content: 'hello' }];
 const custom = (apiKey) => ({
@@ -151,18 +151,19 @@ test('a single-key provider sends as before and stores no roster', async () => {
   await assert.rejects(getProvider(id).send(prompt, 'm1', [], {}), (error) => error.status === 429);
   assert.deepEqual(served, ['sk-solo', 'sk-solo']);
   assert.deepEqual(readProviderAccountPool(id).accounts, []);
-  // A key added while live: the next init of the same config rebuilds it with the key pool.
+  // A key added while live: the next sync of the same config rebuilds it with the key pool.
   const keyId = newProviderAccountId();
   storedKeys.set(keyId, 'sk-added');
   await setCustomProviderKeyIds(id, [keyId]);
-  await initProviders({ [id]: custom('sk-solo') });
+  const decisions = { [id]: { type: 'custom' } };
+  await syncProviders({ [id]: custom('sk-solo') }, { decisions });
   respond = (key) => (key === 'sk-solo' ? quotaRefusal() : answer('added'));
   served.length = 0;
   assert.equal((await getProvider(id).send(prompt, 'm1', [], {})).content, 'added');
   assert.deepEqual(served, ['sk-solo', 'sk-added']);
   // And removed again: back to the primary alone.
   await setCustomProviderKeyIds(id, []);
-  await initProviders({ [id]: custom('sk-solo') });
+  await syncProviders({ [id]: custom('sk-solo') }, { decisions });
   served.length = 0;
   await assert.rejects(getProvider(id).send(prompt, 'm1', [], {}), (error) => error.status === 429);
   assert.deepEqual(served, ['sk-solo']);

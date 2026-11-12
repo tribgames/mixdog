@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { updateJsonAtomic, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
@@ -40,7 +40,8 @@ export function makeModelCache({ fileName, ttlMs, version = null, onSave = null 
   function loadEntrySync({ allowStale = false } = {}) {
     const p = path();
     const unsettled = unsettledSaves.get(p);
-    if (unsettled === undefined && !existsSync(p)) return null;
+    // No existence check first: a missing file fails the read below, and a
+    // check plus a read is two main-thread disk accesses.
     try {
       const raw = JSON.parse(unsettled ?? readFileSync(p, 'utf-8'));
       if (version != null && raw?.version !== version) return null;

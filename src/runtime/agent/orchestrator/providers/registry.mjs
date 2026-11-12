@@ -14,20 +14,27 @@ import { getModelProxyChannel } from './model-proxy-channel.mjs';
 import { boundedProviderCatalogOp } from './catalog-deadline.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
+// Ownership. The process-global provider set has one owner: the config of
+// record (the full, secrets-aware config and the stored provider decisions).
+//   - initProviders(config) is the additive "ensure registered" request every
+//     runtime and helper makes: it registers the enabled providers that are
+//     missing and never rebuilds or removes a registered one, so a partial
+//     view (a secrets-less load, one route's forced provider) cannot shrink
+//     or churn the set.
+//   - syncProviders(record, { decisions }) applies the config of record:
+//     registered providers are rebuilt when their config signature changed,
+//     and removed only by a stored decision (enabled:false — what disable and
+//     logout write — or a deleted custom provider). A credential that could
+//     not be read is never a decision, so it never removes a provider.
+//   - disableProvider(name) is the immediate form of such a decision.
 const providers = new Map();
 const providerCtors = new Map();
 const providerModulePromises = new Map();
 // Parallel map: provider name -> signature of the config it was built from.
-// Lets initProviders() skip reconstructing a provider whose config is byte-for-
-// byte identical to the live one, so lazy-init misses that re-run initProviders
-// don't churn (tear down + rebuild) every live provider instance on every call.
 const signatures = new Map();
 // OAuth providers are injected at runtime by buildDefaultConfig from an on-disk
-// credential probe rather than persisted in mixdog-config.json. The probe is
-// tri-state ('present' | 'absent' | 'unreadable'), and both the initProviders
-// preservation guard and the getProvider self-heal read it through these two
-// helpers so "usable right now" and "genuinely gone" are answered identically
-// in both places.
+// credential probe rather than persisted in mixdog-config.json. getProvider
+// registers one lazily once its credential reads as present.
 export const OAUTH_PROVIDER_NAMES = new Set([
   'anthropic-oauth',
   'openai-oauth',
@@ -40,46 +47,25 @@ export const OAUTH_PROVIDER_NAMES = new Set([
   'antigravity-oauth',
   'opencode-go-oauth',
 ]);
-// Providers the most recently applied config declared with enabled:false for a
-// USER reason. A deliberate opt-out (logout / disable in settings) must survive
-// both the preservation guard and the credential-probe self-heal — neither may
-// resurrect an instance the user turned off. A load whose credential file was
-// merely unreadable never lands here (see _initProvidersUnsynchronized).
+// OAuth providers a stored decision turned off (logout / disable in settings).
+// The lazy registration in getProvider never resurrects one.
 let _explicitlyDisabled = new Set();
 
-// oauthCredentialProbeState is the single owner of the tri-state read: it
-// already answers 'absent' for a name it does not know and absorbs a throwing
-// probe as 'unreadable' ("cannot tell", never "gone"), so both call sites below
-// read it directly instead of re-wrapping those two guarantees here.
 function _oauthCredentialsUsable(name) {
   return oauthCredentialProbeState(name) === 'present';
 }
 
-// Module-level init serialization. agent-tool.mjs's ensureProvider() already
-// serializes inits per provider on a chain promise, but its gateOnPrior() lets
-// a queued init PROCEED once a 120s gate expires even if the prior init has
-// not settled — so a slow-but-still-running init and a newer one can reach
-// initProviders() concurrently. This chain makes the clear()+rebuild section
-// strictly sequential at the registry level, independent of any caller gating,
-// so two different config signatures can never interleave their rebuilds.
-let _initChain = Promise.resolve();
-// Singleflight state layered on top of the serial chain. Under simultaneous
-// multi-agent launch, many callers hit initProviders() with a byte-identical
-// config. `_inFlightPromise`/`_inFlightSig` coalesce those onto the pending
-// init instead of queueing redundant clear()+rebuild passes behind it, and
-// `_lastAppliedSig` lets a repeat call short-circuit entirely once the chain
-// is idle. Differing signatures still serialize through _initChain as before.
-let _inFlightPromise = null;
-let _inFlightSig = null;
-let _lastAppliedSig = null;
-// Settles when an initialization by the owning runtime first applies.
+// Every registry mutation (register, rebuild, remove) runs on this chain, so
+// two applies never interleave their builds. Errors do not poison it.
+let _applyChain = Promise.resolve();
+// Settles when a provider set first applies.
 let _markProvidersInitialized;
 const _providersInitialized = new Promise((resolve) => {
   _markProvidersInitialized = resolve;
 });
 
-/** Read-only readiness: resolves once the owning runtime's provider
- *  initialization has applied a config (never starts one). */
+/** Read-only readiness: resolves once a provider set has first applied
+ *  (never starts one). */
 export function providersInitialized() {
   return _providersInitialized;
 }
@@ -87,6 +73,11 @@ export function providersInitialized() {
 // readers use this revision to share one raw model snapshot while still
 // rebuilding their cheap route/config projection after auth/config changes.
 let _providerCatalogRevision = 0;
+// The boot catalog refresh fetches each provider once per config signature:
+// name -> the signature whose catalog it fetched (or is fetching). A provider
+// added, or rebuilt from a changed config, is fetched; an unchanged one never
+// again until the 24h refresh.
+const _catalogRefreshedSigs = new Map();
 let _startupCatalogRefreshPromise = null;
 let _catalogRefreshPromise = null;
 const CATALOG_REFRESH_INTERVAL_MS = 24 * 60 * 60_000;
@@ -269,214 +260,155 @@ export function _initProvidersCallCountForTest() {
   return _initProvidersCalls;
 }
 
+/** Ensure the providers `config` enables are registered (additive). A missing
+ *  enabled provider is built and registered; a registered one is left as it
+ *  is, whatever this config says about it. Rejects with NO_ENABLED_PROVIDERS
+ *  when the registry is still empty afterwards. Remote mode applies the PC's
+ *  provider config, the record there (applyModelProxyRecord). */
 export async function initProviders(config, { signal = null } = {}) {
   _initProvidersCalls += 1;
   throwIfAborted(signal);
-  // Remote mode: provider availability and config are the PC's, never this
-  // server's credential probes. No connected client fails here, clearly.
-  const proxyChannel = modelProxyClientMode() ? getModelProxyChannel() : null;
-  if (proxyChannel) {
-    const { loadModelProxyProviderConfig } = await import('./model-proxy-provider.mjs');
-    config = await awaitWithAbort(loadModelProxyProviderConfig({ channel: proxyChannel }), signal);
-  } else {
-    config = withCustomKeyIds(config);
-  }
-  const sig = reuseSignature(config, proxyChannel);
-  // Coalesce: an identical config is already mid-init — attach to it.
-  if (sig !== null && _inFlightPromise && _inFlightSig === sig) {
-    return awaitWithAbort(_inFlightPromise, signal);
-  }
-  // Fast path: chain idle and the live registry already reflects this exact
-  // config — nothing to tear down or rebuild.
-  if (sig !== null && !_inFlightPromise && _lastAppliedSig === sig) {
-    return;
-  }
-  // Serialize ALL inits through a single chain so two different config
-  // signatures can never run their clear()+rebuild concurrently, regardless
-  // of caller-side gating (agent-tool gateOnPrior may release a queued init
-  // before the prior one settled). Errors do not poison the chain.
-  const run = () => _initProvidersUnsynchronized(config, signal, proxyChannel);
-  const next = _initChain.then(run, run);
-  _initChain = next.then(
+  if (modelProxyClientMode()) return applyModelProxyRecord(signal);
+  const plan = { config: withCustomKeyIds(config), rebuild: false, add: true, isOff: null, proxyChannel: null };
+  // Nothing to add: answer without queueing behind an unrelated apply.
+  if (providers.size > 0 && !pendingBuilds(plan).length) return;
+  return applyOnChain(plan, signal);
+}
+
+/** Apply the config of record: rebuild every registered provider whose
+ *  config signature changed and remove the ones a stored decision turned off.
+ *  `decisions` is the stored providers section (null when it could not be
+ *  read: no decision is known, so nothing is removed). Never adds a provider
+ *  (initProviders registers them on demand), never rejects for an empty set. */
+export async function syncProviders(record, { decisions = null, signal = null } = {}) {
+  throwIfAborted(signal);
+  if (modelProxyClientMode()) return applyModelProxyRecord(signal);
+  const isOff = decisions
+    ? (name) =>
+        decisions[name]?.enabled === false || (String(name).startsWith('custom-') && !Object.hasOwn(decisions, name))
+    : null;
+  return applyOnChain({ config: withCustomKeyIds(record), rebuild: true, add: false, isOff, proxyChannel: null }, signal);
+}
+
+// Remote mode: the PC's provider config is the record, read here for every
+// request; a provider it does not enable is off, and the proxy channel is part
+// of every signature (a new channel rebuilds).
+async function applyModelProxyRecord(signal) {
+  const proxyChannel = getModelProxyChannel();
+  const { loadModelProxyProviderConfig } = await import('./model-proxy-provider.mjs');
+  const config = await awaitWithAbort(loadModelProxyProviderConfig({ channel: proxyChannel }), signal);
+  const isOff = (name) => config?.[name]?.enabled !== true;
+  return applyOnChain({ config, rebuild: true, add: true, isOff, proxyChannel }, signal);
+}
+
+function applyOnChain(plan, signal) {
+  const run = () => applyProviderPlan(plan, signal);
+  const next = _applyChain.then(run, run);
+  _applyChain = next.then(
     () => {},
     () => {}
   );
-  const settle = () => {
-    if (_inFlightPromise === tracked) {
-      _inFlightPromise = null;
-      _inFlightSig = null;
-    }
-  };
-  const tracked = next.then(
-    (v) => {
-      if (_lastAppliedSig !== sig) _providerCatalogRevision += 1;
-      _lastAppliedSig = sig;
-      settle();
-      _markProvidersInitialized();
-      return v;
-    },
-    (err) => {
-      settle();
-      throw err;
-    }
-  );
-  _inFlightSig = sig;
-  _inFlightPromise = tracked;
-  return awaitWithAbort(tracked, signal);
+  return awaitWithAbort(next, signal);
 }
 
-async function _initProvidersUnsynchronized(config, signal = null, proxyChannel = null) {
-  throwIfAborted(signal);
-  // Invariant: never wipe the live registry based on an empty / all-disabled
-  // config. Without this guard, a stale `loadAgentConfig()` (e.g. mid-reload
-  // or a transient FS hiccup) would land here as `{}` or `{...,enabled:false}`,
-  // and the `providers.clear()` at the bottom would erase every previously
-  // registered provider. The owner process then stays alive returning
-  // `Provider "<name>" not found or not enabled` until restart. Throwing
-  // here preserves whatever was already registered.
-  const entries = Object.entries(config || {});
-  if (entries.length === 0) {
-    throw noEnabledProvidersError('[provider] initProviders called with empty config — refusing to clear registry');
+// The enabled entries of a plan's config that need a build: missing ones when
+// it adds, changed ones when it rebuilds.
+function pendingBuilds({ config, add, rebuild, proxyChannel }) {
+  const out = [];
+  for (const [name, cfg] of Object.entries(config || {})) {
+    if (cfg?.enabled !== true) continue;
+    // A dev-gated provider whose Developer option is off is never admitted,
+    // even from a config that still says enabled:true.
+    if (!providerAvailable(name)) continue;
+    // A retired provider's saved config is inert: its replacement is its own entry.
+    if (Object.hasOwn(RETIRED_PROVIDER_ALIASES, name)) continue;
+    const sig = reuseSignature(cfg, proxyChannel);
+    const registered = providers.has(name);
+    if (registered ? rebuild && (sig === null || signatures.get(name) !== sig) : add) out.push({ name, cfg, sig });
   }
-  const next = new Map();
-  const nextSignatures = new Map();
-  const enabledResults = await Promise.all(
-    entries.map(async ([name, cfg]) => {
-      if (!cfg.enabled) return null;
-      // A dev-gated provider whose Developer option is off is never admitted,
-      // even from a config that still says enabled:true.
-      if (!providerAvailable(name)) return null;
-      // A retired provider's saved config is inert: its replacement is its own entry.
-      if (Object.hasOwn(RETIRED_PROVIDER_ALIASES, name)) return null;
-      // Idempotent reuse: an enabled provider whose config signature is
-      // unchanged from the live registry is carried forward as-is. Only
-      // added or changed providers are (re)constructed below.
-      const sig = reuseSignature(cfg, proxyChannel);
-      if (sig !== null && providers.has(name) && signatures.get(name) === sig) {
-        return { name, inst: providers.get(name), sig };
-      }
-      try {
-        // A proxied provider never loads the real adapter module.
-        const Ctor = modelProxyClientMode() ? null : await loadProviderCtor(name, signal, cfg);
-        throwIfAborted(signal);
-        const inst = await instantiateProvider(name, Ctor, cfg, proxyChannel);
-        return { name, inst, sig };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const error = new Error(`[provider] Failed to init "${name}": ${msg}`);
-        // One invalid custom provider is isolated: it is skipped (never
-        // partially loaded) and reported, the rest of the registry builds.
-        if (isCustomProviderConfig(name, cfg) && !signal?.aborted) return { name, error, isolated: true };
-        return { name, error };
-      }
-    })
-  );
-  const nextInitErrors = new Map();
-  for (const result of enabledResults) {
+  return out;
+}
+
+async function buildProvider({ name, cfg, sig }, proxyChannel, signal) {
+  try {
+    // A proxied provider never loads the real adapter module.
+    const Ctor = modelProxyClientMode() ? null : await loadProviderCtor(name, signal, cfg);
     throwIfAborted(signal);
-    if (!result) continue;
+    return { name, inst: await instantiateProvider(name, Ctor, cfg, proxyChannel), sig };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const error = new Error(`[provider] Failed to init "${name}": ${msg}`);
+    // One invalid custom provider is isolated: it is skipped (never partially
+    // loaded) and reported, the rest of the registry builds.
+    if (isCustomProviderConfig(name, cfg) && !signal?.aborted) return { name, error, isolated: true };
+    return { name, error };
+  }
+}
+
+async function applyProviderPlan(plan, signal) {
+  throwIfAborted(signal);
+  const results = await Promise.all(pendingBuilds(plan).map((entry) => buildProvider(entry, plan.proxyChannel, signal)));
+  throwIfAborted(signal);
+  const failed = results.find((result) => result.error && !result.isolated);
+  if (failed) throw failed.error;
+  const skipped = [];
+  for (const result of results) {
     if (result.isolated) {
-      nextInitErrors.set(result.name, result.error.message);
+      // A registered provider always reflects its current config: one whose
+      // config no longer builds leaves the registry with its reason.
+      removeProvider(result.name);
+      _providerInitErrors.set(result.name, result.error.message);
+      skipped.push(result.error.message);
       process.stderr.write(`${result.error.message} (provider skipped; fix its configuration)\n`);
       continue;
     }
-    if (result.error) throw result.error;
-    next.set(result.name, result.inst);
-    if (result.sig !== null) nextSignatures.set(result.name, result.sig);
+    registerProvider(result.name, result.inst, result.sig);
   }
-  _providerInitErrors = nextInitErrors;
-  // OAuth preservation guard. anthropic-oauth / openai-oauth are NOT stored
-  // in mixdog-config.json — buildDefaultConfig injects them at runtime by
-  // calling hasAnthropic/OpenAIOAuthCredentials(), which reads the on-disk
-  // credentials file each call. A transient ENOENT / partial-write / JSON
-  // parse failure quietly returns false, the OAuth entry lands in next as
-  // disabled (silently skipped by the `!cfg.enabled` continue above), and
-  // the `providers.clear()` below would erase the previously registered
-  // instance permanently.
-  //
-  // Preservation is therefore conditional, never unconditional, and rests on
-  // the tri-state probe rather than on a bare `enabled:false`:
-  //   - 'absent'     → the credential is genuinely gone (logout) or the user
-  //                    disabled the provider: drop the instance, and
-  //   - 'unreadable' → the credential file exists but could not be read this
-  //                    instant: keep the instance and never record an opt-out.
-  // A disabled entry counts as a USER opt-out unless buildDefaultConfig
-  // marked it as "probe could not read the credential this load"
-  // (credentialProbeUnavailable). That marker is authoritative in both
-  // directions: loadConfig deletes it as soon as the STORED config states
-  // `enabled` itself, so an explicit UI/hand-edited disable still removes the
-  // provider even while its credential file happens to be unreadable, and a
-  // logout (probe 'absent') never carries the marker at all.
-  //
-  // It runs before the all-disabled guard below: a secrets-less load
-  // (explore) marks every OAuth entry probe-unavailable, so an OAuth-only
-  // setup has no enabled entry and only its preserved instances.
-  const nextDisabled = new Set();
-  for (const [name, cfg] of entries) {
-    if (cfg?.enabled) continue;
-    if (OAUTH_PROVIDER_NAMES.has(name) && cfg?.credentialProbeUnavailable === true) continue;
-    nextDisabled.add(name);
-  }
-  for (const name of OAUTH_PROVIDER_NAMES) {
-    if (next.has(name) || !providers.has(name)) continue;
-    if (nextDisabled.has(name)) continue;
-    if (oauthCredentialProbeState(name) === 'absent') continue;
-    next.set(name, providers.get(name));
-    if (signatures.has(name)) nextSignatures.set(name, signatures.get(name));
-  }
-  // Second guard: every entry was disabled and nothing was preserved. Same
-  // reasoning — keep the existing registry rather than going dark. Isolation
-  // still holds: a live instance of a provider that is now an invalid custom
-  // config is removed (the rest of the registry stays), and the recorded
-  // reasons are reported.
-  if (next.size === 0) {
-    let removed = false;
-    for (const name of nextInitErrors.keys()) {
-      removed = providers.delete(name) || removed;
-      signatures.delete(name);
+  if (plan.isOff) {
+    for (const name of [...providers.keys(), ..._providerInitErrors.keys()]) {
+      if (plan.isOff(name)) removeProvider(name);
     }
-    if (removed) {
-      _providerCatalogRevision += 1;
-      _startupCatalogRefreshPromise = null;
-      // The live registry no longer reflects the last applied config.
-      _lastAppliedSig = null;
-    }
-    const reasons = [...nextInitErrors.values()];
+    _explicitlyDisabled = new Set([...OAUTH_PROVIDER_NAMES].filter(plan.isOff));
+  }
+  if (plan.add && providers.size === 0) {
     throw noEnabledProvidersError(
-      `[provider] all providers disabled in config — refusing to clear registry${
-        reasons.length ? `; invalid custom providers skipped: ${reasons.join('; ')}` : ''
-      }`
+      `[provider] no provider is enabled${skipped.length ? `; invalid custom providers skipped: ${skipped.join('; ')}` : ''}`
     );
   }
-  _explicitlyDisabled = nextDisabled;
-  throwIfAborted(signal);
-  // Reconfiguration opens a new catalog epoch. A provider added (or rebuilt
-  // with an empty model cache) after the startup refresh settled would
-  // otherwise join that obsolete promise and never fetch its own catalog.
-  const providerSetChanged =
-    next.size !== providers.size || [...next].some(([name, inst]) => providers.get(name) !== inst);
-  if (providerSetChanged) _startupCatalogRefreshPromise = null;
-  providers.clear();
-  for (const [k, v] of next) providers.set(k, v);
-  signatures.clear();
-  for (const [k, v] of nextSignatures) signatures.set(k, v);
+  if (providers.size > 0) _markProvidersInitialized();
 }
 
-// Custom providers skipped by the last applied init, by name → error message.
-let _providerInitErrors = new Map();
+function registerProvider(name, inst, sig) {
+  providers.set(name, inst);
+  if (sig === null) signatures.delete(name);
+  else signatures.set(name, sig);
+  _explicitlyDisabled.delete(name);
+  _providerInitErrors.delete(name);
+  _providerCatalogRevision += 1;
+}
+
+function removeProvider(name) {
+  _providerInitErrors.delete(name);
+  signatures.delete(name);
+  _catalogRefreshedSigs.delete(name);
+  if (!providers.delete(name)) return false;
+  _providerCatalogRevision += 1;
+  return true;
+}
+
+// Custom providers whose config failed to build, by name → error message.
+const _providerInitErrors = new Map();
 export function getProviderInitErrors() {
   return new Map(_providerInitErrors);
 }
-// Register a lazily self-healed OAuth instance. Bumps the catalog revision and
-// drops the settled startup-refresh epoch so the newcomer's catalog is fetched
-// instead of inheriting a refresh that finished before it existed.
+// Register a lazily self-healed OAuth instance under the signature of the
+// empty config it was built from: a sync of a record that enables it rebuilds
+// it from that entry.
 function _registerLazyOAuthProvider(name, Ctor) {
   const existing = providers.get(name);
   if (existing) return existing;
   const inst = wrapProviderAdmission(new Ctor({}), name);
-  providers.set(name, inst);
-  _providerCatalogRevision += 1;
-  _startupCatalogRefreshPromise = null;
+  registerProvider(name, inst, configSignature({}));
   return inst;
 }
 // Background module load for an OAuth provider whose constructor was never
@@ -523,12 +455,12 @@ export function getProvider(requestedName) {
   if (!providerAvailable(name)) return undefined;
   const cached = providers.get(name);
   if (cached) return cached;
-  // OAuth lazy fallback. Covers the boot-time race where the credential probe
-  // returned false the first time (credential file mid-write, lock contention,
-  // or a transient parse failure) — initProviders then skipped the entry
-  // entirely so there is nothing for the preservation guard to carry forward.
-  // Re-probe the credential on each miss and register the instance on the
-  // spot. An explicitly disabled provider is never resurrected here.
+  // OAuth lazy registration. Covers a load whose credential probe could not
+  // answer (credential file mid-write, lock contention, a transient parse
+  // failure, or a secrets-less load that never probed): the entry was not
+  // enabled, so nothing registered it. Re-probe the credential on each miss
+  // and register the instance on the spot. A provider a stored decision
+  // turned off is never resurrected here.
   if (!OAUTH_PROVIDER_NAMES.has(name)) return undefined;
   if (_explicitlyDisabled.has(name)) return undefined;
   if (!_oauthCredentialsUsable(name)) return undefined;
@@ -622,13 +554,7 @@ export function disableProvider(name) {
   const id = String(name || '').trim();
   if (!id) return false;
   _explicitlyDisabled.add(id);
-  signatures.delete(id);
-  const removed = providers.delete(id);
-  if (removed) {
-    _providerCatalogRevision += 1;
-    _lastAppliedSig = null;
-  }
-  return removed;
+  return removeProvider(id);
 }
 
 export function providerCatalogRevision() {
@@ -696,24 +622,36 @@ function armNextCatalogRefresh(startedAt = Date.now()) {
   _catalogRefreshTimer.unref?.();
 }
 
-// Force-refresh each provider's /models catalog once at daemon boot. Every
-// session runtime joins this process-global promise and reads the same
-// provider-instance caches. The next network refresh is armed for 24h later;
-// view entry, search, settings, and explicit refresh requests inside that
-// window only reuse the completed catalog epoch.
+// Whether `name`'s catalog was already fetched for its current config, and
+// records that it is now (the caller fetches it).
+function claimCatalogRefresh(name) {
+  const sig = signatures.get(name) ?? null;
+  if (_catalogRefreshedSigs.has(name) && _catalogRefreshedSigs.get(name) === sig) return false;
+  _catalogRefreshedSigs.set(name, sig);
+  return true;
+}
+
+// Force-refresh each provider's /models catalog once per boot: a provider is
+// fetched when it is added or rebuilt from a changed config, never again for
+// the same config. Every session runtime joins this process-global promise
+// and reads the same provider-instance caches; it changes (a new epoch) only
+// when there is a provider to fetch. The next network refresh is armed for 24h
+// later; view entry, search, settings, and explicit refresh requests inside
+// that window only reuse the completed catalog epoch.
 export function refreshProviderCatalogsOnStartup() {
-  if (_startupCatalogRefreshPromise) return _startupCatalogRefreshPromise;
-  armNextCatalogRefresh();
   const pending = [];
   for (const [name, provider] of availableProviderEntries()) {
+    if (!claimCatalogRefresh(name)) continue;
     const refreshFn = providerCatalogRefreshFn(provider);
-    if (!refreshFn) continue;
-    pending.push(boundedCatalogRefresh(name, provider, refreshFn, 'startup catalog refresh'));
+    if (refreshFn) pending.push(boundedCatalogRefresh(name, provider, refreshFn, 'startup catalog refresh'));
   }
-  // Returns a completion promise so callers can invalidate stale model
-  // caches once the fresh catalogs land. Still fire-and-forget: unawaited
-  // callers keep the previous nonblocking startup behavior.
-  _startupCatalogRefreshPromise = Promise.allSettled(pending).then((results) => {
+  if (!pending.length && _startupCatalogRefreshPromise) return _startupCatalogRefreshPromise;
+  if (!_startupCatalogRefreshPromise) armNextCatalogRefresh();
+  // A completion promise (joining the epoch before it) so callers can
+  // invalidate stale model caches once the fresh catalogs land. Still
+  // fire-and-forget: unawaited callers keep the nonblocking startup behavior.
+  const prior = _startupCatalogRefreshPromise;
+  _startupCatalogRefreshPromise = Promise.allSettled(prior ? [prior, ...pending] : pending).then((results) => {
     _providerCatalogRevision += 1;
     return results;
   });
@@ -758,6 +696,8 @@ export function refreshCatalogs(options = {}) {
     process.stderr.write(`[model-catalog] metadata refresh failed: ${msg}\n`);
   });
   for (const [name, provider] of availableProviderEntries()) {
+    // A full refresh fetches every provider for its current config.
+    claimCatalogRefresh(name);
     const refreshFn = providerCatalogRefreshFn(provider);
     if (!refreshFn) continue;
     pending.push(metadataReady.then(() => boundedCatalogRefresh(name, provider, refreshFn, 'catalog refresh')));

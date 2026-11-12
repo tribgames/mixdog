@@ -1,16 +1,20 @@
 // Provider readiness for the session runtime: the keychain prewarm gate, the
-// provider-init single-flight keyed by normalized provider config, and the
+// runtime's requests to the process-global provider registry, and the
 // model/usage caches that auth or config mutations invalidate together.
-// `reg` and `warmProviderModelCache` are late-bound getters because the
-// registry import and the provider-models factory resolve after this gate is
-// created, while ensureProvidersReady only reaches them on demand.
+// The registry's provider set is owned by the config of record — the full,
+// secrets-aware config (ensureFullConfig) and its stored provider decisions —
+// never by the view a caller happens to hold: ensureProvidersReady asks the
+// registry to register what the record enables plus the providers the caller
+// requested (additive), and a config change syncs the registry to the record
+// (rebuilds and stored-decision removals).
+// `reg`, `warmProviderModelCache`, `ensureFullConfig` and the stored providers
+// are late-bound getters because they resolve after this gate is created.
 import {
   builtinProviderKeyAccounts,
   customProviderKeyAccounts,
 } from '../runtime/agent/orchestrator/config-providers-merge.mjs';
 import { bootProfile } from './boot-profile.mjs';
 import { invalidateSharedProviderCatalog } from './provider-catalog-cache.mjs';
-import { providerInitCacheKey } from './provider-init-key.mjs';
 
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
@@ -29,7 +33,14 @@ const emptyUsageCaches = () => ({
   providerSetupPromise: null,
 });
 
-export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderModelCache }) {
+export function createProviderReadiness({
+  rt,
+  keychain,
+  getReg,
+  getWarmProviderModelCache,
+  getEnsureFullConfig,
+  getStoredProviders,
+}) {
   const keychainPrewarmPromise = keychain.prewarmSecrets(builtinProviderKeyAccounts());
   rt.keychainPrewarmWaitDone = false;
   rt.keychainPrewarmWaitPromise = null;
@@ -56,31 +67,19 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   const modelMetaByRoute = new Map();
   const providerModelCaches = { ...emptyModelCaches(), providerModelsLoadSeq: 0 };
   const providerUsageCaches = emptyUsageCaches();
-  const providerInitPromises = new Map();
-  // Whether this runtime has started its providers: a rebuild after a change
-  // follows it, a failed initialization (whose gate is dropped) included.
-  let providersStarted = false;
-  // Advances whenever the init gates are cleared (a provider config or
-  // credential change): an initialization registered before it is superseded
-  // and never writes the shared registry.
-  let providerInitGeneration = 0;
 
-  function invalidateProviderCaches(options = {}) {
+  function invalidateProviderCaches() {
     // Auth/account/config changes alter what providers list: the process-wide
     // catalog (partial rows and retry backoffs included) starts a new epoch.
     invalidateSharedProviderCatalog();
     Object.assign(providerModelCaches, emptyModelCaches());
     providerModelCaches.providerModelsLoadSeq += 1;
     Object.assign(providerUsageCaches, emptyUsageCaches());
-    if (options.preserveProviderInit !== true) {
-      providerInitPromises.clear();
-      providerInitGeneration += 1;
-    }
     modelMetaByRoute.clear();
   }
 
   // A keyring unlocked after boot: every cache built while stored keys read as
-  // absent (provider setup, init gates) is stale. The keychain module outlives
+  // absent (provider setup, model rows) is stale. The keychain module outlives
   // every runtime, so the listener (which holds this runtime and its caches)
   // is released by dispose().
   const unsubscribeKeychainRecovered = keychain.onKeychainRecovered?.(() => invalidateProviderCaches());
@@ -90,22 +89,21 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     unsubscribeKeychainRecovered?.();
   }
 
-  // The one edit a caller makes to the provider config it passes is turning a
-  // route's provider on (ensureProviderEnabled); those providers, judged
-  // against the runtime's config when the request was made.
-  function forcedProviders(requested, base) {
-    return Object.keys(requested || {}).filter(
-      (name) => requested[name]?.enabled === true && base?.[name]?.enabled !== true
-    );
+  // The config of record: the runtime's full, secrets-aware config, read after
+  // the keychain warm (an injected config is its own record).
+  function providerRecord() {
+    return getEnsureFullConfig()().providers || {};
   }
 
-  // Waits for the keychain, then initializes the registry with
-  // `providerConfig` unless a change superseded it meanwhile: a superseded
-  // request is replayed on the latest config (with the providers it turned on),
-  // so the latest config always wins.
-  async function initializeProviders(providerConfig) {
-    const generation = providerInitGeneration;
-    const forced = forcedProviders(providerConfig, rt.config.providers);
+  /** Ensure the providers the record enables, and every provider
+   *  `providerConfig` enables (a route's provider turned on with
+   *  ensureProviderEnabled), are registered. Additive: it never replaces or
+   *  removes a registered provider. Each call asks the registry again — a
+   *  registered provider answers at once — so it never reports ready from an
+   *  earlier answer while a requested provider has since left the registry. */
+  async function ensureProvidersReady(providerConfig = {}) {
+    if (rt.closeRequested) throw new Error('runtime is closing');
+    const requested = Object.keys(providerConfig).filter((name) => providerConfig[name]?.enabled === true);
     // The built-in warm plus the configured custom providers' keys, warmed per
     // account the same way so the first send reads them from the cache: one
     // wait under one deadline (the account reads themselves run one at a time).
@@ -113,87 +111,70 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
       Promise.all([keychainPrewarmPromise, keychain.prewarmSecrets(customProviderKeyAccounts(providerConfig))])
     );
     if (rt.closeRequested) throw new Error('runtime is closing');
-    if (generation === providerInitGeneration) return getReg().initProviders(providerConfig);
-    const latest = { ...(rt.config.providers || {}) };
-    for (const name of forced) latest[name] = { ...(latest[name] || {}), enabled: true };
-    return ensureProvidersReady(latest);
-  }
-
-  async function ensureProvidersReady(providerConfig = rt.config.providers || {}) {
-    if (rt.closeRequested) throw new Error('runtime is closing');
-    providersStarted = true;
-    const initKey = providerInitCacheKey(providerConfig);
-    // Provider initialization is idempotent for one normalized config. Keep
-    // the fulfilled promise, not only the in-flight one: session resume used
-    // to rerun registry/keychain setup on every click even though neither the
-    // provider config nor the registry had changed. Auth/config mutations call
-    // invalidateProviderCaches(), which clears this gate and preserves the
-    // existing refresh semantics. Registered before any await, so a change
-    // applied while it waits on the keychain sees (and supersedes) it.
-    let providerInitPromise = providerInitPromises.get(initKey);
-    if (!providerInitPromise) {
-      providerInitPromise = initializeProviders(providerConfig);
-      providerInitPromises.set(initKey, providerInitPromise);
+    // Read after the wait: a change applied meanwhile is what gets registered.
+    const desired = { ...providerRecord() };
+    for (const name of requested) {
+      if (desired[name]?.enabled !== true) desired[name] = { ...(desired[name] || {}), enabled: true };
     }
-    let result;
-    try {
-      result = await providerInitPromise;
-    } catch (error) {
-      if (providerInitPromises.get(initKey) === providerInitPromise) providerInitPromises.delete(initKey);
-      throw error;
-    }
-    if (!rt.closeRequested) {
-      try {
-        // The registry memoizes the refresh per catalog epoch; a provider set
-        // change yields a new promise, which gets its own completion handling.
-        const refresh = getReg().refreshProviderCatalogsOnStartup();
-        if (refresh === rt.startupProviderCatalogRefreshObserved) return result;
-        rt.startupProviderCatalogRefreshObserved = refresh;
-        rt.startupProviderCatalogRefreshPending = true;
-        const isLatest = () => rt.startupProviderCatalogRefreshObserved === refresh;
-        const settle = () => {
-          if (!isLatest()) return;
-          rt.startupProviderCatalogRefreshPending = false;
-          rt.wakeDeferredWarmups();
-        };
-        void Promise.resolve(refresh)
-          .then(() => {
-            settle();
-            if (rt.closeRequested) return;
-            // Fresh catalog rows invalidate model-derived caches, but the
-            // already initialized provider registry remains valid.
-            invalidateProviderCaches({ preserveProviderInit: true });
-            // Secrets-aware: a no-secrets rewarm bumps the load sequence and
-            // is never adopted, so it discarded the in-flight authoritative
-            // load and left the picker cache empty — every later consumer then
-            // paid a full catalog load (measured ~560ms each).
-            getWarmProviderModelCache()({ loadSecrets: true });
-            bootProfile('provider-catalogs:refresh-ready');
-          })
-          .catch((error) => {
-            settle();
-            bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
-          });
-        bootProfile('provider-catalogs:refresh-started');
-      } catch (error) {
-        rt.startupProviderCatalogRefreshPending = false;
-        bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
-      }
-    }
+    const result = await getReg().initProviders(desired);
+    if (!rt.closeRequested) observeStartupCatalogRefresh();
     return result;
   }
 
+  // Attach this runtime's completion handling to the registry's boot catalog
+  // refresh. The registry memoizes it and opens a new epoch only for a provider
+  // added or rebuilt; each new promise gets its own completion handling.
+  function observeStartupCatalogRefresh() {
+    try {
+      const refresh = getReg().refreshProviderCatalogsOnStartup();
+      if (refresh === rt.startupProviderCatalogRefreshObserved) return;
+      rt.startupProviderCatalogRefreshObserved = refresh;
+      rt.startupProviderCatalogRefreshPending = true;
+      const isLatest = () => rt.startupProviderCatalogRefreshObserved === refresh;
+      const settle = () => {
+        if (!isLatest()) return;
+        rt.startupProviderCatalogRefreshPending = false;
+        rt.wakeDeferredWarmups();
+      };
+      void Promise.resolve(refresh)
+        .then(() => {
+          settle();
+          if (rt.closeRequested) return;
+          // Fresh catalog rows invalidate model-derived caches.
+          invalidateProviderCaches();
+          // Secrets-aware: a no-secrets rewarm bumps the load sequence and
+          // is never adopted, so it discarded the in-flight authoritative
+          // load and left the picker cache empty — every later consumer then
+          // paid a full catalog load (measured ~560ms each).
+          getWarmProviderModelCache()({ loadSecrets: true });
+          bootProfile('provider-catalogs:refresh-ready');
+        })
+        .catch((error) => {
+          settle();
+          bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
+        });
+      bootProfile('provider-catalogs:refresh-started');
+    } catch (error) {
+      rt.startupProviderCatalogRefreshPending = false;
+      bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
+    }
+  }
+
   // Provider config or secrets changed: drop everything keyed to the old ones
-  // and, when this runtime had initialized providers, rebuild the shared
-  // registry from its reloaded config now, so no runtime's stale copy is the
-  // last one to have initialized it. Rejects when that rebuild failed.
+  // and sync the shared registry to the reloaded record — registered providers
+  // whose config changed are rebuilt, the ones a stored decision turned off
+  // (disable, logout, a deleted custom provider) removed. Every runtime of the
+  // process runs it on the same record; it never registers a provider no one
+  // asked for. Rejects when that sync failed.
   function reinitProviders() {
     invalidateProviderCaches();
-    if (!providersStarted || rt.closeRequested) return Promise.resolve();
-    return ensureProvidersReady().catch((error) => {
-      bootProfile('providers:reinit-failed', { error: error?.message || String(error) });
-      throw error;
-    });
+    if (rt.closeRequested) return Promise.resolve();
+    return Promise.resolve()
+      .then(() => getReg().syncProviders(providerRecord(), { decisions: getStoredProviders() }))
+      .catch((error) => {
+        bootProfile('providers:reinit-failed', { error: error?.message || String(error) });
+        throw error;
+      });
   }
 
   return {

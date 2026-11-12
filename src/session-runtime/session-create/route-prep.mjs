@@ -8,14 +8,7 @@ export const elapsedMs = (startedAt) => (performance.now() - startedAt).toFixed(
 
 /** Config, memory snapshot, route model/effort and provider readiness. */
 export async function prepareRoute(deps, routes, signal, startedAt) {
-  const {
-    rt,
-    reg,
-    loadCoreMemoryContext,
-    awaitKeychainPrewarm,
-    prepareNewSessionConfig,
-    ensureConfigForRouteProvider,
-  } = deps;
+  const { rt, reg, loadCoreMemoryContext, awaitKeychainPrewarm, prepareNewSessionConfig } = deps;
   const { resolveMissingRouteModelForFirstTurn, refreshRouteEffort, requireModelRoute } = routes;
   await runAbortable(signal, () => awaitKeychainPrewarm());
   // Persistence and reload precede EVERY config consumer, including memory,
@@ -26,7 +19,6 @@ export async function prepareRoute(deps, routes, signal, startedAt) {
   // overlaps the remaining provider/model preparation.
   const coreMemoryContextPromise = Promise.resolve(loadCoreMemoryContext());
   coreMemoryContextPromise.catch(() => {});
-  ensureConfigForRouteProvider();
   await resolveMissingRouteModelForFirstTurn(signal);
   requireModelRoute();
   bootProfile('session:create:route-ready', { ms: elapsedMs(startedAt) });

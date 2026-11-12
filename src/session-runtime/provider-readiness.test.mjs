@@ -3,9 +3,10 @@ import test from 'node:test';
 import { setImmediate as flush } from 'node:timers/promises';
 import { createProviderReadiness } from './provider-readiness.mjs';
 
-function harness({ prewarm = Promise.resolve(), prewarmSecrets = () => prewarm } = {}) {
+function harness({ prewarm = Promise.resolve(), prewarmSecrets = () => prewarm, stored = {} } = {}) {
   const inits = [];
   const registryWrites = [];
+  const syncs = [];
   const rt = {
     config: { providers: { demo: { enabled: true, apiKey: 'old-key' } } },
     closeRequested: false,
@@ -17,6 +18,9 @@ function harness({ prewarm = Promise.resolve(), prewarmSecrets = () => prewarm }
       inits.push(providers.demo.apiKey);
       registryWrites.push(providers);
     },
+    syncProviders: async (record, options) => {
+      syncs.push({ key: record.demo?.apiKey, decisions: options.decisions });
+    },
     refreshProviderCatalogsOnStartup: () => catalogRefresh,
   };
   const readiness = createProviderReadiness({
@@ -24,29 +28,46 @@ function harness({ prewarm = Promise.resolve(), prewarmSecrets = () => prewarm }
     keychain: { prewarmSecrets, onKeychainRecovered: () => {} },
     getReg: () => reg,
     getWarmProviderModelCache: () => () => {},
+    // The record: this runtime's config once loaded with secrets.
+    getEnsureFullConfig: () => () => rt.config,
+    getStoredProviders: () => stored,
   });
-  return { rt, inits, registryWrites, readiness };
+  return { rt, reg, inits, registryWrites, syncs, readiness };
 }
 
-test('an initialization waiting on the keychain when the provider config changes never installs the old key', async () => {
+test('a request waiting on the keychain registers the record read after the wait, never the old key', async () => {
   let releasePrewarm;
   const prewarm = new Promise((resolve) => {
     releasePrewarm = resolve;
   });
   const { rt, inits, registryWrites, readiness } = harness({ prewarm });
-  // One plain request and one that turns a route's provider on, both captured
+  // One plain request and one that turns a route's provider on, both made
   // with the old key while the keychain is still being read.
   const plain = readiness.ensureProvidersReady();
   const routed = readiness.ensureProvidersReady({ ...rt.config.providers, extra: { enabled: true } });
-  // Another process saved a new key; the change step reloads and re-inits.
+  // Another process saved a new key; the change step reloads.
   rt.config = { providers: { demo: { enabled: true, apiKey: 'new-key' }, extra: { enabled: false } } };
-  readiness.reinitProviders();
   releasePrewarm();
   await Promise.all([plain, routed]);
-  assert.equal(inits.includes('old-key'), false, `registry writes: ${JSON.stringify(inits)}`);
-  assert.equal(inits.at(-1), 'new-key');
-  // The routed request was replayed on the new config, its provider still on.
+  assert.deepEqual(inits, ['new-key', 'new-key']);
+  // The routed request still turns its provider on, over the new record.
   assert.ok(registryWrites.some((providers) => providers.demo.apiKey === 'new-key' && providers.extra.enabled));
+});
+
+test('a request registers what the record enables, not the view the caller held', async () => {
+  const { rt, registryWrites, readiness } = harness();
+  // The runtime's secrets-less boot view: the key provider reads as off.
+  const view = { demo: { enabled: false }, route: { enabled: true } };
+  rt.config = { providers: { demo: { enabled: true, apiKey: 'k' }, route: { enabled: false } } };
+  await readiness.ensureProvidersReady(view);
+  assert.deepEqual(registryWrites.at(-1), { demo: { enabled: true, apiKey: 'k' }, route: { enabled: true } });
+});
+
+test('every request asks the registry again: no earlier answer stands in for a provider since removed', async () => {
+  const { inits, readiness } = harness();
+  await readiness.ensureProvidersReady({ demo: { enabled: true } });
+  await readiness.ensureProvidersReady({ demo: { enabled: true } });
+  assert.equal(inits.length, 2);
 });
 
 test('provider initialization warms the keys of the configured custom providers that hold one', async () => {
@@ -73,37 +94,29 @@ test('initialization waits at most one 5 s deadline for the built-in and custom 
   await flush();
   t.mock.timers.tick(5000);
   await ready;
-  assert.deepEqual(inits, ['k'], 'initialized after the single deadline');
+  assert.deepEqual(inits, ['old-key'], 'initialized after the single deadline');
 });
 
-test('a provider change re-initializes the shared registry from the reloaded config of a runtime that used it', async () => {
-  const { rt, inits, readiness } = harness();
-  await readiness.ensureProvidersReady();
-  assert.deepEqual(inits, ['old-key']);
-  // The config reloaded with the key another process saved.
-  rt.config = { providers: { demo: { enabled: true, apiKey: 'new-key' } } };
-  readiness.reinitProviders();
-  await flush();
-  await flush();
-  assert.deepEqual(inits, ['old-key', 'new-key']);
-});
-
-test('a rebuild that failed is retried as a rebuild and reports its real outcome', async () => {
-  const { rt, inits, readiness } = harness();
-  await readiness.ensureProvidersReady();
-  const reg = { fail: true };
-  const realInit = inits.push.bind(inits);
-  inits.push = (key) => {
-    if (reg.fail) throw new Error('registry refused');
-    return realInit(key);
-  };
-  rt.config = { providers: { demo: { enabled: true, apiKey: 'new-key' } } };
-  await assert.rejects(readiness.reinitProviders(), /registry refused/);
-  // The retry of the change step rebuilds; it is no "never initialized" no-op.
-  await assert.rejects(readiness.reinitProviders(), /registry refused/);
-  reg.fail = false;
+test('a provider change syncs the shared registry to the reloaded record and its stored decisions', async () => {
+  const stored = { demo: { enabled: false } };
+  const { rt, inits, syncs, readiness } = harness({ stored });
+  rt.config = { providers: { demo: { enabled: false } } };
   await readiness.reinitProviders();
-  assert.deepEqual([...inits], ['old-key', 'new-key']);
+  assert.deepEqual(syncs, [{ key: undefined, decisions: stored }]);
+  // A change registers nothing on its own: requests do that on demand.
+  assert.deepEqual(inits, []);
+});
+
+test('a sync that failed rejects, and the retried change step syncs again', async () => {
+  const { reg, syncs, readiness } = harness();
+  const realSync = reg.syncProviders;
+  reg.syncProviders = async () => {
+    throw new Error('registry refused');
+  };
+  await assert.rejects(readiness.reinitProviders(), /registry refused/);
+  reg.syncProviders = realSync;
+  await readiness.reinitProviders();
+  assert.equal(syncs.length, 1);
 });
 
 // Mirrors lib/keychain-cjs.cjs: a process-wide listener Set, subscribe returns the unsubscribe.
@@ -157,11 +170,4 @@ test('creating and disposing many runtimes leaves no listeners behind, and a liv
   assert.equal(gone.modelMetaByRoute.size, 1, 'a disposed runtime is no longer notified');
   live.dispose();
   assert.equal(keychain.listeners.size, 0);
-});
-
-test('a runtime that never initialized providers does not start them on a provider change', async () => {
-  const { inits, readiness } = harness();
-  readiness.reinitProviders();
-  await flush();
-  assert.deepEqual(inits, []);
 });
