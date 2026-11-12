@@ -127,9 +127,11 @@ fn provider_secret_env(provider: &str) -> String {
     format!("MIXDOG_AGENT_{id}_APIKEY")
 }
 
-/// The source of a value read out of the keychain `account` (`carried::keep`).
-pub fn keychain_source(account: &str) -> String {
-    format!("keychain {account}")
+/// The source of a value read out of the keychain `account` of the vault named `store` ([`SecretVault::identity`]), for
+/// `carried::keep`. Every read of one vault's account names it the same way, through the key store or straight from the vault,
+/// so whichever reads the replaced value retires the earlier one.
+pub fn keychain_source(store: &str, account: &str) -> String {
+    format!("keychain {account} of store {store}")
 }
 
 /// The keychain account of a provider's primary key.
@@ -226,7 +228,7 @@ impl ApiKeyStore {
 
     /// The source of a value read out of keychain `account` through this store's vault.
     fn stored_source(&self, account: &str) -> String {
-        format!("{} of store {}", keychain_source(account), self.id)
+        keychain_source(&self.id, account)
     }
 
     /// A configured key: its source is the provider's config entry in this store.
@@ -496,6 +498,21 @@ mod tests {
         vault.set("agent.same-vault-provider.apiKey", "same-vault-key-new-4e7a").await.unwrap();
         assert_eq!(build().get("same-vault-provider").await.unwrap().as_deref(), Some("same-vault-key-new-4e7a"));
         // A retired value stays a credential: one pinned (the new key), one retired (the old).
+        let counts = crate::oauth::carried::registry().counts();
+        assert_eq!((counts.held, counts.retired), (1, 1), "the replaced key retired");
+    }
+
+    /// A read straight from the vault (the setup and admin views, the usage session key) names its source as a store over
+    /// that vault does: it retires the value the store read before the key was replaced.
+    #[tokio::test]
+    async fn a_read_straight_from_the_vault_retires_what_the_store_read() {
+        crate::oauth::carried::reset_registry();
+        let vault = Arc::new(MemoryVault::default());
+        let account = api_key_account("direct-read-provider");
+        vault.set(&account, "direct-read-key-old-2b9f").await.unwrap();
+        ApiKeyStore::new(vault.clone(), Arc::new(Env(HashMap::new())), false).get("direct-read-provider").await.unwrap();
+        // What the production vault does with a value it reads (`KeychainVault::get`).
+        crate::oauth::carried::keep(&keychain_source(&vault.identity(), &account), &["direct-read-key-new-2b9f"]);
         let counts = crate::oauth::carried::registry().counts();
         assert_eq!((counts.held, counts.retired), (1, 1), "the replaced key retired");
     }
