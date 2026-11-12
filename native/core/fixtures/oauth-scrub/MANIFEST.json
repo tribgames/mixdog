@@ -72,22 +72,24 @@
           "src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs",
           "src/runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
+          "src/runtime/agent/orchestrator/providers/devin-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-isolated.test.mjs",
           "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.mjs",
           "src/runtime/agent/orchestrator/providers/lib/credential-canonical.test.mjs",
           "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
           "src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs"
         ],
-        "sha256": "f7e40fbb62af6a2e19f7a54de0f08c291ea8a85f2a315b8d0e201f5cbbf4a1d8"
+        "sha256": "52e7828ef01de13f67c62f04b92ada38795cfdf12789964665c60a12d142eb90"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 23
+      "filesDifferingFromCommit": 25
     },
-    "srcSha256": "20a9783427103180e7fc080a4d1b69ff88ab2119edc370f9fbeb2017ff841ad2",
+    "srcSha256": "996776606d7dc90772bd390393776369ff19dc5e0a867e9c76013ffae9b51b1a",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

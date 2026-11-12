@@ -1,11 +1,13 @@
 //! The one place every provider exchange has its credentials redacted from what comes back.
 //!
-//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). It remembers the credentials the request
-//! carries ([`carried::of_request`], [`carried::of_upgrade`]) in the process-wide registry, with the tokens a token response
-//! grants, and redacts every credential the process ever attached, however the text encodes it ([`carried::remembered`]: one
-//! matcher per registry version), from everything that leaves the transport on any exchange's behalf (an error that
-//! repeats the old credential of a refreshed token, or the key of an earlier request, is as redacted as one that repeats
-//! the current one):
+//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). Before the request goes out it registers the
+//! credentials the request carries ([`carried::attach_request`], [`carried::attach_upgrade`]: a few index entries per form,
+//! no rebuild) in the process-wide registry, which also holds what each provider's own sign-in and refresh keep, and
+//! redacts every credential the registry holds, however the text encodes it, from everything that leaves the transport on
+//! any exchange's behalf (an error that repeats the old credential of a refreshed token, or the key of an earlier request,
+//! is as redacted as one that repeats the current one). Each text, each chunk of a stream included, is read against the
+//! registry as it is then ([`carried::remembered`]): a response that began before another request attached a credential is
+//! searched for it from its next chunk on, the part of its text still held included:
 //!
 //! - the response's headers, whatever its status (a redirect's `Location`, an echo header);
 //! - the body of a refusal, of a redirect and of an event stream, as it streams ([`carried::Stream`]), after the body was
@@ -17,8 +19,8 @@
 //! Every error, refusal, redirect, log line, trace and stage a provider builds from a response is built from these, so none
 //! of them holds a credential the process attached. Two bodies pass whole, by rule: a token grant (a successful answer to
 //! a token request, which has a `grant_type`, or to an exchange declared a grant: it names the credentials it issues, often
-//! the very refresh token the request carried, and redacting it would break the sign-in; the credentials it names are
-//! remembered as it passes), and a body of length-framed binary messages (Connect, gRPC, protobuf) cannot lose bytes
+//! the very refresh token the request carried, and redacting it would break the sign-in; the provider that reads it
+//! registers what it keeps), and a body of length-framed binary messages (Connect, gRPC, protobuf) cannot lose bytes
 //! without breaking its frames; the decoders of those frames scrub the error text they read with the registry too
 //! (`scrub_oauth_secrets` and Devin's `redact`). Every other successful body, a JSON document included, is redacted as it
 //! streams: its text reaches the model, the transcript and the logs. No provider reaches the network
@@ -103,70 +105,24 @@ fn framed_binary(headers: &[(String, String)]) -> bool {
     })
 }
 
-/// A token grant on its way to its caller: whole, and the credentials it names are remembered once it ended.
-struct GrantBody {
-    inner: Box<dyn BodyStream>,
-    seen: Vec<u8>,
-    over: bool,
-    noted: bool,
-}
-
-#[async_trait]
-impl BodyStream for GrantBody {
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        let item = self.inner.next().await;
-        match &item {
-            Some(Ok(chunk)) if !self.over => {
-                if self.seen.len() + chunk.len() > carried::MAX_GRANT_BODY {
-                    self.over = true;
-                    self.seen = Vec::new();
-                } else {
-                    self.seen.extend_from_slice(chunk);
-                }
-            }
-            Some(Ok(_)) => {}
-            _ if !self.noted => {
-                self.noted = true;
-                carried::remember_grant(&self.seen);
-            }
-            _ => {}
-        }
-        item
-    }
-
-    fn hold_connection(&mut self) {
-        self.inner.hold_connection();
-    }
-}
-
 fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>, grant: bool) -> HttpResponse {
-    if !matcher.is_empty() {
-        matcher.redact_headers(&mut response.headers);
-    }
+    matcher.redact_headers(&mut response.headers);
     // A token grant carries the credentials it issues, often the refresh token the request carried: it is the one
     // successful body that arrives whole. Every other body, a successful document or stream and a refusal alike, reaches
-    // the model, the transcript or a log, and is redacted as it streams (a framed binary body by its decoder).
-    if grant && response.is_success() {
-        response.body = Box::new(GrantBody { inner: response.body, seen: Vec::new(), over: false, noted: false });
-        return response;
-    }
-    if matcher.is_empty() || framed_binary(&response.headers) {
+    // the model, the transcript or a log, and is redacted as it streams (a framed binary body by its decoder), against the
+    // registry as it is at each chunk: even one that holds nothing yet.
+    if (grant && response.is_success()) || framed_binary(&response.headers) {
         return response;
     }
     response.body = Box::new(RedactedBody { inner: response.body, stream: carried::Stream::new(matcher.clone()), ended: false, fault: None });
     response
 }
 
-/// Remembers the credentials a request carries and takes the matcher of every one the process ever attached.
-fn matcher_of(credentials: &[String]) -> Arc<Matcher> {
-    carried::remember(credentials);
-    carried::remembered()
-}
-
 #[async_trait]
 impl<T: HttpSend> HttpSend for Guarded<T> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-        let matcher = matcher_of(&carried::of_request(&request));
+        carried::attach_request(&request);
+        let matcher = carried::remembered();
         let grant = exchange.grant || carried::is_token_request(&request.body);
         match self.0.send(request, exchange).await {
             Ok(response) => Ok(clean_response(response, &matcher, grant)),
@@ -178,7 +134,8 @@ impl<T: HttpSend> HttpSend for Guarded<T> {
 #[async_trait]
 impl<T: BidiOpen> BidiOpen for Guarded<T> {
     async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
-        let matcher = matcher_of(&carried::of_request(&request));
+        carried::attach_request(&request);
+        let matcher = carried::remembered();
         match self.0.open(request, first, exchange).await {
             Ok((response, sink)) => Ok((clean_response(response, &matcher, false), sink)),
             Err(error) => Err(matcher.redact_error(error)),
@@ -250,7 +207,8 @@ impl<T: WsDial> WsDial for Guarded<T> {
     async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let headers: Vec<(String, String)> =
             request.headers().iter().filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))).collect();
-        let matcher = matcher_of(&carried::of_upgrade(&request.uri().to_string(), &headers));
+        carried::attach_upgrade(&request.uri().to_string(), &headers);
+        let matcher = carried::remembered();
         match self.0.dial(request).await {
             Ok((socket, mut response)) => {
                 clean_upgrade(&mut response, &matcher);
@@ -479,21 +437,23 @@ mod tests {
         assert_eq!(error.message, "error sending request for url (https://example.test/v3?key=[REDACTED])");
     }
 
-    /// Only a token grant arrives whole: the tokens it names are remembered, and any other successful body (a JSON
-    /// document its caller parses and hands on) that repeats a credential the process attached is redacted.
+    /// Only a token grant arrives whole, and what the provider reading it keeps is a credential from then on: any other
+    /// successful body (a JSON document its caller parses and hands on) that repeats a kept token, or a credential an earlier
+    /// request carried, is redacted.
     #[tokio::test]
-    async fn only_a_token_grant_arrives_whole_and_what_it_grants_is_remembered() {
+    async fn only_a_token_grant_arrives_whole_and_what_is_kept_of_it_is_a_credential() {
         let grant: &'static [u8] = br#"{"access_token":"granted-access-token-4e7f21","refresh_token":"granted-refresh-token-8a90c3","id_token":"granted-id-token-55b2d0"}"#;
         let link = Guarded(Echo { chunks: vec![grant], location: "", fail_with: None, content_type: "application/json", status: 200 });
         let refresh = WireRequest { body: b"grant_type=refresh_token&refresh_token=granted-refresh-token-8a90c3".to_vec(), ..request("https://example.test/token", &[]) };
         assert_eq!(body_of(link.send(refresh, TOKEN_EXCHANGE).await.expect("answered")).await.as_bytes(), grant);
+        carried::keep("an account of the grant test", &["granted-access-token-4e7f21", "granted-id-token-55b2d0"]);
         // Cursor's exchange has no `grant_type`: the exchange is declared one.
         let exchange = Guarded(Echo { chunks: vec![br#"{"accessToken":"cursor-granted-access-6c1e","refreshToken":"cursor-granted-refresh-2f70"}"#], location: "", fail_with: None, content_type: "application/json", status: 200 });
         let body = body_of(exchange.send(request("https://example.test/auth/exchange", &[("authorization", "Bearer cursor-granted-refresh-2f70")]), crate::transport::deadlines::CURSOR_EXCHANGE).await.expect("answered")).await;
         assert!(body.contains("cursor-granted-refresh-2f70") && body.contains("cursor-granted-access-6c1e"), "{body}");
-        // Later, an answer of no token request that repeats a granted token, or the one an earlier request carried.
+        // Later, an answer of no token request that repeats a kept token, or the one an earlier request carried.
         let document = Guarded(Echo {
-            chunks: vec![br#"{"note":"granted-access-token-4e7f21 and cursor-granted-access-6c1e and granted-id-token-55b2d0"}"#],
+            chunks: vec![br#"{"note":"granted-access-token-4e7f21 and cursor-granted-refresh-2f70 and granted-id-token-55b2d0"}"#],
             location: "",
             fail_with: None,
             content_type: "application/json",
@@ -501,6 +461,75 @@ mod tests {
         });
         let answered = document.send(request("https://example.test/v1/models", &[]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(answered).await, r#"{"note":"[REDACTED] and [REDACTED] and [REDACTED]"}"#);
+    }
+
+    /// A static key attached once stays a credential however many tokens other accounts refresh after it (review 1124e
+    /// P1: the registry dropped the oldest of 512 whatever it was).
+    #[tokio::test]
+    async fn a_static_key_outlives_any_number_of_refreshes_of_other_accounts() {
+        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        body_of(quiet.send(request("https://static.example.test/v1", &[("x-api-key", "static-key-1123v")]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        for i in 0..600 {
+            let bearer = format!("Bearer refreshed-token-of-another-account-{i:04}");
+            body_of(quiet.send(request("https://other.example.test/v1", &[("authorization", &bearer)]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        }
+        let echo = Guarded(Echo { chunks: vec![b"previous key static-key-1123v"], location: "", fail_with: None, content_type: "text/plain", status: 400 });
+        let response = echo.send(request("https://static.example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(response).await, "previous key [REDACTED]");
+    }
+
+    /// Request A streams; request B attaches its credential; A's response then echoes B's credential (review 1124e: a
+    /// stream kept the matcher it began with).
+    #[tokio::test]
+    async fn a_stream_is_searched_for_a_credential_attached_after_it_began() {
+        let a = Guarded(Echo {
+            chunks: vec![b"data: first event\n\n", b"data: the other key midstream-key-of-b-41d7 leaked\n\n"],
+            location: "",
+            fail_with: None,
+            content_type: "text/event-stream",
+            status: 200,
+        });
+        let mut response = a.send(request("https://a.example.test/v1", &[("authorization", "Bearer stream-a-own-key-9e02")]), TOKEN_EXCHANGE).await.expect("answered");
+        let first = response.body.next().await.expect("a first chunk").expect("no fault");
+        assert_eq!(first.as_ref(), b"data: first event\n\n");
+        let b = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        body_of(b.send(request("https://b.example.test/v1", &[("authorization", "Bearer midstream-key-of-b-41d7")]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        let mut rest = Vec::new();
+        while let Some(chunk) = response.body.next().await {
+            rest.extend_from_slice(&chunk.expect("no fault"));
+        }
+        assert_eq!(String::from_utf8(rest).unwrap(), "data: the other key [REDACTED] leaked\n\n");
+    }
+
+    /// What `send` builds on the executor thread before the request goes out: the index entries of the forms of the one new
+    /// credential it carries (a 1.2 KiB JWT: 28), however many the registry holds (here 2,000 JWT-sized ones more), within
+    /// a stated bound of 50 ms on a debug build; the old version rebuilt the whole automaton there (3.4 s at 512 values).
+    #[tokio::test]
+    async fn a_send_builds_only_its_own_credentials_entries_on_the_executor_thread() {
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut part = |len: usize| -> String {
+            const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    char::from(URL[(state % 64) as usize])
+                })
+                .collect()
+        };
+        for _ in 0..2000 {
+            carried::keep("an account refreshed 2,000 times (the executor test)", &[&format!("eyJ{}.{}.{}", part(36), part(800), part(340))]);
+        }
+        let bearer = format!("Bearer eyJ{}.{}.{}", part(36), part(800), part(340));
+        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        let before = carried::touched();
+        let started = std::time::Instant::now();
+        let response = quiet.send(request("https://executor.example.test/v1", &[("authorization", &bearer)]), TOKEN_EXCHANGE).await.expect("answered");
+        let spent = started.elapsed();
+        assert_eq!(carried::touched() - before, 28, "the forms of the one credential the request carries");
+        assert!(spent < std::time::Duration::from_millis(50), "{spent:?}");
+        assert_eq!(body_of(response).await, "ok");
     }
 
     /// A compressed refusal is decoded below the guard and redacted after: the real link, over TLS, with a gzip body.

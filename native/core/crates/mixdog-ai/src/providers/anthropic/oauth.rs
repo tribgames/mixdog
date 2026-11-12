@@ -141,7 +141,10 @@ fn file_error(cause: &dyn std::fmt::Display) -> ProviderError {
 /// an error, never a logout.
 async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, ProviderError> {
     match file.load::<Document>().await {
-        Probe::Present(document) => Ok(Some(document.oauth)),
+        Probe::Present(document) => {
+            file.keep(&[&document.oauth.access_token, &document.oauth.refresh_token]);
+            Ok(Some(document.oauth))
+        }
         Probe::Absent => Ok(None),
         Probe::Unreadable => Err(file_error(&"unreadable")),
     }
@@ -150,6 +153,7 @@ async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, Provi
 /// Writes `next` only if the stored pair still equals `from`; returns whether
 /// it was written. Another process may have refreshed meanwhile.
 async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) -> Result<bool, ProviderError> {
+    file.keep(&[&next.access_token, &next.refresh_token]);
     let expected = from.clone();
     let mut update = Map::new();
     update.insert(
@@ -706,6 +710,7 @@ impl PkceProvider for AnthropicLogin {
         })?;
         let base = existing.unwrap_or_else(blank_credential);
         let credential = self.token_exchange(request, &base, &[code, verifier, &state]).await?;
+        self.file.keep(&[&credential.access_token, &credential.refresh_token]);
         self.file
             .save(&Document { oauth: credential })
             .await

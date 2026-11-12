@@ -353,6 +353,7 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
 /// `_postRefresh`: one exchange, its tokens saved over the whole file (`saveTokens`, under the file's write lock).
 async fn post_refresh(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
     let fresh = refresh(http, pace, tokens).await?;
+    file.keep(&[&fresh.access_token, &fresh.refresh_token]);
     file.replace(saved_document(&fresh)).await.map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
     Ok(fresh)
 }
@@ -384,7 +385,10 @@ fn is_invalid_grant(error: &ProviderError) -> bool {
 /// The stored generation `_loadOwnTokens` reads: one with both tokens, else none.
 async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
     match file.load::<StoredTokens>().await {
-        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => Some(tokens),
+        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => {
+            file.keep(&[&tokens.access_token, &tokens.refresh_token]);
+            Some(tokens)
+        }
         _ => None,
     }
 }
@@ -555,6 +559,7 @@ impl GrokCredential {
             && !tokens.access_token.is_empty()
             && !tokens.refresh_token.is_empty()
         {
+            self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
             return Ok(tokens.clone());
         }
         if let Some(held) = self.current.load_full() {
@@ -822,6 +827,7 @@ impl PkceProvider for GrokLogin {
             principal_id: text("principal_id").unwrap_or_default().to_owned(),
             email: email.clone(),
         };
+        self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
         self.file
             .save(&tokens)
             .await

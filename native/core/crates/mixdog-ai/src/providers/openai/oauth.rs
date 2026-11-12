@@ -114,7 +114,10 @@ impl OpenAiOAuth {
 impl Inner {
     async fn stored(&self) -> Result<Stored, ProviderError> {
         match self.file.load::<Stored>().await {
-            Probe::Present(stored) => Ok(stored),
+            Probe::Present(stored) => {
+                self.file.keep(&[&stored.access_token, stored.refresh_token.as_deref().unwrap_or_default()]);
+                Ok(stored)
+            }
             Probe::Absent => Err(login_required("not signed in to ChatGPT")),
             Probe::Unreadable => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -176,6 +179,8 @@ impl Inner {
             return self.failed(&stored, status, &body, unanswered.as_ref());
         };
         let (json, access_token) = tokens;
+        let granted = |key: &str| json.get(key).and_then(Value::as_str).unwrap_or_default();
+        self.file.keep(&[&access_token, granted("refresh_token"), &refresh_token, granted("id_token")]);
         let expires_at = json
             .get("expires_in")
             .and_then(Value::as_u64)

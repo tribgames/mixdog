@@ -147,6 +147,7 @@ impl PkceProvider for DevinLogin {
         let Some(token) = token else {
             return Err(public(coded("TOKEN_EXCHANGE_FAILED", "Devin token exchange returned no token")));
         };
+        self.file.keep(&[&token]);
         let record = token_record(&token, (self.clock)());
         let label = record.get("identity").and_then(|i| i.get("email")).and_then(Value::as_str).map(str::to_owned);
         self.file.save(&record).await.map_err(|_| http::failed("storage", "the tokens could not be stored"))?;

@@ -152,6 +152,10 @@ fn a_credential_split_across_chunks_is_redacted() {
     let texts = [
         "data: the key long%252Fkey%252Bvalue was refused\n\n".to_owned(),
         "data: the key long&#47;key&#x2B;value was refused\n\n".to_owned(),
+        // An escape inside an escape that a cut leaves unfinished: `&#92;u0&#x3` is a `\u0` the next chunk finishes.
+        "data: the key long&#92;u0&#x30;2fkey+value was refused\n\n".to_owned(),
+        // A wrapped base64 line whose break is percent-encoded: a cut inside `%0d%0a` leaves the line open.
+        format!("data: the key {}%0d%0a{} was refused\n\n", &base64[..16], &base64[16..]),
         format!("data: the key {}\n{} was refused\n\n", &base64[..16], &base64[16..]),
         "data: Bearer abc1234\n\n".to_owned(),
     ];
@@ -447,74 +451,142 @@ fn a_megabyte_stream_with_five_credentials() {
 
 // ---- the registry ------------------------------------------------------------------------------------------------------
 
-/// What the transport ever attached stays a credential: over its cap the registry drops the oldest, a value seen again is
-/// the newest, and the matcher is built once per version (handed on as it is until the set changes).
-#[test]
-fn the_registry_drops_the_oldest_over_its_cap_and_builds_once_per_version() {
-    let values: Vec<String> = (0..6).map(|i| format!("registry-credential-{i}-aa")).collect();
-    let mut registry = Registry::new(4);
-    registry.remember(&values[..4]);
-    let first = registry.matcher();
-    assert!(Arc::ptr_eq(&first, &registry.matcher()), "one build per version");
-    registry.remember(&values[..2]);
-    assert!(Arc::ptr_eq(&first, &registry.matcher()), "a value seen again changes no set");
-    // [2, 3, 0, 1] and two more: the two oldest go.
-    registry.remember(&values[4..]);
-    let second = registry.matcher();
-    assert!(!Arc::ptr_eq(&first, &second));
-    for (i, value) in values.iter().enumerate() {
-        let said = second.redact_str(&format!("echo {value} end"));
-        assert_eq!(said == "echo [REDACTED] end", ![2, 3].contains(&i), "{value}: {said}");
-    }
+fn shared(cap: usize) -> Arc<std::sync::RwLock<Registry>> {
+    Arc::new(std::sync::RwLock::new(Registry::new(cap)))
 }
 
-/// A credential the registry holds is found in the text of any later exchange, in any encoding.
+/// What a slot holds now is pinned: however many values are retired after them, a static key and the current token of
+/// every account stay. Over the cap the oldest retired value goes first, and a value a slot holds again is pinned again.
+#[test]
+fn the_registry_drops_only_the_oldest_retired_values_over_its_cap() {
+    let mut registry = Registry::new(4);
+    registry.keep("https://static.test x-api-key", &["static-key-0001"]);
+    registry.keep("account a", &["access-a-0", "refresh-a-0"]);
+    for i in 1..=3 {
+        registry.keep("account b", &[&format!("access-b-{i}")]);
+    }
+    // The refresh keeps the refresh token: only the access token retires.
+    registry.keep("account a", &["access-a-1", "refresh-a-0"]);
+    for i in 4..=6 {
+        registry.keep("account b", &[&format!("access-b-{i}")]);
+    }
+    // Retired in turn: b-1, b-2, a-0, b-3, b-4, b-5; the cap keeps the last four.
+    assert_eq!(registry.counts(), (4, 4));
+    for gone in ["access-b-1", "access-b-2"] {
+        assert!(!registry.holds(gone), "{gone}");
+    }
+    for kept in ["static-key-0001", "refresh-a-0", "access-a-1", "access-b-6", "access-a-0", "access-b-3", "access-b-4", "access-b-5"] {
+        assert!(registry.holds(kept), "{kept}");
+    }
+    registry.keep("account c", &["access-a-0"]);
+    assert_eq!(registry.counts(), (5, 3), "a retired value held again is pinned again");
+    let scrub = Matcher::of_registry(Arc::new(std::sync::RwLock::new(registry)));
+    assert_eq!(scrub.redact_str("key static-key-0001 and access-b-3, not access-b-1"), "key [REDACTED] and [REDACTED], not access-b-1");
+}
+
+/// A credential the registry holds is found in the text of any later exchange, in any encoding, the retired one of a
+/// refreshed token included.
 #[test]
 fn the_registry_finds_an_old_credential_in_any_encoding() {
-    let mut registry = Registry::new(REGISTRY_CAP);
-    registry.remember(&["old-credential-of-a-refreshed-token".to_owned(), "key/with+chars-77aa".to_owned()]);
-    let scrub = registry.matcher();
+    let registry = shared(RETIRED_CAP);
+    registry.write().unwrap().keep("account", &["old-credential-of-a-refreshed-token", "key/with+chars-77aa"]);
+    registry.write().unwrap().keep("account", &["the-new-credential-of-the-token"]);
+    let scrub = Matcher::of_registry(registry);
     assert_eq!(scrub.redact_str("previous value old-credential-of-a-refreshed-token"), "previous value [REDACTED]");
     assert_eq!(scrub.redact_str("key%2Fwith%2Bchars-77aa and key&#47;with&#43;chars-77aa"), "[REDACTED] and [REDACTED]");
     assert_eq!(scrub.redacted(b"nothing of the kind"), None);
 }
 
-/// The cost with the registry full: [`REGISTRY_CAP`] JWT-sized values (the most an access token takes), one build per
-/// registry version, then one pass over a 1 MiB stream in 16 KiB chunks. The figures are printed (`--nocapture`).
+/// A credential at least this long: one a random text of the generated test does not hold by chance.
+fn long_credential(rng: &mut Rng) -> String {
+    loop {
+        let drawn = credential(rng);
+        if drawn.len() >= 12 {
+            return drawn;
+        }
+    }
+}
+
+/// The registry changes under a stream: each round registers a random credential after its stream began (its first chunk
+/// ends before the credential's encoding does), the rest arriving in random chunks, and none of its encodings leaves. The
+/// registry holds 2,000 more values besides, far over the old cap of 512, the oldest retired first; a random one of them
+/// (the oldest every tenth round) under random encodings is found as well.
 #[test]
-fn a_full_registry_costs_one_build_per_version() {
+fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    let registry = shared(RETIRED_CAP);
+    let others: Vec<String> = (0..2000).map(|_| long_credential(&mut rng)).collect();
+    for other in &others {
+        registry.write().unwrap().keep("one account refreshed 2,000 times", &[other]);
+    }
+    let scrub = Arc::new(Matcher::of_registry(registry.clone()));
+    for round in 0..1000 {
+        let secret = credential(&mut rng);
+        let (form, layers) = encoded(&mut rng, &secret);
+        let head = words(&mut rng);
+        let text = [head.as_bytes(), b" ", &form, b" ", words(&mut rng).as_bytes()].concat();
+        let mut stream = Stream::new(scrub.clone());
+        let mut at = rng.below(head.len() + 1);
+        let mut clean = stream.push(&text[..at]);
+        registry.write().unwrap().keep("the account of the round", &[&secret]);
+        while at < text.len() {
+            let len = 1 + rng.below(text.len() - at);
+            clean.extend(stream.push(&text[at..at + len]));
+            at += len;
+        }
+        clean.extend(stream.finish());
+        assert!(!holds(&clean, &secret), "round {round}: {secret:?} under {layers:?} left in {:?}", String::from_utf8_lossy(&clean));
+        let member = &others[if round % 10 == 0 { 0 } else { rng.below(others.len()) }];
+        let (form, layers) = encoded(&mut rng, member);
+        let text = [words(&mut rng).as_bytes(), b" ", &form, b" ", words(&mut rng).as_bytes()].concat();
+        let clean = scrub.redact(&text, Context::default(), true).out;
+        assert!(!holds(&clean, member), "round {round}: {member:?} under {layers:?} left in {:?}", String::from_utf8_lossy(&clean));
+    }
+}
+
+/// The cost of knowing many credentials: 512 and 10,000 JWT-sized values (1.2 KiB, the most an access token takes), each
+/// registered as the refresh of one account that retires the one before; one more value (what a send does before it is
+/// dispatched) touches the entries of its own 28 forms whatever the registry holds; the index's size; one pass of a 1 MiB
+/// stream in 16 KiB chunks. The figures are printed (`--nocapture`); the stream, holding none of them, arrives unchanged,
+/// and the first value registered is still found.
+#[test]
+fn registries_of_512_and_10000_jwt_sized_values() {
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut part = |len: usize| -> String { (0..len).map(|_| char::from(URL[rng.below(URL.len())])).collect() };
-    let values: Vec<String> = (0..REGISTRY_CAP).map(|_| format!("eyJ{}.{}.{}", part(36), part(800), part(340))).collect();
-    let mut registry = Registry::new(REGISTRY_CAP);
-    registry.remember(&values);
-    let started = std::time::Instant::now();
-    let matcher = registry.matcher();
-    let built = started.elapsed();
-    assert!(Arc::ptr_eq(&matcher, &registry.matcher()));
-    // One more value: a new version, built again.
-    registry.remember(&["the-one-more-credential-1234567890".to_owned()]);
-    let started = std::time::Instant::now();
-    let rebuilt = registry.matcher();
-    let rebuild = started.elapsed();
-    assert!(!Arc::ptr_eq(&matcher, &rebuilt));
+    let values: Vec<String> = (0..10_000).map(|_| format!("eyJ{}.{}.{}", part(36), part(800), part(340))).collect();
     let event = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"the quick brown fox \\u00e9 jumps\"}}\n\n";
     let text: Vec<u8> = event.as_bytes().iter().copied().cycle().take(1 << 20).collect();
-    let started = std::time::Instant::now();
-    let mut stream = Stream::new(rebuilt.clone());
-    let mut out = Vec::with_capacity(text.len());
-    for chunk in text.chunks(16 * 1024) {
-        out.extend(stream.push(chunk));
+    for count in [512, 10_000] {
+        let registry = shared(RETIRED_CAP);
+        let started = std::time::Instant::now();
+        for value in &values[..count - 1] {
+            registry.write().unwrap().keep("an account", &[value]);
+        }
+        let filled = started.elapsed();
+        let before = touched();
+        let started = std::time::Instant::now();
+        registry.write().unwrap().keep("an account", &[&values[count - 1]]);
+        let one_more = started.elapsed();
+        let entries = touched() - before;
+        assert_eq!(entries, 28, "one JWT: itself and its three segments, each raw and as six base64 cores");
+        let footprint = registry.read().unwrap().footprint();
+        let scrub = Arc::new(Matcher::of_registry(registry.clone()));
+        let started = std::time::Instant::now();
+        let mut stream = Stream::new(scrub.clone());
+        let mut out = Vec::with_capacity(text.len());
+        for chunk in text.chunks(16 * 1024) {
+            out.extend(stream.push(chunk));
+        }
+        out.extend(stream.finish());
+        let scanned = started.elapsed();
+        assert!(out == text, "the stream holds no credential");
+        assert_eq!(scrub.redact_str(&format!("echo {} end", values[0])), "echo [REDACTED] end");
+        println!(
+            "{count} JWT-sized values: registered one by one in {filled:?} ({:?} each), one more {one_more:?} touching {entries} entries, index ~{} MiB ({} bytes a value), 1 MiB in 64 chunks {scanned:?}",
+            filled / (count as u32 - 1),
+            footprint >> 20,
+            footprint / count
+        );
     }
-    out.extend(stream.finish());
-    let scanned = started.elapsed();
-    assert!(out == text, "the stream holds no credential");
-    // A credential of the first values is still found.
-    assert_eq!(rebuilt.redact_str(&format!("echo {} end", values[7])), "echo [REDACTED] end");
-    let states = rebuilt.states();
-    println!(
-        "registry of {REGISTRY_CAP} JWT-sized values: {states} automaton states (~{} MiB at 25 bytes), build {built:?}, rebuild after one more value {rebuild:?}, 1 MiB in 64 chunks {scanned:?}",
-        (states * 25) >> 20
-    );
 }
