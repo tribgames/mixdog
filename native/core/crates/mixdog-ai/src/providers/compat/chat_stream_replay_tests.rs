@@ -5,9 +5,10 @@
 //! Node's `consumeCompatChatCompletionStream` returned and dispatched. Differences of representation, each declared:
 //! - Node returns the raw `finish_reason` as `stopReason`; the core types it (`tool_calls` is `ToolUse`, `length` is
 //!   `MaxTokens`, `content_filter` is `ContentFilter`, a plain `stop` stays the wire's own text).
-//! - Node's result `toolCalls` is the list the turn returns: the core emits it as `ReturnedCalls` only when a recovered
-//!   call is in it; the streamed calls are the `ToolCallDone` events, so for a list without recovered calls the two are
-//!   compared through the dispatched calls (a cut finish dispatches none, and keeps its list in the stop reason).
+//! - Node's result `toolCalls` is the list the turn returns: the core emits it as `ReturnedCalls` when a recovered call
+//!   is in it, else the list is the `ToolCallDone` events; the recorded list is compared whole with that, every case. A
+//!   turn cut by `length` / `content_filter` has its list discarded by `normalizeCompatChatResponse` (the recorded
+//!   `normalized` error), so the core returns none; the recorded raw tool-call objects are compared by id and name.
 //! - `normalized` (`normalizeCompatChatResponse` over a cut turn, a `ProviderIncompleteError`) is a step after the
 //!   collector that the core's decoder does not own: the cut turn is its `MaxTokens` / `ContentFilter` stop with no call
 //!   dispatched, which is what is compared.
@@ -34,6 +35,7 @@ use super::profile::CompatProfile;
 use super::profile::CredentialKind;
 use crate::providers::case_replay::cases;
 use crate::providers::case_replay::without_undefined;
+use crate::providers::leak_golden::returned_of;
 
 /// A call list with each minted recovered-call id reduced to its shape.
 fn minted_ids_by_shape(mut calls: Value) -> Value {
@@ -100,16 +102,25 @@ fn every_recorded_chunk_list_is_decoded_and_dispatched_as_node_does() {
         assert_eq!(stop, Some(typed_stop(result["stopReason"].as_str().unwrap())), "{id}: the stop reason");
         let content: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
         assert_eq!(content, result["content"], "{id}: the text");
-        if id == "prefix-repeating-fragment-verbatim" {
+        // Node's raw tool-call objects (a `parseToolCalls` that hands them on whole) are never dispatched or parsed.
+        let raw_calls = result["toolCalls"].as_array().unwrap().iter().any(|c| c.get("function").is_some());
+        if raw_calls {
             let joined: String = events.iter().filter_map(|e| if let StreamEvent::ToolCallArgsDelta { delta, .. } = e { Some(delta.as_str()) } else { None }).collect();
             assert_eq!(joined, node["arguments"], "{id}: the fragments joined verbatim");
-            continue;
+        } else {
+            assert_eq!(minted_ids_by_shape(Value::Array(dispatched)), minted_ids_by_shape(node["dispatched"].clone()), "{id}: the calls dispatched");
         }
-        assert_eq!(minted_ids_by_shape(Value::Array(dispatched)), minted_ids_by_shape(node["dispatched"].clone()), "{id}: the calls dispatched");
-        // The list the turn returns, when recovered calls are in it, is Node's `toolCalls`.
-        if let Some(StreamEvent::ReturnedCalls(list)) = events.iter().find(|e| matches!(e, StreamEvent::ReturnedCalls(_))) {
-            let list: Vec<Value> = list.iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
-            assert_eq!(minted_ids_by_shape(Value::Array(list)), minted_ids_by_shape(result["toolCalls"].clone()), "{id}: the returned list");
+        // The list the turn returns: `ReturnedCalls` when the core names one, else the calls it dispatched. A turn cut by
+        // `length` / `content_filter` is rejected by Node's `normalizeCompatChatResponse` before its list is used.
+        let returned: Vec<Value> = returned_of(&events).iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
+        let wanted = if node.get("normalized").is_some() { json!([]) } else { result["toolCalls"].clone() };
+        if raw_calls {
+            let ids = |list: &[Value]| list.iter().map(|c| c["id"].clone()).collect::<Vec<_>>();
+            let names = |list: &[Value]| list.iter().map(|c| c.get("function").map_or(c["name"].clone(), |f| f["name"].clone())).collect::<Vec<_>>();
+            let wanted = wanted.as_array().unwrap();
+            assert_eq!((ids(&returned), names(&returned)), (ids(wanted), names(wanted)), "{id}: the returned list");
+        } else {
+            assert_eq!(minted_ids_by_shape(Value::Array(returned)), minted_ids_by_shape(wanted), "{id}: the returned list");
         }
     }
 }
