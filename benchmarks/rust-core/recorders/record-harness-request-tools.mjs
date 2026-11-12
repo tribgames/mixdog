@@ -11,7 +11,7 @@
 // harness's `out/compare` sections of that run (`recompare.mjs read`). The tree's identity is checked and written into the file,
 // and the tool-resolution manifest names it.
 //
-//   node benchmarks/rust-core/recorders/record-harness-request-tools.mjs --tree <the harness's node-tree> --patch <node-patches file>
+//   node benchmarks/rust-core/recorders/record-harness-request-tools.mjs --tree <the harness's node-tree> --patch <node-patches file>[,<file>…]
 //        --request <out/compare/provider-chat-requests.node.json> --header <out/compare/stored-header.node.json>
 //
 // Output: native/core/fixtures/tool-resolution/harness-request.json. No position is decided here.
@@ -25,8 +25,8 @@ const arg = (flag) => {
   return process.argv[at + 1];
 };
 const args = parseArgs();
-const { patch, commit, baseCommit } = nodeTreeIdentity(args, resolveTree(args), 'b6f10295a2f698afc85332467192de28500bd146');
-if (!patch) throw new Error('record from the export with --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch');
+const { patches, commit, baseCommit } = nodeTreeIdentity(args, resolveTree(args), 'b6f10295a2f698afc85332467192de28500bd146');
+if (!patches?.length) throw new Error('record from the export with --patch <node-patches file>[,<file>…] (the spawn-model-settings fix and the shell-cover-tools change)');
 const requests = JSON.parse(readFileSync(arg('--request'), 'utf8'));
 const header = JSON.parse(readFileSync(arg('--header'), 'utf8'));
 const body = requests[0].body;
@@ -35,7 +35,7 @@ const sent = body.tools.map((tool) => ({ name: tool.function.name, description: 
 if (JSON.stringify(sent) !== JSON.stringify(tools.map(({ name, description }) => ({ name, description })))) throw new Error('the request does not carry the stored header tools');
 writeJson(join(FIXTURES_ROOT, 'tool-resolution', 'harness-request.json'), {
   recorder: 'benchmarks/rust-core/recorders/record-harness-request-tools.mjs',
-  node: { commit, baseCommit, patch: { file: patch.file, sha256: patch.sha256, paths: patch.paths } },
+  node: { commit, baseCommit, patches: patches.map((patch) => ({ file: patch.file, sha256: patch.sha256, paths: patch.paths })) },
   provider: header.provider,
   model: body.model,
   toolSpec: header.toolSpec,
