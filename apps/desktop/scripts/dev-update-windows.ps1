@@ -551,19 +551,20 @@ function Build-LocalCore {
     if ($CoreBinary) {
         # Built ahead (any cargo target dir); only valid while the sources are the ones it was stamped with.
         Write-Step "using the prebuilt core $CoreBinary"
-        & node $fastDirectHelper --action=assert-core-binary "--binary=$CoreBinary" "--source-root=$coreBuildRoot"
+        # Out-Host: this function's output is its return value (the binary's path).
+        & node $fastDirectHelper --action=assert-core-binary "--binary=$CoreBinary" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "The prebuilt core does not match the sources." }
         return $CoreBinary
     }
     Write-Step 'building mixdogd (cargo build --release -p mixdog-cli)'
     if ($FastDirect -and $fastPlan) {
-        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot"
+        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
     }
     & cargo build --release --locked -p mixdog-cli --manifest-path (Join-Path $coreBuildRoot 'native\core\Cargo.toml')
     if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
     if ($FastDirect -and $fastPlan) {
-        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot"
+        & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed while building.' }
     }
     $built = Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
