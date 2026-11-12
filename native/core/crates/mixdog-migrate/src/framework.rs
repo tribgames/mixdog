@@ -151,6 +151,11 @@ pub trait ItemDriver: Send + Sync {
     fn withdraw(&self, _cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<()> {
         Ok(())
     }
+    /// The header keys the conversion of session `session` takes from other kind groups ([`SessionMetaSource`]: the name a
+    /// person gave it in the desktop, its archive mark), for a list row shown before the session is converted.
+    fn listed_meta(&self, _cx: &ItemContext<'_>, _session: &str) -> Result<Map<String, Value>> {
+        Ok(Map::new())
+    }
     /// Whether disposal of a verified item keeps its sources (they are the target).
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
         item.contract == Contract::Preserve || matches!(item.target, Some(Target::Ledger))

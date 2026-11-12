@@ -35,7 +35,7 @@ enum Codec {
 }
 
 /// `[row key, column, codec]`: every field of a listed row (the storage stamp is the cache's own).
-const FIELDS: [(&str, &str, Codec); 36] = [
+const FIELDS: [(&str, &str, Codec); 37] = [
     ("id", "id", Codec::Loose),
     ("updatedAt", "updated_at", Codec::Loose),
     ("lastUsedAt", "last_used_at", Codec::Loose),
@@ -65,6 +65,7 @@ const FIELDS: [(&str, &str, Codec); 36] = [
     ("preview", "preview", Codec::Loose),
     ("generation", "generation", Codec::Loose),
     ("detachedReason", "detached_reason", Codec::Loose),
+    ("importKey", "import_key", Codec::Loose),
     ("inheritedFromSessionId", "inherited_from_session_id", Codec::Loose),
     ("realTurnCount", "real_turn_count", Codec::Loose),
     ("lastMessagePreview", "last_message_preview", Codec::Loose),

@@ -237,6 +237,24 @@ impl Back {
         self.waiting.clone()
     }
 
+    /// For each of `sessions`, the header keys its conversion takes from other kind groups ([`ItemDriver::listed_meta`]);
+    /// none for a session whose keys cannot be read now (its conversion says why).
+    pub fn listed_meta(&self, sessions: &[String]) -> Vec<serde_json::Map<String, serde_json::Value>> {
+        let shared = self.shared();
+        let states = self.migrator.states(&shared);
+        let cx = shared.cx(&states);
+        sessions
+            .iter()
+            .map(|session| {
+                let mut all = serde_json::Map::new();
+                for driver in &self.migrator.drivers {
+                    all.extend(driver.listed_meta(&cx, session).unwrap_or_default());
+                }
+                all
+            })
+            .collect()
+    }
+
     /// The session items the manifest plans: how many there are to take in.
     pub fn sessions(&self) -> usize {
         self.manifest.items.iter().filter(|item| item.key.as_str().starts_with("session/")).count()
@@ -249,9 +267,15 @@ impl Back {
             Pass::First => Pass::First,
             Pass::Late(counts) => Pass::Late(*counts),
         };
-        let outcome = migrator.finish(&self.shared(), pass);
+        migrator.finish(&self.shared(), pass)
+    }
+}
+
+/// However a `Back` ends (run to the marker, blocked, or never run because its thread could not start), nothing more is
+/// settled by it: everyone waiting on a session is told, so no open waits on a conversion that will not come.
+impl Drop for Back {
+    fn drop(&mut self) {
         self.waiting.ended();
-        outcome
     }
 }
 
@@ -808,7 +832,14 @@ impl Migrator {
             match progress.state {
                 ItemState::Disposed => continue,
                 ItemState::Verified => {
-                    if !driver.keeps_sources(item) {
+                    if driver.keeps_sources(item) {
+                        // The sources are the target.
+                    } else if self.core_serves() {
+                        for source in &item.sources {
+                            shared.fault(&format!("delete:{k}:before"))?;
+                            durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
+                        }
+                    } else {
                         for path in self.rehash(&cx, item)? {
                             shared.fault(&format!("delete:{k}:before"))?;
                             durable::remove_file(&path)?;
@@ -871,11 +902,13 @@ impl Migrator {
             if !durable::exists(&path)? {
                 continue;
             }
+            if self.core_serves() {
+                shared.fault(&format!("delete-shared:{}:before", file.file.path))?;
+                durable::remove_if_planned(&path, file.file.size, &file.file.sha256)?;
+                continue;
+            }
             let (size, sha) = durable::hash_file(&path)?;
             if size != file.file.size || sha != file.file.sha256 {
-                if self.core_serves() {
-                    continue;
-                }
                 return Err(Blocked::SourceChanged { path });
             }
             shared.fault(&format!("delete-shared:{}:before", file.file.path))?;

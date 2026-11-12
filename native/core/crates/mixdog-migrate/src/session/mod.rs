@@ -417,6 +417,14 @@ impl ItemDriver for SessionDriver {
         })
     }
 
+    fn listed_meta(&self, cx: &ItemContext<'_>, session: &str) -> Result<serde_json::Map<String, serde_json::Value>> {
+        let mut all = serde_json::Map::new();
+        for meta in &self.metas {
+            all.extend(meta.session_meta(cx, session)?.unwrap_or_default());
+        }
+        Ok(all)
+    }
+
     fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, _staged: &StagedEntry) -> Result<()> {
         let target = target_dir(cx, session_id(item));
         if durable::exists(&target)? {

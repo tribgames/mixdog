@@ -317,6 +317,34 @@ pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
+/// Removes `path` if it still holds the planned bytes (`size`, `sha256`), while another writer may publish a file under
+/// that name at any moment (a core that serves behind the migration keeps some caches under the names 1.4.5 used). A check
+/// followed by an unlink of the name would delete what that writer published in between, so the file is first taken
+/// aside under a name nothing else writes, in one rename, and judged there: the planned file is deleted; any other is that
+/// writer's, and is given back unless a newer one already stands in its place. An aside a run left when it ended in
+/// between is judged first.
+pub fn remove_if_planned(path: &Path, size: u64, sha256: &str) -> Result<()> {
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(".mixdog-migrated");
+    let aside = Path::new(&aside);
+    if !exists(aside)? {
+        match fs::rename(path, aside) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(Blocked::io("rename", path, e)),
+        }
+    }
+    let (found_size, found_sha256) = hash_file(aside)?;
+    if found_size != size || found_sha256 != sha256 {
+        match fs::hard_link(aside, path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(Blocked::io("link", path, e)),
+        }
+    }
+    remove_file(aside).map(drop)
+}
+
 /// When a file was last written; `None` when it is gone or the platform does not say.
 pub fn modified(path: &Path) -> Option<std::time::SystemTime> {
     fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
