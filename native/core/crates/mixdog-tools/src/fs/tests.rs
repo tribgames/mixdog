@@ -51,7 +51,7 @@ async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContex
     context_seeded(root, files, seeds).await
 }
 
-async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
+pub(super) async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     for (rel, bytes) in seeds {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
@@ -88,7 +88,7 @@ async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<
 }
 
 /// The recorder's legacy argument names, mapped to the published schemas.
-fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
+pub(super) fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     let obj = input.as_object_mut().unwrap();
     if matches!(tool, "read" | "edit") {
         if let Some(p) = obj.shift_remove("path") {
@@ -105,7 +105,7 @@ fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     input
 }
 
-fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
+pub(super) fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
     match outcome {
         Ok(out) => match &out.parts[0] {
             ToolPart::Text(t) => (false, t.clone()),
@@ -2920,4 +2920,27 @@ async fn list_goes_deeper_with_depth_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deep_list_past_fifty_thousand_rows_answers_as_node_does() {
     replay_fs_search("list-depth-past-cap").await;
+}
+
+/// Node's `read` with `tail: N`, on its recorded cases (`record-read-tail.mjs`): every accepted and refused argument shape, each
+/// answer whole and whether the caller takes it for a failed call.
+#[tokio::test]
+async fn read_with_tail_matches_the_recorded_node_cases() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/read-tail/cases.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (root, ctx) = recorded_workspace(&doc, dir.path(), true).await;
+    let cwd = root.as_path().to_string_lossy().replace('\\', "/");
+    let tool = ReadTool::new(None, None);
+    let mut failures = Vec::new();
+    let cases = doc["cases"].as_array().unwrap();
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let outcome = tool.call(&ctx, case["input"].clone()).await;
+        let got = (outcome.is_err(), summary(&outcome, &cwd));
+        let want = (case["result"]["isError"].as_bool().unwrap(), vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())]);
+        if got != want {
+            failures.push(format!("{name}\n  want {want:?}\n  got  {got:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }

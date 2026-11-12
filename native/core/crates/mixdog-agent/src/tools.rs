@@ -255,9 +255,21 @@ pub struct ToolEnv {
 // Signatures and the repeat-failure guards
 // ---------------------------------------------------------------------------
 
-/// Key-sorted JSON, independent of the map type the build selects.
+/// `_intraTurnSig`: the arguments as JSON with their top-level keys sorted; nested objects keep the order they came in.
 pub(crate) fn call_signature(name: &str, args: &JsonValue) -> String {
-    format!("{name}:{}", mixdog_js::json_stringify_sorted(args))
+    let body = match args {
+        JsonValue::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            let members: Vec<String> = keys
+                .into_iter()
+                .map(|key| format!("{}:{}", mixdog_js::json_stringify(&JsonValue::String(key.clone())), mixdog_js::json_stringify(&map[key])))
+                .collect();
+            format!("{{{}}}", members.join(","))
+        }
+        other => mixdog_js::json_stringify(other),
+    };
+    format!("{name}:{body}")
 }
 
 const FAILURE_PATH_KEYS: [&str; 9] = [
@@ -302,7 +314,12 @@ fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
     if value.is_empty() || has_scheme {
         return value.to_owned();
     }
-    let mut out = resolve_lexically(value, cwd);
+    // An absolute value (on Windows also one rooted without a drive, `/x`) is normalized where it stands, not placed under `cwd`.
+    let mut out = if mixdog_js::nodepath::is_absolute_host(value) {
+        mixdog_js::nodepath::normalize_host(value)
+    } else {
+        mixdog_js::nodepath::resolve_host(&[&cwd.to_string_lossy(), value])
+    };
     if cfg!(windows) {
         out = out.to_lowercase();
     }
@@ -1047,7 +1064,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         approvals: Arc::clone(&env.tool_env.approvals),
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
-        options: CallOptions { notify: env.tool_env.notify.clone(), edit_occurrence },
+        options: CallOptions {
+            notify: env.tool_env.notify.clone(),
+            edit_occurrence,
+            // Only `shell` asks which tools replace what it would run.
+            offered_tools: (spec.name == "shell").then(|| {
+                Arc::new(mixdog_tools::exec::COVERING_TOOLS.iter().filter(|name| env.tools.resolve(name).is_some()).map(|name| (*name).to_owned()).collect())
+            }),
+        },
         review: env.tool_env.review.clone(),
     };
     // Node: arguments are coerced to the declared schema before the tool sees
@@ -1709,10 +1733,41 @@ mod tests {
         assert!(guards.skip("read", "read:{}", "read:{}").is_none());
     }
 
+    /// Node's repeat-failure signatures and cycle detection (`tool-classify.mjs`), recorded on Windows, where the path
+    /// values fold case: `fixtures/tools-untested/agent-repeat-signature.json`, whole and in the recorded order.
+    #[cfg(windows)]
     #[test]
-    fn signatures_ignore_key_order() {
+    fn repeat_failure_signatures_and_cycles_equal_nodes() {
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-repeat-signature.json")).unwrap();
+        let mut failures = Vec::new();
+        for call in doc["signatures"].as_array().unwrap() {
+            let name = call["name"].as_str().unwrap();
+            let got = failure_signature(name, &call["args"], std::path::Path::new(call["cwd"].as_str().unwrap()));
+            if got != call["repeatFailureSig"].as_str().unwrap() {
+                failures.push(format!("{name} {} in {}:\n  Node {}\n  here {got}", call["args"], call["cwd"], call["repeatFailureSig"]));
+            }
+        }
+        for call in doc["shapes"].as_array().unwrap() {
+            let name = call["name"].as_str().unwrap();
+            let (sig, shape) = (call_signature(name, &call["args"]), format!("{name}:{}", arg_shape(&call["args"])));
+            if sig != call["intraTurnSig"].as_str().unwrap() || shape != call["argShapeSig"].as_str().unwrap() {
+                failures.push(format!("{name} {}:\n  Node {} {}\n  here {sig} {shape}", call["args"], call["intraTurnSig"], call["argShapeSig"]));
+            }
+        }
+        for call in doc["continues"].as_array().unwrap() {
+            let history: Vec<String> = call["history"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect();
+            let got = pattern_would_continue(&history, call["signature"].as_str().unwrap(), call["limit"].as_u64().unwrap() as u32);
+            if got as u64 != call["cycle"].as_u64().unwrap() {
+                failures.push(format!("{} signatures, limit {}, next {}: Node cycle {}, here {got}", history.len(), call["limit"], call["signature"], call["cycle"]));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn signatures_ignore_top_level_key_order() {
         let a = serde_json::json!({"b": 1, "a": [1, {"y": 2, "x": 3}]});
-        let b = serde_json::json!({"a": [1, {"x": 3, "y": 2}], "b": 1});
+        let b = serde_json::json!({"a": [1, {"y": 2, "x": 3}], "b": 1});
         assert_eq!(call_signature("t", &a), call_signature("t", &b));
         assert_eq!(arg_shape(&a), "{a:array[number,{x:number,y:number}],b:number}");
     }

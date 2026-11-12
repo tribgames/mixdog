@@ -66,7 +66,7 @@ use super::psfix::rewrite_wmic_process;
 use super::bashism::rewrite_powershell_bashisms;
 use super::direct::plan_direct_exe;
 use super::guard::Guarded;
-use super::guard::guard_shell_call;
+use super::guard::guard_call;
 use super::hoist::plan_hoist;
 use super::hygiene::preflight_powershell_hygiene;
 use super::invocation::EVAL_SCRIPT;
@@ -102,7 +102,7 @@ const BACKGROUND_GUIDANCE: &str =
 
 /// Why the command left the foreground (`promotion-results.mjs` `backgroundVerb`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PromotionReason {
+pub(super) enum PromotionReason {
     /// `background: true`.
     Background,
     /// The hold ran out.
@@ -131,7 +131,7 @@ fn background_message(reason: PromotionReason, elapsed_ms: u64) -> String {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Args {
+pub(super) struct Args {
     command: String,
     cwd: Option<String>,
     timeout_ms: Option<u64>,
@@ -216,8 +216,12 @@ fn text_output(text: String) -> ToolOutput {
     ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() }
 }
 
+fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
 /// How long the call holds (`planShellDeadlines`); 0 means it never moves to the background.
-fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
+pub(super) fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if !background_enabled {
         return 0;
     }
@@ -226,8 +230,7 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
     } else if let Some(wait) = args.wait_ms.filter(|w| *w > 0) {
         wait.clamp(SHELL_HOLD_MIN_MS, SHELL_HOLD_MAX_MS)
     } else {
-        std::env::var("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
-            .ok()
+        env("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
             .filter(|raw| !mixdog_js::js_trim(raw).is_empty())
             .map(|raw| mixdog_js::string_to_number(&raw))
             .filter(|n| n.is_finite() && *n >= 0.0)
@@ -244,26 +247,45 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
 
 /// The foreground window a run limit longer than it is cut to (`BASH_MAX_TIMEOUT_MS`, else 120 s),
 /// never shorter than the hold.
-fn foreground_cap_ms(hold: u64) -> u64 {
-    let configured = std::env::var("BASH_MAX_TIMEOUT_MS")
-        .ok()
+pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>) -> u64 {
+    let configured = env("BASH_MAX_TIMEOUT_MS")
         .and_then(|raw| parse_int_prefix(&raw))
         .filter(|n| *n > 0)
         .map_or(120_000, |n| n as u64);
     configured.max(hold)
 }
 
+/// Whether the foreground run is promoted when the foreground window ends (`promoteAtTimeout`): with no run limit, or one
+/// longer than the window, there is budget left to hand to a background task.
+pub(super) fn promotes_at_timeout(background_enabled: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> bool {
+    background_enabled && (time_limit == 0 || time_limit > foreground_cap_ms(hold, env))
+}
+
+/// What the end of the hold does, the one decision both the wait and the promotion message follow: `None` enforces the
+/// run limit (a limit at or below the hold has no budget left to hand to a background task; Node does not arm its
+/// threshold timer then, `armDeadlines`), `Some(reason)` promotes the run for that reason.
+pub(super) fn hold_end(background: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> Option<PromotionReason> {
+    if time_limit > 0 && time_limit <= hold {
+        None
+    } else if background {
+        Some(PromotionReason::Background)
+    } else if time_limit > 0 && promotes_at_timeout(true, time_limit, hold, env) && hold == foreground_cap_ms(hold, env) {
+        Some(PromotionReason::Timeout)
+    } else {
+        Some(PromotionReason::Threshold)
+    }
+}
+
 /// The run limit: an explicit `timeout_ms`, else the background safety net
 /// `MIXDOG_SHELL_BACKGROUND_MAX_MS`, else none.
-fn time_limit_ms(args: &Args, background_enabled: bool) -> u64 {
+pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if let Some(t) = args.timeout_ms.filter(|t| *t > 0) {
         return t.min(TIMER_MAX_MS);
     }
     if !background_enabled {
         return 0;
     }
-    std::env::var("MIXDOG_SHELL_BACKGROUND_MAX_MS")
-        .ok()
+    env("MIXDOG_SHELL_BACKGROUND_MAX_MS")
         .map(|raw| mixdog_js::string_to_number(&raw))
         .filter(|n| n.is_finite() && *n > 0.0)
         .map_or(0, |n| (n.floor() as u64).min(TIMER_MAX_MS))
@@ -610,12 +632,7 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_shell_call(
-            &args.command,
-            args.cwd.as_deref(),
-            args.background == Some(true),
-            runtime.config.powershell,
-        ) {
+        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell).await {
             Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
             Guarded::Run { command, cwd, notes } => (command, cwd, notes),
         };
@@ -710,11 +727,11 @@ impl ShellTool {
             }
         }
         let background_enabled = !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false);
-        let mut time_limit = time_limit_ms(&args, background_enabled);
+        let mut time_limit = time_limit_ms(&args, background_enabled, &process_env);
         if hard_cap > 0 {
             time_limit = args.timeout_ms.filter(|t| *t > 0).map_or(hard_cap, |t| t.min(hard_cap));
         }
-        let hold = hold_ms(&args, time_limit, background_enabled);
+        let hold = hold_ms(&args, time_limit, background_enabled, &process_env);
 
         let scratch = runtime
             .config
@@ -912,11 +929,9 @@ impl ShellTool {
         if hold > 0 {
             // New user input or a notification ends the hold, the same wake `task wait` uses.
             let wait = runtime.config.wake.begin(&ctx.thread_id);
-            // A run limit at or below the hold has no budget left to hand to a background task:
-            // the limit is enforced instead of promoting.
-            let enforce_limit = time_limit > 0 && time_limit <= hold;
+            let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, &process_env);
             let hold_timer = async {
-                if enforce_limit {
+                if at_hold_end.is_none() {
                     std::future::pending::<()>().await;
                 } else {
                     mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
@@ -946,13 +961,7 @@ impl ShellTool {
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
                 () = hold_timer => {
-                    reason = if args.background == Some(true) {
-                        PromotionReason::Background
-                    } else if time_limit > foreground_cap_ms(hold) && hold == foreground_cap_ms(hold) {
-                        PromotionReason::Timeout
-                    } else {
-                        PromotionReason::Threshold
-                    };
+                    reason = at_hold_end.unwrap_or(PromotionReason::Threshold);
                 }
                 () = wait.released() => {
                     reason = match wait.wake().map(|w| w.reason) {

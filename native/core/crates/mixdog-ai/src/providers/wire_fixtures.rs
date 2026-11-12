@@ -126,7 +126,7 @@ fn node_replay(replay: &ProviderReplay) -> Value {
 }
 
 /// A stop reason as the provider spelled it (Node `stopReason`).
-fn stop_text(stop: &StopReason) -> String {
+pub(crate) fn stop_text(stop: &StopReason) -> String {
     match stop {
         StopReason::EndTurn => "end_turn".into(),
         StopReason::ToolUse => "tool_use".into(),

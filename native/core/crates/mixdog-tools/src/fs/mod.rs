@@ -26,11 +26,14 @@ pub mod read_state;
 mod search;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod node_cases;
 
 pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub(crate) use read::normalize_input_path;
 pub use read_state::FileVersion;
 pub use read_state::Persistence;
 pub use read_state::ReadState;

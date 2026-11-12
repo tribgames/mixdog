@@ -329,4 +329,49 @@ pub(crate) mod tests {
         assert!(!file_has_data(&dir.path().join("missing")));
         assert!(available_bytes(&dir.path().join("a/b/c")).is_some());
     }
+
+    const FILE_HAS_DATA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-has-data-cases/golden.json");
+
+    /// A recorded step's file bytes: runs of NUL and latin-1 text, as the recorder wrote them.
+    fn bytes_of(parts: &[serde_json::Value]) -> Vec<u8> {
+        parts
+            .iter()
+            .flat_map(|p| match p["nul"].as_u64() {
+                Some(n) => vec![0u8; n as usize],
+                None => p["text"].as_str().unwrap().chars().map(|c| c as u8).collect(),
+            })
+            .collect()
+    }
+
+    /// `shared/file-has-data.test.mjs` recorded from the reference tree (`file-has-data-cases`): every step's file is written as
+    /// recorded and each verdict, `exactLocalProviderFile` included, is Node's.
+    #[test]
+    fn file_has_data_and_exact_file_answer_as_node_does_for_each_recorded_file() {
+        let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str(&FILE_HAS_DATA).unwrap()).unwrap();
+        assert_eq!(recorded.get("cases").as_array().len(), 2);
+        for case in recorded.get("cases").as_array() {
+            let name = case.get("case").as_str();
+            let dir = tempfile::tempdir().unwrap();
+            let steps = case.get("steps").to_plain().unwrap();
+            let verdicts = case.get("observed").get("verdicts").as_array();
+            assert_eq!(steps.as_array().unwrap().len(), verdicts.len(), "{name}");
+            for (index, (step, verdict)) in steps.as_array().unwrap().iter().zip(verdicts).enumerate() {
+                let path = dir.path().join(step["path"].as_str().unwrap());
+                if let Some(parts) = step["content"].as_array() {
+                    fs::write(&path, bytes_of(parts)).unwrap();
+                }
+                let ctx = format!("{name}, step {index}");
+                if let Some(want) = verdict.try_get("fileHasData") {
+                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}");
+                }
+                if let Some(want) = verdict.try_get("sync") {
+                    assert_eq!(file_has_data(&path), want.as_bool(), "{ctx}: sync");
+                    assert_eq!(want, verdict.get("async"), "{ctx}: Node's async verdict");
+                }
+                if let Some(want) = verdict.try_get("exact") {
+                    assert_eq!(exact_file(&path, step["exactSize"].as_i64().unwrap()), want.as_bool(), "{ctx}: exact");
+                }
+            }
+        }
+    }
 }

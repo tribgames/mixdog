@@ -405,6 +405,7 @@ export function registerDesktopIpc(
     onDesktopSettingsChanged,
     previewNotificationSound,
     confirmAllowAllActions: createAllowAllActionsConfirm({ dialog, window, nativeT }),
+    writesAnnounceThemselves: Boolean(protocol),
   });
 
   const stateBridge = new DesktopStateBridge({

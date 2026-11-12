@@ -1,0 +1,84 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-read-tail.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 34662,
+      "path": "cases.json",
+      "sha256": "03a0b6ed9c5dac36b58eeb350ebcb2f6b2840ac90d6c07caa742a0baba004931"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9144,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+      ],
+      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+    },
+    "patches": [
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 13
+    },
+    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-read-tail.mjs",
+  "recorderSha256": "74be42beec9292aa350a7c375cbca7b16b81ce3b6b8f1e832befa111672c7e84",
+  "set": "read-tail",
+  "totalBytes": 34662
+}

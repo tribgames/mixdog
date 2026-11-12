@@ -1726,20 +1726,82 @@ impl KeptRows {
     }
 }
 
-/// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed kept write waits for a retry when nothing else writes.
+/// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed batch waits for a retry when nothing else writes.
 const KEPT_RETRY_AFTER: std::time::Duration = std::time::Duration::from_millis(15_000);
 
-/// Puts the owed kept writes again, in order; those the table refuses again stay owed. The last refusal, if any.
-async fn retry_owed(keeper: &KeptRows, owed: &mut Vec<(String, Option<Row>)>) -> Option<String> {
-    let mut refused = None;
-    for (session, worker) in std::mem::take(owed) {
-        if let Err(error) = keeper.put(&session, worker.clone()).await {
-            tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
-            refused = Some(error);
-            owed.push((session, worker));
+/// Node's `RETRY_DELAYS_MS`: a persist is tried again after each of these, so four attempts in all.
+const RETRY_DELAYS: [std::time::Duration; 3] = [std::time::Duration::from_millis(50), std::time::Duration::from_millis(250), std::time::Duration::from_millis(1000)];
+
+/// One session's map the writer has not put yet, with the numbers of the writes it stands for (an older write of the same
+/// session is covered by it, as Node's batch compaction leaves the newest value).
+struct Owed {
+    session: String,
+    worker: Option<Row>,
+    /// A kept session's map (the table) rather than a header's.
+    kept: bool,
+    marks: Vec<u64>,
+}
+
+impl Owed {
+    fn new(session: String, worker: Option<Row>, kept: bool, mark: Option<u64>) -> Self {
+        Self { session, worker, kept, marks: mark.into_iter().collect() }
+    }
+}
+
+/// Queues a write behind the owed ones; it takes over the numbers of an older owed write of the same session and kind.
+fn enqueue(owed: &mut Vec<Owed>, mut next: Owed) {
+    if let Some(at) = owed.iter().position(|o| o.session == next.session && o.kept == next.kept) {
+        let mut marks = owed.remove(at).marks;
+        marks.append(&mut next.marks);
+        next.marks = marks;
+    }
+    owed.push(next);
+}
+
+/// Node's `persist`: tries every owed write, in order, and again after each of [`RETRY_DELAYS`] while some are refused; stops at
+/// the first attempt that puts them all. Those still refused after the fourth attempt stay owed (Node requeues the failed batch)
+/// and their numbers fail; the last refusal is returned. A write that is put reports its numbers written, which also clears a
+/// failure an earlier round left on them.
+async fn persist_owed(patcher: &dyn ThreadState, keeper: &KeptRows, reported: &mixdog_rt::WriteMarks, owed: &mut Vec<Owed>) -> Option<String> {
+    let mut last = None;
+    for attempt in 0..=RETRY_DELAYS.len() {
+        for item in std::mem::take(owed) {
+            let put = if item.kept {
+                keeper.put(&item.session, item.worker.clone()).await.map_err(|error| format!("the kept worker row of {}: {error}", item.session))
+            } else {
+                let thread = ThreadId::from(item.session.as_str());
+                let patched = match item.worker.clone() {
+                    Some(map) => {
+                        let mut set = Map::new();
+                        set.insert("worker".into(), Value::Object(map));
+                        patcher.patch_header(&thread, set, Vec::new()).await
+                    }
+                    None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
+                };
+                patched.map_err(|error| format!("the worker row of {}: {error:?}", item.session))
+            };
+            match put {
+                Ok(()) => item.marks.iter().for_each(|mark| reported.written(*mark)),
+                Err(error) => {
+                    tracing::warn!(%error, "[agent] a worker row was not saved; it stays queued");
+                    last = Some(error);
+                    owed.push(item);
+                }
+            }
+        }
+        if owed.is_empty() {
+            return None;
+        }
+        if let Some(delay) = RETRY_DELAYS.get(attempt) {
+            mixdog_rt::time::sleep(*delay).await;
         }
     }
-    refused
+    // Node's `reportFailure`: one report per round that ends refused.
+    tracing::warn!(error = last.as_deref().unwrap_or_default(), "[agent-index] {} unpersisted write(s) kept queued after retries", owed.len());
+    for item in owed.iter() {
+        item.marks.iter().for_each(|mark| reported.failed(*mark, last.as_deref().unwrap_or_default()));
+    }
+    last
 }
 
 /// Whether `path` names a directory.
@@ -1756,70 +1818,57 @@ impl StoreWorkers {
         let marks = Arc::new(mixdog_rt::WriteMarks::new("the agent index"));
         let reported = marks.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            // Kept writes the table refused, in order, each session's newest only: they stay queued ahead of newer writes and
-            // are retried by the next write, a flush (`settled`) or the retry timer, as Node's index queue requeues a failed
-            // batch (`index-write-queue.mjs:231-245`).
-            let mut owed: Vec<(String, Option<Row>)> = Vec::new();
+            // Writes the header or the table refused after every attempt, in order, each session's newest only: they stay queued
+            // ahead of newer writes and are retried by the next write, a flush (`settled`) or the retry timer, as Node's index
+            // queue requeues a failed batch (`index-write-queue.mjs:231-245`).
+            let mut owed: Vec<Owed> = Vec::new();
             loop {
-                let op = if owed.is_empty() {
-                    rx.recv().await
+                let mut incoming = Vec::new();
+                // The retry timer starts a round of its own, which a flush arriving during it joins.
+                let mut timed = false;
+                if owed.is_empty() {
+                    let Some(op) = rx.recv().await else { break };
+                    incoming.push(op);
                 } else {
                     tokio::select! {
-                        op = rx.recv() => op,
-                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => {
-                            retry_owed(&keeper, &mut owed).await;
-                            continue;
+                        op = rx.recv() => {
+                            let Some(op) = op else { break };
+                            incoming.push(op);
                         }
+                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => timed = true,
                     }
-                };
-                let Some(op) = op else { break };
-                if let WriteOp::Keep(session, ..) = &op {
-                    owed.retain(|(id, _)| id != session);
                 }
-                let refused = retry_owed(&keeper, &mut owed).await;
-                let (session, worker, mark) = match op {
-                    WriteOp::Write(session, worker, mark) => (session, worker, mark),
-                    WriteOp::Keep(session, worker, mark) => {
-                        match keeper.put(&session, worker.clone()).await {
-                            Ok(()) => {
-                                if let Some(mark) = mark {
-                                    reported.written(mark);
-                                }
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
-                                if let Some(mark) = mark {
-                                    reported.failed(mark, format!("the kept worker row of {session}: {error}"));
-                                }
-                                owed.push((session, worker));
-                            }
+                // One round puts what is owed, as Node's job persists a batch. What arrives during the round: a flush waits
+                // for that job and rejects with its failure; writes join the next batch, which a failed job leaves to the
+                // retry timer (a held lock is not hammered), a successful one starts at once.
+                while timed || !incoming.is_empty() {
+                    timed = false;
+                    let mut flushes = Vec::new();
+                    for op in incoming.drain(..) {
+                        match op {
+                            WriteOp::Write(session, worker, mark) => enqueue(&mut owed, Owed::new(session, worker, false, Some(mark))),
+                            WriteOp::Keep(session, worker, mark) => enqueue(&mut owed, Owed::new(session, worker, true, mark)),
+                            WriteOp::Barrier(done) => flushes.push(done),
                         }
-                        continue;
                     }
-                    WriteOp::Barrier(done) => {
-                        // Node's `flush` rejects with the persist's error while a batch is unpersisted
-                        // (`index-write-queue.mjs:203,259-265`); the writes stay queued for a later flush.
-                        let _ = done.send(match refused {
+                    let refused = persist_owed(&*patcher, &keeper, &reported, &mut owed).await;
+                    // Node's `flush` rejects with the persist's error while a batch is unpersisted
+                    // (`index-write-queue.mjs:203,259-265`); the writes stay queued for a later flush.
+                    let answer = |done: tokio::sync::oneshot::Sender<Result<(), String>>, owed: &[Owed]| {
+                        let _ = done.send(match &refused {
                             Some(error) => Err(format!("{} unpersisted write(s) kept queued after retries: {error}", owed.len())),
                             None => Ok(()),
                         });
-                        continue;
+                    };
+                    flushes.into_iter().for_each(|done| answer(done, &owed));
+                    while let Ok(op) = rx.try_recv() {
+                        match op {
+                            WriteOp::Barrier(done) if refused.is_some() => answer(done, &owed),
+                            WriteOp::Write(session, worker, mark) if refused.is_some() => enqueue(&mut owed, Owed::new(session, worker, false, Some(mark))),
+                            WriteOp::Keep(session, worker, mark) if refused.is_some() => enqueue(&mut owed, Owed::new(session, worker, true, mark)),
+                            op => incoming.push(op),
+                        }
                     }
-                };
-                let thread = ThreadId::from(session.as_str());
-                // A failed patch leaves the registry's own copy in force; it is retried by the
-                // next write of the session.
-                let patched = match worker {
-                    Some(map) => {
-                        let mut set = Map::new();
-                        set.insert("worker".into(), Value::Object(map));
-                        patcher.patch_header(&thread, set, Vec::new()).await
-                    }
-                    None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
-                };
-                match patched {
-                    Ok(()) => reported.written(mark),
-                    Err(error) => reported.failed(mark, format!("the worker row of {session}: {error:?}")),
                 }
             }
         }));
@@ -1942,9 +1991,12 @@ impl StoreWorkers {
     /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`). As Node's `flush` rejects when a
     /// batch could not be persisted, this is `Err` while a kept write is still owed; the write stays queued.
     pub async fn settled(&self) -> Result<(), String> {
+        let accepted = self.marks.accepted();
         let (done, applied) = tokio::sync::oneshot::channel();
         self.writes.send(WriteOp::Barrier(done)).map_err(|_| "the worker writer is closed".to_owned())?;
-        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())?
+        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())??;
+        // A header write that failed is only recorded in the marks; Node's `flush` rejects for it too.
+        self.marks.check(accepted).unwrap_or(Ok(()))
     }
 
     /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made

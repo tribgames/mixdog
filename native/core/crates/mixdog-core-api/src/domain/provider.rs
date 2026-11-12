@@ -994,6 +994,9 @@ pub struct ProviderError {
     /// The replay envelope of the items a cut stream had finished (Node `partialProviderReplay`), when the wire keeps
     /// one: the response builder folds it into the failed attempt's partial.
     pub partial_replay: Option<Box<ProviderReplay>>,
+    /// The calls a response cut by its length or a content filter held (Node `partialToolCalls` of the
+    /// `ProviderIncompleteError`): none was dispatched or will run, and the turn fails with this error.
+    pub partial_tool_calls: Vec<ToolCall>,
     /// A page the user must open to unblock the account (Antigravity
     /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
     /// `metadata.validation_url`, else `metadata.validation_link`). Read from
@@ -1049,6 +1052,7 @@ impl ProviderError {
             partial_usage: None,
             partial_model: None,
             partial_replay: None,
+            partial_tool_calls: Vec::new(),
             verification_url: None,
             rejected_tool: None,
             account_blocked: false,
