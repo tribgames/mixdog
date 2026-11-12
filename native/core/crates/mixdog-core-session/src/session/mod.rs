@@ -176,6 +176,8 @@ pub mod tests;
 #[cfg(test)]
 mod sensitive_record_tests;
 #[cfg(test)]
+mod items_tail_tests;
+#[cfg(test)]
 mod sensitive_carry_tests;
 #[cfg(test)]
 mod message_sanitize_replay;
