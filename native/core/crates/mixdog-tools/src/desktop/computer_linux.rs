@@ -540,6 +540,11 @@ async fn shared_readiness(check: impl FnOnce() -> BoxFuture<'static, Readiness>)
     probe.await
 }
 
+/// `getLinuxComputerReadiness`: the process's one probe, asked afresh when it is older than [`CACHE_LIFE`].
+pub(super) async fn probe(manager: Arc<dyn ProcessManager>, env: Env) -> Arc<Readiness> {
+    shared_readiness(|| async move { check_readiness(&env, &SystemProbes::new(manager, env.clone())).await }.boxed()).await
+}
+
 /// `resetLinuxComputerPreflightCache`.
 #[cfg(test)]
 fn reset_probe() {
@@ -608,7 +613,7 @@ pub async fn capture_fallback(command: &Map<String, Value>, check: impl FnOnce()
 
 /// One short read-only process: whether it exited with code 0 and what it wrote to stdout; `None` when it could not be started
 /// or did not end within `limit` (then it is killed).
-async fn run_short(manager: &dyn ProcessManager, env: &Env, program: &str, args: &[&str], limit: Duration) -> Option<(bool, String)> {
+pub(super) async fn run_short(manager: &dyn ProcessManager, env: &Env, program: &str, args: &[&str], limit: Duration) -> Option<(bool, String)> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let cwd = std::env::current_dir().ok().and_then(AbsPath::new)?;
     let handle = ProcessHandle(format!("computer-probe-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
@@ -753,6 +758,7 @@ mod tests {
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering;
 
+    use base64::Engine;
     use mixdog_core_api::domain::computer::ComputerBackend;
     use mixdog_core_api::domain::computer::ComputerError;
     use mixdog_core_api::domain::process::KillReason;
@@ -763,17 +769,18 @@ mod tests {
     use mixdog_core_api::domain::process::SpawnedProcess;
     use mixdog_core_api::domain::tool::ImageData;
     use mixdog_core_api::domain::tool::ToolPart;
-    use base64::Engine;
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::mpsc::UnboundedSender;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
+    use crate::desktop::computer::failure_text;
     use crate::desktop::computer::request;
     use crate::desktop::computer_backend::ComputerConfig;
     use crate::desktop::computer_backend::ProcessComputerBackend;
     use crate::desktop::computer_backend::RESPONSE_MARKER;
-    use crate::desktop::computer_recovery::format_tool_error;
+    use crate::desktop::computer_gnome::Display;
+    use crate::desktop::computer_gnome::ShotFiles;
 
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-linux-readiness/golden.json");
 
@@ -798,6 +805,10 @@ mod tests {
         value.as_array().expect("a list").iter().map(|item| item.as_str().expect("a string").to_owned()).collect()
     }
 
+    fn bytes_of(base64: &Value) -> Vec<u8> {
+        base64::engine::general_purpose::STANDARD.decode(base64.as_str().expect("base64")).expect("base64 bytes")
+    }
+
     /// The session and desktop of every recorded environment.
     #[test]
     fn session_and_desktop_detection_equal_the_recording() {
@@ -820,9 +831,9 @@ mod tests {
         }
     }
 
-    // --- the stand-in machine: what the preflight's probes read, answered at the process manager ---
+    // --- the stand-in machine: what the probes and the desktop host's calls read, answered at the process manager ---
 
-    /// The recorded world: the same environment, executables, paths and answers Node's probing read through `fs` and `spawn`.
+    /// The recorded world: the environment, executables, paths, programs' answers, the scripted helper and the screenshot Node's recording ran on.
     struct World {
         env: Env,
         executables: Vec<String>,
@@ -832,8 +843,15 @@ mod tests {
         a11y: bool,
         enabled: String,
         disabled: String,
-        /// The screenshot the virtual desktop host answers with, as recorded.
-        image: Value,
+        /// The helper's answer to each request action; any other action is answered as an error.
+        helper: Map<String, Value>,
+        /// How the extension's screenshot goes: `ok`, `fails`, `no-file` (exits 0, writes nothing) or `empty` (a 0x0 PNG).
+        screenshot: String,
+        png: Vec<u8>,
+        empty_png: Vec<u8>,
+        /// The one display the recording's Electron stand-in reports (id 1, scale 1, at the origin).
+        display: (i64, i64),
+        shot_id: String,
     }
 
     impl World {
@@ -847,8 +865,17 @@ mod tests {
                 a11y: value["a11y"].as_bool().expect("a11y"),
                 enabled: value["gsettings"]["enabled"].as_str().expect("enabled").to_owned(),
                 disabled: value["gsettings"]["disabled"].as_str().expect("disabled").to_owned(),
-                image: value["image"].clone(),
+                helper: value["helperReplies"].as_object().expect("helper replies").clone(),
+                screenshot: value["screenshot"]["how"].as_str().expect("how").to_owned(),
+                png: bytes_of(&value["screenshot"]["png"]),
+                empty_png: bytes_of(&value["screenshot"]["emptyPng"]),
+                display: (value["display"]["width"].as_i64().expect("width"), value["display"]["height"].as_i64().expect("height")),
+                shot_id: value["shotId"].as_str().expect("shot id").to_owned(),
             }
+        }
+
+        fn displays(&self) -> Vec<Display> {
+            vec![Display { id: "1".into(), x: 0, y: 0, width: self.display.0, height: self.display.1, scale_factor: 1.0, primary: true }]
         }
 
         /// The shell checks the real probes run (`test -w`, `command -v`, `test -e`), against the world's files and the `PATH` they were given.
@@ -865,8 +892,8 @@ mod tests {
             }
         }
 
-        /// What `gdbus` and `gsettings` answer: the exit code and stdout.
-        fn tool(&self, program: &str, args: &[String]) -> (i32, String) {
+        /// What `gdbus` and `gsettings` answer: the exit code and stdout; the extension's screenshot is written to `files`.
+        fn tool(&self, program: &str, args: &[String], files: &Files) -> (i32, String) {
             let has = |word: &str| args.iter().any(|arg| arg == word);
             match program {
                 "gdbus" if has("Version") => match self.window_version {
@@ -875,6 +902,16 @@ mod tests {
                 },
                 "gdbus" if has("org.a11y.Bus.GetAddress") => {
                     if self.a11y { (0, "('unix:path=/run/user/1000/at-spi/bus',)\n".into()) } else { (1, String::new()) }
+                }
+                "gdbus" if args.iter().any(|arg| arg.ends_with(".Screenshot")) => {
+                    if self.screenshot == "fails" {
+                        return (1, String::new());
+                    }
+                    if self.screenshot != "no-file" {
+                        let path = args.last().expect("the file argument").trim_matches('\'');
+                        files.put(path, if self.screenshot == "empty" { self.empty_png.clone() } else { self.png.clone() });
+                    }
+                    (0, "()\n".into())
                 }
                 "gsettings" if args.get(1).map(String::as_str) == Some("org.gnome.shell") && args.get(2).map(String::as_str) == Some("enabled-extensions") => {
                     (0, self.enabled.clone())
@@ -887,32 +924,34 @@ mod tests {
         }
     }
 
-    /// What the machines of one test were asked.
+    /// The files of the virtual machine: what the extension wrote and the core has not yet removed.
     #[derive(Default)]
-    struct Log {
-        /// Every `gdbus` / `gsettings` process started, as program and arguments.
-        spawned: Mutex<Vec<Vec<String>>>,
-        /// Every request line the helper was sent.
-        requests: Mutex<Vec<Value>>,
+    struct Files(Mutex<HashMap<String, Vec<u8>>>);
+
+    impl Files {
+        fn put(&self, path: &str, bytes: Vec<u8>) {
+            self.0.lock().unwrap().insert(path.to_owned(), bytes);
+        }
     }
 
-    impl Log {
-        fn spawned(&self) -> Value {
-            json!(std::mem::take(&mut *self.spawned.lock().unwrap()))
+    impl ShotFiles for Files {
+        fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
+            self.0.lock().unwrap().get(path).cloned().ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
         }
 
-        /// The requests the helper was sent, without the transport's own fields (`id`, `session_id`).
-        fn requests(&self) -> Vec<Value> {
-            let mut sent = std::mem::take(&mut *self.requests.lock().unwrap());
-            for request in &mut sent {
-                let request = request.as_object_mut().expect("a request is an object");
-                request.shift_remove("id");
-                request.shift_remove("session_id");
-                if let Some(step) = request.get_mut("step").and_then(Value::as_object_mut) {
-                    step.shift_remove("session_id");
-                }
-            }
-            sent
+        fn remove(&self, path: &str) {
+            self.0.lock().unwrap().remove(path);
+        }
+    }
+
+    /// Everything the machine was asked, in order: `{"tool": [program, args…]}` for a gdbus / gsettings process, `{"helper": request}` for a
+    /// helper request, exactly as sent (the recording's `events`).
+    #[derive(Default)]
+    struct Log(Mutex<Vec<Value>>);
+
+    impl Log {
+        fn events(&self) -> Vec<Value> {
+            std::mem::take(&mut *self.0.lock().unwrap())
         }
     }
 
@@ -925,18 +964,26 @@ mod tests {
         }
     }
 
-    /// A process manager that starts nothing: it answers the probes from the world, and a helper that answers every request `ok`.
+    /// A process manager that starts nothing: it answers the probes and the programs from the world, and a helper that answers as scripted.
     struct Machine {
-        world: Arc<Mutex<World>>,
+        world: Arc<World>,
         log: Arc<Log>,
+        files: Arc<Files>,
         senders: Mutex<HashMap<String, UnboundedSender<ProcessEvent>>>,
         receivers: Mutex<HashMap<String, UnboundedReceiver<ProcessEvent>>>,
         seq: AtomicU64,
     }
 
     impl Machine {
-        fn new(world: &Arc<Mutex<World>>, log: &Arc<Log>) -> Arc<Self> {
-            Arc::new(Self { world: world.clone(), log: log.clone(), senders: Mutex::default(), receivers: Mutex::default(), seq: AtomicU64::new(0) })
+        fn new(world: &Arc<World>, log: &Arc<Log>, files: &Arc<Files>) -> Arc<Self> {
+            Arc::new(Self {
+                world: world.clone(),
+                log: log.clone(),
+                files: files.clone(),
+                senders: Mutex::default(),
+                receivers: Mutex::default(),
+                seq: AtomicU64::new(0),
+            })
         }
 
         fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
@@ -959,16 +1006,13 @@ mod tests {
             self.senders.lock().unwrap().insert(request.handle.0.clone(), send);
             self.receivers.lock().unwrap().insert(request.handle.0.clone(), receive);
             if !request.stdin_piped {
-                let (code, out) = {
-                    let world = self.world.lock().unwrap();
-                    match program.as_str() {
-                        "/bin/sh" => (i32::from(!world.shell(&request.env, &args[1], &args[3])), String::new()),
-                        "gdbus" | "gsettings" => {
-                            self.log.spawned.lock().unwrap().push(std::iter::once(program.clone()).chain(args.iter().cloned()).collect());
-                            world.tool(program, args)
-                        }
-                        other => return Err(ProcessError::ProgramNotFound { program: other.to_owned() }),
+                let (code, out) = match program.as_str() {
+                    "/bin/sh" => (i32::from(!self.world.shell(&request.env, &args[1], &args[3])), String::new()),
+                    "gdbus" | "gsettings" => {
+                        self.log.0.lock().unwrap().push(json!({ "tool": std::iter::once(program.clone()).chain(args.iter().cloned()).collect::<Vec<_>>() }));
+                        self.world.tool(program, args, &self.files)
                     }
+                    other => return Err(ProcessError::ProgramNotFound { program: other.to_owned() }),
                 };
                 if !out.is_empty() {
                     self.emit(&request.handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: out.into_bytes() });
@@ -985,13 +1029,13 @@ mod tests {
 
         async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
             let request: Value = serde_json::from_slice(&bytes).expect("a request line");
-            let mut result = json!({"text": "ok"});
-            if matches!(request["action"].as_str(), Some("window_capture" | "capture")) {
-                result["image"] = self.world.lock().unwrap().image.clone();
-            }
-            let reply = format!("{}{}\n", RESPONSE_MARKER, json!({"id": request["id"], "ok": true, "result": result}));
-            self.log.requests.lock().unwrap().push(request);
-            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: reply.into_bytes() });
+            let action = request["action"].as_str().expect("an action");
+            let reply = match self.world.helper.get(action) {
+                Some(result) => json!({"id": request["id"], "ok": true, "result": result}),
+                None => json!({"id": request["id"], "ok": false, "error": format!("unscripted helper action {action}")}),
+            };
+            self.log.0.lock().unwrap().push(json!({ "helper": request }));
+            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: format!("{RESPONSE_MARKER}{reply}\n").into_bytes() });
             Ok(())
         }
 
@@ -1021,211 +1065,142 @@ mod tests {
         held
     }
 
-    /// A session of the `computer` tool on the stand-in machine; `linux` names the platform, whatever this test runs on.
-    fn backend(world: &Arc<Mutex<World>>, log: &Arc<Log>, session: &str, linux: bool) -> ProcessComputerBackend {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(world, log));
-        if linux { backend.with_linux_session(world.lock().unwrap().env.clone()) } else { backend }
+    /// What one recorded call is compared on.
+    #[derive(Default)]
+    struct Seen {
+        refused: usize,
+        diagnosed: usize,
+        frames: usize,
+        pixel_failures: usize,
+        electron: usize,
+        errors: usize,
     }
 
-    /// The requests the helper gets for the command Node dispatched to its desktop host: the host's own steps, one request each
-    /// (a sequence is its steps, then the capture that observes the window; a capture is the snapshot, then the window's pixels).
-    fn helper_requests(dispatched: &Value) -> Vec<Value> {
-        let command = command_of(dispatched);
-        let renamed = |name: &str| {
-            let mut renamed = command.clone();
-            renamed.insert("action".into(), json!(name));
-            vec![Value::Object(renamed)]
-        };
-        match text_of(&command, "action") {
-            "sequence" => {
-                let target: Map<String, Value> = ["window_id", "app"].iter().filter_map(|key| command.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect();
-                let delivery = command["delivery"].clone();
-                let mut out: Vec<Value> = command["steps"]
-                    .as_array()
-                    .expect("steps")
-                    .iter()
-                    .map(|step| {
-                        let mut step = step.as_object().expect("a step").clone();
-                        for (key, value) in &target {
-                            step.entry(key.clone()).or_insert_with(|| value.clone());
-                        }
-                        step.insert("delivery".into(), delivery.clone());
-                        if delivery == "background" && step.contains_key("window_id") {
-                            json!({"action": "sequence_step", "delivery": "background", "step": step})
-                        } else {
-                            Value::Object(step)
-                        }
-                    })
-                    .collect();
-                if !target.is_empty() {
-                    let mut observe = target;
-                    observe.insert("action".into(), json!("capture"));
-                    if let Some(mode) = command.get("capture_after_mode") {
-                        observe.insert("mode".into(), mode.clone());
-                    }
-                    out.extend(capture_requests(&observe));
-                }
-                out
-            }
-            "capture" => capture_requests(&command),
-            "diagnose" => vec![json!({"action": "accessibility_probe"}), json!({"action": "ocr_status"})],
-            "list_apps" => renamed("list_installed_apps"),
-            "verify" => renamed("window_predicates"),
-            _ => vec![dispatched.clone()],
-        }
-    }
-
-    fn capture_requests(command: &Map<String, Value>) -> Vec<Value> {
-        if command.contains_key("screen") {
-            return vec![Value::Object(command.clone())];
-        }
-        let mut rest = command.clone();
-        let mode = rest.shift_remove("mode").and_then(|mode| mode.as_str().map(str::to_owned)).unwrap_or_else(|| "state".into());
-        let with = |name: &str| {
-            let mut request = rest.clone();
-            request.insert("action".into(), json!(name));
-            Value::Object(request)
-        };
-        let mut out = Vec::new();
-        if mode != "vision" {
-            out.push(with("snapshot"));
-        }
-        if mode != "ax" {
-            out.push(with("window_capture"));
-        }
-        out
-    }
-
-    /// The content blocks a call returned, in Node's shape. The text of an `act` is composed by the desktop host in Node and by the client in
-    /// Rust (from the stand-in's answers), and `diagnose` is answered once per probe in Rust: those two are compared as the manifest declares.
-    fn assert_content(action: &str, parts: &[ToolPart], node: &[Value], label: &str) {
-        let mut got: Vec<Value> = parts
+    /// The content blocks the core returned, in the recording's shape. `Image` has no `width`/`height` (Node's client adds them from the reply text).
+    fn blocks_of(parts: &[ToolPart]) -> Vec<Value> {
+        parts
             .iter()
             .map(|part| match part {
                 ToolPart::Text(text) => json!({"type": "text", "text": text}),
                 ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
-                    json!({"type": "image", "source": {"type": "base64", "media_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes)}})
+                    json!({"type": "image", "media_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
                 }
-                other => panic!("{label}: unexpected part {other:?}"),
+                other => panic!("unexpected part {other:?}"),
             })
-            .collect();
-        let mut want = node.to_vec();
-        match action {
-            "act" => {
-                got.retain(|block| block["type"] == "image");
-                want.remove(0);
-            }
-            "diagnose" => got.dedup(),
-            _ => {}
-        }
-        assert_eq!(got, want, "{label}: the content the tool returned");
+            .collect()
     }
 
-    /// One recorded call through `ProcessComputerBackend::run`, compared with what Node's tool did with it: refused (the tool's error text, no
-    /// request to the helper) or run (the requests the helper got and the content returned, whole; a rewritten capture returns the screenshot
-    /// and the fallback note); and the gdbus/gsettings processes started are Node's.
-    async fn replay(backend: &ProcessComputerBackend, log: &Log, args: &Value, node: &Value, label: &str) {
+    /// The content blocks Node returned, with its encoding step undone: Node re-encodes the extension's PNG as a JPEG (Chromium's
+    /// encoder; the recording's stand-in puts a `STANDIN-JPEG q<quality>` line before the PNG it was given), and its client gives the
+    /// image block the frame's `width` and `height`. What is compared is the PNG the extension wrote.
+    fn node_blocks(content: &[Value]) -> Vec<Value> {
+        content
+            .iter()
+            .map(|block| match block["type"].as_str().expect("a block type") {
+                "text" => json!({"type": "text", "text": block["text"]}),
+                "image" => {
+                    assert_eq!(block["source"]["media_type"], "image/jpeg", "the recording's frame is a JPEG");
+                    let encoded = bytes_of(&block["source"]["data"]);
+                    assert!(encoded.starts_with(b"STANDIN-JPEG q"), "the recording's encoder");
+                    let png = &encoded[encoded.iter().position(|byte| *byte == b'\n').expect("the stand-in's line") + 1..];
+                    json!({"type": "image", "media_type": "image/png", "data": base64::engine::general_purpose::STANDARD.encode(png)})
+                }
+                other => panic!("unexpected block {other}"),
+            })
+            .collect()
+    }
+
+    /// One recorded call through `ProcessComputerBackend::run` on a fresh backend and a fresh machine of the recorded world, compared whole
+    /// with what Node's tool returned: the error flag, every content block, and the gdbus / gsettings invocations and helper requests in
+    /// order. A capture Node could only take through Electron is `Unavailable`.
+    async fn replay(world: World, session: &str, args: &Value, node: &Value, label: &str, seen: &mut Seen) {
+        let world = Arc::new(world);
+        let (log, files) = (Arc::new(Log::default()), Arc::new(Files::default()));
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(&world, &log, &files)).with_linux_session(
+            world.env.clone(),
+            world.displays(),
+            files.clone(),
+            world.shot_id.clone(),
+        );
         let got = backend.run(request(args).expect("a recorded call"), CancellationToken::new()).await;
-        let result = &node["result"];
-        let text = result["content"][0]["text"].as_str().expect("text");
-        let dispatched = node["dispatched"].as_array().expect("dispatched");
-        if let Some(meta) = result.get("toolMeta") {
-            assert!(dispatched.is_empty(), "{label}: recording: a refused call dispatches nothing");
-            let Err(ComputerError::Failed { code, message }) = &got else { panic!("{label}: refused by Node, got {got:?}") };
-            assert_eq!(code, meta["code"].as_str().expect("code"), "{label}: code");
-            assert_eq!(format_tool_error(message, args), text, "{label}: the error text the tool returns");
-            assert_eq!(log.requests(), Vec::<Value>::new(), "{label}: a refused action reached the helper");
-            assert_eq!(result["isError"], true, "{label}: the error flag");
-        } else {
-            assert_eq!(dispatched.len(), 1, "{label}: recording: one command to the bridge");
-            assert!(result.get("isError").is_none(), "{label}: recording: Node's call succeeded");
-            let parts = got.unwrap_or_else(|error| panic!("{label}: Node ran it, got {error:?}"));
-            assert_eq!(log.requests(), dispatched.iter().flat_map(helper_requests).collect::<Vec<_>>(), "{label}: the requests that reached the helper");
-            assert_content(args["action"].as_str().expect("action"), &parts, result["content"].as_array().expect("content"), label);
+        if node["electron"] == true {
+            assert!(matches!(got, Err(ComputerError::Unavailable { .. })), "{label}: Node takes this capture through Electron, got {got:?}");
+            seen.electron += 1;
+            return;
         }
-        assert_eq!(log.spawned(), node["spawns"], "{label}: the gdbus/gsettings processes started");
+        let result = &node["result"];
+        let want = node_blocks(result["content"].as_array().expect("content"));
+        let is_error = match got {
+            Ok(parts) => {
+                assert_eq!(blocks_of(&parts), want, "{label}: the content the tool returned");
+                seen.frames += usize::from(want.iter().any(|block| block["type"] == "image"));
+                false
+            }
+            Err(ComputerError::Failed { code, message }) => {
+                if let Some(meta) = result.get("toolMeta") {
+                    assert_eq!(code, meta["code"].as_str().expect("code"), "{label}: the refusal's code");
+                    seen.refused += 1;
+                }
+                assert_eq!(vec![json!({"type": "text", "text": failure_text(&code, &message, args)})], want, "{label}: the error text the tool returns");
+                seen.pixel_failures += usize::from(code == "computer_reported");
+                true
+            }
+            Err(other) => panic!("{label}: Node ran it, got {other:?}"),
+        };
+        assert_eq!(is_error, result["isError"] == true, "{label}: the error flag");
+        seen.errors += usize::from(is_error);
+        seen.diagnosed += usize::from(args["action"] == "diagnose");
+        assert_eq!(Value::Array(log.events()), node["events"], "{label}: the gdbus/gsettings invocations and helper requests, in order");
     }
 
-    /// Every recorded session, every tool call, whole, through the backend's own entry on the Linux path.
+    /// Every recorded session, every call it was asked, whole, through the backend's own entry on the Linux path.
     #[tokio::test(start_paused = true)]
     #[allow(clippy::await_holding_lock)]
     async fn every_recorded_session_replays_through_the_backend() {
         let _serial = serial();
-        let tool_calls = case("the tool calls every session is asked")["observed"].clone();
-        let tool_calls = tool_calls.as_array().expect("tool calls");
-        let (mut sessions, mut refused, mut rewritten) = (0, 0, 0);
+        let mut seen = Seen::default();
+        let mut sessions = 0;
         for recorded in cases().into_iter().filter(|case| case["case"].as_str().is_some_and(|name| name.starts_with("session ") && name != "session and desktop detection")) {
             let name = recorded["case"].as_str().expect("name");
             let observed = &recorded["observed"];
-            let world = Arc::new(Mutex::new(World::of(&observed["world"])));
-            let log = Arc::new(Log::default());
-            let backend = backend(&world, &log, "s1", true);
-            let calls = observed["calls"].as_array().expect("calls");
-            assert_eq!(calls.len(), tool_calls.len(), "{name}");
-            for (args, node) in tool_calls.iter().zip(calls) {
+            for node in observed["calls"].as_array().expect("calls") {
                 reset_probe();
-                refused += usize::from(node["result"].get("toolMeta").is_some());
-                rewritten += usize::from(node["dispatched"][0].get("screen").is_some() && args["input"].get("screen").is_none());
-                replay(&backend, &log, args, node, &format!("{name} / {args}")).await;
+                replay(World::of(&observed["world"]), "default", &node["args"], node, &format!("{name} / {}", node["args"]), &mut seen).await;
             }
             sessions += 1;
         }
-        assert!(sessions >= 30 && refused > 500 && rewritten >= 3, "{sessions} sessions, {refused} refused, {rewritten} rewritten");
+        assert!(
+            sessions >= 30 && seen.refused > 100 && seen.diagnosed >= 30 && seen.frames >= 3 && seen.pixel_failures >= 4 && seen.electron >= 10 && seen.errors > 100,
+            "{sessions} sessions, {} refused, {} diagnosed, {} frames, {} pixel failures, {} electron, {} errors",
+            seen.refused,
+            seen.diagnosed,
+            seen.frames,
+            seen.pixel_failures,
+            seen.electron,
+            seen.errors
+        );
     }
 
-    /// Another platform is never blocked and never rewritten: the preflight does not run, nothing is probed.
-    #[tokio::test(start_paused = true)]
-    #[allow(clippy::await_holding_lock)]
-    async fn a_platform_that_is_not_linux_is_never_blocked_and_never_rewritten() {
-        let _serial = serial();
-        let recorded = case("a platform that is not linux is never blocked and never rewritten")["observed"].clone();
-        let world = Arc::new(Mutex::new(World::of(&recorded["world"])));
-        let log = Arc::new(Log::default());
-        let backend = backend(&world, &log, "s1", false);
-        for node in recorded["calls"].as_array().expect("calls") {
-            replay(&backend, &log, &node["args"], node, &format!("{} / {}", node["platform"], node["args"])).await;
-        }
-    }
-
-    /// The probe is the process's, not a session's, and it lives 3 seconds of the runtime's clock: two sessions inside the window share it
-    /// (the concurrent calls of one instant too), and the first call after it asks again. The window passes by advancing that clock.
+    /// The probe is the process's, not a session's, and it lives 3 seconds of the runtime's clock: two sessions inside the window share it,
+    /// and the first call after it asks again. The window passes by advancing that clock.
     #[tokio::test(start_paused = true)]
     #[allow(clippy::await_holding_lock)]
     async fn the_probe_is_shared_by_two_sessions_inside_3_seconds_and_asked_again_after() {
         let _serial = serial();
         let recorded = case("the probe is shared by two sessions inside 3 seconds and asked again after")["observed"].clone();
-        let world = Arc::new(Mutex::new(World::of(&recorded["world"])));
-        let log = Arc::new(Log::default());
-        let (first, second) = (backend(&world, &log, "s1", true), backend(&world, &log, "s2", true));
         let mut now = 0;
+        let mut seen = Seen::default();
         for step in recorded["steps"].as_array().expect("steps") {
             let at = step["at"].as_u64().expect("at");
             tokio::time::advance(Duration::from_millis(at - now)).await;
             now = at;
-            world.lock().unwrap().writable = if step["uinput"].as_bool().expect("uinput") { vec!["/dev/uinput".to_owned()] } else { Vec::new() };
-            let args = &recorded["call"];
-            let runs = step["sessions"].as_array().expect("sessions").iter().map(|session| {
-                let backend = if session == "s1" { &first } else { &second };
-                backend.run(request(args).expect("a recorded call"), CancellationToken::new())
-            });
-            let got = futures::future::join_all(runs).await;
-            let results = step["results"].as_array().expect("results");
-            assert_eq!(got.len(), results.len(), "at {at}");
-            for (got, node) in got.iter().zip(results) {
-                match node.get("toolMeta") {
-                    Some(_) => {
-                        let Err(ComputerError::Failed { message, .. }) = got else { panic!("at {at}: refused by Node, got {got:?}") };
-                        assert_eq!(format_tool_error(message, args), node["content"][0]["text"], "at {at}");
-                    }
-                    None => {
-                        let parts = got.as_ref().unwrap_or_else(|error| panic!("at {at}: Node ran it, got {error:?}"));
-                        assert_content("act", parts, node["content"].as_array().expect("content"), &format!("at {at}"));
-                    }
-                }
+            for node in step["calls"].as_array().expect("calls") {
+                let mut world = World::of(&recorded["world"]);
+                world.writable = if step["uinput"].as_bool().expect("uinput") { vec!["/dev/uinput".to_owned()] } else { Vec::new() };
+                let session = node["sessionId"].as_str().expect("session");
+                replay(world, session, &recorded["call"], node, &format!("at {at} / {session}"), &mut seen).await;
             }
-            assert_eq!(got.iter().filter(|got| got.is_ok()).count() as u64, step["dispatches"].as_u64().expect("dispatches"), "dispatches at {at}");
-            assert_eq!(log.spawned(), step["spawns"], "the probe's processes at {at}");
-            log.requests();
         }
+        assert_eq!(seen.diagnosed, 8);
     }
 }
