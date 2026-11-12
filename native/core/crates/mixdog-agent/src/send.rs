@@ -18,6 +18,7 @@ use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::WsPhase;
 use mixdog_core_api::domain::retry::JitterSamples;
 use mixdog_core_api::domain::retry::RetryClass;
 use mixdog_core_api::domain::retry::RetryPolicy;
@@ -125,6 +126,20 @@ impl Drop for SendGroup {
             runtime.spawn(async move { provider.settle_send(&id, SendEnd::Cancelled).await });
         }
     }
+}
+
+/// `MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT`: the retries one WebSocket send spends, handshake and stream failures alike
+/// (the adapter's own switch to HTTP/SSE ends such a send earlier on a switchable route).
+const WS_RETRY_LIMIT: u32 = 5;
+
+/// `_mustSurfaceCurrentAttempt` (`openai-ws-send-attempts/policy.mjs`): a decision of the current attempt (auth, an
+/// upgrade or rate-limit answer, a 1009, a cancellation, a replay that is no longer safe) is never replaced by the
+/// outage's earlier failure.
+fn must_surface_current(error: &ProviderError, replay_safe: bool) -> bool {
+    matches!(error.status, Some(401 | 403 | 426 | 429))
+        || matches!(error.transport, Some(TransportFault::WsClose { code: Some(1009) }))
+        || error.unsafe_to_retry
+        || !replay_safe
 }
 
 /// The facts that end a stream after it started.
@@ -323,6 +338,8 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
+                    self.first_ws_failure = None;
+                    self.ws_retries = 0;
                     self.settle_prefix(&response);
                     if self.image_strip_active
                         && let Some(sent) = self.last_request.clone()
@@ -807,6 +824,8 @@ impl Run {
                 },
             );
             match decision.verdict {
+                // A WebSocket send's budget is its own: a spent one surfaces, whatever the loop's ladder would allow.
+                Verdict::Retry { .. } if error.ws_phase.is_some() && self.ws_retries >= WS_RETRY_LIMIT => break None,
                 Verdict::Retry { delay, reason, .. } => {
                     break Some((decision.next, Some((delay, reason)), None));
                 }
@@ -843,13 +862,29 @@ impl Run {
             for state in spent {
                 self.retry.store(state);
             }
-            return self.surface(error).await;
+            // A WebSocket send that ends after a retry surfaces the failure that retry left behind (`firstAttemptError`:
+            // `resolveHandshakeFailure` / `resolveStreamFailure`), whether the budget is spent or the attempt is no retry's.
+            let surfaced = match self.first_ws_failure.take() {
+                Some(first) if error.ws_phase.is_some() && !must_surface_current(&error, replay_safe) => first,
+                _ => error,
+            };
+            return self.surface(surfaced).await;
         };
         if retractable && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
             for state in spent {
                 self.retry.store(state);
             }
             return self.surface(error).await;
+        }
+        // The retry about to start leaves its failure behind (`scheduleRetry`): a handshake failure only when none is
+        // kept yet (`remember: !state.firstAttemptError`), a stream failure always (`remember: true`).
+        match error.ws_phase {
+            Some(WsPhase::Stream) => self.first_ws_failure = Some(error.clone()),
+            Some(WsPhase::Handshake) if self.first_ws_failure.is_none() => self.first_ws_failure = Some(error.clone()),
+            _ => {}
+        }
+        if error.ws_phase.is_some() {
+            self.ws_retries += 1;
         }
         for state in spent {
             self.retry.store(state);
@@ -865,6 +900,8 @@ impl Run {
         if let Some(model) = fallback {
             self.model = model.clone();
             self.retry = RetryStates::new(&model);
+            self.first_ws_failure = None;
+            self.ws_retries = 0;
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
@@ -977,6 +1014,8 @@ impl Run {
         self.config.text_only = switch.text_only;
         self.model = switch.model.clone();
         self.retry = RetryStates::new(&self.model);
+        self.first_ws_failure = None;
+        self.ws_retries = 0;
         self.context_overflow_retry_used = false;
         self.baseline = None;
         // The new route's requests are measured from scratch (`route-fallback.mjs`).

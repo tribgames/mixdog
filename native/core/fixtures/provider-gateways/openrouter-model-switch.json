@@ -11,6 +11,7 @@
       "model": "anthropic/claude-sonnet-4.5",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": "sess-1",
       "pin": {
         "provider": "openrouter",
@@ -104,6 +105,7 @@
       "model": "openai/gpt-5",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": "sess-1",
       "pin": {
         "provider": "openrouter",

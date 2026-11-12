@@ -362,6 +362,9 @@ pub struct ListingRules {
     /// Muse Code and OpenCode Go do; MiMo and Command Code do not: `openai-compat.mjs:280`, `wire-gateway.mjs:166`,
     /// `muse-code-oauth.mjs:442`, `opencode-go-oauth.mjs:329`).
     pub caches_model_info: bool,
+    /// The roster is read by the generic class's `fetchCompatModelItems`: the bearer, the client's default headers,
+    /// then the fetch's own `accept` (the other gateways read it with `fetchRoster`, `accept` first).
+    pub plain_fetch: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -389,6 +392,7 @@ impl ListingRules {
         publishes_roster: false,
         shape: ListingShape::Compat,
         caches_model_info: true,
+        plain_fetch: false,
     };
 }
 
@@ -500,7 +504,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: XAI_NO_EFFORT,
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::xai,
         }
     }
@@ -529,7 +533,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::deepseek,
         }
     }
@@ -562,7 +566,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::unprofiled,
         }
     }

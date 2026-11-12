@@ -902,6 +902,14 @@ pub enum DeliveryState {
     Accepted,
 }
 
+/// Where a WebSocket send failed (Node `wsFailurePhase`): before a socket was acquired (the acquire, the upgrade), or
+/// after it (the frame send or the stream itself).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WsPhase {
+    Handshake,
+    Stream,
+}
+
 /// The facts that end a link or stream (SPEC §4.9 cases 1–4).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TransportFault {
@@ -1018,6 +1026,9 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The failure came from a WebSocket send, and where (Node `wsFailurePhase`); the loop keeps such a failure
+    /// when a retry follows it, since an outage that ends later surfaces that one.
+    pub ws_phase: Option<WsPhase>,
 }
 
 impl ProviderError {
@@ -1044,6 +1055,7 @@ impl ProviderError {
             unsafe_to_retry: false,
             timed_out: false,
             quota_limit: None,
+            ws_phase: None,
             notices: Vec::new(),
         }
     }

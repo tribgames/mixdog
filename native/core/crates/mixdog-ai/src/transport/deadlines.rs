@@ -34,10 +34,18 @@ const fn secs(n: u64) -> Duration {
 /// `client.chat.completions.create`; Grok, local and custom providers ride these engines).
 pub const MODEL_STREAM: Exchange = Exchange::new(Liveness::stream(secs(600)), Redirect::Follow, Surface::Sdk);
 
-/// A model response through a raw `fetch`: the OpenAI HTTP stream (`openai-http-sse-request.mjs:108`
-/// `fetchFn(responsesUrl, …)`, the error rethrown as it is at `:116-118`) and Gemini REST
-/// (`gemini.mjs:798,824` `this._fetch`). Same head bound as [`MODEL_STREAM`]; text `fetch failed`.
+/// A model response through a raw `fetch`: Gemini REST (`gemini.mjs:798,824` `this._fetch`). Same head bound as
+/// [`MODEL_STREAM`]; text `fetch failed`. (The OpenAI HTTP stream has its own timer: [`OPENAI_HTTP_RESPONSE`].)
 pub const MODEL_STREAM_FETCH: Exchange = Exchange::new(Liveness::stream(secs(600)), Redirect::Follow, Surface::Fetch);
+
+/// The OpenAI HTTP stream's initial-response timer (`openai-http-sse-request.mjs:101-105`: `createTimeoutSignal(…,
+/// PROVIDER_HTTP_RESPONSE_TIMEOUT_MS, `${label} initial response`)`): the fetch rejects with that signal's reason,
+/// `<label> initial response timed out after <wait_ms>ms`. The label is `httpLabel(auth)`: the OAuth route's or the
+/// API key's. `wait_ms` is `policy::http_response_ms` (`stall-policy.mjs:98`).
+pub fn openai_http_response(oauth: bool, wait_ms: f64) -> Exchange {
+    let label = if oauth { "OpenAI OAuth HTTP fallback initial response" } else { "OpenAI HTTP fallback initial response" };
+    Exchange::new(Liveness::stream(Duration::from_millis(wait_ms as u64)), Redirect::Follow, Surface::FetchLabeled(label))
+}
 
 /// The connection warm-up: `shared/llm/http-agent.mjs:504-515` `undici.request(origin, { method: 'HEAD', signal:
 /// AbortSignal.timeout(10_000) })`, which does not follow redirects; its failure is swallowed.

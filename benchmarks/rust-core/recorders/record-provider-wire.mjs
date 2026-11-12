@@ -314,6 +314,21 @@ for (const [name, failure, status] of MAAS) {
   });
 }
 
+// The documented reasoning parameter per family (`MAAS_CHAT_PROFILE.applyParams`): gpt-oss takes `reasoning_effort`,
+// another open model carries none whatever the effort.
+for (const [name, model] of [['gpt-oss-effort', 'openai/gpt-oss-120b-maas'], ['other-family-no-effort', 'qwen/qwen3-coder-480b-a35b-instruct-maas']]) {
+  scenarios.push({
+    group: 'vertex-maas',
+    name,
+    provider: 'vertex-ai-adc',
+    model,
+    messages: hi,
+    tools: null,
+    opts: { effort: 'high' },
+    script: () => router(sequence(ok(chatText()))),
+  });
+}
+
 // Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-552): an Anthropic request through streamRawPredict, plain, with
 // tools and effort, and a 529 retried on the Anthropic backoff.
 const claudeTurn = [{ role: 'system', content: 'You are a fixture assistant.' }, { role: 'user', content: 'Hello' }];

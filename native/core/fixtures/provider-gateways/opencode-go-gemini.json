@@ -32,6 +32,9 @@
       "model": "gemini-3-pro",
       "tools": [],
       "history": [],
+      "opts": {
+        "sessionId": "sess-go"
+      },
       "sessionId": "sess-go",
       "requests": [
         {

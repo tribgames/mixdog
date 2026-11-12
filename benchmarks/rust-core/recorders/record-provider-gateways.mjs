@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
   hub.events?.push({ on: 'request', n: hub.records.length });
   const reply = hub.reply?.(rec, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
   rec.reply = reply;
-  res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream' });
+  res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
   res.end(reply.body);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -121,6 +121,8 @@ writeFileSync(join(dataDir, 'modelsdev-catalog.json'), JSON.stringify({ fetchedA
 const { initProviders, getProvider } = await P('agent/orchestrator/providers/registry.mjs');
 const { pinSessionWireRoute } = await P('agent/orchestrator/providers/wire-route.mjs');
 const { newProviderAccountId, readProviderAccountPool, setCustomProviderKeyIds } = await P('shared/provider-accounts.mjs');
+const { makeResolveRoute, makeResolveDefaultProvider } = await P('agent/orchestrator/runtime-core/config-helpers.mjs');
+const { routeFastKey } = await P('agent/orchestrator/runtime-core/model-capabilities.mjs');
 
 // ---- answers ----
 const j = JSON.stringify;
@@ -156,6 +158,18 @@ const anthropicText = () => sse([
   { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } },
   { type: 'message_stop' },
 ], true);
+// The final usage of an OpenRouter answer: the inclusive input's parts and the gateway's own cost.
+const anthropicCost = () => sse([
+  { type: 'message_start', message: { id: 'msg_x', type: 'message', role: 'assistant', model: 'fixture', content: [], usage: { input_tokens: 9, output_tokens: 1, cache_read_input_tokens: 14268, cache_creation_input_tokens: 0 } } },
+  { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+  { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+  { type: 'content_block_stop', index: 0 },
+  { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 9, output_tokens: 5, cache_read_input_tokens: 14268, cost: 0.0014608 } },
+  { type: 'message_stop' },
+], true);
+const responsesCost = () => sse([
+  { type: 'response.completed', response: { id: 'resp_x', model: 'fixture', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 10, output_tokens: 2, cost: 0.0001 } } },
+]);
 const geminiText = () => sse([
   { candidates: [{ content: { role: 'model', parts: [{ text: 'The result ' }] } }], modelVersion: 'fixture' },
   { candidates: [{ content: { role: 'model', parts: [{ text: 'is 42.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 8, totalTokenCount: 28 }, modelVersion: 'fixture' },
@@ -200,6 +214,13 @@ const UNSUPPORTED = { message: 'This model is not available on the /v1/messages 
 
 // One send: `session` (optional) is pinned first as the turn does (`pinSessionWireRoute`).
 const send = (model, { tools = [], history = [], session = null, opts = {} } = {}) => ({ model, tools, history, session, opts });
+// A send whose turn effort is what Node's `resolveRoute(config, request)` answers: the recording keeps the route's
+// inputs and its effort, and the send's `opts.effort` is that answer (null when no layer names one).
+const resolveRoute = makeResolveRoute(makeResolveDefaultProvider(() => true));
+const layered = (model, routeConfig, request, opts) => {
+  const { effort } = resolveRoute(structuredClone(routeConfig), structuredClone(request));
+  return { ...send(model, { opts: { ...opts, effort } }), route: { config: routeConfig, request, effort } };
+};
 
 const scenarios = [
   // xAI: Responses over HTTP/SSE by default; Chat when its API mode says so.
@@ -211,6 +232,46 @@ const scenarios = [
   { id: 'openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4.5')] },
   { id: 'openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(responsesText()), sends: [send('openai/gpt-5')] },
   { id: 'openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(chatText('The result is 42.')), sends: [send('meta-llama/llama-4-maverick')] },
+  // OpenRouter Messages: the routing slug stays on the wire, the capabilities come from the catalog's alias target;
+  // OpenRouter's reasoning control (`none`, the explicit effort, the turn effort) replaces the turn effort; the final
+  // usage carries the inclusive input, the cache read and the gateway's cost.
+  {
+    id: 'openrouter-alias-slug', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ data: [
+        { id: '~anthropic/claude-sonnet-latest', alias_target: { name: 'Claude Sonnet', slug: 'anthropic/claude-sonnet-4-6' }, context_length: 1000000 },
+        { id: 'anthropic/claude-sonnet-4-6', context_length: 1000000 },
+      ] }) }
+      : ok(anthropicText())),
+    sends: [send('~anthropic/claude-sonnet-latest', { tools: TOOLS, opts: { effort: 'high' } })],
+  },
+  {
+    id: 'openrouter-messages-reasoning', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => ok(anthropicText()),
+    sends: [
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high', openRouterReasoningEffort: 'none' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high', openRouterReasoningEffort: 'low' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'medium' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: {} }),
+    ],
+  },
+  {
+    id: 'openrouter-responses-reasoning', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')),
+    sends: [
+      send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'low', openRouterReasoningEffort: 'high' } }),
+      send('~openai/gpt-sol-latest', { tools: TOOLS, opts: { openRouterReasoningEffort: 'none' } }),
+      send('openai/gpt-5', { tools: TOOLS, opts: {} }),
+      send('openrouter/auto', { tools: TOOLS, opts: { effort: 'medium' } }),
+    ],
+  },
+  { id: 'openrouter-messages-usage', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(anthropicCost()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS })] },
+  // The Messages engine never follows a redirect (`originBoundFetch`): the 3xx is the send's error.
+  {
+    id: 'openrouter-messages-redirect', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => ({ status: 307, contentType: 'text/plain', headers: { location: 'https://evil.example/steal' }, body: '' }),
+    sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS })],
+  },
   // A model switch inside one session: the pin is resolved again for the new model.
   {
     id: 'openrouter-model-switch', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
@@ -259,6 +320,60 @@ const scenarios = [
       : ok(body())),
     sends: [send(model, { opts: { sessionId: 'sess-go' } })],
   })),
+  // The Gemini engine never follows a redirect (`originBoundFetch`): the 3xx is the send's error, whatever the Location.
+  {
+    id: 'opencode-go-gemini-redirect', provider: 'opencode-go-oauth',
+    setup: () => cred('opencode-go-oauth.json', { access_token: 'go-access', refresh_token: 'go-refresh', expires_at: FAR, account_id: 'acct-fixture', email: 'fixture@example.invalid' }),
+    config: { ...base }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ providers: { 'opencode-go': { settings: { baseURL: 'https://opencode.ai/inference/go/openai/v1' }, models: { 'gemini-3-pro': { name: 'gemini-3-pro', limit: { context: 128000, output: 8192 } } } } } }) }
+      : { status: 307, contentType: 'text/plain', headers: { location: 'https://evil.example/steal' }, body: '' }),
+    sends: [send('gemini-3-pro', { opts: { sessionId: 'sess-go' } })],
+  },
+  // The roster request of the key providers (the catalog refresh a running core makes), before a send.
+  ...[['xai-listing', 'xai', 'xai-fixture', 'grok-4.3', () => ok(responsesText())], ['deepseek-listing', 'deepseek', 'ds-fixture', 'deepseek-v4-pro', () => ok(chatText('The result is 42.'))]].map(([id, provider, apiKey, model, body]) => ({
+    id, provider, config: { ...base, apiKey }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ object: 'list', data: [{ id: model, object: 'model', created: 1760000000, owned_by: provider }, { id: `${model}-mini`, object: 'model', created: 1760000001, owned_by: provider }] }) }
+      : body()),
+    sends: [send(model)],
+  })),
+  // The provider config's `reasoningEffort` stands in for a turn that names none; the turn's own effort (even `none`) wins over it.
+  { id: 'config-effort-xai-responses', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', reasoningEffort: 'low' }, reply: () => ok(responsesText()), sends: [send('grok-4.3'), send('grok-4.3', { opts: { effort: 'high' } }), send('grok-4.3', { opts: { effort: 'none' } })] },
+  { id: 'config-effort-deepseek-messages', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'high' }, reply: () => ok(anthropicText()), sends: [send('deepseek-v4-pro', { tools: TOOLS })] },
+  ...[
+    ['config-effort-opencode-go-messages', 'opencode-go-oauth', () => cred('opencode-go-oauth.json', { access_token: 'go-access', refresh_token: 'go-refresh', expires_at: FAR, account_id: 'acct-fixture', email: 'fixture@example.invalid' }), 'minimax-m3', anthropicText,
+      (model) => ({ status: 200, contentType: 'application/json', body: j({ providers: { 'opencode-go': { settings: { baseURL: 'https://opencode.ai/inference/go/openai/v1' }, models: { [model]: { name: model, limit: { context: 128000, output: 8192 } } } } } }) })],
+    ['config-effort-command-code-messages', 'command-code-oauth', () => cred('command-code-oauth.json', { apiKey: 'cc-fixture', userId: 'u1', userName: 'fixture' }), 'claude-sonnet-4-6', anthropicText,
+      () => ({ status: 200, contentType: 'application/json', body: j({ data: [{ id: 'claude-sonnet-4-6', supported_endpoints: ['/v1/messages'] }] }) })],
+  ].map(([id, provider, setup, model, body, roster]) => ({
+    id, provider, setup, config: { ...base, reasoningEffort: 'low' }, prime: true,
+    reply: (rec) => (rec.method === 'GET' ? roster(model) : ok(body())),
+    sends: [send(model, { tools: TOOLS, opts: { sessionId: 'sess-effort' } })],
+  })),
+  { id: 'config-effort-deepseek-chat', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'high' }, reply: () => ok(chatText('The result is 42.')), sends: [send('deepseek-v4-pro'), send('deepseek-v4-pro', { opts: { effort: 'low' } })] },
+  { id: 'config-effort-xai-chat', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'low' }, reply: () => ok(chatText('The result is 42.')), sends: [send('grok-4.3', { opts: { sessionId: 'sess-xai' } }), send('grok-4.3', { opts: { sessionId: 'sess-xai', effort: 'high' } })] },
+  { id: 'config-effort-openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS }), send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high' } })] },
+  { id: 'config-effort-openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')), sends: [send('openai/gpt-5', { tools: TOOLS }), send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'high' } })] },
+  { id: 'config-effort-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'medium' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS }), send('openrouter/auto', { tools: TOOLS, opts: { effort: 'low' } })] },
+  // The whole precedence of a reasoning effort, one case per pair of neighbouring layers: the turn's own effort
+  // (`resolveRoute` request), the session's saved choice (`modelSettings`), the agent preset's, the provider's
+  // `reasoningEffort`. Node's `resolveRoute` decides the route's effort, the provider's send then reads it as `opts.effort`.
+  ...[
+    ['effort-layers-turn-over-session', { effort: 'high' }, true],
+    ['effort-layers-session-over-preset', {}, true],
+    ['effort-layers-preset-over-config', {}, false],
+  ].map(([id, request, saved]) => ({
+    id, provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'xhigh' }, reply: () => ok(chatText('The result is 42.')),
+    sends: [layered('grok-4.3', {
+      presets: [{ id: 'fixture-preset', provider: 'xai', model: 'grok-4.3', effort: 'low' }],
+      ...(saved ? { modelSettings: { [routeFastKey('xai', 'grok-4.3')]: { effort: 'medium' } } } : {}),
+    }, { model: 'fixture-preset', ...request }, { sessionId: 'sess-xai' })],
+  })),
+  // A configured effort the engine does not carry: xAI knows low/medium/high/xhigh, OpenRouter's list has `max` and not `bogus`, DeepSeek maps what it knows and leaves thinking on for the rest.
+  { id: 'config-effort-unsupported-xai-chat', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'max' }, reply: () => ok(chatText('The result is 42.')), sends: [send('grok-4.3', { opts: { sessionId: 'sess-xai' } })] },
+  { id: 'config-effort-unsupported-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'bogus' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS })] },
+  { id: 'config-effort-unsupported-deepseek-chat', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'bogus' }, reply: () => ok(chatText('The result is 42.')), sends: [send('deepseek-v4-pro')] },
   // Command Code: Claude answers on Messages even with no roster; the rest on Chat.
   // Command Code: the roster's declared endpoints pick the wire (read once, before the sends).
   ...[
@@ -338,7 +453,15 @@ const resultOf = (r) => ({
   toolCalls: (r?.toolCalls ?? []).map((c) => ({ id: c.id, name: c.name, arguments: c.arguments })),
   reasoningContent: r?.reasoningContent ?? null,
   stopReason: r?.stopReason ?? null,
-  usage: r?.usage ? { inputTokens: r.usage.inputTokens ?? null, outputTokens: r.usage.outputTokens ?? null } : null,
+  // The cache read and the gateway's cost are kept only when the answer reported them.
+  usage: r?.usage
+    ? {
+        inputTokens: r.usage.inputTokens ?? null,
+        outputTokens: r.usage.outputTokens ?? null,
+        ...(r.usage.cachedTokens ? { cachedTokens: r.usage.cachedTokens } : {}),
+        ...(r.usage.costUsd !== undefined ? { costUsd: r.usage.costUsd } : {}),
+      }
+    : null,
   providerMetadata: r?.providerMetadata ?? null,
   wireReroute: r?.wireReroute ?? null,
 });
@@ -417,6 +540,8 @@ for (const s of scenarios) {
       model: one.model,
       tools: one.tools.map((t) => t.name),
       history,
+      opts: one.opts,
+      ...(one.route ? { route: one.route } : {}),
       sessionId: opts.sessionId ?? null,
       ...(one.session ? { pin: pin ?? null, pinAfter: session.wireRoute ?? null } : {}),
       requests: hub.records.map(({ reply, ...rec }) => ({ ...rec, answer: { status: reply.status ?? 200, body: reply.body } })),
@@ -449,6 +574,9 @@ writeSetManifest(outDir, {
       "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
       "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
       "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
+      'result.usage fields other than inputTokens, outputTokens, cachedTokens and costUsd': 'promptTokens equals inputTokens on every wire of these gateways (inclusive input), cacheWriteTokens and raw are not recorded; cachedTokens and costUsd are recorded only when the answer reported them',
+      'send.opts': 'the arguments of the Node call the recording was made with (the turn effort, OpenRouter\'s own effort); the replay maps effort to the request\'s effort and openRouterReasoningEffort to its model parameter of the same name. The callbacks and the session objects the recorder adds are not recorded',
+      'the Messages engine\'s redirect error text': 'Node names the connection error the SDK raises ("Connection error.") and keeps the guard\'s sentence only as its cause; the core carries the connection error text, and its typed transport fault in place of the cause',
       "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
       "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
       "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",

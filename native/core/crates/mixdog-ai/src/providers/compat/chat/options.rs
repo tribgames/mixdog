@@ -27,6 +27,27 @@ fn effort(request: &ModelRequest) -> Option<&str> {
     request.options.effort.as_deref()
 }
 
+/// OpenRouter's unified `reasoning` field, shared by its Chat, Responses and Messages wires
+/// (`openRouterReasoning`): `openRouterReasoningEffort`, else the turn effort; `none` disables reasoning. `None` when
+/// no effort applies.
+pub fn openrouter_reasoning(request: &ModelRequest) -> Option<JsonValue> {
+    let raw = parameter(request, "openRouterReasoningEffort").and_then(JsonValue::as_str).or(effort(request));
+    match raw.map(lower).as_deref() {
+        Some("none") => Some(json!({ "enabled": false })),
+        Some(l @ ("minimal" | "low" | "medium" | "high" | "xhigh" | "max")) => Some(json!({ "enabled": true, "effort": l })),
+        _ => None,
+    }
+}
+
+/// `openRouterProviderRouting`: `{ sort }` for the request's `provider` field, nothing for Auto or an unknown value.
+pub fn openrouter_provider(request: &ModelRequest) -> Option<JsonValue> {
+    let sort = parameter(request, "providerSort").and_then(JsonValue::as_str).map(lower);
+    match sort.as_deref() {
+        Some(sort @ ("price" | "throughput" | "latency")) => Some(json!({ "sort": sort })),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ThinkingMode {
     Enabled,
@@ -108,24 +129,11 @@ fn apply_effort(
             }
         }
         EffortDialect::OpenRouter => {
-            let raw = parameter(request, "openRouterReasoningEffort")
-                .and_then(JsonValue::as_str)
-                .or(requested);
-            let level = raw.map(lower);
-            match level.as_deref() {
-                Some("none") => {
-                    body.insert("reasoning".into(), json!({ "enabled": false }));
-                }
-                Some(l @ ("minimal" | "low" | "medium" | "high" | "xhigh" | "max")) => {
-                    body.insert("reasoning".into(), json!({ "enabled": true, "effort": l }));
-                }
-                _ => {}
+            if let Some(reasoning) = openrouter_reasoning(request) {
+                body.insert("reasoning".into(), reasoning);
             }
-            let sort = parameter(request, "providerSort")
-                .and_then(JsonValue::as_str)
-                .map(lower);
-            if let Some(sort @ ("price" | "throughput" | "latency")) = sort.as_deref() {
-                body.insert("provider".into(), json!({ "sort": sort }));
+            if let Some(provider) = openrouter_provider(request) {
+                body.insert("provider".into(), provider);
             }
         }
         EffortDialect::DeclaredOrBasic | EffortDialect::Declared => {

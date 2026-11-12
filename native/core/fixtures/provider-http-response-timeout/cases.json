@@ -1,0 +1,1127 @@
+{
+  "set": "provider-http-response-timeout",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "direct:unset",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": null,
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          0
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 60000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 59999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 59999,
+          "fired": [
+            {
+              "dueMs": 60000
+            }
+          ],
+          "toMs": 60000
+        }
+      ]
+    },
+    {
+      "id": "direct:smaller",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "10000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          60000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 70000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 60000,
+          "fired": [],
+          "toMs": 69999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 69999,
+          "fired": [
+            {
+              "dueMs": 70000
+            }
+          ],
+          "toMs": 70000
+        }
+      ]
+    },
+    {
+      "id": "direct:larger",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "120000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          70000
+        ],
+        "armedForMs": 120000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 190000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 120000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 119999,
+          "fromMs": 70000,
+          "fired": [],
+          "toMs": 189999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 189999,
+          "fired": [
+            {
+              "dueMs": 190000
+            }
+          ],
+          "toMs": 190000
+        }
+      ]
+    },
+    {
+      "id": "direct:below-floor",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "5000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          190000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 200000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 190000,
+          "fired": [],
+          "toMs": 199999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 199999,
+          "fired": [
+            {
+              "dueMs": 200000
+            }
+          ],
+          "toMs": 200000
+        }
+      ]
+    },
+    {
+      "id": "direct:above-ceiling",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "900000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          200000
+        ],
+        "armedForMs": 285000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 485000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 285000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 284999,
+          "fromMs": 200000,
+          "fired": [],
+          "toMs": 484999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 484999,
+          "fired": [
+            {
+              "dueMs": 485000
+            }
+          ],
+          "toMs": 485000
+        }
+      ]
+    },
+    {
+      "id": "direct:invalid-text",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "bogus",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          485000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 545000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 485000,
+          "fired": [],
+          "toMs": 544999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 544999,
+          "fired": [
+            {
+              "dueMs": 545000
+            }
+          ],
+          "toMs": 545000
+        }
+      ]
+    },
+    {
+      "id": "direct:invalid-zero",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "0",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          545000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 605000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 545000,
+          "fired": [],
+          "toMs": 604999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 604999,
+          "fired": [
+            {
+              "dueMs": 605000
+            }
+          ],
+          "toMs": 605000
+        }
+      ]
+    },
+    {
+      "id": "direct:invalid-negative",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "-5",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          605000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 665000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 605000,
+          "fired": [],
+          "toMs": 664999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 664999,
+          "fired": [
+            {
+              "dueMs": 665000
+            }
+          ],
+          "toMs": 665000
+        }
+      ]
+    },
+    {
+      "id": "direct:empty",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          665000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 725000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 665000,
+          "fired": [],
+          "toMs": 724999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 724999,
+          "fired": [
+            {
+              "dueMs": 725000
+            }
+          ],
+          "toMs": 725000
+        }
+      ]
+    },
+    {
+      "id": "direct:exponent",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "1e4",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          725000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 735000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 725000,
+          "fired": [],
+          "toMs": 734999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 734999,
+          "fired": [
+            {
+              "dueMs": 735000
+            }
+          ],
+          "toMs": 735000
+        }
+      ]
+    },
+    {
+      "id": "direct:padded",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": " 20000 ",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          735000
+        ],
+        "armedForMs": 20000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 755000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 20000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 19999,
+          "fromMs": 735000,
+          "fired": [],
+          "toMs": 754999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 754999,
+          "fired": [
+            {
+              "dueMs": 755000
+            }
+          ],
+          "toMs": 755000
+        }
+      ]
+    },
+    {
+      "id": "direct:stall-100s-larger",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "120000",
+        "STALL_TIMEOUT_S": "100"
+      },
+      "result": {
+        "fetchedAtMs": [
+          755000
+        ],
+        "armedForMs": 35000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 790000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 35000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 34999,
+          "fromMs": 755000,
+          "fired": [],
+          "toMs": 789999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 789999,
+          "fired": [
+            {
+              "dueMs": 790000
+            }
+          ],
+          "toMs": 790000
+        }
+      ]
+    },
+    {
+      "id": "direct:stall-20s",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "30000",
+        "STALL_TIMEOUT_S": "20"
+      },
+      "result": {
+        "fetchedAtMs": [
+          790000
+        ],
+        "armedForMs": 1000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 791000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 1000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 999,
+          "fromMs": 790000,
+          "fired": [],
+          "toMs": 790999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 790999,
+          "fired": [
+            {
+              "dueMs": 791000
+            }
+          ],
+          "toMs": 791000
+        }
+      ]
+    },
+    {
+      "id": "direct:stall-invalid",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "direct",
+        "setting": "30000",
+        "STALL_TIMEOUT_S": "soon"
+      },
+      "result": {
+        "fetchedAtMs": [
+          791000
+        ],
+        "armedForMs": 30000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 821000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI HTTP fallback initial response timed out after 30000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 29999,
+          "fromMs": 791000,
+          "fired": [],
+          "toMs": 820999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 820999,
+          "fired": [
+            {
+              "dueMs": 821000
+            }
+          ],
+          "toMs": 821000
+        }
+      ]
+    },
+    {
+      "id": "oauth:unset",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": null,
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          821000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 881000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 821000,
+          "fired": [],
+          "toMs": 880999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 880999,
+          "fired": [
+            {
+              "dueMs": 881000
+            }
+          ],
+          "toMs": 881000
+        }
+      ]
+    },
+    {
+      "id": "oauth:smaller",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "10000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          881000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 891000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 881000,
+          "fired": [],
+          "toMs": 890999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 890999,
+          "fired": [
+            {
+              "dueMs": 891000
+            }
+          ],
+          "toMs": 891000
+        }
+      ]
+    },
+    {
+      "id": "oauth:larger",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "120000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          891000
+        ],
+        "armedForMs": 120000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1011000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 120000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 119999,
+          "fromMs": 891000,
+          "fired": [],
+          "toMs": 1010999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1010999,
+          "fired": [
+            {
+              "dueMs": 1011000
+            }
+          ],
+          "toMs": 1011000
+        }
+      ]
+    },
+    {
+      "id": "oauth:below-floor",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "5000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1011000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1021000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 1011000,
+          "fired": [],
+          "toMs": 1020999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1020999,
+          "fired": [
+            {
+              "dueMs": 1021000
+            }
+          ],
+          "toMs": 1021000
+        }
+      ]
+    },
+    {
+      "id": "oauth:above-ceiling",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "900000",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1021000
+        ],
+        "armedForMs": 285000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1306000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 285000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 284999,
+          "fromMs": 1021000,
+          "fired": [],
+          "toMs": 1305999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1305999,
+          "fired": [
+            {
+              "dueMs": 1306000
+            }
+          ],
+          "toMs": 1306000
+        }
+      ]
+    },
+    {
+      "id": "oauth:invalid-text",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "bogus",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1306000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1366000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 1306000,
+          "fired": [],
+          "toMs": 1365999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1365999,
+          "fired": [
+            {
+              "dueMs": 1366000
+            }
+          ],
+          "toMs": 1366000
+        }
+      ]
+    },
+    {
+      "id": "oauth:invalid-zero",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "0",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1366000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1426000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 1366000,
+          "fired": [],
+          "toMs": 1425999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1425999,
+          "fired": [
+            {
+              "dueMs": 1426000
+            }
+          ],
+          "toMs": 1426000
+        }
+      ]
+    },
+    {
+      "id": "oauth:invalid-negative",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "-5",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1426000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1486000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 1426000,
+          "fired": [],
+          "toMs": 1485999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1485999,
+          "fired": [
+            {
+              "dueMs": 1486000
+            }
+          ],
+          "toMs": 1486000
+        }
+      ]
+    },
+    {
+      "id": "oauth:empty",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1486000
+        ],
+        "armedForMs": 60000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1546000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 59999,
+          "fromMs": 1486000,
+          "fired": [],
+          "toMs": 1545999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1545999,
+          "fired": [
+            {
+              "dueMs": 1546000
+            }
+          ],
+          "toMs": 1546000
+        }
+      ]
+    },
+    {
+      "id": "oauth:exponent",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "1e4",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1546000
+        ],
+        "armedForMs": 10000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1556000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 10000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 9999,
+          "fromMs": 1546000,
+          "fired": [],
+          "toMs": 1555999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1555999,
+          "fired": [
+            {
+              "dueMs": 1556000
+            }
+          ],
+          "toMs": 1556000
+        }
+      ]
+    },
+    {
+      "id": "oauth:padded",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": " 20000 ",
+        "STALL_TIMEOUT_S": null
+      },
+      "result": {
+        "fetchedAtMs": [
+          1556000
+        ],
+        "armedForMs": 20000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1576000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 20000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 19999,
+          "fromMs": 1556000,
+          "fired": [],
+          "toMs": 1575999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1575999,
+          "fired": [
+            {
+              "dueMs": 1576000
+            }
+          ],
+          "toMs": 1576000
+        }
+      ]
+    },
+    {
+      "id": "oauth:stall-100s-larger",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "120000",
+        "STALL_TIMEOUT_S": "100"
+      },
+      "result": {
+        "fetchedAtMs": [
+          1576000
+        ],
+        "armedForMs": 35000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1611000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 35000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 34999,
+          "fromMs": 1576000,
+          "fired": [],
+          "toMs": 1610999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1610999,
+          "fired": [
+            {
+              "dueMs": 1611000
+            }
+          ],
+          "toMs": 1611000
+        }
+      ]
+    },
+    {
+      "id": "oauth:stall-20s",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "30000",
+        "STALL_TIMEOUT_S": "20"
+      },
+      "result": {
+        "fetchedAtMs": [
+          1611000
+        ],
+        "armedForMs": 1000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1612000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 1000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 999,
+          "fromMs": 1611000,
+          "fired": [],
+          "toMs": 1611999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1611999,
+          "fired": [
+            {
+              "dueMs": 1612000
+            }
+          ],
+          "toMs": 1612000
+        }
+      ]
+    },
+    {
+      "id": "oauth:stall-invalid",
+      "source": "openai-http-sse-request.mjs:101",
+      "input": {
+        "route": "oauth",
+        "setting": "30000",
+        "STALL_TIMEOUT_S": "soon"
+      },
+      "result": {
+        "fetchedAtMs": [
+          1612000
+        ],
+        "armedForMs": 30000,
+        "rejectedBeforeTheTimer": false,
+        "rejectedAtMs": 1642000,
+        "error": {
+          "name": "ProviderTimeoutError",
+          "message": "OpenAI OAuth HTTP fallback initial response timed out after 30000ms",
+          "code": "EPROVIDERTIMEOUT"
+        }
+      },
+      "clock": [
+        {
+          "advanceMs": 29999,
+          "fromMs": 1612000,
+          "fired": [],
+          "toMs": 1641999
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1641999,
+          "fired": [
+            {
+              "dueMs": 1642000
+            }
+          ],
+          "toMs": 1642000
+        }
+      ]
+    }
+  ]
+}

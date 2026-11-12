@@ -11,6 +11,7 @@
       "model": "grok-4.3",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
