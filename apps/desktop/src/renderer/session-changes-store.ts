@@ -22,6 +22,7 @@ import {
   decodeTurnReviewCapabilityValue,
   resolveSessionRows,
   summarizeSessionDiffRows,
+  fileChangeKey,
   TURN_REVIEW_CAPABILITY,
   type TurnReviewCapabilityValue,
 } from './turn-review-model';
@@ -1089,7 +1090,14 @@ export function useSessionChanges({
   const laneRevision = useSessionLaneRevision(session, defaultSessionLaneStore, active);
   const revision = activityKey(lane, laneRevision);
   const busy = Boolean(lane?.busy || lane?.commandBusy);
-  const diff = useSessionDiffRefresh({ sessionId: git ? '' : session, active, revision, busy });
+  // The session diff re-reads on what can change files (a finished tool that
+  // may write, a turn's end via `busy`), not on every lane publication.
+  const laneItemsForKey = lane?.items;
+  const changeRevision = useMemo(
+    () => `${fileChangeKey(laneItemsForKey)}:${busy ? 1 : 0}`,
+    [laneItemsForKey, busy]
+  );
+  const diff = useSessionDiffRefresh({ sessionId: git ? '' : session, active, revision: changeRevision, busy });
   useEffect(() => {
     if (!active || !watchable) return;
     return retainChangesWatch(target);

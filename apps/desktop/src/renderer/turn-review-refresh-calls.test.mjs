@@ -455,3 +455,31 @@ test('a review tag is only sent while the review it names is still cached', asyn
   assert.equal(requests.at(-1).args[0].known, undefined, 'a dropped review is read in full again');
   await answer();
 });
+
+test('a turn of 200 lane publications reads the review once per file-changing tool and once at its end', async (t) => {
+  const { render, pending, answer, requests } = mount(t, 'sess-review-publications');
+  const drain = async () => {
+    while (pending.length) await answer();
+  };
+  const publish = async (items, busy) => {
+    await render(items, busy);
+    await drain();
+  };
+  // The turn's first activity opens the review (one read); the count starts after it.
+  let items = [prompt, { kind: 'text', id: 'first-text', text: 'start' }];
+  await publish(items, true);
+  const baseline = requests.length;
+  const changing = new Set([50, 100, 150]);
+  for (let index = 1; index <= 200; index += 1) {
+    const item = changing.has(index)
+      ? edit(`patch-${index}`)
+      : index % 4 === 0
+        ? { kind: 'text', id: `text-${index}`, text: `chunk ${index}` }
+        : { kind: 'tool', id: `read-${index}`, name: 'read', args: {}, result: 'text', completedAt: index };
+    items = [...items, item];
+    await publish(items, true);
+  }
+  assert.equal(requests.length - baseline, 3, 'only the three file-changing tools read while the turn runs');
+  await publish([...items, { kind: 'turndone', id: 'done' }], false);
+  assert.equal(requests.length - baseline, 4, "the turn's end reads once more");
+});

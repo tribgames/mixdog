@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { summarizeSessionDiffRows, summarizeSessionTranscriptReview } from './turn-review-model.ts';
+import { fileChangeKey, summarizeSessionDiffRows, summarizeSessionTranscriptReview } from './turn-review-model.ts';
+
+test('the change key moves on a finished call that may write files, a visualize export included, and on nothing else', () => {
+  const base = [{ kind: 'user', id: 'u1', text: 'go' }];
+  const done = (id, name, args = {}) => ({ kind: 'tool', id, name, args, result: 'ok', status: 'done', completedAt: 1 });
+  const key = fileChangeKey(base);
+  assert.equal(
+    fileChangeKey([...base, { kind: 'assistant', id: 'a1', text: 'hi' }, done('t1', 'read', { path: 'a.txt' })]),
+    key
+  );
+  assert.equal(
+    fileChangeKey([
+      ...base,
+      { kind: 'tool', id: 't2', name: 'visualize', args: { action: 'export' }, status: 'running' },
+    ]),
+    key
+  );
+  assert.notEqual(fileChangeKey([...base, done('t2', 'visualize', { action: 'export' })]), key);
+  assert.notEqual(fileChangeKey([...base, done('t3', 'shell', { command: 'x' })]), key);
+});
 
 const patchFor = (file, added, removed) =>
   `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n${'-x\n'.repeat(removed)}${'+y\n'.repeat(added)}`;

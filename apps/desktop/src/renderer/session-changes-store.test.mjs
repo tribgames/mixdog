@@ -894,7 +894,7 @@ test('a failed lazy file read shows a retryable failure, never "no textual diffe
   assert.equal(drawn[0].parts.length, 1);
 });
 
-test('a lane revision on the publication envelope refreshes the session diff although the snapshot looks the same', async (t) => {
+test('a lane revision on the publication envelope alone reads nothing: only file-changing activity does', async (t) => {
   let reads = 0;
   const view = mount(t, {
     invokeCapability: async () => {
@@ -920,13 +920,11 @@ test('a lane revision on the publication envelope refreshes the session diff alt
   const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
   await wait(50);
   assert.equal(reads, 1);
-  // A tool completes before the last transcript item: only the envelope revision moves.
+  // Lane publications that cannot change files (the revision moves, the items do not) read nothing.
   await publish(2);
-  for (let waited = 0; reads < 2 && waited < 5_000; waited += 20) await wait(20);
-  assert.equal(reads, 2);
-  await publish(2);
+  await publish(3);
   await wait(400);
-  assert.equal(reads, 2, 'an unchanged revision reads nothing');
+  assert.equal(reads, 1);
 });
 
 test('without a publication revision, a tool completing before the last transcript item still refreshes the session diff', async (t) => {
@@ -940,7 +938,7 @@ test('without a publication revision, a tool completing before the last transcri
   const states = {};
   const Probe = probes(states);
   const items = (editStatus) => [
-    { id: 'edit-tool', name: 'edit', status: editStatus },
+    { kind: 'tool', id: 'edit-tool', name: 'edit', status: editStatus },
     { id: 'last', completedAt: 1 },
   ];
   const publish = (editStatus) =>
