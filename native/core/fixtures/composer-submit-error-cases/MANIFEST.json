@@ -26,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/composer-error-scenarios.mjs",
-      "sha256": "c7d759147c9e4268c3184b568ce8de15ce9164f25c69b951af8f8976aca9a0cd"
+      "sha256": "2eefe8fd286beba734df882a0c890e881a0ff8461f08859ff93971cdf889feb5"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -72,13 +72,13 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-composer-submit-error-cases.mjs",
-  "recorderSha256": "191daabd23a8afd651390c6989079281ec9806c008b26a776d679bb7b60e51b0",
+  "recorderSha256": "9c9e1d2277266c8f94d9070be59226562e3e76681307ed390474e5b9c68187cc",
   "replay": {
     "compare": "the desktop relay's refusal frames and the composer's text on the product modules; compare each case whole",
-    "entry": "NO RUST ENTRY ON o1: the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core sends only the code (mixdog-core-rooms/src/rooms/service.rs:187) to the desktop, no phone-facing envelope of its own.",
+    "entry": "NO RUST ENTRY ON o1: the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core carries the refusal's code, message and typed detail (the member's name) to its client (mixdog-app-server/src/error.rs:138; mixdog-core-rooms/src/rooms/service.rs:187), no phone-facing envelope of its own.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core sends only the code (mixdog-core-rooms/src/rooms/service.rs:187) to the desktop, no phone-facing envelope of its own"
+      "the error envelope a phone receives for a refused send (error text, errorCode, errorParams, redaction of a secret-bearing refusal): built by the desktop relay (apps/desktop/src/main/remote-methods.ts executeRemoteFrame); the Rust core carries the refusal's code, message and typed detail (the member's name) to its client (mixdog-app-server/src/error.rs:138; mixdog-core-rooms/src/rooms/service.rs:187), no phone-facing envelope of its own"
     ],
     "normalised": {},
     "protocolMethods": [],
