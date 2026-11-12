@@ -2389,17 +2389,70 @@ async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
     let failed: &'static [&'static str] = Box::leak(failed.into_boxed_slice());
     let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), failed, &[], Default::default())), Vec::new()).await;
     let names = |value: &JsonValue| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    // The whole list, then a page of the recorded bound less one (Node's window holds the page and one more).
+    // The whole list, then a page of the recorded bound less one (Node's window holds the page and one more, the tool shows the
+    // page): the whole answer, the continuation line included. That line is the one Node's public glob printed for the same page
+    // of the same seven names (recording `tools-fs-search/glob-mtime-page`, stats that all succeed).
+    let public: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-search/glob-mtime-page.json")).unwrap();
+    let continuation = public["calls"][1]["text"].as_str().unwrap().lines().last().unwrap().to_owned();
     let all = &case["bounded"][0];
     let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": 0 })).await);
     assert!(!is_error, "{text}");
-    assert_eq!(text.lines().map(str::to_owned).collect::<Vec<_>>(), names(&all["values"]));
+    assert_eq!(text, names(&all["values"]).join("\n"));
     let bounded = &case["bounded"][1];
     let page = bounded["bound"].as_u64().unwrap() - 1;
     let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "limit": page })).await);
     assert!(!is_error, "{text}");
-    let want = names(&bounded["values"]);
-    assert_eq!(text.lines().take(page as usize).map(str::to_owned).collect::<Vec<_>>(), want[..page as usize]);
+    let mut want = names(&bounded["values"]);
+    want.truncate(page as usize);
+    want.push(continuation);
+    assert_eq!(text, want.join("\n"));
+}
+
+/// Node's public glob over the entries `glob_puts_files_whose_stat_failed_last_in_walk_order` orders, every stat succeeding:
+/// newest first, ties by name, whole and as a page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn glob_orders_by_time_and_pages_as_node_does() {
+    replay_fs_search("glob-mtime-page").await;
+}
+
+/// grep over several patterns and several paths: misses named once at each level, a missing path, a bad pattern, a page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_fans_out_patterns_over_paths_as_node_does() {
+    replay_fs_search("grep-fanout-nested").await;
+}
+
+/// The same under a search deadline: the misses of a partial scan are not proven misses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_fan_out_keeps_partial_results_as_node_does() {
+    replay_fs_search("grep-fanout-partial").await;
+}
+
+/// glob and find from a filesystem root, the root's own folders named proc, sys and dev listed: Node's recording on Windows,
+/// where its prunes are off (`rootScanIgnoreGlobs` returns none there), replayed over the drive root through the public
+/// tools, whole. The Linux prunes cannot be driven through Node's public tool from this machine.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_scan_from_the_filesystem_root_answers_as_nodes_tools_do() {
+    let fixture: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-search/glob-fs-root.json")).unwrap();
+    let root = AbsPath::new("C:\\").unwrap();
+    let seeds = fixture["files"].as_object().unwrap().iter().map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec())).collect();
+    let mut ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    ctx.cwd = root.clone();
+    let mut failures = Vec::new();
+    for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        let args = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", "C:/")).unwrap();
+        let (is_error, text) = match call["tool"].as_str().unwrap() {
+            "glob" => text_of(GlobTool::new().call(&ctx, args).await),
+            "find" => text_of(FindTool::new().call(&ctx, args).await),
+            other => panic!("no replay for {other}"),
+        };
+        // As the recorder scrubbed Node's: the root, in either separator, is `<ROOT>`.
+        let text = text.replace("C:\\", "<ROOT>").replace("C:/", "<ROOT>");
+        if text != call["text"].as_str().unwrap() || is_error != (call["isError"] == true) {
+            failures.push(format!("#{index} {}:\n  want ({}) {:?}\n  got  ({is_error}) {text:?}", call["input"], call["isError"], call["text"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A glob-shaped `list` path bounds each candidate's stat by 1 000 ms, 64 at a time (Node `collectFindMatches`,
@@ -2468,7 +2521,10 @@ async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     assert_eq!(walked.entries.len(), 1);
 }
 
-/// Node's `rootScanIgnoreGlobs` answers (recording `tools-fs-glob-order`), each root put under the host's filesystem root.
+/// The Linux half of row 46, which no public tool of Node's can be driven for on a Windows machine (the tool reads
+/// `process.platform` itself): Node's `rootScanIgnoreGlobs` answers (recording `tools-fs-glob-order`), each root put under the
+/// host's filesystem root, against the core's prune list. The public tools' answer from a root is
+/// `a_scan_from_the_filesystem_root_answers_as_nodes_tools_do` (Windows recording).
 #[test]
 fn root_scan_prunes_are_nodes_root_scan_ignore_globs() {
     let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-fs-glob-order/golden.json")).unwrap();

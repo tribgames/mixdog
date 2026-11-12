@@ -60,10 +60,11 @@ writeSetManifest(stage, {
   extra: {
     ...recorderProvenance(import.meta.url),
     cases: cases.length,
-    entry: 'search-glob-tool.mjs _createGlobMtimeTopK and search-builders.mjs rootScanIgnoreGlobs, the helpers the glob tool orders and prunes with; nothing else runs',
-    replay: 'the core GlobTool over a workspace of the recorded entries, a stat failed for each failed one, whole; root_scan_prunes of each recorded root and platform, compared with the recorded globs',
+    entry: 'search-glob-tool.mjs _createGlobMtimeTopK and search-builders.mjs rootScanIgnoreGlobs, the helpers the glob tool orders and prunes with; nothing else runs. These are not public-tool recordings: no stat can be made to fail on the recording machine (a denied read of attributes, a name with a trailing dot and a dangling link all stat or cannot be made), and Node\'s tool passes process.platform to the prune helper itself, with a drive path as its root on Windows, so no argument reaches its Linux answer. The public tools\' side of both rows is tools-fs-search/glob-mtime-page and tools-fs-search/glob-fs-root.',
+    replay: 'row 47: the core GlobTool over a workspace of the recorded entries with a stat failed for each failed one: the whole answer, unbounded (the recorded order, every name) and as a page (the recorded order\'s first names, then the continuation line of Node\'s public glob page in tools-fs-search/glob-mtime-page), compared whole; row 46: root_scan_prunes of each recorded root and platform against the recorded globs (the Linux half: the helper only)',
     exclusions: {
       emptyRoot: 'the recorded roots are posix paths: the replay puts them under the host filesystem root; the empty root is a call with no path, which the core resolves to the cwd before any scan, so it is not replayed',
+      sixthEntry: 'the bounded recording holds the page and one lookahead entry (Node\'s window); the tool shows only the page, so the lookahead is not in an answer and is not compared',
     },
     normalised: 'none',
   },
