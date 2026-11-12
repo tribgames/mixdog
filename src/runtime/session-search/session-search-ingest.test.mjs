@@ -192,18 +192,26 @@ test('backfill ingests changed sessions only and records stamps', async () => {
       join(dir, 'sess_y.json'),
       JSON.stringify(ordinary('sess_y', { agent: 'worker', owner: 'agent', parentSessionId: 'sess_x' }))
     );
+    const reads = [];
     const deps = {
       dir,
-      readSession: (d, file) => JSON.parse(require_read(d, file)),
+      readSession: (d, file) => {
+        reads.push(file);
+        return JSON.parse(require_read(d, file));
+      },
     };
     queries.length = 0;
     backfillStore.clear();
     assert.equal(await backfillSessionSearch({ deps }), 1);
     assert.equal(inserts().length, 1);
-    assert.deepEqual([...backfillStore.keys()], ['sess_x']);
+    // The agent-only session is stamped but never indexed.
+    assert.deepEqual([...backfillStore.keys()].sort(), ['sess_x', 'sess_y']);
+    assert.deepEqual(reads.sort(), ['sess_x.json', 'sess_y.json']);
     queries.length = 0;
+    reads.length = 0;
     assert.equal(await backfillSessionSearch({ deps }), 0);
     assert.equal(inserts().length, 0);
+    assert.deepEqual(reads, [], 'unchanged sessions, agent-only included, are not read again');
     writeFileSync(join(dir, 'sess_x.json'), JSON.stringify(ordinary('sess_x', { title: 'changed' })));
     assert.equal(await backfillSessionSearch({ deps }), 1);
   } finally {
