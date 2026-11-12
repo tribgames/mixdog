@@ -8,6 +8,7 @@
     "the row of a session the stub lists as closed": "recorded; a replay leaves it out of the world and of the expected list: the core drops a worker's row when it closes the worker (dispatch close_resolved, agent_tool/dispatch.rs), and the production registry's scan does not list a closed session (agent_registry/mod.rs list_sessions), so it has no row to list",
     "the spawn-meta case of job-views.test.mjs (pendingSpawnMeta, preparedSpawnMeta, mergeJobMeta, isSessionBusy)": "not recorded here. The three meta builders are recorded by native/core/fixtures/agent/record-flows.mjs (pending_*, prepared_* and the merge) and replayed whole by mixdog-agent tests/it/flows.rs (merge_prepared_meta, :107). isSessionBusy reads the manager's runtime controller; the core has no such function: a session is busy by LiveSessions::running / has_live_work (agent_registry/mod.rs:149-153), which the stale-row recording drives",
     "the tag-refresh calls": "recorded; the core's registry is the production one, which refreshes itself from the stored sessions, so the call is not a seam a replay can observe: its effect (the tag bound to the session) is what the cards compare",
+    "the worker fallback's job (recorded beside its card)": "recorded whole; a replay compares taskId, operation, status, startedAt, finishedAt, error, result and the meta of the core's task view (tag, sessionId, agent, provider, model, effort, fast). The job's meta.preset has no TaskView field (as the card's preset has none) and is not compared; it is null in every recorded fallback. A null member is left out of both sides (an absent Option is Node's null)",
     "worker row fields beyond the roster's": "recorded whole; a replay compares the fields the core's roster row (WorkerRow, mixdog-tools orch/agent.rs) has: tag, status, stage, last_progress, whether the row is active, the tool-silence label and the hung diagnostic. The row's sort stamp (updatedAt, else lastUsedAt) is not compared: the production registry the replay runs stamps a row it scans in with its own clock, where Node's entries are the stub's sessions as given. The other fields of Node's row (sessionId, agent, route, usage, window, permission, message and tool counts, staleSeconds, turnStartedAt, ...) belong to the status rows (status_rows.rs worker_status_row), compared by the agent-status recording"
   },
   "fileCount": 1,
@@ -48,7 +49,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-job-views.mjs",
-  "recorderSha256": "c55f2f8b01d2224e61712f900b11991403f4d71ce2e7e14c31e9bf4afacbf04f",
+  "recorderSha256": "73a4242899297bed2d4348fb6a2d90c622b39f59b2b6064046b42a3fa30dea95",
   "set": "job-views",
   "syntheticInputs": [
     "the session manager: answers getSession, getSessionRuntime, getSessionProgressSnapshot and getSessionPendingMessageDepth from the scenario's session records, as job-views.test.mjs's fake manager does",

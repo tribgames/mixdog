@@ -164,6 +164,30 @@ fn card_of(job: &mixdog_agent::agent_tool::host::Job) -> Value {
     }))
 }
 
+/// The job Node's `workerFallbackJob` builds, from the fields the core's task view has.
+fn job_of(job: &mixdog_agent::agent_tool::host::Job) -> Value {
+    let v = &job.view;
+    bare(&json!({
+        "taskId": job.task_id, "operation": v.kind, "status": v.status, "startedAt": v.started_at, "finishedAt": v.finished_at, "error": v.error,
+        "result": v.result.as_ref().map(|r| match r {
+            TaskResult::Content(text) => json!(text),
+            TaskResult::Json(value) => value.clone(),
+        }),
+        "meta": bare(&json!({
+            "tag": v.tag, "sessionId": v.session_id, "agent": v.agent, "provider": v.provider, "model": v.model, "effort": v.effort, "fast": v.fast,
+        })),
+    }))
+}
+
+/// The fields of Node's job the core's task view has (its meta's `preset` has none, as the card's has none).
+fn node_job(job: &Value) -> Value {
+    let mut job = bare(job);
+    let meta = bare(&job["meta"]);
+    let kept: serde_json::Map<String, Value> = meta.as_object().unwrap().iter().filter(|(key, _)| key.as_str() != "preset").map(|(k, v)| (k.clone(), v.clone())).collect();
+    job["meta"] = Value::Object(kept);
+    job
+}
+
 /// The fields of Node's card the core's task view has.
 fn node_card(card: &Value) -> Value {
     let keys = [
@@ -255,7 +279,13 @@ async fn the_job_views_equal_nodes() {
                     let answer = world.views.get_job_or_worker(&args, &Scope::default(), true).await;
                     let expected_card = want.get("card").filter(|card| !card.is_null());
                     match (&answer, expected_card, want.get("error")) {
-                        (Ok(job), Some(card), _) => assert_eq!(card_of(job), node_card(card), "{at}"),
+                        (Ok(job), Some(card), _) => {
+                            assert_eq!(card_of(job), node_card(card), "{at}");
+                            // The fallback's job is recorded beside its card; a lookup records the card alone.
+                            if op["op"] == "fallback" {
+                                assert_eq!(job_of(job), node_job(&want["job"]), "{at}: the fallback job");
+                            }
+                        }
                         (Err(error), None, Some(message)) => assert_eq!(json!(error), *message, "{at}"),
                         // A target no task and no worker answers: `workerFallbackJob` is `null`, and the lookup's own error stands.
                         (Err(error), None, None) => assert!(want["job"].is_null() && error.starts_with("agent read/status: no task found"), "{at}: {error}"),
