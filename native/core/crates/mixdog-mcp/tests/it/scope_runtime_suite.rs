@@ -589,18 +589,20 @@ async fn the_wait_for_a_held_first_connect_ends_when_it_settles_or_on_the_startu
     for (scope, release) in [("s-released", true), ("s-held", false)] {
         let (entered, go) = configs.arm();
         runtime.start(scope, "t1", "/w").unwrap();
-        entered.await.unwrap();
+        tokio::time::timeout(BARRIER, entered).await.expect("the first connect to reach its gate").unwrap();
         let started = tokio::time::Instant::now();
         let wait = {
             let runtime = runtime.clone();
             tokio::spawn(async move { runtime.await_initial(scope).await })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(60), waiting.wait_for(|count| *count == 1)).await.expect("the wait to reach the barrier").unwrap();
+        tokio::time::timeout(BARRIER, waiting.wait_for(|count| *count == 1)).await.expect("the wait to reach the barrier").unwrap();
         let mut go = Some(go);
         if release {
             go.take().unwrap().send(()).unwrap();
+        } else {
+            tokio::time::advance(std::time::Duration::from_secs(30)).await;
         }
-        wait.await.unwrap();
+        tokio::time::timeout(BARRIER, wait).await.expect("the wait to end").unwrap();
         let waited = started.elapsed();
         match go {
             None => assert_eq!(waited, std::time::Duration::ZERO, "the connect settled inside the wait"),
@@ -610,4 +612,23 @@ async fn the_wait_for_a_held_first_connect_ends_when_it_settles_or_on_the_startu
             }
         }
     }
+}
+
+/// How long a paused-clock test waits for a step that needs no time; past it the step is named as missing.
+const BARRIER: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A server whose startup budget is disabled may never settle its connect, so the wait is not made at all
+/// (`budgets.includes(0) ? 0`): it returns while the first connect is still held.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn the_wait_for_a_first_connect_is_not_made_when_a_servers_startup_budget_is_disabled() {
+    let Rig { runtime, configs, .. } = rig();
+    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": MOCK, "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
+    *lock(&configs.configs) = vec![config("beta"), unbounded];
+    let (entered, go) = configs.arm();
+    runtime.start("s-unbounded", "t1", "/w").unwrap();
+    tokio::time::timeout(BARRIER, entered).await.expect("the first connect to reach its gate").unwrap();
+    let started = tokio::time::Instant::now();
+    tokio::time::timeout(BARRIER, runtime.await_initial("s-unbounded")).await.expect("the wait to return");
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO, "the held connect was not waited for");
+    go.send(()).unwrap();
 }
