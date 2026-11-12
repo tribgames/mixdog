@@ -57,7 +57,18 @@ impl StoredCredentials {
 }
 
 /// A fixed credential (an environment-provided token, tests).
-pub struct StaticSessionToken(pub StoredCredentials);
+pub struct StaticSessionToken {
+    credentials: StoredCredentials,
+    /// Which provider instance holds it: a token with no identity is told apart from another instance's by this.
+    instance: u64,
+}
+
+impl StaticSessionToken {
+    pub fn new(credentials: StoredCredentials) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self { credentials, instance: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+    }
+}
 
 #[async_trait]
 impl SessionToken for StaticSessionToken {
@@ -65,15 +76,15 @@ impl SessionToken for StaticSessionToken {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        self.0.usable_token(now).map(str::to_owned)
+        self.credentials.usable_token(now).map(str::to_owned)
     }
 
-    /// The identity the sign-in returned; a token that came with none is the only one this adapter holds.
+    /// The identity the sign-in returned; a token that came with none is the one this provider instance holds.
     fn account(&self) -> String {
-        match &self.0.identity {
+        match &self.credentials.identity {
             Some(Identity { id: Some(id), .. }) => format!("id {id}"),
             Some(Identity { email: Some(email), .. }) => format!("email {email}"),
-            _ => "static session token".to_owned(),
+            _ => format!("static session token of instance {}", self.instance),
         }
     }
 }

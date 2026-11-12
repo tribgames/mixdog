@@ -342,38 +342,60 @@ mod tests {
         })
     }
 
-    /// Two accounts live at once on one server: the other's rotations and unrelated retirements past the cap never retire
-    /// a live user JWT.
-    #[tokio::test]
-    async fn two_accounts_keep_their_user_jwts_through_each_others_rotations() {
-        use crate::oauth::carried;
-        carried::reset_registry();
-        let a_net = jwt_network("user-jwt-of-a");
-        let b_net = jwt_network("user-jwt-of-b");
-        let a = exchange_user_jwt(&a_net, "https://x.test", "id a", "session-a").await.unwrap().jwt;
-        let mut b = Vec::new();
-        for _ in 0..3 {
-            b.push(exchange_user_jwt(&b_net, "https://x.test", "id b", "session-b").await.unwrap().jwt);
-        }
-        for i in 0..=carried::RETIRED_CAP {
-            carried::keep("file the-unrelated-account-of-the-devin-test.json", &[&format!("devin-pair-unrelated-{i:05}")]);
-        }
-        let registry = carried::registry();
-        assert!(registry.holds(&a), "account A's live user JWT stays");
-        assert!(registry.holds(b.last().unwrap()), "account B's live user JWT stays");
-        assert!(!registry.holds(&b[0]), "B's replaced user JWT retired");
+    /// A Devin provider holding a static session token, over a network of its own, as a configuration builds it.
+    fn static_provider(prefix: &'static str, identity: Option<&str>) -> crate::providers::devin::DevinAdapter {
+        use crate::providers::devin::DevinAdapter;
+        use crate::providers::devin::auth::Identity;
+        use crate::providers::devin::auth::StaticSessionToken;
+        use crate::providers::devin::auth::StoredCredentials;
+        let credentials = StoredCredentials {
+            access_token: format!("session-of-{prefix}"),
+            refresh_token: None,
+            expires_at: None,
+            identity: identity.map(|id| Identity { id: Some(id.to_owned()), email: None }),
+        };
+        DevinAdapter::new(None, std::sync::Arc::new(jwt_network(prefix)), std::sync::Arc::new(StaticSessionToken::new(credentials)))
     }
 
+    async fn exchange(provider: &crate::providers::devin::DevinAdapter) -> String {
+        provider.user_session("session-token").await.unwrap().jwt
+    }
+
+    /// Three providers live at once, two of them holding a token that came with no identity: the others' rotations and
+    /// unrelated retirements past the cap never retire a live user JWT.
     #[tokio::test]
-    async fn one_accounts_ten_rotations_pin_one_user_jwt() {
+    async fn providers_keep_their_user_jwts_through_each_others_rotations() {
         use crate::oauth::carried;
         carried::reset_registry();
-        let net = jwt_network("ten-user-jwt");
+        let (a, b, c) = (static_provider("user-jwt-of-a", None), static_provider("user-jwt-of-b", None), static_provider("user-jwt-of-c", Some("acct-c")));
+        let (a_jwt, c_jwt) = (exchange(&a).await, exchange(&c).await);
+        let mut b_jwts = Vec::new();
+        for _ in 0..3 {
+            b_jwts.push(exchange(&b).await);
+        }
+        for i in 0..=carried::RETIRED_CAP {
+            carried::keep("file the-unrelated-account-of-the-devin-test.json", &[&format!("devin-trio-unrelated-{i:05}")]);
+        }
+        let registry = carried::registry();
+        assert!(registry.holds(&a_jwt), "A's live user JWT stays");
+        assert!(registry.holds(&c_jwt), "C's live user JWT stays");
+        assert!(registry.holds(b_jwts.last().unwrap()), "B's live user JWT stays");
+        assert!(!registry.holds(&b_jwts[0]), "B's replaced user JWT retired");
+    }
+
+    /// Ten rotations of each of two identity-less providers: each pins its one current user JWT, the rest retire within the
+    /// caps.
+    #[tokio::test]
+    async fn ten_rotations_of_each_provider_stay_within_the_caps() {
+        use crate::oauth::carried;
+        carried::reset_registry();
+        let (a, b) = (static_provider("ten-jwt-of-a", None), static_provider("ten-jwt-of-b", None));
         for _ in 0..10 {
-            exchange_user_jwt(&net, "https://x.test", "id ten", "session-ten").await.unwrap();
+            exchange(&a).await;
+            exchange(&b).await;
         }
         let counts = carried::registry().counts();
-        assert_eq!(counts.held, 1);
+        assert_eq!(counts.held, 2, "one pinned user JWT per provider");
         assert!(counts.retired <= carried::RETIRED_CAP && counts.carried <= carried::CARRIED_CAP);
     }
 

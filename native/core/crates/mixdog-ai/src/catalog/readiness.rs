@@ -208,7 +208,11 @@ impl ProviderReadiness {
         let (catalog, registry) = (self.catalog.clone(), self.registry.clone());
         let task = mixdog_rt::spawn("catalog.startup-refresh", mixdog_rt::TaskClass::Work, async move {
             for (provider, error) in catalog.refresh_providers(&sources).await.failed {
-                mixdog_rt::node_stderr!("[provider:{}] startup catalog refresh failed: {}", provider.as_str(), error.message);
+                mixdog_rt::node_stderr!(
+                    "[provider:{}] startup catalog refresh failed: {}",
+                    provider.as_str(),
+                    crate::oauth::carried::remembered().redact_str(&error.message)
+                );
             }
             registry.bump_catalog_revision();
         });
@@ -261,7 +265,11 @@ impl ProviderReadiness {
         let this = self.clone();
         let task = mixdog_rt::spawn("catalog.full-refresh", mixdog_rt::TaskClass::Work, async move {
             for (provider, error) in this.catalog.refresh_of(sources).await.failed {
-                mixdog_rt::node_stderr!("[provider:{}] catalog refresh failed: {}", provider.as_str(), error.message);
+                mixdog_rt::node_stderr!(
+                    "[provider:{}] catalog refresh failed: {}",
+                    provider.as_str(),
+                    crate::oauth::carried::remembered().redact_str(&error.message)
+                );
             }
             this.registry.bump_catalog_revision();
             this.refreshes().full = None;

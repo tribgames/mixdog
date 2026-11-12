@@ -257,6 +257,11 @@ impl DevinAdapter {
         Ok(rows)
     }
 
+    /// The user JWT exchange of this provider's account for `session_token`.
+    pub(crate) async fn user_session(&self, session_token: &str) -> Result<UserSession, ProviderError> {
+        session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &self.token.account(), session_token).await
+    }
+
     /// One `GetCliModelConfigs` request: no cache.
     pub async fn fetch_rows(&self, session_token: &str) -> Result<Vec<ModelRow>, ProviderError> {
         let api_key = session::normalize_session_token(session_token);
@@ -367,7 +372,7 @@ impl ProviderAdapter for DevinAdapter {
         let token = self.token.session_token().await?;
         let rows = self.cached_rows(&token).await?;
         let row = rows.into_iter().find(|r| r.id == model);
-        let session = session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &self.token.account(), &token).await?;
+        let session = self.user_session(&token).await?;
         // The server threads turns that share one cascade id.
         let cascade_id = request
             .options

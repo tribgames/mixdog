@@ -49,7 +49,8 @@ pub struct MultiWireAdapter {
     engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>,
     profile: CompatProfile,
     model_wires: HashMap<String, Wire>,
-    /// The socket warm-up of the endpoint, run before every send (`_preconnectFn(this.baseURL)`, openai-compat.mjs:207).
+    /// The socket warm-up of the endpoint, run before every send on an OpenAI-compatible wire (`_preconnectFn(this.baseURL)`,
+    /// openai-compat.mjs:207).
     warm: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -115,9 +116,6 @@ impl ProviderAdapter for MultiWireAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        if let Some(warm) = &self.warm {
-            warm();
-        }
         let model = request.model.as_str();
         let Some(wire) = self.route(model) else {
             let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
@@ -125,6 +123,13 @@ impl ProviderAdapter for MultiWireAdapter {
             err.message = format!("[{}] model {model} is not routable: no wire it is served on is offered", self.id);
             return Err(err);
         };
+        // Only the OpenAI-compatible wires re-warm per send (`super.send`); a Messages send goes straight to the
+        // Anthropic engine, which has no per-send warm-up (custom-provider.mjs:204).
+        if wire != Wire::Messages
+            && let Some(warm) = &self.warm
+        {
+            warm();
+        }
         // A refusal on the selected wire is the provider's error: the wire is
         // chosen by config, never switched on the wording of a refusal.
         self.engine(wire).attempt(request).await
