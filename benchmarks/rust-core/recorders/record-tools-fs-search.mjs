@@ -15,6 +15,7 @@
 //        form slipped past the UNC refusal)]
 //
 // Output: native/core/fixtures/tools-fs-search/<scenario>.json (+ MANIFEST.json); with --only the one scenario is recorded and printed.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -460,14 +461,147 @@ const SCENARIOS = [
           { output_type: 'display_data', metadata: {}, data: { 'image/png': PNG_B64 } },
         ] },
       ]),
+      'cap.ipynb': notebook([
+        { cell_type: 'markdown', metadata: {}, source: ['a'.repeat(60_000)] },
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': PNG_B64 } },
+        ] },
+        { cell_type: 'markdown', metadata: {}, source: ['b'.repeat(60_000)] },
+        { cell_type: 'code', execution_count: 2, metadata: {}, source: ['plot2()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': PNG_B64 } },
+        ] },
+        { cell_type: 'markdown', metadata: {}, source: ['dropped tail'] },
+      ]),
+      'textcap.ipynb': notebook([
+        { cell_type: 'markdown', metadata: {}, source: ['c'.repeat(40_000)] },
+        { cell_type: 'markdown', metadata: {}, source: ['d'.repeat(40_000)] },
+        { cell_type: 'markdown', metadata: {}, source: ['e'.repeat(40_000)] },
+      ]),
+      // 102 400 characters of text: 50 000 + the two-character join + 52 398.
+      'fit.ipynb': notebook([
+        { cell_type: 'markdown', metadata: {}, source: ['f'.repeat(50_000)] },
+        { cell_type: 'markdown', metadata: {}, source: ['g'.repeat(52_398)] },
+      ]),
+      'a.txt': 'alpha\n',
     },
     calls: [
       { tool: 'read', input: { path: 'img.ipynb', full: true } },
       { tool: 'read', input: { path: 'lines.ipynb', full: true } },
       { tool: 'read', input: { path: 'crlf.ipynb', full: true } },
       { tool: 'read', input: { path: 'plain.ipynb', full: true } },
+      // The output budget (DEFAULT_READ_MAX_OUTPUT_BYTES, 100 KiB of text; read-special-files.mjs capNotebookText): text past it is
+      // cut at the budget and marked, an image passes uncounted, a text block after the cut is dropped. Alone, in a batch (no
+      // images), and under the budget exactly.
+      { tool: 'read', input: { path: 'cap.ipynb', full: true } },
+      { tool: 'read', input: { path: 'textcap.ipynb', full: true } },
+      { tool: 'read', input: { path: ['cap.ipynb', 'a.txt'], full: true } },
+      { tool: 'read', input: { path: 'fit.ipynb', full: true } },
     ],
   },
+  // gaps-tools row 46: a scan from a filesystem root through the public glob and find (`driveRoot`: the workspace is mounted as a
+  // drive of its own, `<ROOT>` its root). Node prunes /proc, /sys and /dev under a root only on a POSIX platform
+  // (search-builders.mjs rootScanIgnoreGlobs, called by search-glob-tool.mjs globGroupArgs with process.platform), so this Windows
+  // recording lists the trees named proc, sys and dev; the Linux answer is recorded from the helper (record-tools-fs-glob-order.mjs):
+  // the tool reads process.platform itself and its resolved root is a drive path here, so no seam reaches it.
+  {
+    name: 'glob-fs-root',
+    driveRoot: true,
+    files: {
+      'proc/1/status': 'x\n',
+      'sys/block/sda/size': 'x\n',
+      'dev/null-ish': 'x\n',
+      'home/u/a.txt': 'x\n',
+      'procfs.txt': 'x\n',
+    },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '**/*', path: '<ROOT>', sort: 'natural', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*', sort: 'natural', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*', path: '<ROOT>', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*', path: '<ROOT>proc', sort: 'natural', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*.txt', path: '<ROOT>' } },
+      { tool: 'find', input: { query: 'status', path: '<ROOT>' } },
+      { tool: 'find', input: { query: 'null' } },
+    ],
+  },
+  // gaps-tools row 47, the public half: the answer of a newest-first glob over the entries record-tools-fs-glob-order.mjs orders
+  // (ties by name, one dated at the epoch), whole and as a page of five of seven with its continuation line. A stat that fails
+  // cannot be made on the recording machine (a denied read of attributes, a name with a trailing dot, a dangling link all stat), so the
+  // order of a failed one is recorded from the helper there.
+  {
+    name: 'glob-mtime-page',
+    files: Object.fromEntries(['a-tie', 'b-tie', 'failed-first', 'failed-second', 'middle', 'newest', 'z-epoch'].map((name) => [`${name}.txt`, 'x\n'])),
+    mtimes: {
+      'a-tie.txt': '1970-01-01T00:00:00.009Z',
+      'b-tie.txt': '1970-01-01T00:00:00.009Z',
+      'failed-first.txt': '1970-01-01T00:00:00.000Z',
+      'failed-second.txt': '1970-01-01T00:00:00.000Z',
+      'middle.txt': '1970-01-01T00:00:00.005Z',
+      'newest.txt': '1970-01-01T00:00:00.012Z',
+      'z-epoch.txt': '1970-01-01T00:00:00.000Z',
+    },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '*.txt', limit: 0 } },
+      { tool: 'glob', input: { pattern: '*.txt', limit: 5 } },
+    ],
+  },
+  // gaps-tools row 33: several patterns over several paths (grep-path-fanout.mjs over grep-pattern-fanout.mjs): each path its own
+  // `# grep <path>` section holding the pattern sections, misses named once at each level (`patterns=[…]`, `paths=[…]`), a missing
+  // path, a bad pattern and a page keeping their own sections.
+  {
+    name: 'grep-fanout-nested',
+    files: {
+      'one/sample.txt': 'x\nx\nx\nx\nx\nalpha\nbeta later\n',
+      'two/sample.txt': 'x\nx\nx\nx\nx\nalpha\n',
+      'empty/none.txt': 'nothing here\n',
+      'empty2/none.txt': 'nothing either\n',
+    },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    calls: [
+      { tool: 'grep', input: { pattern: ['alpha', 'beta', 'absent'], path: ['one', 'two', 'empty'] } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta', 'absent'], path: ['one', 'two', 'empty'], context: 0 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], path: ['one', 'missing-dir', 'empty', 'empty2'] } },
+      { tool: 'grep', input: { pattern: ['alpha', '(bad'], path: ['one', 'empty'] } },
+      { tool: 'grep', input: { pattern: '(bad', path: ['one', 'empty'] } },
+      { tool: 'grep', input: { pattern: 'alpha', path: ['one', 'two', 'empty', 'empty2'] } },
+      { tool: 'grep', input: { pattern: 'alpha', path: ['one', 'two', 'empty', 'empty2'], context: 0 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'absent'], path: ['one', 'empty'], limit: 1 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta', 'absent'], path: ['one', 'two', 'empty'], mode: 'files' } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta', 'absent'], path: ['one', 'two', 'empty'], mode: 'count' } },
+      { tool: 'grep', input: { pattern: ['absent', 'nothing-either'], path: ['one', 'empty'], context: 0 } },
+      { tool: 'grep', input: { pattern: ['zzz', 'yyy'], path: ['empty', 'empty2'] } },
+    ],
+  },
+  // The same under a search deadline (the stand-in's `afterFiles`, as grep-timeout): a partial result is not a proven miss, so the
+  // misses of a partial scan are summarised as `(no matches in partial results)` at the pattern level and at the path level.
+  ...(() => {
+    const at = (afterFiles) => ({ afterFiles });
+    const calls = [
+      [{ pattern: 'alpha', path: ['multi', 'one', 'empty'], context: 0 }, at(1)],
+      [{ pattern: 'alpha', path: ['multi', 'one', 'empty'] }, at(1)],
+      [{ pattern: ['alpha', 'absent1', 'absent2'], path: 'multi', context: 0 }, at(1)],
+      [{ pattern: ['alpha', 'absent1', 'absent2'], path: 'multi' }, at(1)],
+      [{ pattern: ['alpha', 'absent1'], path: ['multi', 'empty'], context: 0 }, at(1)],
+      [{ pattern: ['alpha', 'absent1'], path: ['multi', 'empty'] }, at(1)],
+      [{ pattern: ['absent1', 'absent2'], path: 'multi', context: 0 }, at(1)],
+      [{ pattern: ['absent1', 'absent2'], path: ['multi', 'empty'], context: 0 }, at(0)],
+      [{ pattern: ['alpha', 'absent1'], path: ['multi', 'empty'], context: 0 }, at(1_000_000)],
+    ];
+    return [{
+      name: 'grep-fanout-partial',
+      standin: true,
+      files: {
+        'multi/a.txt': 'alpha one\n',
+        'multi/b.txt': 'alpha two\n',
+        'multi/c.txt': 'alpha three\n',
+        'one/sample.txt': 'x\nalpha\n',
+        'empty/none.txt': 'nothing here\n',
+      },
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: calls.map(([input, server]) => ({ tool: 'grep', input, server })),
+    }];
+  })(),
   // gaps-tools item 11: past GLOB_ACCUM_CAP (50 000) matches an unbounded glob keeps the first 50 000 and says the list is
   // incomplete (search-glob-tool.mjs); a bounded one still counts every match. `bulk` writes <dir>/<00000..count-1><ext>, empty.
   {
@@ -1290,6 +1424,17 @@ async function recordStalled(scenario, standin, runOf, settle) {
   return { calls };
 }
 
+// A free drive letter standing for `dir`; released when this process exits.
+function mountDrive(dir) {
+  for (const letter of 'ZYXWVUTSRQ') {
+    if (existsSync(`${letter}:\\`)) continue;
+    execFileSync('subst', [`${letter}:`, dir], { windowsHide: true, timeout: 10_000 });
+    process.on('exit', () => execFileSync('subst', [`${letter}:`, '/d'], { windowsHide: true, timeout: 10_000 }));
+    return `${letter}:\\`;
+  }
+  throw new Error('no free drive letter to mount the workspace on');
+}
+
 if (process.argv[2] === '--child') {
   const tree = process.env.RECORDER_TREE;
   const ws = process.env.RECORDER_WORKSPACE;
@@ -1336,18 +1481,20 @@ if (process.argv[2] === '--child') {
   const { executeCodeGraphTool } = await imp('src/runtime/agent/orchestrator/tools/code-graph.mjs');
   const { normalizeToolEnvelope } = await imp('src/runtime/agent/orchestrator/session/tool-envelope.mjs');
   const { classifyResultKind } = await imp('src/runtime/agent/orchestrator/session/result-classification.mjs');
-  const fwd = ws.replace(/\\/g, '/');
+  // `driveRoot`: the workspace is a drive of its own (subst), so the tools scan from a filesystem root; it is released when the process ends.
+  const toolRoot = scenario.driveRoot ? mountDrive(ws) : ws;
+  const fwd = toolRoot.replace(/\\/g, '/');
   // A rich answer is its JSON text, where the workspace's backslashes are escaped.
   // The search server answers with the workspace's canonical path, which differs from `ws` where a folder on the way is a link
   // (the scratch folder lies behind one on the recording machine), so that spelling is the root too.
   const real = realpathSync.native(ws);
-  const spellings = [ws, real].flatMap((path) => [JSON.stringify(path).slice(1, -1), path, path.replace(/\\/g, '/')]);
+  const spellings = [toolRoot, ws, real].flatMap((path) => [JSON.stringify(path).slice(1, -1), path, path.replace(/\\/g, '/')]);
   const scrub = (text) => spellings.reduce((scrubbed, spelling) => scrubbed.replaceAll(spelling, '<ROOT>'), String(text));
-  const cwd = scenario.cwd ? join(ws, scenario.cwd) : ws;
+  const cwd = scenario.cwd ? join(toolRoot, scenario.cwd) : toolRoot;
   const standin = scenario.standin ? await startStandin(process.env.MIXDOG_GRAPH_BIN) : null;
   // A call as it runs, its input's `<ROOT>` and `<ROOTW>` spelled out (warmups' too).
   const runOf = (call, options = {}) => {
-    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
+    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(toolRoot).slice(1, -1)));
     return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
   };
   // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound (SERVER_READY_TIMEOUT_MS),
@@ -1488,7 +1635,7 @@ if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-gra
 const scratch = args.get('scratch');
 if (!scratch) throw new Error('--scratch <scratch parent> is required');
 const only = args.get('only');
-const selected = only ? SCENARIOS.filter((s) => s.name === only) : SCENARIOS;
+const selected = only ? SCENARIOS.filter((s) => only.split(',').includes(s.name)) : SCENARIOS;
 if (only && selected.length === 0) throw new Error(`no scenario ${only}`);
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -1533,11 +1680,13 @@ let failure = null;
 try {
   const recorded = [];
   for (const scenario of selected) recorded.push(await recordScenario(scenario));
-  if (only) {
+  if (only && !args.get('write')) {
     console.log(JSON.stringify(recorded[0], null, 1));
   } else {
     const finalDir = join(FIXTURES_ROOT, 'tools-fs-search');
-    const stage = stageSet(finalDir);
+    // `--only a,b --write`: those scenarios are recorded again and the set's other files stay as recorded.
+    const stage = stageSet(finalDir, only ? recorded.map((s) => `${s.name}.json`) : null);
+    const kept = only ? JSON.parse(readFileSync(join(finalDir, 'MANIFEST.json'), 'utf8')).scenarios : [];
     for (const scenario of recorded) writeJson(join(stage, `${scenario.name}.json`), scenario);
     writeSetManifest(stage, {
       set: 'tools-fs-search',
@@ -1549,12 +1698,14 @@ try {
         graphBinary: { builtFrom: `${NODE_COMMIT}:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)`, sha256: sha256(readFileSync(graphBin)) },
         // search-queue-burst's held searches: the batch oplocks this script holds (run by Windows PowerShell).
         oplockHolder: { path: 'benchmarks/rust-core/recorders/lib/oplock-holder.ps1', sha256: sha256(readFileSync(OPLOCK_HOLDER)) },
-        scenarios: recorded.map((s) => s.name),
+        scenarios: [...new Set([...kept, ...recorded.map((s) => s.name)])],
         normalised: [
           'the workspace path (backslash and forward-slash forms) is <ROOT> in every text',
           'a replay whose workspace lies under the home or Mixdog data folder reads that path\'s redacted spelling (~/…, <mixdog-data>/…) as <ROOT> too',
         ],
         exclusions: [
+          'glob-fs-root: Node prunes /proc, /sys and /dev under a root only when process.platform is posix, and its tool reads process.platform itself with a drive path as the root on the recording machine (Windows): the posix answer is not recorded here, only the helper\'s (tools-fs-glob-order)',
+          'glob-mtime-page: a stat that fails cannot be made on the recording machine, so the failed-stat order is recorded from the helper (tools-fs-glob-order); the page\'s continuation line is the public one',
           'what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded',
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
           'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
