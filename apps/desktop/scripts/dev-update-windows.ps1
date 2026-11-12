@@ -51,6 +51,8 @@ param(
     # Abort the work a busy core is running, after listing it and a typed
     # ABORT confirmation. Without it a deploy waits for the core to be idle.
     [switch]$AbortRunning,
+    # How long the wait for an idle core may last before a core with nothing running is stopped by the confirmed abort.
+    [int]$DrainLimitSeconds = 120,
     [switch]$DryRun,
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop'),
     [string]$Version = '',
@@ -469,11 +471,27 @@ function Stop-Daemon {
     if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop exited with $LASTEXITCODE" }
     Write-Host "    asked core pid=$($record.pid) to stop when idle"
     if ($AbortRunning) { Confirm-AbortRunningWork }
+    # The idle wait has a limit: a drain was seen staying `draining` for 15+ minutes with no client and no work.
+    # At the limit a core with nothing running is stopped by the confirmed abort (`stop --abort` with the drain's
+    # token from `ctl status`), which loses nothing; a core that is running work keeps draining (listed) unless
+    # -AbortRunning, which asks for the typed ABORT above.
+    $waited = 0
+    $aborted = $false
     while (-not $process.WaitForExit(10000)) {
+        $waited += 10
         $status = Get-CoreRunningWork
         $titles = (@($status.running) | ForEach-Object { $_.title }) -join '; '
-        Write-Host "    waiting for the core to become idle: $titles"
+        Write-Host "    waiting for the core to become idle ($waited s): $titles"
         Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail $titles
+        if (-not $aborted -and $waited -ge $DrainLimitSeconds -and $status.drain -and @($status.running).Count -eq 0) {
+            Write-Host "    the drain did not end within $DrainLimitSeconds s with nothing running; stopping the core by the confirmed abort"
+            & $coreExe ctl stop --abort --reason fastDeploy --confirm-token $status.drain.confirmToken --json | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
+            $aborted = $true
+        }
+        if ($aborted -and $waited -ge $DrainLimitSeconds + 120) {
+            throw "The core (pid $($record.pid)) is still running 120 s after the confirmed abort. Nothing was killed: end it with `"$coreExe ctl terminate`" (see ctl terminate --help) or by its pid, then rerun."
+        }
     }
 }
 
