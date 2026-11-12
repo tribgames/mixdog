@@ -1,6 +1,6 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-import { parentPort, workerData } from 'node:worker_threads';
+import { parentPort, workerData } from '../../shared/onnx-child-host.mjs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';

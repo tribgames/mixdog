@@ -4,7 +4,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
  * embedding-provider.mjs — Embedding provider with worker_threads isolation.
  */
 
-import { Worker } from 'node:worker_threads';
+import { ChildWorker } from '../../shared/onnx-child-host.mjs';
 import { onnxRuntimeSupported } from '../../shared/onnx-runtime-support.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,7 +69,7 @@ function ensureWorker() {
   }
   _lastRestartMs = now;
   const execArgv = embeddingWorkerExecArgv();
-  const created = new Worker(WORKER_PATH, {
+  const created = new ChildWorker(WORKER_PATH, {
     // The model download runs in this worker: it gets the system proxy
     // decision explicitly (and removes it from its own env on start).
     env: { ...process.env, ...systemProxyHandoffEnv() },

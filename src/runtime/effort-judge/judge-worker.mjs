@@ -7,7 +7,7 @@
 // { step } for a tool-result step) with calibrated probabilities.
 // calibration.json holds the temperature, the input format the model was
 // trained on, and `steps: 1` when it was also trained on tool-result steps.
-import { parentPort, workerData } from 'node:worker_threads';
+import { parentPort, workerData } from '../shared/onnx-child-host.mjs';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';

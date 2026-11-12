@@ -60,10 +60,13 @@ function prewarmHarness(t, { model = true } = {}) {
       spawned.push(this);
     }
     postMessage() {}
+    exited() {
+      return false;
+    }
     unref() {}
     async terminate() {}
   }
-  t.mock.module('node:worker_threads', { namedExports: { Worker: FakeWorker } });
+  t.mock.module('../shared/onnx-child-host.mjs', { namedExports: { ChildWorker: FakeWorker } });
   return { spawned };
 }
 
@@ -162,10 +165,13 @@ async function loadErrorHarness(t, bad, { gate = null, installError = null } = {
       spawned.push(this);
     }
     postMessage() {}
+    exited() {
+      return false;
+    }
     unref() {}
     async terminate() {}
   }
-  t.mock.module('node:worker_threads', { namedExports: { Worker: FakeWorker } });
+  t.mock.module('../shared/onnx-child-host.mjs', { namedExports: { ChildWorker: FakeWorker } });
   t.mock.method(process.stderr, 'write', () => true);
   const client = await import(`./judge-client.mjs?repair=${Date.now()}-${Math.random()}`);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -284,10 +290,13 @@ test('a judgment that missed its deadline holds the next request until the worke
     postMessage(msg) {
       posted.push(msg);
     }
+    exited() {
+      return false;
+    }
     unref() {}
     async terminate() {}
   }
-  t.mock.module('node:worker_threads', { namedExports: { Worker: FakeWorker } });
+  t.mock.module('../shared/onnx-child-host.mjs', { namedExports: { ChildWorker: FakeWorker } });
   const client = await import(`./judge-client.mjs?queue=${Date.now()}`);
   const answer = (msg) => judge.emit('message', { type: 'result', id: msg.id, probs: [1, 0, 0, 0] });
 
@@ -300,4 +309,149 @@ test('a judgment that missed its deadline holds the next request until the worke
   assert.equal(posted.length, 2, 'the late answer frees the worker for the next request');
   answer(posted[1]);
   assert.deepEqual((await next).probs, [1, 0, 0, 0]);
+});
+
+// Idle unload: the host ends after EMBED_KEEP_WARM_MS without a judge call, on a
+// clock the test advances.
+function idleHarness(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-idle-'));
+  for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), 'x');
+  const saved = process.env.MIXDOG_EFFORT_JUDGE_DIR;
+  process.env.MIXDOG_EFFORT_JUDGE_DIR = dir;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOG_EFFORT_JUDGE_DIR;
+    else process.env.MIXDOG_EFFORT_JUDGE_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const hosts = [];
+  const load = { auto: true };
+  class FakeWorker extends EventEmitter {
+    terminated = false;
+    constructor() {
+      super();
+      hosts.push(this);
+      if (load.auto) setImmediate(() => this.emit('message', { type: 'ready' }));
+    }
+    postMessage(msg) {
+      queueMicrotask(() => this.emit('message', { type: 'result', id: msg.id, probs: [0, 1, 0, 0] }));
+    }
+    exited() {
+      return false;
+    }
+    unref() {}
+    async terminate() {
+      this.terminated = true;
+    }
+  }
+  t.mock.module('../shared/onnx-child-host.mjs', { namedExports: { ChildWorker: FakeWorker } });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  return { hosts, load, settle: () => new Promise((resolve) => setImmediate(resolve)) };
+}
+const IDLE_MS = 6 * 60_000;
+
+test('an idle judge host is unloaded after the keep-warm period and the next prewarm starts a fresh one', async (t) => {
+  const { hosts, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle=${Date.now()}`);
+  assert.equal(client.prewarmEffortJudge(), true);
+  await settle();
+  assert.equal(client.effortJudgeReady(), true);
+  t.mock.timers.tick(IDLE_MS - 1);
+  assert.equal(hosts[0].terminated, false);
+  t.mock.timers.tick(1);
+  assert.equal(hosts[0].terminated, true);
+  assert.equal(client.effortJudgeReady(), false);
+  assert.equal(client.prewarmEffortJudge(), true);
+  assert.equal(hosts.length, 2);
+});
+
+test('a judge call restarts the idle period', async (t) => {
+  const { hosts, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle-call=${Date.now()}`);
+  client.prewarmEffortJudge();
+  await settle();
+  t.mock.timers.tick(IDLE_MS - 1000);
+  assert.deepEqual((await client.judgeTurn({ request: 'hi' })).probs, [0, 1, 0, 0]);
+  t.mock.timers.tick(IDLE_MS - 1000);
+  assert.equal(hosts[0].terminated, false, 'measured from the last call');
+  t.mock.timers.tick(1000);
+  assert.equal(hosts[0].terminated, true);
+});
+
+test('a host is not unloaded while a turn holds the lease', async (t) => {
+  const { hosts, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle-lease=${Date.now()}`);
+  client.prewarmEffortJudge();
+  await settle();
+  client.holdEffortJudgeWarm(10 * 60_000);
+  t.mock.timers.tick(IDLE_MS);
+  assert.equal(hosts[0].terminated, false);
+  t.mock.timers.tick(IDLE_MS);
+  assert.equal(hosts[0].terminated, true, 'unloaded once the lease has lapsed');
+});
+
+test('a call that arrives during the idle shutdown is answered by a fresh host', async (t) => {
+  const { hosts, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle-race=${Date.now()}`);
+  client.prewarmEffortJudge();
+  await settle();
+  let call;
+  // The call lands while the old host is being terminated.
+  hosts[0].terminate = async () => {
+    hosts[0].terminated = true;
+    call = client.judgeTurn({ request: 'hi' });
+  };
+  t.mock.timers.tick(IDLE_MS);
+  assert.equal(hosts[0].terminated, true);
+  assert.equal(hosts.length, 2, 'the call started a fresh host instead of using the retiring one');
+  await settle();
+  assert.deepEqual((await call).probs, [0, 1, 0, 0]);
+});
+
+test('the exit of a host retired for being idle does not fail a request its replacement accepted', async (t) => {
+  const { hosts, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle-late-exit=${Date.now()}`);
+  client.prewarmEffortJudge();
+  await settle();
+  t.mock.timers.tick(IDLE_MS);
+  assert.equal(hosts[0].terminated, true);
+  const call = client.judgeTurn({ request: 'hi' });
+  let posted;
+  hosts[1].postMessage = (msg) => {
+    posted = msg;
+  };
+  await settle();
+  assert.ok(posted, 'the replacement holds the request');
+  // The retired process ends only now.
+  hosts[0].emit('exit', 0);
+  hosts[1].emit('message', { type: 'result', id: posted.id, probs: [0, 0, 1, 0] });
+  assert.deepEqual((await call).probs, [0, 0, 1, 0]);
+});
+
+test('a turn after an idle unload waits for the reload instead of running unjudged', async (t) => {
+  const { hosts, load, settle } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?idle-reload=${Date.now()}`);
+  client.prewarmEffortJudge();
+  await settle();
+  t.mock.timers.tick(IDLE_MS);
+  load.auto = false;
+  let result;
+  const call = client.judgeTurn({ request: 'hi' }).then((value) => {
+    result = value;
+  });
+  // Longer than a first load is given (3 s): the model is known to load.
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.equal(result, undefined, 'still waiting for the reload');
+  hosts[1].emit('message', { type: 'ready' });
+  await call;
+  assert.deepEqual(result.probs, [0, 1, 0, 0]);
+});
+
+test('a first load is still given only the cold wait', async (t) => {
+  const { load } = idleHarness(t);
+  const client = await import(`./judge-client.mjs?first-load=${Date.now()}`);
+  load.auto = false;
+  const call = client.judgeTurn({ request: 'hi' });
+  t.mock.timers.tick(3000);
+  assert.deepEqual(await call, { skipped: 'warming' });
 });

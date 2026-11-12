@@ -7,7 +7,8 @@
 // `judgeTurn` returns a `skipped` reason and the turn keeps its default
 // effort. Decisions are logged locally (lengths and probabilities only, never
 // the request text).
-import { Worker } from 'node:worker_threads';
+import { ChildWorker } from '../shared/onnx-child-host.mjs';
+import { createIdleLease, EMBED_KEEP_WARM_MS } from '../memory/lib/embedding-idle-lease.mjs';
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +51,12 @@ const COLD_WAIT_MS =
   Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) > 0
     ? Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS)
     : 3000;
+// A model that has loaded in this process and was unloaded for being idle
+// loads again on the next turn. That turn waits for it instead of running
+// unjudged: a session with a turn every few minutes would otherwise never be
+// judged. A load that fails wakes the wait at once, so only a slow load pays.
+const RELOAD_WAIT_MS = Math.max(COLD_WAIT_MS, 10_000);
+const loadedDirs = new Set();
 
 let worker = null;
 let workerDir = '';
@@ -120,6 +127,51 @@ export function effortJudgeSupportsSteps(dir = effortJudgeModelDir()) {
   return stepSupport.get(dir);
 }
 
+// The host is unloaded after EMBED_KEEP_WARM_MS without a judge call, as the
+// embedder's is. Running work (a turn of an auto-effort session) renews the
+// lease so the host is not unloaded under a turn about to judge; the next
+// prewarm or call starts a fresh host exactly like a cold start.
+const lease = createIdleLease(() => Date.now());
+let idleTimer = null;
+const retiredIdle = new WeakSet();
+
+/** Renews the keep-warm lease while a turn that will judge is running. */
+export function holdEffortJudgeWarm(ms = EMBED_KEEP_WARM_MS) {
+  lease.hold(ms);
+}
+
+function clearIdleTimer() {
+  clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+// Idle means the time since the last judge call, so every call re-arms it.
+function touchIdle() {
+  clearIdleTimer();
+  if (!worker) return;
+  idleTimer = setTimeout(retireWhenIdle, EMBED_KEEP_WARM_MS);
+  idleTimer.unref?.();
+}
+
+function retireWhenIdle() {
+  idleTimer = null;
+  const current = worker;
+  if (!current) return;
+  // A leased turn, a load in progress or an accepted request keeps the host:
+  // it is looked at again later, never terminated under accepted work.
+  if (lease.active() || !ready || pending.size > 0) {
+    touchIdle();
+    return;
+  }
+  // Unlist the host first: a call that arrives from here on starts a fresh one,
+  // and a call already queued for this one is re-issued (see judgeTurn).
+  retiredIdle.add(current);
+  worker = null;
+  ready = false;
+  notifyReady(false);
+  void current.terminate().catch(() => {});
+}
+
 function settle(id, fn) {
   const entry = pending.get(id);
   if (!entry) return;
@@ -131,17 +183,20 @@ function settle(id, fn) {
 function ensureWorker(dir) {
   if (worker && workerDir === dir) return worker;
   if (worker) void worker.terminate().catch(() => {});
-  const created = new Worker(WORKER_PATH, { workerData: { dir } });
+  const created = new ChildWorker(WORKER_PATH, { workerData: { dir } });
   created.unref();
   worker = created;
   workerDir = dir;
   ready = false;
+  touchIdle();
   created.on('message', (msg) => {
     if (msg.type === 'ready') {
       ready = true;
       lastLoadError = '';
+      loadedDirs.add(dir);
       notifyReady(true);
     } else if (msg.type === 'load-error') {
+      loadedDirs.delete(dir);
       lastLoadError = msg.message;
       lastLoadErrorAt = Date.now();
       notifyReady(false);
@@ -156,9 +211,14 @@ function ensureWorker(dir) {
     if (worker === created) {
       worker = null;
       ready = false;
+      clearIdleTimer();
       notifyReady(false);
     }
-    for (const id of [...pending.keys()]) settle(id, (entry) => entry.reject(new Error('effort judge exited')));
+    // Only this host's requests end with it: a host retired for being idle
+    // exits after its replacement has already accepted work.
+    for (const [id, entry] of [...pending]) {
+      if (entry.host === created) settle(id, (owned) => owned.reject(new Error('effort judge exited')));
+    }
   };
   created.on('error', (error) => {
     lastLoadError = String(error?.message || error);
@@ -178,10 +238,16 @@ function request(target, { request: text, prev, prevRequest, step }) {
     finish = resolve;
   });
   const answer = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), WARM_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      reject(new Error('timeout'));
+      // A host that died under the request frees the queue now, not when its
+      // 'exit' event arrives (see ChildWorker.exited).
+      target.exited();
+    }, WARM_TIMEOUT_MS);
     const stuck = setTimeout(() => void target.terminate().catch(() => {}), STUCK_MS);
     stuck.unref();
     pending.set(id, {
+      host: target,
       resolve,
       reject,
       done: () => {
@@ -302,6 +368,7 @@ export function prewarmEffortJudge() {
   if (!effortJudgeAvailable(dir)) return false;
   if (!worker && lastLoadError && Date.now() - lastLoadErrorAt < LOAD_RETRY_MS) return false;
   ensureWorker(dir);
+  touchIdle();
   return true;
 }
 
@@ -348,12 +415,14 @@ export async function judgeTurn(input) {
     return { skipped: `load-error: ${lastLoadError}` };
   }
   const target = ensureWorker(dir);
-  if (!ready && !(await waitReady(COLD_WAIT_MS))) {
+  touchIdle();
+  if (!ready && !(await waitReady(loadedDirs.has(dir) ? RELOAD_WAIT_MS : COLD_WAIT_MS))) {
     return { skipped: lastLoadError ? `load-error: ${lastLoadError}` : 'warming' };
   }
   let abandoned = false;
   const turn = queueTail.then(() => {
     if (abandoned) return null;
+    if (retiredIdle.has(target)) return { retry: true };
     if (worker !== target || !ready) return { exited: true };
     return { startedAt: Date.now(), ...request(target, input) };
   });
@@ -370,6 +439,7 @@ export async function judgeTurn(input) {
     abandoned = true;
     return { skipped: 'busy' };
   }
+  if (sent.retry) return judgeTurn(input);
   if (sent.exited) return { skipped: 'effort judge exited' };
   try {
     return { probs: await sent.answer, ms: Date.now() - sent.startedAt };
@@ -400,6 +470,7 @@ export async function shutdownEffortJudge() {
   const current = worker;
   worker = null;
   ready = false;
+  clearIdleTimer();
   notifyReady(false);
   if (current) await current.terminate().catch(() => {});
 }

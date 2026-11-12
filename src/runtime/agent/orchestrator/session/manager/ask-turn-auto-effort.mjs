@@ -19,6 +19,7 @@ import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
 import { effortOptionsFor, warnEmptyAutoEffortLadder } from '../../runtime-core/effort.mjs';
 import {
   effortJudgeSupportsSteps,
+  holdEffortJudgeWarm,
   judgeTurn,
   prewarmEffortJudge,
   recordEffortDecision,
@@ -134,6 +135,8 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
     warnEmptyAutoEffortLadder(session.provider, session.model, base);
     return null;
   }
+  // The turn is about to judge: keep the judge host loaded under it.
+  holdEffortJudgeWarm();
   // The previous user request shows the work a short follow-up continues.
   const judged = await judgeTurn({
     request,
