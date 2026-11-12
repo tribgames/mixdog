@@ -79,6 +79,38 @@ fn host_process_body() {
     std::process::exit(code);
 }
 
+const REAL_HOST_ENV: &str = "MIXDOG_TEST_EFFORT_JUDGE_REAL_HOST";
+const REAL_DIR_ENV: &str = "MIXDOG_TEST_EFFORT_JUDGE_REAL_DIR";
+const REAL_ORT_ENV: &str = "MIXDOG_TEST_EFFORT_JUDGE_REAL_ORT";
+
+/// The host process of the integration tests that load the real model: the product's host body (`mixdogd effort-judge-host`)
+/// over this test binary, which is not `mixdogd`.
+#[test]
+fn real_host_process_body() {
+    if std::env::var_os(REAL_HOST_ENV).is_none() {
+        return;
+    }
+    let path = |name| std::path::PathBuf::from(std::env::var_os(name).expect("the launching test sets it"));
+    let config = ModelConfig { dir: path(REAL_DIR_ENV), explicit: true, ort_library: OrtRuntime::Library(path(REAL_ORT_ENV)) };
+    let tokens = mixdog_rt::testing::tokens();
+    let code = super::host::serve(&config, tokens.judge_thread, std::io::stdin().lock(), std::io::stdout().lock());
+    std::process::exit(code);
+}
+
+/// A launch of [`real_host_process_body`] over `config`'s model.
+pub(crate) fn real_host_launch(config: &ModelConfig) -> HostLaunch {
+    let OrtRuntime::Library(library) = &config.ort_library else { panic!("the real host needs a runtime library") };
+    HostLaunch {
+        program: std::env::current_exe().unwrap(),
+        args: ["--exact", "effort_judge::host_tests::real_host_process_body", "--nocapture", "--test-threads=1"].map(Into::into).to_vec(),
+        env: vec![
+            (REAL_HOST_ENV.to_owned(), "1".to_owned()),
+            (REAL_DIR_ENV.to_owned(), config.dir.to_string_lossy().into_owned()),
+            (REAL_ORT_ENV.to_owned(), library.to_string_lossy().into_owned()),
+        ],
+    }
+}
+
 fn host_launch(env: Vec<(String, String)>) -> HostLaunch {
     let mut env = env;
     env.push((HOST_ENV.to_owned(), "1".to_owned()));
