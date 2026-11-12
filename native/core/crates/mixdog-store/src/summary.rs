@@ -252,6 +252,11 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
     if let Some(w) = workspace_summary(get(h, "workspace")) {
         s.insert("workspace".into(), w);
     }
+    // A room log's record of who is in the room (the core's own header field, which Node never writes): the one place a
+    // rebuilt `rooms` table reads its members from (`mixdog-core-rooms` `rebuild_rooms`).
+    if let Some(Value::Array(ids)) = get(h, "roomMembers") {
+        s.insert("roomMembers".into(), Value::Array(ids.iter().filter(|id| id.is_string()).cloned().collect()));
+    }
     for k in ["provider", "model"] {
         s.insert(k.into(), or_null(get(h, k)));
     }

@@ -673,8 +673,15 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
-    let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
+    let (state, _, set_aside) = CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
         .map_err(ComposeError::State)?;
+    // Node carries on with a state file it finds corrupt; so does the daemon, and says once what it kept.
+    if let Some((kept, why)) = &set_aside.file {
+        log.log(&format!("state/core.sqlite is not a usable database ({why}); kept as {}; started a new one", kept.display()));
+    }
+    if set_aside.project_rows > 0 {
+        log.log(&format!("{} unreadable project row(s) of state/core.sqlite kept in its meta table (corrupt:projects:<path>)", set_aside.project_rows));
+    }
     let feed_index = Arc::new(CoreScopedFeeds::new(
         FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES },
         tokens.cpu_interactive,
@@ -737,6 +744,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     }
     let thread_gates = Arc::new(crate::late_seams::LateThreadGates::default());
     let sections = Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone()));
+    let rebuild_into = set_aside.file.is_some().then(|| state.clone());
     let stop_reason: Arc<StopReasonCell> = Arc::default();
     let acquired = crate::acquired::Acquired::new(interrupt);
     let host_media = HostMedia::new(Limits::default().max_media_frame_bytes);
@@ -789,6 +797,18 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
             return Err(error);
         }
     };
+    // A new database after a set-aside gets back what the session catalog still records (Projects, rooms), before any client connects.
+    // The rebuild is best effort: the daemon runs without it, as Node runs with an empty registry.
+    if let Some(state) = rebuild_into {
+        match mixdog_store::state_rebuild::rebuild_projects(&state, &real.catalog_index).await {
+            Ok(count) => log.log(&format!("rebuilt {count} project row(s) from the sessions' recorded folders")),
+            Err(error) => log.log(&format!("rebuilding the project rows failed: {error}")),
+        }
+        match mixdog_core_rooms::rooms::rebuild::rebuild_rooms(&state, &real.catalog_index).await {
+            Ok(done) => log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped)),
+            Err(error) => log.log(&format!("rebuilding the room rows failed: {error}")),
+        }
+    }
     // The stop procedure's first steps, in this order: the quota resume timer ends before the directory it resumes sessions on shuts down, then the directory.
     let resume_timer = real.resume_timer.clone();
     // Node's boot coordinator (`daemon.mjs:1129`): Goal recovery, then `startQuotaResume`, once a client is ready.
@@ -858,6 +878,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
 mod review_restart_tests;
 #[cfg(test)]
 mod office_startup_tests;
+#[cfg(test)]
+mod state_set_aside_tests;
 
 #[cfg(test)]
 mod tests {

@@ -6,6 +6,8 @@
 //! a restart: `recover` clears it and names the rooms to mark interrupted. Nothing resumes.
 
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -121,9 +123,13 @@ pub struct TurnFields {
 /// Told the records after each save.
 pub type RoomsChanged = Arc<dyn Fn(&RoomDoc) + Send + Sync>;
 
+/// Keeps who is in a room (its id, its members) on the room's own log, the one record a rebuilt room takes its members from.
+pub type MemberLog = Arc<dyn Fn(String, Vec<String>) -> Pin<Box<dyn Future<Output = Result<(), RoomError>> + Send>> + Send + Sync>;
+
 pub struct Rooms<S: RoomStore> {
     store: S,
     listeners: Mutex<Vec<RoomsChanged>>,
+    member_log: Mutex<Option<MemberLog>>,
     // The one room writer: a mutation loads, changes and saves on this chain, in arrival order.
     // Reads of the live records pass through it only for the first load.
     writer: Arc<SerialChain>,
@@ -133,7 +139,47 @@ pub struct Rooms<S: RoomStore> {
 
 impl<S: RoomStore> Rooms<S> {
     pub fn new(store: S) -> Self {
-        Self { store, listeners: Mutex::new(Vec::new()), writer: SerialChain::new(), doc: Mutex::new(None) }
+        Self { store, listeners: Mutex::new(Vec::new()), member_log: Mutex::new(None), writer: SerialChain::new(), doc: Mutex::new(None) }
+    }
+
+    /// Every save that changes who is in a room first has `log` record the members about to be saved ([`Self::log_members`]).
+    pub fn log_members_with(&self, log: MemberLog) {
+        *self.member_log.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
+    }
+
+    /// The logs of the rooms whose members differ between `live` and `next` record `next`'s, inside the writer's turn: a log
+    /// and its room change in one order whoever changes them, and a crash or a failed save after it leaves a log that lists
+    /// the members about to be saved, never one the room has dropped. A log that cannot be written fails the write, the
+    /// logs written before it put back. A new room's failure is not the write's: the next load gives its log the record.
+    /// The rooms whose logs were written.
+    async fn log_members(&self, live: &RoomDoc, next: &RoomDoc) -> Result<Vec<String>, RoomError> {
+        let Some(log) = self.member_log.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return Ok(Vec::new()) };
+        let mut written = Vec::new();
+        for (id, room) in next {
+            match live.get(id) {
+                None => {
+                    let _ = log(id.clone(), room.config.members.clone()).await;
+                }
+                Some(before) if before.config.members != room.config.members => {
+                    if let Err(error) = log(id.clone(), room.config.members.clone()).await {
+                        Self::unlog_members(&log, live, &written).await;
+                        return Err(error);
+                    }
+                    written.push(id.clone());
+                }
+                Some(_) => {}
+            }
+        }
+        Ok(written)
+    }
+
+    /// The logs of `rooms` record `live`'s members again: the change they were written for was not saved.
+    async fn unlog_members(log: &MemberLog, live: &RoomDoc, rooms: &[String]) {
+        for id in rooms {
+            if let Some(room) = live.get(id) {
+                let _ = log(id.clone(), room.config.members.clone()).await;
+            }
+        }
     }
 
     fn live(&self) -> Option<Arc<RoomDoc>> {
@@ -171,8 +217,19 @@ impl<S: RoomStore> Rooms<S> {
         if next != *live {
             let next = Arc::new(next);
             self.set_live(next.clone());
+            let logged = match self.log_members(&live, &next).await {
+                Ok(logged) => logged,
+                Err(error) => {
+                    self.set_live(live);
+                    return Err(error);
+                }
+            };
             let saved = self.store.save(&next).await;
             if saved.is_err() && !keep_unsaved {
+                let log = self.member_log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if let Some(log) = log {
+                    Self::unlog_members(&log, &live, &logged).await;
+                }
                 self.set_live(live);
             } else {
                 let told: Vec<RoomsChanged> = self.listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
