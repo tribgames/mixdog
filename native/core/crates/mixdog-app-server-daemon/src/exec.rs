@@ -662,32 +662,11 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
-    /// The time from a shell call to its result for a PowerShell command that prints at once, as Node's warm standby is
-    /// measured against it: a warm-up call, then 20 calls a few seconds apart (a model's pace, which lets a standby
-    /// refill), their median printed. A measurement, run on request: `-- --ignored pwsh_call_latency --nocapture`.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "a measurement, not a check"]
-    async fn pwsh_call_latency() {
-        let rig = rig().await;
-        assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
-        let mut times = Vec::new();
-        for i in 0..20 {
-            mixdog_rt::time::sleep(Duration::from_secs(3)).await;
-            let start = std::time::Instant::now();
-            let ran = rig.run(&format!("m{i}"), "Write-Output hi").await;
-            times.push(start.elapsed().as_secs_f64() * 1000.0);
-            assert!(ran.contains("hi"), "{ran}");
-        }
-        times.sort_by(f64::total_cmp);
-        println!("pwsh call latency ms: median {:.0} (min {:.0}, max {:.0})", (times[9] + times[10]) / 2.0, times[0], times[19]);
-    }
-
-    /// The time and the memory a 50 MiB PowerShell command takes through the shell tool: the call's duration and how
-    /// far it raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up
-    /// call's. A measurement, run on request: `-- --ignored pwsh_50_mib_command --nocapture`.
+    /// A 50 MiB PowerShell command goes through the shell tool and answers its length; the call's duration and how far it
+    /// raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up call's
+    /// are printed (`-- --nocapture`).
     #[cfg(windows)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "a measurement, not a check"]
     async fn pwsh_50_mib_command() {
         #[repr(C)]
         #[derive(Default)]
