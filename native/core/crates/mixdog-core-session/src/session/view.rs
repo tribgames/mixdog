@@ -141,7 +141,7 @@ pub(crate) fn meta(item: &ThreadItem) -> &ItemMeta {
     }
 }
 
-fn meta_mut(item: &mut ThreadItem) -> &mut ItemMeta {
+pub(crate) fn meta_mut(item: &mut ThreadItem) -> &mut ItemMeta {
     match item {
         ThreadItem::UserMessage { meta, .. }
         | ThreadItem::AgentMessage { meta, .. }

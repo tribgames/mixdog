@@ -59,7 +59,7 @@ async fn give_conversation(handle: &SessionHandle) {
     handle.request(append).await.expect("the conversation is appended");
 }
 
-fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
+pub(crate) fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
         method: Method(method),
         params,
@@ -774,11 +774,11 @@ fn drain(stage: DrainStage) -> DrainRequest {
     DrainRequest { stage, max_priority: Priority::Next }
 }
 
-/// `ask-turn-steering-drain.mjs:44-58`: a mid-chain boundary takes queued input only while the
-/// queue holds task notifications alone; the terminal boundary takes it all, the prompts merged
-/// into one input and each completion on its own, and none of it starts a turn of its own.
+/// `session-flow/steering.mjs:204` (`drainPendingSteering`, the desktop host's queue): every boundary takes each queued
+/// prompt within its priority as an input of its own, never merged (session-send-world `recipient-queued`); the completion
+/// then left alone in the queue is taken at the same boundary (`ask-turn-steering-drain.mjs:44-58`). None of it starts a turn.
 #[tokio::test(start_paused = true)]
-async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
+async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
     let gate = Arc::new(tokio::sync::Notify::new());
@@ -815,15 +815,17 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let taken = lock(&taken).clone();
     assert_eq!(taken.len(), 2);
-    assert!(taken[0].is_empty(), "a queued prompt keeps the mid-chain boundary from the queue");
-    let terminal = &taken[1];
-    assert_eq!(terminal.len(), 2);
-    assert_eq!(terminal[0].mode, SteerMode::Prompt);
-    assert_eq!(terminal[0].content, "first\nsecond");
-    let ids: Vec<&str> = terminal[0].queued_ids.iter().map(|id| id.as_str()).collect();
-    assert_eq!(ids, [first["queuedId"].as_str().unwrap(), second["queuedId"].as_str().unwrap()]);
-    assert_eq!(terminal[1].mode, SteerMode::TaskNotification);
-    assert_eq!(terminal[1].content, "job-7 finished.");
+    let next = &taken[0];
+    assert_eq!(next.len(), 3);
+    for (input, (content, queued)) in next.iter().zip([("first", &first), ("second", &second)]) {
+        assert_eq!(input.mode, SteerMode::Prompt);
+        assert_eq!(input.content, content);
+        let ids: Vec<&str> = input.queued_ids.iter().map(|id| id.as_str()).collect();
+        assert_eq!(ids, [queued["queuedId"].as_str().unwrap()]);
+    }
+    assert_eq!(next[2].mode, SteerMode::TaskNotification);
+    assert_eq!(next[2].content, "job-7 finished.");
+    assert!(taken[1].is_empty(), "the terminal boundary finds the queue empty");
     mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
@@ -2591,8 +2593,6 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
         handles.push(open.await.expect("join"));
     }
     assert_eq!(rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), reads + 1);
-    // The effort judge was prewarmed at the create and at the one open.
-    assert_eq!(*lock(&rig.prewarms.0), [id.clone(), id.clone()]);
     assert!(handles.iter().all(|h| Arc::ptr_eq(h, &handles[0])));
     let reopened = &handles[0];
     assert_eq!(rows(reopened), before);
@@ -4081,6 +4081,42 @@ async fn a_turn_the_process_died_in_is_recovered_at_open_before_any_read() {
     assert_eq!(messages[2]["toolCallId"], "call_1");
 }
 
+/// A second crash during recovery must find the run still unfinished: the run's `Interrupted` marker is the last record the
+/// recovery writes, behind the cancelled result and the restart line (Node keeps the checkpoint until the recovery is saved).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_marker_of_a_recovered_run_lands_behind_its_recovery_rows() {
+    use mixdog_store::schema::record::{Record, RunPhase};
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let told = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    turn(&handle, "read a", "op-1").await;
+    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps());
+    second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let records = rig.store.records(&id);
+    let marker = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("the run ended");
+    let restart = records
+        .iter()
+        .position(|(_, record)| matches!(record, Record::Item(row) if format!("{:?}", row.body).contains("process restart")))
+        .expect("the restart line was saved");
+    assert!(restart < marker, "the marker ends the recovery: {records:?}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     let data = tempfile::tempdir().expect("data dir");
@@ -4138,6 +4174,46 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     assert_eq!(value["text"], "again");
     eventually_on!(&[&reopened.cell.stepped], || (rows(&reopened).len() == 2).then_some(())).await;
     eventually_on!(&[&reopened.cell.stepped], || (prompt_list(&reopened) == ["hello"]).then_some(())).await;
+}
+
+/// A run the process died in, with more rows than the opened window holds: its recovery still knows its input row (the
+/// row before its start, read from the log), so a finished answer is not taken for an unanswered turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crashed_run_past_the_window_is_recovered_with_its_input_row() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let (begun, proceed) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let (signal, started, go) = (committed.clone(), begun.clone(), proceed.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (signal, started, go) = (signal.clone(), started.clone(), go.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            started.notify_one();
+            go.notified().await;
+            for n in 0..210 {
+                let row = ItemCommit { iid: ItemId::from(format!("t-{n}")), role: Some("tool".into()), model: true, visible: true, body: json!({ "text": format!("r{n}") }), prompt: None };
+                run.port.commit_item(row).await.expect("a tool row");
+            }
+            signal.notify_one();
+            // The process dies here: the run never ends.
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    turn(&handle, "hello", "op-1").await;
+    crate::session::testing::awaiting(|| "the run's start".to_owned(), begun.notified()).await;
+    // The input row, read before the run's rows push it out of the shown window.
+    let input = handle.cell.view.load_full().items[0].id().clone();
+    proceed.notify_one();
+    crate::session::testing::awaiting(|| "the run's rows".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
+    assert_eq!(*lock(&rig.runs.crashed), [Some(input)]);
 }
 
 /// A subscriber attaches (the counting `FeedSource::attach` does around the feed).
@@ -4422,7 +4498,7 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     subscribe(&handle);
     handle.cell.unsubscribed();
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    // The decision is made where the session unloads, before anything is spawned.
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
 

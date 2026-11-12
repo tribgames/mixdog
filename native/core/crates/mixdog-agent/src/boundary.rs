@@ -300,6 +300,20 @@ impl Run {
                 self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
+            // `preflightAttachments`: attachments that would crowd the window travel by reference
+            // from this send on, written into the transcript so a retried turn never re-sends the
+            // bulk. Runs whether or not automatic compaction is on.
+            if let Some(compactor) = self.env.compactor.clone()
+                && let Some(preflight) = compactor.preflight_attachments(&self.messages).await
+            {
+                self.messages = preflight.messages;
+                self.baseline = None;
+                // The continuation was built on the inline prefix: a kept anchor would skip the rewritten
+                // messages and leave the server holding the full attachment.
+                self.provider_state = None;
+                self.provider_state_changed = true;
+                self.env.sink.replace(&self.messages, &Rewrite::default());
+            }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
             compact_attempted |= changed;
             if !changed {
@@ -469,6 +483,10 @@ impl Run {
         self.baseline = None;
         // Receipts point at tool results compaction just removed from context.
         self.cross_turn.clear();
+        // Cached read results and the read snapshots would answer a read with a body or a receipt the model no longer holds.
+        if let Some(reuse) = &self.env.reuse {
+            reuse.after_compaction();
+        }
         // The next send intentionally starts a new transcript shape: a tagged break, not an unexplained mismatch.
         self.cache_break_intent = Some("automatic_compaction".to_owned());
         // Compaction starts a new loop epoch: iteration indices count from the

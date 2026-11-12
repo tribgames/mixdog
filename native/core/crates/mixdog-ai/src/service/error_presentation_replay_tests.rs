@@ -128,7 +128,7 @@ fn quota_refusal(spec: &Value) -> (ProviderError, String) {
         body: spec["body"].as_str().unwrap().as_bytes().to_vec(),
     };
     let mut error = classify_response(&response);
-    error.message = quota_error_text(&response);
+    error.message = quota_error_text(&response, &[]);
     let name = if error.kind == ErrorKind::QuotaExhausted { "ProviderQuotaError" } else { "ProviderRequestRejectedError" };
     (error, name.to_owned())
 }

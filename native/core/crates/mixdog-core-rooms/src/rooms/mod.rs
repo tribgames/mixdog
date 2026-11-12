@@ -15,6 +15,7 @@ pub mod memory;
 pub mod pool;
 pub mod preview;
 pub mod ready;
+pub mod rebuild;
 pub mod records;
 pub mod row_message;
 pub mod rows;
@@ -38,6 +39,7 @@ pub mod user_send;
 pub mod exchange_script;
 #[cfg(test)]
 mod agent_room_replay;
+pub mod room_ask;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

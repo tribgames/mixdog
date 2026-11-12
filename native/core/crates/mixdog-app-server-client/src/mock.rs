@@ -113,6 +113,7 @@ impl TransportReader for Reader {
 
 pub struct MockNetwork {
     fail_next: AtomicUsize,
+    opens: AtomicUsize,
     opened_tx: mpsc::UnboundedSender<MockConn>,
     opened_rx: Inbox<MockConn>,
 }
@@ -122,6 +123,7 @@ impl Default for MockNetwork {
         let (opened_tx, opened_rx) = mpsc::unbounded_channel();
         Self {
             fail_next: AtomicUsize::new(0),
+            opens: AtomicUsize::new(0),
             opened_tx,
             opened_rx: Inbox::new(opened_rx),
         }
@@ -132,6 +134,10 @@ impl MockNetwork {
     /// The next `n` opens fail.
     pub fn fail_next(&self, n: usize) {
         self.fail_next.store(n, Ordering::SeqCst);
+    }
+    /// Connections the client has opened so far.
+    pub fn opened(&self) -> usize {
+        self.opens.load(Ordering::SeqCst)
     }
     /// The next connection the client opened (in order).
     pub async fn accept(&self) -> MockConn {
@@ -149,6 +155,7 @@ impl Connector for MockNetwork {
             self.fail_next.fetch_sub(1, Ordering::SeqCst);
             return Err("mock open failure".into());
         }
+        self.opens.fetch_add(1, Ordering::SeqCst);
         let (to_server, from_client) = mpsc::unbounded_channel();
         let (to_client, events) = mpsc::unbounded_channel();
         let closed = Arc::new(AtomicBool::new(false));

@@ -19,7 +19,8 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::GzBuilder;
+use futures::future::BoxFuture;
 use mixdog_core_api::domain::cache_warm::CacheWarmSend;
 use mixdog_core_api::domain::cache_warm::cache_warm_request;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
@@ -90,6 +91,21 @@ fn gzip_failure(cause: &dyn std::fmt::Display) -> ProviderError {
 /// Request bodies at least this large are sent gzip-encoded.
 const GZIP_MIN_BYTES: usize = 8 * 1024;
 
+/// A compressor standing in for the gzip lane, as `createAnthropicApiKeyFetch({ compress })` takes one; set only by
+/// tests ([`AnthropicAdapter::with_compressor`]).
+pub type Compressor = Arc<dyn Fn(Vec<u8>) -> BoxFuture<'static, Result<Vec<u8>, String>> + Send + Sync>;
+
+/// The gzip header's operating-system byte Node's zlib writes (`OS_CODE` of zlib's `zutil.h`): the compressed body
+/// is byte for byte Node's.
+const GZIP_OS: u8 = if cfg!(windows) { 10 } else if cfg!(target_os = "macos") { 19 } else { 3 };
+
+/// `officialMessagesUrl` (`anthropic-api-key-fetch.mjs:10-17`): the request goes to exactly
+/// `https://api.anthropic.com` at path `/v1/messages`, decided on the final URL so a custom base, proxy or gateway
+/// never gets a compressed body.
+fn official_messages_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| u.origin().ascii_serialization() == ANTHROPIC_ORIGIN && u.path() == "/v1/messages")
+}
+
 /// `anthropicGzipLatch` (`request-compression.mjs:29`): set once a compressed body refused with 400/415 was accepted
 /// plain; from then on no Anthropic body of this process is compressed.
 static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
@@ -98,6 +114,13 @@ static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_gzip_latch() {
     GZIP_LATCHED.store(false, Ordering::SeqCst);
+}
+
+/// `anthropicGzipLatch.disabled()` without the environment switch: whether a refused compressed body latched
+/// compression off.
+#[cfg(any(test, feature = "test-support"))]
+pub fn gzip_latched() -> bool {
+    GZIP_LATCHED.load(Ordering::SeqCst)
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +137,18 @@ pub enum Credentials {
 /// The secret one request carries.
 #[derive(Clone)]
 struct Secret(String);
+
+/// A refusal with the credential the request carried (whatever its kind, wherever its text echoes it) redacted from its
+/// body, so no message, log line or thread decision built from it holds the credential. The credential is the one the
+/// refused request was sent with, not whichever one the account holds by the time the refusal is read.
+fn scrub_refusal(mut refusal: ErrorResponse, secret: &Secret) -> ErrorResponse {
+    let text = String::from_utf8_lossy(&refusal.body);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&secret.0]);
+    if clean != text {
+        refusal.body = clean.into_bytes();
+    }
+    refusal
+}
 
 impl Credentials {
     async fn current(&self) -> Result<Secret, ProviderError> {
@@ -152,12 +187,16 @@ impl Credentials {
         }
     }
 
-    /// Whether this status is one a credential refresh can fix. A 403 on the
-    /// subscription wire gets one refresh too: the grant may have been revoked.
-    fn refreshable(&self, status: Option<u16>) -> bool {
+    /// Whether this refusal is one a credential refresh can fix. On the subscription wire, every 401 and only
+    /// Anthropic's exact revoked-token 403 (`isRefreshableAuthRejection`, initial-status.mjs:20): any other 403 is a
+    /// terminal policy refusal.
+    fn refreshable(&self, status: Option<u16>, body: &[u8]) -> bool {
         match self {
             Self::ApiKey(_) => status == Some(401),
-            Self::OAuth(_) => matches!(status, Some(401 | 403)),
+            Self::OAuth(_) => {
+                status == Some(401)
+                    || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked"))
+            }
         }
     }
 }
@@ -178,6 +217,10 @@ pub struct AnthropicAdapter {
     preconnect: Option<Preconnect>,
     /// The process settings the request reads (Node's `process.env`).
     settings: Setting,
+    /// `prepareAnthropicImages`' resizer: every inline image of a request is fitted before it is built.
+    images: Option<super::images::ImageFitter>,
+    /// A test's compressor in place of the gzip lane.
+    compressor: Option<Compressor>,
 }
 
 /// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
@@ -233,7 +276,32 @@ impl AnthropicAdapter {
             gzip_lane,
             preconnect: None,
             settings: Arc::new(|name| std::env::var(name).ok()),
+            images: None,
+            compressor: None,
         }
+    }
+
+    /// Prepares the images of every request body with `fitter` ([`super::images::ImageFitter::fit_wire`]).
+    pub fn with_images(mut self, fitter: Option<super::images::ImageFitter>) -> Self {
+        self.images = fitter;
+        self
+    }
+
+    /// The request as `prepareAnthropicImages` leaves it: the lowered body with its images fitted.
+    async fn plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
+        let mut plain = self.codec.encode_plain(request)?;
+        if let Some(fitter) = &self.images {
+            plain.wire = fitter.fit_wire(request, plain.wire).await?;
+        }
+        Ok(plain)
+    }
+
+    /// Compresses with `compressor` instead of the gzip lane (Node's `compress` option of
+    /// `createAnthropicApiKeyFetch`, which only its tests pass).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_compressor(mut self, compressor: Compressor) -> Self {
+        self.compressor = Some(compressor);
+        self
     }
 
     /// The process settings read from `settings` instead of the process environment.
@@ -260,12 +328,15 @@ impl AnthropicAdapter {
     /// queued job, so a cancelled request compresses nothing.
     async fn gzip(&self, body: &[u8]) -> Result<Vec<u8>, ProviderError> {
         let raw = body.to_vec();
+        if let Some(compress) = &self.compressor {
+            return compress(raw).await.map_err(|e| gzip_failure(&e));
+        }
         let cancel = CancellationToken::new();
         let _cancel_on_drop = cancel.clone().drop_guard();
         let job = self
             .gzip_lane
             .submit_wait(&cancel, move |_| {
-                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                let mut encoder = GzBuilder::new().operating_system(GZIP_OS).write(Vec::new(), Compression::default());
                 encoder.write_all(&raw)?;
                 encoder.finish()
             })
@@ -276,14 +347,21 @@ impl AnthropicAdapter {
             .map_err(|e| gzip_failure(&e))
     }
 
-    /// One POST, compressed as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): official-URL
-    /// bodies of at least `GZIP_MIN_BYTES` that carry no `content-encoding`, unless the process latch or
+    /// One POST of `wire` with the credential.
+    async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
+        self.fetch(self.request_with(wire, secret)).await
+    }
+
+    /// The client's `fetch` (`createAnthropicApiKeyFetch`, the subscription's `postMessages`): one request, compressed
+    /// as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): a POST to the official messages URL
+    /// with a body of at least `GZIP_MIN_BYTES` that carries no `content-encoding`, unless the process latch or
     /// `MIXDOG_ANTHROPIC_REQ_GZIP=0` turned compression off; a compression failure sends the body plain. A 400/415 to
     /// the compressed body is drained and the same request sent once plain; when that plain send succeeds,
     /// compression is off for the rest of the process.
-    async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
-        let request = self.request_with(wire, secret);
-        let eligible = self.codec.config().is_official_messages_url()
+    pub async fn fetch(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        let wire = &request;
+        let eligible = wire.method.eq_ignore_ascii_case("POST")
+            && official_messages_url(&wire.url)
             && wire.body.len() >= GZIP_MIN_BYTES
             && !GZIP_LATCHED.load(Ordering::SeqCst)
             && (self.settings)("MIXDOG_ANTHROPIC_REQ_GZIP").as_deref() != Some("0")
@@ -296,8 +374,9 @@ impl AnthropicAdapter {
         };
         let mut compressed = request.clone();
         compressed.body = packed;
-        // `withContentEncoding` appends it after the request's own headers, spelled `Content-Encoding`
-        // (`request-compression.mjs:46`).
+        // `withContentEncoding` drops the plain body's `content-length` and appends `Content-Encoding` after the
+        // request's own headers (`request-compression.mjs:39-48`).
+        compressed.headers.retain(|h| !h.0.eq_ignore_ascii_case("content-length"));
         compressed.headers.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
         let response = self.http.send(compressed, MODEL_STREAM).await?;
         if !matches!(response.status, 400 | 415) {
@@ -368,19 +447,46 @@ impl AnthropicAdapter {
         }))
     }
 
-    async fn failure(&self, response: HttpResponse) -> ProviderError {
+    /// `issueNonStreamingFallback` (anthropic-api-recovery.mjs:41-64): the request once more without streaming, under
+    /// the non-streaming timeout, its whole response as the turn's events.
+    async fn non_streaming(&self, request: &ModelRequest, wire: &WireRequest, secret: &Secret) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let mut wire = wire.clone();
+        if let Some(body) = super::nonstream::body(&wire.body) {
+            wire.body = body;
+        }
+        wire.headers.push(("x-stainless-timeout".to_owned(), super::nonstream::TIMEOUT_SECONDS.to_owned()));
+        request.options.send_identity.raise_stage_with("requesting", serde_json::json!({ "transport": "non-streaming-fallback" }));
+        // A failure of this re-issue ends the send's recovery (`markProviderRecoveryExhausted`, anthropic-api-recovery.mjs:57).
+        let exhausted = |mut err: ProviderError| {
+            err.recovery_exhausted = true;
+            err
+        };
+        let read = scrub_refusal(self.post(&wire, secret).await.map_err(exhausted)?.read_all().await.map_err(exhausted)?, secret);
+        if !read.status.is_some_and(|status| (200..300).contains(&status)) {
+            return Err(exhausted(self.codec.classify(&read)));
+        }
+        let message: Value = serde_json::from_slice(&read.body).map_err(|e| {
+            let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            err.message = format!("Anthropic non-streaming response is not JSON: {e}");
+            exhausted(err)
+        })?;
+        Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message))))
+    }
+
+    async fn failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
-            Ok(rejected) => self.codec.classify(&rejected),
+            Ok(rejected) => self.codec.classify(&scrub_refusal(rejected, secret)),
             Err(err) => err,
         }
     }
 
     /// A refused warm's error, worded as `anthropicQuotaError` words it for both routes.
-    async fn warm_failure(&self, response: HttpResponse) -> ProviderError {
+    async fn warm_failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => {
+                let rejected = scrub_refusal(rejected, secret);
                 let mut error = self.codec.classify(&rejected);
-                error.message = super::errors::quota_error_text(&rejected);
+                error.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
                 error
             }
             Err(err) => err,
@@ -418,7 +524,7 @@ impl AnthropicAdapter {
             .send(self.request_with(&wire, &secret), ANTHROPIC_MODELS)
             .await?;
         if !(200..300).contains(&response.status) {
-            return Err(self.failure(response).await);
+            return Err(self.failure(response, &secret).await);
         }
         response.read_all().await.map(|read| read.body)
     }
@@ -448,13 +554,14 @@ impl CacheWarmSend for AnthropicAdapter {
         cancel: &CancellationToken,
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
+        let warm = cache_warm_request(request);
         // A warm never threads: Node builds its body with the plain request builder.
-        let wire = self.codec.encode_plain(&cache_warm_request(request)).map_err(|e| WarmFailure::new(e.message))?.wire;
+        let wire = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.message))?.wire;
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
                 let response = self.http.send(self.request_with(&wire, &secret), MODEL_STREAM).await?;
-                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
+                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response, &secret).await) }
             })
         });
         send_cache_warm(ctx, cancel, post, on_usage).await
@@ -500,11 +607,22 @@ impl ProviderAdapter for AnthropicAdapter {
         Some(self)
     }
 
+    /// The API-key route's `[<provider name>] retry attempt <n> after <message>, delay <ms>ms` (anthropic-api-transport.mjs:203-206,
+    /// `label: this.name`, anthropic.mjs:411). The OAuth route writes a line of its own shape (anthropic-oauth-request.mjs:146).
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        use mixdog_core_api::domain::provider::RetryLine;
+        use mixdog_core_api::domain::provider::RetryLineStyle;
+        Some(match self.codec.flavor() {
+            Flavor::ApiKey => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::AnthropicApi },
+            Flavor::OAuth => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::OfMax },
+        })
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(ANTHROPIC_ORIGIN);
         }
-        let mut plain = self.codec.encode_plain(&request)?;
+        let mut plain = self.plain(&request).await?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
         let mut directive = None;
@@ -522,10 +640,16 @@ impl ProviderAdapter for AnthropicAdapter {
             };
             let mut speed_dropped = false;
             loop {
+                // The subscription route raises `requesting` before every POST (`doRequest`, anthropic-oauth-request.mjs:64);
+                // the API-key route once before its ladder (anthropic.mjs:300).
+                match self.codec.flavor() {
+                    Flavor::OAuth => request.options.send_identity.raise_stage("requesting"),
+                    Flavor::ApiKey => request.options.send_identity.raise_requesting_once(),
+                }
                 let response = self.post(&wire, &secret).await?;
                 if (200..300).contains(&response.status) {
                     let thread = plan.as_mut().and_then(Plan::take_session);
-                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread));
+                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread).with_secret(&secret));
                     // OAuth replays only a rejected initial response (`_resendAfterRejection`).
                     if self.codec.flavor() != Flavor::ApiKey {
                         return Ok(stream);
@@ -536,12 +660,12 @@ impl ProviderAdapter for AnthropicAdapter {
                     {
                         // A fresh send (`withAnthropicCapabilityFallback`): its thread is planned again, with no directive.
                         directive = None;
-                        plain = self.codec.encode_plain(&request)?;
+                        plain = self.plain(&request).await?;
                         continue 'plan;
                     }
                     return Ok(Box::new(opened));
                 }
-                let rejected = response.read_all().await?;
+                let rejected = scrub_refusal(response.read_all().await?, &secret);
                 // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
                 // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
                 // at once, instead of waiting out a window only the fast pool owns.
@@ -554,12 +678,15 @@ impl ProviderAdapter for AnthropicAdapter {
                 }
                 if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
                     directive = None;
-                    plain = self.codec.encode_plain(&request)?;
+                    plain = self.plain(&request).await?;
                     continue 'plan;
                 }
                 let mut err = self.codec.classify(&rejected);
-                if !refreshed && self.credentials.refreshable(err.status) {
+                if !refreshed && self.credentials.refreshable(err.status, &rejected.body) {
                     refreshed = true;
+                    if self.codec.flavor() == Flavor::OAuth {
+                        mixdog_rt::node_stderr!("[anthropic-oauth] {} — forcing refresh and retrying once", rejected.status.unwrap_or(0));
+                    }
                     if let Some(next) = self.credentials.after_rejection(&secret).await? {
                         secret = next;
                         continue;
@@ -572,8 +699,30 @@ impl ProviderAdapter for AnthropicAdapter {
                 let refusal = String::from_utf8_lossy(&rejected.body);
                 if let Some(next) = plan.as_ref().and_then(|plan| plan.classify(rejected.status.unwrap_or(0), &refusal)) {
                     directive = Some(next);
-                    plain = self.codec.encode_plain(&request)?;
+                    plain = self.plain(&request).await?;
                     continue 'plan;
+                }
+                // A gateway that 404s the streaming endpoint but serves non-streaming: one non-streaming re-issue,
+                // nothing having streamed yet (anthropic.mjs:363-368).
+                if self.codec.flavor() == Flavor::ApiKey && rejected.status == Some(404) {
+                    return self.non_streaming(&request, &wire, &secret).await;
+                }
+                if self.codec.flavor() == Flavor::OAuth && rejected.status == Some(429) {
+                    // `anthropicQuotaError(status, headers, scrubTokens(text))` (initial-status.mjs:90): the quota wording
+                    // over the scrubbed body, never the body's own message.
+                    err.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
+                } else if self.codec.flavor() == Flavor::OAuth {
+                    // `judgeInitialStatus` (initial-status.mjs:101) words a transient status alone; any other refusal
+                    // is worded and logged by `_handleHttpError` (anthropic-oauth.mjs:862, :949).
+                    let status = rejected.status.unwrap_or(0);
+                    if matches!(err.kind, ErrorKind::Transient | ErrorKind::Overloaded) {
+                        err.message = format!("Anthropic OAuth API {status}");
+                    } else {
+                        // `scrubTokens(text).slice(0, 200)`: a credential the server echoed is redacted before it is logged or returned.
+                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[&secret.0], 200);
+                        mixdog_rt::node_stderr!("[anthropic-oauth] API error {status}: {shown}");
+                        err.message = format!("Anthropic OAuth API {status}: {shown}");
+                    }
                 }
                 return Err(err);
             }
@@ -595,11 +744,14 @@ struct AnthropicStream {
     /// A threaded send's hold on its conversation; dropped with the stream (or on failure), which gives the
     /// conversation back.
     thread: Option<ThreadSession>,
+    /// The credential the request was sent with: an error event that echoes it is redacted.
+    secret: Option<String>,
 }
 
 impl AnthropicStream {
     fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
         Self {
+            secret: None,
             body: Some(body),
             decoder,
             queue: VecDeque::new(),
@@ -609,8 +761,26 @@ impl AnthropicStream {
         }
     }
 
+    /// A turn already whole: its events, then the end.
+    fn ready(events: Vec<StreamEvent>) -> Self {
+        Self {
+            secret: None,
+            body: None,
+            decoder: Box::new(super::decoder::AnthropicDecoder::for_model(ProviderId::from(""), "")),
+            queue: events.into(),
+            failed: None,
+            last_usage: None,
+            thread: None,
+        }
+    }
+
     fn with_thread(mut self, thread: Option<ThreadSession>) -> Self {
         self.thread = thread;
+        self
+    }
+
+    fn with_secret(mut self, secret: &Secret) -> Self {
+        self.secret = Some(secret.0.clone());
         self
     }
 
@@ -638,6 +808,9 @@ impl AnthropicStream {
         // (`_anthropicSseError`, anthropic-sse.mjs:138), whose usage no ledger sees.
         if err.transport.is_some() {
             err.partial_usage = self.last_usage.clone().map(Box::new);
+        }
+        if let Some(secret) = &self.secret {
+            err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[secret]);
         }
         self.failed = Some(err);
     }

@@ -3,7 +3,8 @@
 //! here waits, so a connection's socket reader never blocks on request work (P §7.3):
 //!
 //! 1. the initialize latch (`notInitialized`), method lookup, origin rule, lifecycle gate;
-//! 2. admission by request class (`-32001 inflightLimit`), answered at once when over cap;
+//! 2. admission through Node's call lanes ([`crate::lanes`]): a control call starts at once, any other waits its turn
+//!    among the owners of its lane and is refused only past the lane's queue, with Node's message;
 //! 3. typed decode against the generated method table;
 //! 4. dispatch: C0 controls run inline on the caller, everything else becomes a task, queued
 //!    under the key the method table declares (see [`crate::serialization`]) or free-running
@@ -13,7 +14,10 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
 use mixdog_app_protocol::CLIENT_METHODS;
@@ -81,6 +85,7 @@ use crate::config::ServerConfig;
 use crate::config::VersionOrder;
 use crate::connection::Connection;
 use crate::connection::Registered;
+use crate::connection::Slot;
 use crate::connection::Session;
 use crate::connection::Sub;
 use crate::error::error_body;
@@ -89,14 +94,49 @@ use crate::error::internal;
 use crate::frame::error_frame;
 use crate::frame::error_notification_frame;
 use crate::frame::response_frame;
+use crate::lanes::CallLanes;
+use crate::lanes::Lane;
+use crate::lanes::Placed;
+use crate::lanes::Refusal;
 use crate::outgoing::Outgoing;
+use crate::sharded::lock;
 use crate::serialization::KeyedQueues;
 use crate::serialization::QueueKey;
 
-/// The reads one connection may have waiting for an in-flight place of their class before a further one is refused
-/// (`inflightLimit`). Far above any shipped client: the desktop and phone send at most a thread list's previews at once,
-/// and `protocol-client` resends a refused read after another answer (`client.ts:840`).
-const READ_WAIT_BOUND: usize = 4096;
+/// A request waiting in a call lane, or starting from it.
+struct Job {
+    conn: Arc<Connection>,
+    request: JsonRpcRequest,
+    spec: &'static MethodSpec,
+    origin: Origin,
+}
+
+/// `callLane` (`call-lanes.mjs:35`) for the method a Node call became: an abort, an approval answer and an unsubscribe never
+/// queue; a create, read, submit and the project and terminal calls the desktop makes while the user waits queue behind a smaller
+/// bound than the rest. The other control calls are control calls. Node's `session.subscribe` is interactive (`call-lanes.mjs:24`):
+/// it is `thread/resume`, which waits behind its owner's earlier interactive calls like any other (recorded: `session-call-lanes`,
+/// "an attach queues in the interactive lane"). `feed/subscribe` and `app/subscribe` are not `/call`s in Node: a phone opens its
+/// feeds with the relay's `setRemoteLanes` (`remote-relay-client-calls.ts`, recorded in `phone-lifecycle`'s lane matrix, which
+/// `tests/lane_pushes.rs` replays), a control-plane message that never enters a lane; they run where they arrive.
+pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
+    match spec.method {
+        "thread/resume" | "thread/start" | "thread/read" | "turn/start" | "room/send" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
+        | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" | "terminal/ensure" | "terminal/focus"
+        | "terminal/dispose" | "terminal/profiles" => Lane::Interactive,
+        "thread/approval/answer" | "thread/approval/answerNotification" => Lane::Critical,
+        method if crate::node_calls::is_session_action(method) => Lane::Interactive,
+        _ if spec.class == RequestClass::C0 => Lane::Critical,
+        _ => Lane::Normal,
+    }
+}
+
+/// `ownerKeyFor` (`call-route.mjs:21`): the session the call addresses, else the client.
+fn owner_of(conn: &Connection, request: &JsonRpcRequest) -> String {
+    match request.params.as_ref().and_then(|params| params.get("threadId")).and_then(Value::as_str).map(str::trim) {
+        Some(thread) if !thread.is_empty() => format!("session:{thread}"),
+        _ => format!("client:{}", conn.id),
+    }
+}
 
 const INITIALIZE: &str = "initialize";
 
@@ -167,6 +207,8 @@ impl AppServer {
                 origin_of,
                 config,
                 queues: KeyedQueues::new(),
+                lanes: Mutex::new(CallLanes::new()),
+                checking: AtomicBool::new(false),
             }),
         })
     }
@@ -271,6 +313,9 @@ pub(crate) struct Shared {
     config: ServerConfig,
     lifecycle: watch::Receiver<CoreState>,
     queues: KeyedQueues,
+    lanes: Mutex<CallLanes<Job>>,
+    /// A task is running the lanes' check phases; set and cleared under the `lanes` lock.
+    checking: AtomicBool,
 }
 
 type ReplyFuture = Pin<Box<dyn Future<Output = Result<Reply, CoreError>> + Send>>;
@@ -280,7 +325,7 @@ enum Dispatch {
     Later(TaskClass, ReplyFuture),
 }
 
-fn method_index() -> &'static HashMap<&'static str, &'static MethodSpec> {
+pub(crate) fn method_index() -> &'static HashMap<&'static str, &'static MethodSpec> {
     static INDEX: OnceLock<HashMap<&'static str, &'static MethodSpec>> = OnceLock::new();
     INDEX.get_or_init(|| CLIENT_METHODS.iter().map(|spec| (spec.method, spec)).collect())
 }
@@ -359,43 +404,83 @@ impl Shared {
             self.reject_core(conn, &id, &error);
             return Inbound::Continue;
         }
-        // Node's model-proxy host runs every call it is sent and refuses by payload size alone (`MODEL_PROXY_BUSY`, which
-        // `ModelProxyService` answers): no count of calls in flight is a cap, so the class cap does not count them.
-        let cap = if spec.method == "modelProxy/run" { u32::MAX } else { self.config.limits.inflight.cap(spec.class) };
-        let started = |request: &JsonRpcRequest| {
-            let no_params = serde_json::Value::Null;
-            self.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params))
-        };
-        if spec.mutation == Mutation::None && spec.class == RequestClass::C1 {
-            // A C1 read (`thread/read`, `thread/list`, ...) past its class's cap waits its turn, in arrival order, as Node answers every read it is sent; only a
-            // backlog past `READ_WAIT_BOUND` is refused.
-            let shared = Arc::clone(self);
-            let later = move |request: JsonRpcRequest| -> crate::connection::Queued {
-                Box::new(move |conn: Arc<Connection>| {
-                    let no_params = serde_json::Value::Null;
-                    let guard = shared.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params));
-                    let slot = conn.granted(spec.class, guard);
-                    let _ = shared.admitted(&conn, request, spec, origin, slot);
-                })
-            };
-            return match conn.admit_or_queue(spec.class, cap, READ_WAIT_BOUND, request, started, later) {
-                Ok((slot, request)) => self.admitted(conn, request, spec, origin, slot),
-                Err(None) => Inbound::Continue,
-                Err(Some(_)) => {
-                    self.reject(conn, &id, &ErrorData::InflightLimit { class: spec.class, limit: cap });
-                    Inbound::Continue
-                }
-            };
+        // The handshake is a control-plane call (Node's `/client/register`): it never enters a lane.
+        if request.method == INITIALIZE {
+            let guard = self.request_guard(&request);
+            return self.admitted(conn, request, spec, origin, Slot::new(guard, || {}));
         }
-        let Ok(slot) = conn.admit(spec.class, cap, || started(&request)) else {
-            let limit = ErrorData::InflightLimit {
-                class: spec.class,
-                limit: cap,
-            };
-            self.reject(conn, &id, &limit);
-            return Inbound::Continue;
-        };
-        self.admitted(conn, request, spec, origin, slot)
+        let (lane, owner) = (lane_of(spec), owner_of(conn, &request));
+        let dispatched = lock(&self.lanes).dispatch(&owner, lane, Job { conn: Arc::clone(conn), request, spec, origin });
+        if let Some((evicted, refusal)) = dispatched.displaced {
+            self.refuse(&evicted.conn, &evicted.request.id, &refusal);
+        }
+        match dispatched.placed {
+            Ok(Placed::Start(job)) => self.start(lane, owner, job),
+            Ok(Placed::Queued) => {
+                self.ensure_checks();
+                Inbound::Continue
+            }
+            Err((job, refusal)) => {
+                self.refuse(&job.conn, &job.request.id, &refusal);
+                Inbound::Continue
+            }
+        }
+    }
+
+    /// The core is told of the request for as long as the guard is held.
+    fn request_guard(&self, request: &JsonRpcRequest) -> mixdog_core_api::handle::RequestGuard {
+        let no_params = Value::Null;
+        self.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params))
+    }
+
+    /// A call a lane lets go: it holds its place in the lane until it ends, and the lane is told then.
+    fn start(self: &Arc<Self>, lane: Lane, owner: String, job: Job) -> Inbound {
+        let shared = Arc::clone(self);
+        let slot = Slot::new(self.request_guard(&job.request), move || shared.ended(&owner, lane));
+        self.admitted(&job.conn, job.request, job.spec, job.origin, slot)
+    }
+
+    fn ended(self: &Arc<Self>, owner: &str, lane: Lane) {
+        lock(&self.lanes).finished(owner, lane);
+        self.ensure_checks();
+    }
+
+    /// The lanes' refusal, as the route answers it: `{ error: message }` (the status code is not on the wire).
+    fn refuse(&self, conn: &Connection, id: &RequestId, refusal: &Refusal) {
+        let refused = CoreError::DomainError { domain: "session".into(), code: None, message: Some(refusal.message.as_str().into()), detail: None };
+        self.reject_core(conn, id, &refused);
+    }
+
+    /// Starts the task that runs the lanes' check phases (Node's `setImmediate` dispatch) unless one is running.
+    fn ensure_checks(self: &Arc<Self>) {
+        {
+            let lanes = lock(&self.lanes);
+            if !lanes.wants_check() || self.checking.swap(true, Ordering::AcqRel) {
+                return;
+            }
+        }
+        let shared = Arc::clone(self);
+        mixdog_rt::spawn("call-lanes", TaskClass::Work, async move {
+            loop {
+                mixdog_rt::time::immediate().await;
+                let started = lock(&shared.lanes).check_phase();
+                for (lane, owner, job) in started {
+                    // A queued call's own refusals and answers go to its connection; what a reader would do next is already done.
+                    let _ = shared.start(lane, owner, job);
+                }
+                let more = {
+                    let lanes = lock(&shared.lanes);
+                    let more = lanes.wants_check();
+                    if !more {
+                        shared.checking.store(false, Ordering::Release);
+                    }
+                    more
+                };
+                if !more {
+                    break;
+                }
+            }
+        });
     }
 
     /// A request that holds its in-flight slot: checked, decoded and dispatched.
@@ -788,8 +873,13 @@ impl Shared {
                 Box::pin(async move {
                     match thread {
                         Some(id) if !STORED_READS.contains(&request.method.0) && !DIRECTORY_SERVED.contains(&request.method.0) => {
-                            let handle = core.threads().open(&id, &request.ctx).await?;
-                            handle.request(request).await
+                            match core.threads().open(&id, &request.ctx).await {
+                                Ok(handle) => handle.request(request).await,
+                                Err(CoreError::ThreadNotFound { .. }) if request.method.0 == "thread/read" => {
+                                    core.threads().read_vanished(&id, request).await
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
                         _ => core.threads().request(request).await,
                     }

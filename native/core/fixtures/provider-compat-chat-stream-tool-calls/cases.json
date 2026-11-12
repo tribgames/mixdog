@@ -100,10 +100,11 @@
           "toolCalls": [
             {
               "id": "c1",
-              "type": "function",
-              "function": {
-                "name": "f",
-                "arguments": "{\"a\":\"{\"a\":\"\"}"
+              "name": "f",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+                "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
               }
             }
           ],
@@ -114,7 +115,17 @@
           "rawUsage": null,
           "generationMs": 0
         },
-        "dispatched": [],
+        "dispatched": [
+          {
+            "id": "c1",
+            "name": "f",
+            "arguments": {
+              "__invalidToolArgs": true,
+              "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+              "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
+            }
+          }
+        ],
         "arguments": "{\"a\":\"{\"a\":\"\"}"
       },
       "calls": [
@@ -193,6 +204,27 @@
                 "callback": "onToolCall"
               }
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.parseToolCalls",
+          "args": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "tool_calls": [
+                  {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                      "name": "f",
+                      "arguments": "{\"a\":\"{\"a\":\"\"}"
+                    }
+                  }
+                ]
+              }
+            },
+            "gateway"
           ]
         }
       ]
@@ -988,7 +1020,31 @@
           "rawUsage": null,
           "generationMs": 0
         },
-        "dispatched": []
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=length",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "length",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "call_leaked_ba86038c6963776a",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
       },
       "calls": [
         {
@@ -1029,6 +1085,50 @@
                 "values": [
                   "f"
                 ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null
+                      },
+                      "finish_reason": "length"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_leaked_ba86038c6963776a",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "length",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
               }
             }
           ]
@@ -1097,7 +1197,31 @@
           "rawUsage": null,
           "generationMs": 0
         },
-        "dispatched": []
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=content_filter",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "content_filter",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "call_leaked_5bf044fcbc0dd7bc",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
       },
       "calls": [
         {
@@ -1138,6 +1262,50 @@
                 "values": [
                   "f"
                 ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null
+                      },
+                      "finish_reason": "content_filter"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_leaked_5bf044fcbc0dd7bc",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "content_filter",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
               }
             }
           ]

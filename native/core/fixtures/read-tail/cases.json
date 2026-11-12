@@ -1,0 +1,922 @@
+{
+  "note": "Node's read with tail:N on the patched tree: arguments as handed to executeBuiltinTool('read', args, <ws>), the text it returned (workspace path written <WS>) and whether the caller takes it for a failed call.",
+  "files": {
+    "a.log": {
+      "text": "row1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n"
+    },
+    "b.log": {
+      "text": "b1\nb2\nb3\nb4\nb5\nb6\n"
+    },
+    "big.log": {
+      "text": "big1\nbig2\nbig3\nbig4\nbig5\nbig6\nbig7\nbig8\nbig9\nbig10\nbig11\nbig12\nbig13\nbig14\nbig15\nbig16\nbig17\nbig18\nbig19\nbig20\nbig21\nbig22\nbig23\nbig24\nbig25\nbig26\nbig27\nbig28\nbig29\nbig30\nbig31\nbig32\nbig33\nbig34\nbig35\nbig36\nbig37\nbig38\nbig39\nbig40\nbig41\nbig42\nbig43\nbig44\nbig45\nbig46\nbig47\nbig48\nbig49\nbig50\nbig51\nbig52\nbig53\nbig54\nbig55\nbig56\nbig57\nbig58\nbig59\nbig60\nbig61\nbig62\nbig63\nbig64\nbig65\nbig66\nbig67\nbig68\nbig69\nbig70\nbig71\nbig72\nbig73\nbig74\nbig75\nbig76\nbig77\nbig78\nbig79\nbig80\nbig81\nbig82\nbig83\nbig84\nbig85\nbig86\nbig87\nbig88\nbig89\nbig90\nbig91\nbig92\nbig93\nbig94\nbig95\nbig96\nbig97\nbig98\nbig99\nbig100\nbig101\nbig102\nbig103\nbig104\nbig105\nbig106\nbig107\nbig108\nbig109\nbig110\nbig111\nbig112\nbig113\nbig114\nbig115\nbig116\nbig117\nbig118\nbig119\nbig120\nbig121\nbig122\nbig123\nbig124\nbig125\nbig126\nbig127\nbig128\nbig129\nbig130\nbig131\nbig132\nbig133\nbig134\nbig135\nbig136\nbig137\nbig138\nbig139\nbig140\nbig141\nbig142\nbig143\nbig144\nbig145\nbig146\nbig147\nbig148\nbig149\nbig150\nbig151\nbig152\nbig153\nbig154\nbig155\nbig156\nbig157\nbig158\nbig159\nbig160\nbig161\nbig162\nbig163\nbig164\nbig165\nbig166\nbig167\nbig168\nbig169\nbig170\nbig171\nbig172\nbig173\nbig174\nbig175\nbig176\nbig177\nbig178\nbig179\nbig180\nbig181\nbig182\nbig183\nbig184\nbig185\nbig186\nbig187\nbig188\nbig189\nbig190\nbig191\nbig192\nbig193\nbig194\nbig195\nbig196\nbig197\nbig198\nbig199\nbig200\nbig201\nbig202\nbig203\nbig204\nbig205\nbig206\nbig207\nbig208\nbig209\nbig210\nbig211\nbig212\nbig213\nbig214\nbig215\nbig216\nbig217\nbig218\nbig219\nbig220\nbig221\nbig222\nbig223\nbig224\nbig225\nbig226\nbig227\nbig228\nbig229\nbig230\nbig231\nbig232\nbig233\nbig234\nbig235\nbig236\nbig237\nbig238\nbig239\nbig240\nbig241\nbig242\nbig243\nbig244\nbig245\nbig246\nbig247\nbig248\nbig249\nbig250\nbig251\nbig252\nbig253\nbig254\nbig255\nbig256\nbig257\nbig258\nbig259\nbig260\nbig261\nbig262\nbig263\nbig264\nbig265\nbig266\nbig267\nbig268\nbig269\nbig270\nbig271\nbig272\nbig273\nbig274\nbig275\nbig276\nbig277\nbig278\nbig279\nbig280\nbig281\nbig282\nbig283\nbig284\nbig285\nbig286\nbig287\nbig288\nbig289\nbig290\nbig291\nbig292\nbig293\nbig294\nbig295\nbig296\nbig297\nbig298\nbig299\nbig300\nbig301\nbig302\nbig303\nbig304\nbig305\nbig306\nbig307\nbig308\nbig309\nbig310\nbig311\nbig312\nbig313\nbig314\nbig315\nbig316\nbig317\nbig318\nbig319\nbig320\nbig321\nbig322\nbig323\nbig324\nbig325\nbig326\nbig327\nbig328\nbig329\nbig330\nbig331\nbig332\nbig333\nbig334\nbig335\nbig336\nbig337\nbig338\nbig339\nbig340\nbig341\nbig342\nbig343\nbig344\nbig345\nbig346\nbig347\nbig348\nbig349\nbig350\nbig351\nbig352\nbig353\nbig354\nbig355\nbig356\nbig357\nbig358\nbig359\nbig360\nbig361\nbig362\nbig363\nbig364\nbig365\nbig366\nbig367\nbig368\nbig369\nbig370\nbig371\nbig372\nbig373\nbig374\nbig375\nbig376\nbig377\nbig378\nbig379\nbig380\nbig381\nbig382\nbig383\nbig384\nbig385\nbig386\nbig387\nbig388\nbig389\nbig390\nbig391\nbig392\nbig393\nbig394\nbig395\nbig396\nbig397\nbig398\nbig399\nbig400\nbig401\nbig402\nbig403\nbig404\nbig405\nbig406\nbig407\nbig408\nbig409\nbig410\nbig411\nbig412\nbig413\nbig414\nbig415\nbig416\nbig417\nbig418\nbig419\nbig420\nbig421\nbig422\nbig423\nbig424\nbig425\nbig426\nbig427\nbig428\nbig429\nbig430\nbig431\nbig432\nbig433\nbig434\nbig435\nbig436\nbig437\nbig438\nbig439\nbig440\nbig441\nbig442\nbig443\nbig444\nbig445\nbig446\nbig447\nbig448\nbig449\nbig450\nbig451\nbig452\nbig453\nbig454\nbig455\nbig456\nbig457\nbig458\nbig459\nbig460\nbig461\nbig462\nbig463\nbig464\nbig465\nbig466\nbig467\nbig468\nbig469\nbig470\nbig471\nbig472\nbig473\nbig474\nbig475\nbig476\nbig477\nbig478\nbig479\nbig480\nbig481\nbig482\nbig483\nbig484\nbig485\nbig486\nbig487\nbig488\nbig489\nbig490\nbig491\nbig492\nbig493\nbig494\nbig495\nbig496\nbig497\nbig498\nbig499\nbig500\nbig501\nbig502\nbig503\nbig504\nbig505\nbig506\nbig507\nbig508\nbig509\nbig510\nbig511\nbig512\nbig513\nbig514\nbig515\nbig516\nbig517\nbig518\nbig519\nbig520\nbig521\nbig522\nbig523\nbig524\nbig525\nbig526\nbig527\nbig528\nbig529\nbig530\nbig531\nbig532\nbig533\nbig534\nbig535\nbig536\nbig537\nbig538\nbig539\nbig540\nbig541\nbig542\nbig543\nbig544\nbig545\nbig546\nbig547\nbig548\nbig549\nbig550\nbig551\nbig552\nbig553\nbig554\nbig555\nbig556\nbig557\nbig558\nbig559\nbig560\nbig561\nbig562\nbig563\nbig564\nbig565\nbig566\nbig567\nbig568\nbig569\nbig570\nbig571\nbig572\nbig573\nbig574\nbig575\nbig576\nbig577\nbig578\nbig579\nbig580\nbig581\nbig582\nbig583\nbig584\nbig585\nbig586\nbig587\nbig588\nbig589\nbig590\nbig591\nbig592\nbig593\nbig594\nbig595\nbig596\nbig597\nbig598\nbig599\nbig600\nbig601\nbig602\nbig603\nbig604\nbig605\nbig606\nbig607\nbig608\nbig609\nbig610\nbig611\nbig612\nbig613\nbig614\nbig615\nbig616\nbig617\nbig618\nbig619\nbig620\nbig621\nbig622\nbig623\nbig624\nbig625\nbig626\nbig627\nbig628\nbig629\nbig630\nbig631\nbig632\nbig633\nbig634\nbig635\nbig636\nbig637\nbig638\nbig639\nbig640\nbig641\nbig642\nbig643\nbig644\nbig645\nbig646\nbig647\nbig648\nbig649\nbig650\nbig651\nbig652\nbig653\nbig654\nbig655\nbig656\nbig657\nbig658\nbig659\nbig660\nbig661\nbig662\nbig663\nbig664\nbig665\nbig666\nbig667\nbig668\nbig669\nbig670\nbig671\nbig672\nbig673\nbig674\nbig675\nbig676\nbig677\nbig678\nbig679\nbig680\nbig681\nbig682\nbig683\nbig684\nbig685\nbig686\nbig687\nbig688\nbig689\nbig690\nbig691\nbig692\nbig693\nbig694\nbig695\nbig696\nbig697\nbig698\nbig699\nbig700\n"
+    },
+    "crlf.txt": {
+      "text": "a\r\nb\r\nc\r\n"
+    },
+    "nonl.txt": {
+      "text": "a\nb\nc"
+    },
+    "empty.txt": {
+      "text": ""
+    },
+    "bom.txt": {
+      "text": "﻿one\ntwo\nthree\n"
+    },
+    "bin.dat": {
+      "hex": "4100420043000a44"
+    },
+    "utf16.txt": {
+      "text": "one\ntwo\nthree\n",
+      "enc": "utf16le"
+    },
+    "sub/inner.txt": {
+      "text": "inner\n"
+    },
+    "logs/one.log": {
+      "text": "one1\none2\none3\none4\n"
+    },
+    "logs/two.log": {
+      "text": "two1\ntwo2\ntwo3\ntwo4\ntwo5\n"
+    },
+    "huge.log": {
+      "text": "entry\n",
+      "repeat": 2000000
+    },
+    "m1.txt": {
+      "text": "m1-1\nm1-2\nm1-3\n"
+    },
+    "m2.txt": {
+      "text": "m2-1\nm2-2\nm2-3\n"
+    },
+    "m3.txt": {
+      "text": "m3-1\nm3-2\nm3-3\n"
+    },
+    "m4.txt": {
+      "text": "m4-1\nm4-2\nm4-3\n"
+    },
+    "m5.txt": {
+      "text": "m5-1\nm5-2\nm5-3\n"
+    },
+    "m6.txt": {
+      "text": "m6-1\nm6-2\nm6-3\n"
+    },
+    "m7.txt": {
+      "text": "m7-1\nm7-2\nm7-3\n"
+    },
+    "m8.txt": {
+      "text": "m8-1\nm8-2\nm8-3\n"
+    },
+    "m9.txt": {
+      "text": "m9-1\nm9-2\nm9-3\n"
+    },
+    "m10.txt": {
+      "text": "m10-1\nm10-2\nm10-3\n"
+    },
+    "m11.txt": {
+      "text": "m11-1\nm11-2\nm11-3\n"
+    }
+  },
+  "cases": [
+    {
+      "name": "single tail 3",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3
+      },
+      "result": {
+        "text": "[lines 8-10]\nrow8\nrow9\nrow10\n[lines 8-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "single tail 1",
+      "input": {
+        "file_path": "a.log",
+        "tail": 1
+      },
+      "result": {
+        "text": "[lines 10-10]\nrow10\n[lines 10-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "single tail the whole file",
+      "input": {
+        "file_path": "a.log",
+        "tail": 10
+      },
+      "result": {
+        "text": "[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n[lines 1-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "single tail past the end",
+      "input": {
+        "file_path": "a.log",
+        "tail": 50
+      },
+      "result": {
+        "text": "[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n[lines 1-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "single tail 600 of 700",
+      "input": {
+        "file_path": "big.log",
+        "tail": 600
+      },
+      "result": {
+        "text": "[lines 101-700]\nbig101\nbig102\nbig103\nbig104\nbig105\nbig106\nbig107\nbig108\nbig109\nbig110\nbig111\nbig112\nbig113\nbig114\nbig115\nbig116\nbig117\nbig118\nbig119\nbig120\nbig121\nbig122\nbig123\nbig124\nbig125\nbig126\nbig127\nbig128\nbig129\nbig130\nbig131\nbig132\nbig133\nbig134\nbig135\nbig136\nbig137\nbig138\nbig139\nbig140\nbig141\nbig142\nbig143\nbig144\nbig145\nbig146\nbig147\nbig148\nbig149\nbig150\nbig151\nbig152\nbig153\nbig154\nbig155\nbig156\nbig157\nbig158\nbig159\nbig160\nbig161\nbig162\nbig163\nbig164\nbig165\nbig166\nbig167\nbig168\nbig169\nbig170\nbig171\nbig172\nbig173\nbig174\nbig175\nbig176\nbig177\nbig178\nbig179\nbig180\nbig181\nbig182\nbig183\nbig184\nbig185\nbig186\nbig187\nbig188\nbig189\nbig190\nbig191\nbig192\nbig193\nbig194\nbig195\nbig196\nbig197\nbig198\nbig199\nbig200\nbig201\nbig202\nbig203\nbig204\nbig205\nbig206\nbig207\nbig208\nbig209\nbig210\nbig211\nbig212\nbig213\nbig214\nbig215\nbig216\nbig217\nbig218\nbig219\nbig220\nbig221\nbig222\nbig223\nbig224\nbig225\nbig226\nbig227\nbig228\nbig229\nbig230\nbig231\nbig232\nbig233\nbig234\nbig235\nbig236\nbig237\nbig238\nbig239\nbig240\nbig241\nbig242\nbig243\nbig244\nbig245\nbig246\nbig247\nbig248\nbig249\nbig250\nbig251\nbig252\nbig253\nbig254\nbig255\nbig256\nbig257\nbig258\nbig259\nbig260\nbig261\nbig262\nbig263\nbig264\nbig265\nbig266\nbig267\nbig268\nbig269\nbig270\nbig271\nbig272\nbig273\nbig274\nbig275\nbig276\nbig277\nbig278\nbig279\nbig280\nbig281\nbig282\nbig283\nbig284\nbig285\nbig286\nbig287\nbig288\nbig289\nbig290\nbig291\nbig292\nbig293\nbig294\nbig295\nbig296\nbig297\nbig298\nbig299\nbig300\nbig301\nbig302\nbig303\nbig304\nbig305\nbig306\nbig307\nbig308\nbig309\nbig310\nbig311\nbig312\nbig313\nbig314\nbig315\nbig316\nbig317\nbig318\nbig319\nbig320\nbig321\nbig322\nbig323\nbig324\nbig325\nbig326\nbig327\nbig328\nbig329\nbig330\nbig331\nbig332\nbig333\nbig334\nbig335\nbig336\nbig337\nbig338\nbig339\nbig340\nbig341\nbig342\nbig343\nbig344\nbig345\nbig346\nbig347\nbig348\nbig349\nbig350\nbig351\nbig352\nbig353\nbig354\nbig355\nbig356\nbig357\nbig358\nbig359\nbig360\nbig361\nbig362\nbig363\nbig364\nbig365\nbig366\nbig367\nbig368\nbig369\nbig370\nbig371\nbig372\nbig373\nbig374\nbig375\nbig376\nbig377\nbig378\nbig379\nbig380\nbig381\nbig382\nbig383\nbig384\nbig385\nbig386\nbig387\nbig388\nbig389\nbig390\nbig391\nbig392\nbig393\nbig394\nbig395\nbig396\nbig397\nbig398\nbig399\nbig400\nbig401\nbig402\nbig403\nbig404\nbig405\nbig406\nbig407\nbig408\nbig409\nbig410\nbig411\nbig412\nbig413\nbig414\nbig415\nbig416\nbig417\nbig418\nbig419\nbig420\nbig421\nbig422\nbig423\nbig424\nbig425\nbig426\nbig427\nbig428\nbig429\nbig430\nbig431\nbig432\nbig433\nbig434\nbig435\nbig436\nbig437\nbig438\nbig439\nbig440\nbig441\nbig442\nbig443\nbig444\nbig445\nbig446\nbig447\nbig448\nbig449\nbig450\nbig451\nbig452\nbig453\nbig454\nbig455\nbig456\nbig457\nbig458\nbig459\nbig460\nbig461\nbig462\nbig463\nbig464\nbig465\nbig466\nbig467\nbig468\nbig469\nbig470\nbig471\nbig472\nbig473\nbig474\nbig475\nbig476\nbig477\nbig478\nbig479\nbig480\nbig481\nbig482\nbig483\nbig484\nbig485\nbig486\nbig487\nbig488\nbig489\nbig490\nbig491\nbig492\nbig493\nbig494\nbig495\nbig496\nbig497\nbig498\nbig499\nbig500\nbig501\nbig502\nbig503\nbig504\nbig505\nbig506\nbig507\nbig508\nbig509\nbig510\nbig511\nbig512\nbig513\nbig514\nbig515\nbig516\nbig517\nbig518\nbig519\nbig520\nbig521\nbig522\nbig523\nbig524\nbig525\nbig526\nbig527\nbig528\nbig529\nbig530\nbig531\nbig532\nbig533\nbig534\nbig535\nbig536\nbig537\nbig538\nbig539\nbig540\nbig541\nbig542\nbig543\nbig544\nbig545\nbig546\nbig547\nbig548\nbig549\nbig550\nbig551\nbig552\nbig553\nbig554\nbig555\nbig556\nbig557\nbig558\nbig559\nbig560\nbig561\nbig562\nbig563\nbig564\nbig565\nbig566\nbig567\nbig568\nbig569\nbig570\nbig571\nbig572\nbig573\nbig574\nbig575\nbig576\nbig577\nbig578\nbig579\nbig580\nbig581\nbig582\nbig583\nbig584\nbig585\nbig586\nbig587\nbig588\nbig589\nbig590\nbig591\nbig592\nbig593\nbig594\nbig595\nbig596\nbig597\nbig598\nbig599\nbig600\nbig601\nbig602\nbig603\nbig604\nbig605\nbig606\nbig607\nbig608\nbig609\nbig610\nbig611\nbig612\nbig613\nbig614\nbig615\nbig616\nbig617\nbig618\nbig619\nbig620\nbig621\nbig622\nbig623\nbig624\nbig625\nbig626\nbig627\nbig628\nbig629\nbig630\nbig631\nbig632\nbig633\nbig634\nbig635\nbig636\nbig637\nbig638\nbig639\nbig640\nbig641\nbig642\nbig643\nbig644\nbig645\nbig646\nbig647\nbig648\nbig649\nbig650\nbig651\nbig652\nbig653\nbig654\nbig655\nbig656\nbig657\nbig658\nbig659\nbig660\nbig661\nbig662\nbig663\nbig664\nbig665\nbig666\nbig667\nbig668\nbig669\nbig670\nbig671\nbig672\nbig673\nbig674\nbig675\nbig676\nbig677\nbig678\nbig679\nbig680\nbig681\nbig682\nbig683\nbig684\nbig685\nbig686\nbig687\nbig688\nbig689\nbig690\nbig691\nbig692\nbig693\nbig694\nbig695\nbig696\nbig697\nbig698\nbig699\nbig700\n[lines 101-700 of 700]",
+        "isError": false
+      }
+    },
+    {
+      "name": "single tail 5 of 700",
+      "input": {
+        "file_path": "big.log",
+        "tail": 5
+      },
+      "result": {
+        "text": "[lines 696-700]\nbig696\nbig697\nbig698\nbig699\nbig700\n[lines 696-700 of 700]",
+        "isError": false
+      }
+    },
+    {
+      "name": "crlf tail 2",
+      "input": {
+        "file_path": "crlf.txt",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 2-3]\nb\nc\n[lines 2-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "no final newline tail 2",
+      "input": {
+        "file_path": "nonl.txt",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 2-3]\nb\nc\n[lines 2-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "crlf tail past the end",
+      "input": {
+        "file_path": "crlf.txt",
+        "tail": 1000
+      },
+      "result": {
+        "text": "[lines 1-3]\na\nb\nc\n[lines 1-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "no final newline tail past the end",
+      "input": {
+        "file_path": "nonl.txt",
+        "tail": 1000
+      },
+      "result": {
+        "text": "[lines 1-3]\na\nb\nc\n[lines 1-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "empty file",
+      "input": {
+        "file_path": "empty.txt",
+        "tail": 3
+      },
+      "result": {
+        "text": "<system-reminder>File exists but has empty contents: empty.txt</system-reminder>",
+        "isError": false
+      }
+    },
+    {
+      "name": "byte order mark",
+      "input": {
+        "file_path": "bom.txt",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 2-3]\ntwo\nthree\n[lines 2-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "binary file",
+      "input": {
+        "file_path": "bin.dat",
+        "tail": 2
+      },
+      "result": {
+        "text": "bin.dat\nbinary, 8 bytes\n41 00 42 00 43 00 0a 44",
+        "isError": false
+      }
+    },
+    {
+      "name": "utf-16 file",
+      "input": {
+        "file_path": "utf16.txt",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 3-3]\nthree\n[lines 3-3 of 3]",
+        "isError": false
+      }
+    },
+    {
+      "name": "missing file",
+      "input": {
+        "file_path": "nope.log",
+        "tail": 2
+      },
+      "result": {
+        "text": "[path absent] ENOENT: no such file or directory, stat 'nope.log' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <WS>)",
+        "isError": false
+      }
+    },
+    {
+      "name": "a directory",
+      "input": {
+        "file_path": "sub",
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: Directory: sub. Use list/glob to inspect directories; read expects a file.\nentries:\n- inner.txt",
+        "isError": true
+      }
+    },
+    {
+      "name": "a url",
+      "input": {
+        "file_path": "https://example.com/a",
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: this is a URL; use web_fetch",
+        "isError": true
+      }
+    },
+    {
+      "name": "a line coordinate",
+      "input": {
+        "file_path": "a.log:3",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 1-2]\nrow1\nrow2\n[lines 1-2 of 10; offset:3 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "a blank path",
+      "input": {
+        "file_path": " ",
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: path is required.",
+        "isError": true
+      }
+    },
+    {
+      "name": "a glob",
+      "input": {
+        "file_path": "logs/*.log",
+        "tail": 2
+      },
+      "result": {
+        "text": "read 2\n\nlogs/two.log [ok]\n[lines 1-2]\ntwo1\ntwo2\n[lines 1-2; offset:3 for more]\n\nlogs/one.log [ok]\n[lines 1-2]\none1\none2\n[lines 1-2; offset:3 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "a glob that names one file",
+      "input": {
+        "file_path": "logs/t*.log",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 4-5]\ntwo4\ntwo5\n[lines 4-5 of 5]",
+        "isError": false
+      }
+    },
+    {
+      "name": "a one-element batch",
+      "input": {
+        "file_path": [
+          "a.log"
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "read 1\n\na.log [ok]\n[lines 9-10]\nrow9\nrow10\n[lines 9-10; offset:11 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "with a limit",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "limit": 2
+      },
+      "result": {
+        "text": "[lines 8-10]\nrow8\nrow9\nrow10\n[lines 8-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "with limit 0",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "limit": 0
+      },
+      "result": {
+        "text": "[lines 8-10]\nrow8\nrow9\nrow10\n[lines 8-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "with a limit past the schema",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "limit": 100001
+      },
+      "result": {
+        "text": "Error: read offset must be an integer >= 1 and limit an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "with mode head",
+      "input": {
+        "file_path": "a.log",
+        "tail": 2,
+        "mode": "head"
+      },
+      "result": {
+        "text": "[lines 9-10]\nrow9\nrow10\n[lines 9-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "with mode summary",
+      "input": {
+        "file_path": "a.log",
+        "tail": 2,
+        "mode": "summary"
+      },
+      "result": {
+        "text": "[lines 9-10]\nrow9\nrow10\n[lines 9-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "with pages",
+      "input": {
+        "file_path": "a.log",
+        "tail": 2,
+        "pages": "1"
+      },
+      "result": {
+        "text": "[lines 9-10]\nrow9\nrow10\n[lines 9-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "integral float",
+      "input": {
+        "file_path": "a.log",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 9-10]\nrow9\nrow10\n[lines 9-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "legacy path",
+      "input": {
+        "path": "a.log",
+        "tail": 2
+      },
+      "result": {
+        "text": "[lines 9-10]\nrow9\nrow10\n[lines 9-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "legacy path array",
+      "input": {
+        "path": [
+          "a.log",
+          "b.log"
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n\nb.log [ok]\n[lines 1-6]\nb1\nb2\nb3\nb4\nb5\nb6",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch default",
+      "input": {
+        "file_path": [
+          "a.log",
+          "b.log"
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 9-10]\nrow9\nrow10\n[lines 9-10; offset:11 for more]\n\nb.log [ok]\n[lines 5-6]\nb5\nb6\n[lines 5-6; offset:7 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch per target",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "b.log",
+            "tail": 2
+          }
+        ]
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n\nb.log [ok]\n[lines 5-6]\nb5\nb6\n[lines 5-6; offset:7 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch per target over the default",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "b.log",
+            "tail": 2
+          }
+        ],
+        "tail": 1
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 10-10]\nrow10\n[lines 10-10; offset:11 for more]\n\nb.log [ok]\n[lines 5-6]\nb5\nb6\n[lines 5-6; offset:7 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch tail beside a window",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "a.log",
+            "tail": 2
+          },
+          {
+            "file_path": "b.log",
+            "offset": 2,
+            "limit": 2
+          }
+        ]
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 9-10]\nrow9\nrow10\n[lines 9-10; offset:11 for more]\n\nb.log [ok]\n[lines 2-3]\nb2\nb3\n[lines 2-3; offset:4 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch of one file twice",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "a.log",
+            "tail": 2
+          },
+          {
+            "file_path": "a.log",
+            "tail": 4
+          }
+        ]
+      },
+      "result": {
+        "text": "read 1\n\na.log [ok]\n[lines 7-10]\nrow7\nrow8\nrow9\nrow10\n[lines 7-10; offset:11 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch of one file, tail and head",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "a.log",
+            "tail": 3
+          },
+          {
+            "file_path": "a.log",
+            "limit": 3
+          }
+        ]
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 8-10]\nrow8\nrow9\nrow10\n[lines 8-10; offset:11 for more]\n\na.log [ok]\n[lines 1-3]\nrow1\nrow2\nrow3\n[lines 1-3; offset:4 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch with a missing file",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "nope.log",
+            "tail": 2
+          }
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 9-10]\nrow9\nrow10\n[lines 9-10; offset:11 for more]\n\nnope.log [absent]\n[path absent] ENOENT: no such file or directory, stat 'nope.log' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <WS>)",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch with a directory",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "sub",
+            "tail": 2
+          }
+        ]
+      },
+      "result": {
+        "text": "read 2 (1 failed)\n\na.log [ok]\n[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n\nsub [error]\nError: Directory: sub. Use list/glob to inspect directories; read expects a file.\nentries:\n- inner.txt",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch with a glob",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "logs/*.log",
+            "tail": 2
+          }
+        ]
+      },
+      "result": {
+        "text": "read 2\n\na.log [ok]\n[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n\nlogs/*.log [ok]\nread 2\n\nlogs/two.log [ok]\n[lines 1-2]\ntwo1\ntwo2\n[lines 1-2; offset:3 for more]\n\nlogs/one.log [ok]\n[lines 1-2]\none1\none2\n[lines 1-2; offset:3 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "batch over the file cap",
+      "input": {
+        "file_path": [
+          "m1.txt",
+          "m2.txt",
+          "m3.txt",
+          "m4.txt",
+          "m5.txt",
+          "m6.txt",
+          "m7.txt",
+          "m8.txt",
+          "m9.txt",
+          "m10.txt",
+          "m11.txt"
+        ],
+        "tail": 1
+      },
+      "result": {
+        "text": "read 10\n\nm1.txt [ok]\n[lines 3-3]\nm1-3\n[lines 3-3; offset:4 for more]\n\nm2.txt [ok]\n[lines 3-3]\nm2-3\n[lines 3-3; offset:4 for more]\n\nm3.txt [ok]\n[lines 3-3]\nm3-3\n[lines 3-3; offset:4 for more]\n\nm4.txt [ok]\n[lines 3-3]\nm4-3\n[lines 3-3; offset:4 for more]\n\nm5.txt [ok]\n[lines 3-3]\nm5-3\n[lines 3-3; offset:4 for more]\n\nm6.txt [ok]\n[lines 3-3]\nm6-3\n[lines 3-3; offset:4 for more]\n\nm7.txt [ok]\n[lines 3-3]\nm7-3\n[lines 3-3; offset:4 for more]\n\nm8.txt [ok]\n[lines 3-3]\nm8-3\n[lines 3-3; offset:4 for more]\n\nm9.txt [ok]\n[lines 3-3]\nm9-3\n[lines 3-3; offset:4 for more]\n\nm10.txt [ok]\n[lines 3-3]\nm10-3\n[lines 3-3; offset:4 for more]\n[skipped 1 more file(s) over the per-call limit: m11.txt — read them in another call]",
+        "isError": false
+      }
+    },
+    {
+      "name": "huge file tail 3",
+      "input": {
+        "file_path": "huge.log",
+        "tail": 3
+      },
+      "result": {
+        "text": "... [tail of 3 lines from end of file; line numbers omitted]\nentry\nentry\nentry",
+        "isError": false
+      }
+    },
+    {
+      "name": "huge file tail 5000",
+      "input": {
+        "file_path": "huge.log",
+        "tail": 5000
+      },
+      "result": {
+        "text": "... [tail of 2000 lines from end of file; line numbers omitted]\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\n\n... [1841 lines omitted of 2001 total — head and tail shown] ...\n\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry\nentry",
+        "isError": false
+      }
+    },
+    {
+      "name": "huge file in a batch",
+      "input": {
+        "file_path": [
+          "huge.log",
+          {
+            "file_path": "a.log",
+            "tail": 1
+          }
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "read 2\n\nhuge.log [tail n=2] [ok]\n... [tail of 2 lines from end of file; line numbers omitted]\nentry\nentry\n\na.log [ok]\n[lines 10-10]\nrow10\n[lines 10-10; offset:11 for more]",
+        "isError": false
+      }
+    },
+    {
+      "name": "huge file with a limit",
+      "input": {
+        "file_path": "huge.log",
+        "tail": 3,
+        "limit": 5
+      },
+      "result": {
+        "text": "... [tail of 3 lines from end of file; line numbers omitted]\nentry\nentry\nentry",
+        "isError": false
+      }
+    },
+    {
+      "name": "refused: tail with offset",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "offset": 2
+      },
+      "result": {
+        "text": "Error: read target 1 tail cannot be combined with offset (tail is counted from the end of the file)",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail with offset 1",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "offset": 1
+      },
+      "result": {
+        "text": "Error: read target 1 tail cannot be combined with offset (tail is counted from the end of the file)",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail with offset 0",
+      "input": {
+        "file_path": "a.log",
+        "tail": 3,
+        "offset": 0
+      },
+      "result": {
+        "text": "Error: read offset must be an integer >= 1 and limit an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target tail with offset",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "b.log",
+            "tail": 2,
+            "offset": 1
+          }
+        ]
+      },
+      "result": {
+        "text": "Error: read target 2 tail cannot be combined with offset (tail is counted from the end of the file)",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target offset under a default tail",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "b.log",
+            "offset": 1
+          }
+        ],
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: read target 2 tail cannot be combined with offset (tail is counted from the end of the file)",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: batch default tail with default offset",
+      "input": {
+        "file_path": [
+          "a.log",
+          "b.log"
+        ],
+        "tail": 2,
+        "offset": 2
+      },
+      "result": {
+        "text": "Error: read target 1 tail cannot be combined with offset (tail is counted from the end of the file)",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail 0",
+      "input": {
+        "file_path": "a.log",
+        "tail": 0
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail -1",
+      "input": {
+        "file_path": "a.log",
+        "tail": -1
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail 100001",
+      "input": {
+        "file_path": "a.log",
+        "tail": 100001
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail 1.5",
+      "input": {
+        "file_path": "a.log",
+        "tail": 1.5
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail as text",
+      "input": {
+        "file_path": "a.log",
+        "tail": "3"
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail null",
+      "input": {
+        "file_path": "a.log",
+        "tail": null
+      },
+      "result": {
+        "text": "[lines 1-10]\nrow1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\n[lines 1-10 of 10]",
+        "isError": false
+      }
+    },
+    {
+      "name": "refused: tail true",
+      "input": {
+        "file_path": "a.log",
+        "tail": true
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: tail a list",
+      "input": {
+        "file_path": "a.log",
+        "tail": [
+          3
+        ]
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target tail 0",
+      "input": {
+        "file_path": [
+          "a.log",
+          {
+            "file_path": "b.log",
+            "tail": 0
+          }
+        ]
+      },
+      "result": {
+        "text": "Error: read target 2 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target tail as text",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "b.log",
+            "tail": "2"
+          }
+        ]
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target tail null",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "b.log",
+            "tail": null
+          }
+        ]
+      },
+      "result": {
+        "text": "Error: read target 1 tail must be an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: target with an unknown key",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "b.log",
+            "tail": 2,
+            "last": 2
+          }
+        ]
+      },
+      "result": {
+        "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?, tail?}",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: offset 0 beside a valid tail",
+      "input": {
+        "file_path": "a.log",
+        "offset": 0,
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: read offset must be an integer >= 1 and limit an integer from 1 to 100000",
+        "isError": true
+      }
+    },
+    {
+      "name": "refused: limit text beside a valid tail",
+      "input": {
+        "file_path": "a.log",
+        "limit": "x",
+        "tail": 2
+      },
+      "result": {
+        "text": "Error: read offset must be an integer >= 1 and limit an integer from 1 to 100000",
+        "isError": true
+      }
+    }
+  ]
+}

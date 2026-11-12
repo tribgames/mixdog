@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "Serve each case's `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -10,6 +10,8 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test's silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.",
   "exclusions": [
+    "`response.candidates[].index` is not compared: the aggregation's own sort key (gemini-stream.mjs:159, :196); no reader of the aggregated response reads it (`[.?]index\\b` over gemini.mjs, gemini-response.mjs, antigravity-response.mjs, antigravity-stream.mjs, gemini-sdk-request.mjs finds none)",
+    "`response.candidates[].content.role` is not compared: the aggregation writes it (gemini-stream.mjs:176) and the readers of the aggregated response read only `content.parts` (gemini-response.mjs:23, antigravity-response.mjs:53); mergeGeminiHops (gemini.mjs:133) copies it into a merged response read the same way",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -17,15 +19,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 70436,
+      "bytes": 83778,
       "path": "cases.json",
-      "sha256": "f9d1541baa49cb7bc3dac3e891a9d830072f7b69e962ec1b8002d28ede30b2a2"
+      "sha256": "fd131372015b356a03554cd0f7752cd00f51110538587aca4c1c6ebcc936e250"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -41,7 +43,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+      "sha256": "14328d15667d2c5ad8f14803aeae9164c02ffe2894fde446c53e204612064d30"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
@@ -124,6 +126,18 @@
     {
       "id": "first-chunk-window-follows-caller-and-names-phase",
       "level": "wire"
+    },
+    {
+      "id": "idle-window-after-a-payload-names-phase",
+      "level": "wire"
+    },
+    {
+      "id": "idle-window-rearmed-by-each-payload",
+      "level": "wire"
+    },
+    {
+      "id": "idle-window-not-rearmed-by-a-keepalive",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -145,12 +159,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "028c9dc9fd559ff63362c2a19800cffb069beddb4ebf231a623b7129ead8b812",
+  "recorderSha256": "e12a18885fde6265e4ec34774b4443799fcb3265bc529a28b4f6d38420f26797",
   "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-gemini-stream",
-  "totalBytes": 70436,
+  "totalBytes": 83778,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

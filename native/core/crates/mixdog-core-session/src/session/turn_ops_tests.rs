@@ -11,6 +11,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_api::thread::Stop;
 use mixdog_core_goal::goal::hooks::GoalViewHooks;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
@@ -337,6 +338,204 @@ async fn a_scheduled_compaction_runs_once_when_the_threads_turn_settles() {
     assert!(!handle.cell.pending_compact.load(std::sync::atomic::Ordering::SeqCst), "the schedule is one-shot");
 }
 
+/// The session tool's `compact` (`workspace-tools.mjs`: `pendingCompactSessionIds`): asked while
+/// the turn runs, nothing compacts until the turn settles (`turn-settle.mjs`: `takePendingCompact`),
+/// then `session.compact()` runs once; a turn asked meanwhile waits for it (`compaction-gate.mjs`:
+/// `ask: afterCompaction(runner.ask)`) and starts once it ended.
+#[tokio::test(start_paused = true)]
+async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_waits_for_it() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
+
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false"]);
+
+    // The turn is admitted at once (`submitToSession` answers while the compaction runs, as the
+    // session-send-world recording shows) and queued behind the compaction's gate.
+    let next = turn(&handle, "next", "op-2").await;
+    assert_eq!(next["kind"], json!("queued"), "{next}");
+    assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the next turn waits for the compaction");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "the next turn started once the compaction ended");
+    assert_eq!(super::testing::lock(&rig.compaction.calls)[..2], ["compact manual false", "post manual"]);
+    assert_eq!(super::testing::lock(&rig.compaction.calls).iter().filter(|call| call.starts_with("compact")).count(), 1, "it ran once");
+    gate.notify_one();
+}
+
+/// A prompt queued behind the turn and prioritised while the scheduled compaction runs
+/// (`prioritizeQueued` kicks a drain) waits for the compaction like any ask (`afterCompaction`
+/// wraps `runner.ask`); it starts once the compaction ended.
+#[tokio::test(start_paused = true)]
+async fn a_prioritised_queued_prompt_waits_for_the_scheduled_compaction() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let answer = turn(&handle, "queued", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
+    let qid = handle.cell.queue.load()[0].qid.clone();
+    assert_eq!(answer["queuedId"].as_str(), Some(qid.as_str()), "the prompt is the queued entry");
+
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+
+    let holds = handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst);
+    handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qid.as_str())).expect("prioritised");
+    // The prioritising drain consulted the compaction's gate and was held.
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst) > holds).then_some(())).await;
+    assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the prioritised prompt waits for the compaction");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "it started once the compaction ended");
+    gate.notify_one();
+}
+
+/// A task report reaching the session while the scheduled compaction runs, by the producers' path
+/// (`notifySessionCompletion` → `enqueueCompletion` → the live wake): it is queued at once and
+/// kept, its wake waits on the gate (the notification bus's `ask` is wrapped by
+/// `afterCompaction`), and it starts its turn once the compaction ended.
+#[tokio::test(start_paused = true)]
+async fn a_task_report_under_the_compactions_gate_waits_and_is_not_lost() {
+    use mixdog_agent::agent_tool::flow::seams::OwnerNotify;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+
+    let holds = handle.cell.gate_holds.load(SeqCst);
+    let report = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"rev\" completed</summary>\n<result>\nall done\n</result>\n</task-notification>";
+    let meta = json!({ "execution_surface": "agent", "execution_id": "t1", "status": "completed" });
+    assert!(super::agent_registry::flow::SessionCompletions::new(directory.clone()).notify(handle.id.as_str(), report, &meta), "the live session takes the report");
+    // The report's wake consulted the compaction's gate and was held.
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(SeqCst) > holds).then_some(())).await;
+    assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the report is queued and starts no turn");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "the report's turn took it once the compaction ended");
+    gate.notify_one();
+}
+
+/// A session deleted while its scheduled compaction RUNS: nothing that decides a close sees the
+/// compaction (Node: `retention/busy.mjs` `stateBusy` reads `busy`, `commandBusy`, `queued`), so
+/// the delete goes through, and every caller the gate held gets an answer, none is left hanging:
+/// the session is closed to them (Node's held `ask` meets `assertSessionAdmission`'s closed
+/// refusal once the tail settles).
+#[tokio::test(start_paused = true)]
+async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_deleted() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.store.listed.store(true, SeqCst);
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+
+    let queued = call(&handle, "turn/start", json!({ "input": { "prompt": "next" } }), "h-1").await.expect("admitted");
+    assert_eq!(queued["kind"], json!("queued"), "a turn is queued behind the gate, not held: {queued}");
+    let mut held_calls = Vec::new();
+    for (method, params, op) in [
+        ("thread/clear", json!({}), "h-2"),
+        ("thread/compact/start", json!({}), "h-3"),
+    ] {
+        let holds = handle.cell.gate_holds.load(SeqCst);
+        let caller = handle.clone();
+        held_calls.push((method, tokio::spawn(async move { call(&caller, method, params, op).await })));
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(SeqCst) > holds).then_some(())).await;
+    }
+    let deleted = handle.request(request("thread/delete", json!({ "threadId": handle.id, "opId": "op-del" }), "op-del")).await.expect("thread/delete");
+    assert!(matches!(deleted, Reply::Value(Value::Bool(true))), "the delete is not held by the compaction: {deleted:?}");
+    for (method, held) in held_calls {
+        let answer = super::testing::awaiting(|| format!("the {method} the gate held to be answered after the delete"), held).await.expect("joined");
+        assert!(matches!(&answer, Err(CoreError::ThreadClosing { .. })), "{method}: the deleted session is closed to it: {answer:?}");
+    }
+}
+
+/// A stop while the scheduled compaction holds a prompt back (Node's ask waiting on the gate, `state.busy`): the busy path
+/// hands the prompt back (`aborted: false`, its text and the submission the window named) and the prompt still runs when the
+/// gate opens, so it stays in the queue.
+#[tokio::test(start_paused = true)]
+async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_the_prompt_still_runs() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.store.listed.store(true, SeqCst);
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+
+    let input = json!({ "input": { "prompt": "next", "options": { "clientSubmissionId": "window-7" } } });
+    let queued = call(&handle, "turn/start", input, "h-1").await.expect("admitted");
+    assert_eq!(queued["kind"], json!("queued"), "{queued}");
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
+    let stopped = handle
+        .stop(Stop { turn: None, restore_prompt: None, submission_id: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("stop");
+    assert_eq!((&stopped["aborted"], &stopped["restoreText"], &stopped["restoredSubmissionIds"]), (&json!(false), &json!("next"), &json!(["window-7"])), "{stopped}");
+    assert_eq!(handle.cell.queued.load().len(), 1, "the prompt is still queued: Node's ask runs once the gate opens");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "it ran once the compaction ended");
+    gate.notify_one();
+}
+
+/// The session tool's `compact` (`workspace-tools.mjs:268`, `turn-settle.mjs:118`): the request only
+/// marks the thread while its turn runs; the turn's completion runs one manual compaction.
+#[tokio::test(start_paused = true)]
+async fn a_scheduled_compaction_runs_once_the_turn_completes() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    let scheduled = call(&handle, "thread/compact/start", json!({ "options": { "afterTurn": true } }), "k-1").await.expect("answered");
+    assert_eq!(scheduled, Value::Null);
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing runs while the turn does");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&rig.compaction.calls).len() >= 4).then_some(())).await;
+    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "invalidate"]);
+}
+
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the
@@ -476,6 +675,82 @@ async fn a_retry_waits_for_a_running_compaction() {
     assert_eq!(super::testing::lock(&seen).len(), 1, "the refused retry started nothing");
     retry_when_settled(&handle, &key, "r-2c").await;
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
+}
+
+/// A retry and the model-scheduled compaction (`compaction-gate.mjs`). Asked while the compaction
+/// is only scheduled (its turn still runs), `retryBlocked` sees the turn (`state.busy`) and
+/// refuses. Asked while it runs, nothing in `retryBlocked` sees it (the gate sets neither
+/// `commandBusy` nor `autoClearRunning`): the retry is admitted, `retryFailedTurn` enqueues it and
+/// its `runtime.ask` waits on the gate (`ask: afterCompaction(runner.ask)`), starting once the
+/// compaction ended.
+#[tokio::test(start_paused = true)]
+async fn a_retry_waits_on_the_scheduled_compactions_gate() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<std::sync::Mutex<Vec<Option<bool>>>> = Arc::default();
+    let (open, log) = (gate.clone(), seen.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, log) = (open.clone(), log.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = {
+                let mut seen = super::testing::lock(&log);
+                seen.push(run.input.options.as_ref().and_then(|options| options.retry_failed_turn));
+                seen.len() == 1
+            };
+            if !first {
+                return RunOutcome::Completed(Default::default());
+            }
+            open.notified().await;
+            RunOutcome::Failed(super::testing::quota_error(5000))
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_routed_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": "attempt:any" }), "r-1").await.expect("answered"), json!(false), "scheduled: the turn owns the session");
+
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    let id = handle.id.as_str().to_owned();
+    let key = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+
+    let holds = handle.cell.gate_holds.load(SeqCst);
+    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(true), "running: the retry is admitted");
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(SeqCst) > holds).then_some(())).await;
+    assert_eq!(super::testing::lock(&seen).len(), 1, "the admitted retry waits for the compaction");
+    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-3").await.expect("answered"), json!(false), "the held retry owns the session");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    assert_eq!(super::testing::lock(&seen)[1], Some(true), "the retry turn ran once the compaction ended");
+    assert_eq!(super::testing::lock(&rig.compaction.calls).iter().filter(|call| call.starts_with("compact")).count(), 1);
+}
+
+/// A manual compaction runs under the session's abort signal (`getSessionAbortSignal`): the runtime's shutdown aborts it with
+/// Node's `runtime close` text, so a compaction in flight does not outlive the session.
+#[tokio::test(start_paused = true)]
+async fn a_shutdown_aborts_the_compaction_in_flight() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold);
+    let mut compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
+    };
+    eventually_on_until!(&[&rig.compaction.called], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(()), &mut compacting).await;
+    let cancel = super::testing::lock(&rig.compaction.cancels)[0].clone();
+    assert!(!cancel.is_aborted(), "a running compaction is not aborted");
+    directory.shutdown().await;
+    assert!(cancel.is_aborted(), "the shutdown aborted the compaction's signal");
+    assert_eq!(cancel.reason(), format!("Session \"{}\" closed: runtime close (reason=cli-exit)", handle.id.as_str()));
 }
 
 /// `resumeGoal`: a quota failure that suspended the Goal is retried by reviving that Goal through

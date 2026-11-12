@@ -1141,13 +1141,26 @@ write('races.json', races);
 
 // FINALIZE
 const manifest = JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8'));
-refreshSetManifest(stage, nodeRoot, 'HEAD', {
-  exclusions: {
-    ...manifest.exclusions,
-    'flows/close_failures.json "calls" entries other than "close" and "ownerClosed"': 'forgetTerminalSession, removeWorkerRow, markReleased and purgeWorkerRows are the scripted worker index\'s own log of the rows it was told to drop; the Rust registry that takes them is replayed by its own sets, so the replay compares the closes attempted and the owner closes recorded, whole and in order',
-    'flows/close_failures.json "terminal" and "status" (per member)': 'Node\'s runtime flag and tree descriptor; the Rust session keeps no descriptor, so the replay compares what the same close leaves durably on each member (a detach stamp, an owner-close stamp) with the members whose runtime was recorded terminal',
-    'flows/spawn.json "staleNotifyCalls" (the stale-context scenario)': 'the context Node is handed carries a routing session id (routingSessionId) and a notify callback (notifyFn) that the core\'s SpawnContext has no field for: neither input exists on the Rust side. The number of calls Node\'s callback got (recorded 0) is compared with the notices the replay delivered to the stale session id it passes in the context\'s session id (sessionId, which Node ignores while a caller session id is set); the completion reaching the caller alone is compared through the notices, whole',
+// `exclusions` is a list of {path, scope, reason}: the entries the set already holds stay, this recorder's own are added once.
+const flowExclusions = [
+  {
+    path: 'flows/close_failures.json',
+    scope: '"calls" entries other than "close" and "ownerClosed"',
+    reason: 'forgetTerminalSession, removeWorkerRow, markReleased and purgeWorkerRows are the scripted worker index\'s own log of the rows it was told to drop; the Rust registry that takes them is replayed by its own sets, so the replay compares the closes attempted and the owner closes recorded, whole and in order',
   },
+  {
+    path: 'flows/close_failures.json',
+    scope: '"terminal" and "status" (per member)',
+    reason: 'Node\'s runtime flag and tree descriptor; the Rust session keeps no descriptor, so the replay compares what the same close leaves durably on each member (a detach stamp, an owner-close stamp) with the members whose runtime was recorded terminal',
+  },
+  {
+    path: 'flows/spawn.json',
+    scope: '"staleNotifyCalls" (the stale-context scenario)',
+    reason: 'the context Node is handed carries a routing session id (routingSessionId) and a notify callback (notifyFn) that the core\'s SpawnContext has no field for: neither input exists on the Rust side. The number of calls Node\'s callback got (recorded 0) is compared with the notices the replay delivered to the stale session id it passes in the context\'s session id (sessionId, which Node ignores while a caller session id is set); the completion reaching the caller alone is compared through the notices, whole',
+  },
+];
+refreshSetManifest(stage, nodeRoot, 'HEAD', {
+  exclusions: [...(manifest.exclusions ?? []).filter((held) => !flowExclusions.some((e) => e.path === held.path && e.scope === held.scope)), ...flowExclusions],
 });
 commitStage(stage, here);
 console.log('flows recorded');

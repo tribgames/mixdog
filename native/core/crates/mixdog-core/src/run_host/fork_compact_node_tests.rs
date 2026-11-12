@@ -76,8 +76,8 @@ struct HeirCompaction {
 
 #[async_trait]
 impl ManualCompaction for HeirCompaction {
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
-        self.rig.compact(thread, trigger, require_reduction).await
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError> {
+        self.rig.compact(thread, trigger, require_reduction, cancel).await
     }
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
         let directory = self.directory.get().expect("the directory is bound");

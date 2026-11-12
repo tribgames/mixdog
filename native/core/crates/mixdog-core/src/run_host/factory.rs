@@ -249,6 +249,103 @@ impl RunFactory for RunHostFactory {
         let (parts, liveness, search_usage) = (self.parts.clone(), self.liveness.clone(), self.search_usage.clone());
         Box::pin(drive(parts, liveness, search_usage, run))
     }
+
+    fn crashed(&self, run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
+        crashed_rows(run)
+    }
+}
+
+/// `recoverTurnCheckpoint` of a run the process died in. A sealed turn (its answer committed, stamped with the turn's
+/// completion) stays as it is. Otherwise its draft is finalized as `finalizeTurnInterruptionSnapshot(.., 'process-crash')`
+/// finalizes the checkpoint: the partial reply, every unanswered call closed as cancelled and the restart line are
+/// committed, and the model context restarts on the finalized transcript, with `sentRequestTail` on the message the
+/// request ended with (as [`close_cancelled`] leaves a stopped turn).
+fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
+    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
+    use mixdog_core_session::session::CrashedRows;
+    use mixdog_protocol::message_class::RowFacts;
+    use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
+    struct NoAttachments;
+    impl Blobs for NoAttachments {
+        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, ReadError> {
+            Ok(None)
+        }
+    }
+    let mut known: Vec<(ItemId, AgentMessage)> = Vec::with_capacity(run.context.len());
+    for (iid, body) in &run.context {
+        match message_of(body) {
+            Ok(message) => known.push((iid.clone(), message)),
+            Err(error) => {
+                tracing::error!("[turn-checkpoint] the crashed turn is not finalized: its context holds a row this build cannot read: {error}");
+                return CrashedRows::default();
+            }
+        }
+    }
+    let input = run.input.as_ref().and_then(|input| known.iter().position(|(iid, _)| iid == input));
+    // The turn's own rows follow its input row: any of them is output (`responseStarted`).
+    let answered = input.is_some_and(|at| at + 1 < known.len());
+    let sealed = answered
+        && run.context.last().is_some_and(|(_, body)| body.get("role").and_then(Value::as_str) == Some("assistant") && body.pointer("/meta/transcript/completion").is_some());
+    if sealed {
+        return CrashedRows { sealed: true, ..CrashedRows::default() };
+    }
+    // The turn was sealed (its final reply drafted) but the reply's row never landed: the reply is committed as that row
+    // and the turn ends finished, as Node brings a sealed checkpoint back (`turn-checkpoint-recovery.mjs`).
+    if let Some(row) = run.draft.sealed.clone() {
+        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], ..CrashedRows::default() };
+    }
+    // A recovery whose rows landed but whose end record did not (the process died again in between) left the restart line
+    // closing the turn: finalized again, the turn is rebuilt with that line at the same place, which is kept, not added again.
+    let restart = |message: &AgentMessage| message.role() == Role::User && message.text() == mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+    let mut transcript: Vec<AgentMessage> = known.iter().map(|(_, message)| message.clone()).collect();
+    if answered && transcript.last().is_some_and(restart) {
+        transcript.pop();
+    }
+    let draft = run.draft;
+    let calls = message_of(&json!({ "role": "assistant", "content": "", "toolCalls": draft.calls })).map(|message| message.tool_calls().to_vec()).unwrap_or_default();
+    let results = draft.results.iter().filter_map(|row| message_of(row).ok()).collect();
+    let finalized = finalize_interrupted_turn(Interrupted {
+        transcript,
+        current_user_text: input.map(|at| known[at].1.text()).unwrap_or_default(),
+        response_started: draft.started || answered,
+        partial_assistant: draft.text,
+        partial_reasoning: draft.reasoning,
+        observed_tool_calls: calls,
+        observed_tool_results: results,
+        phase: if draft.tools { Phase::Tools } else { Phase::Streaming },
+        reason: AbortReason::ProcessCrash,
+    });
+    if !finalized.response_preserved {
+        return CrashedRows::default();
+    }
+    let mut rows = Vec::new();
+    let mut replacement: Vec<(ItemId, Value)> = Vec::new();
+    for (index, message) in finalized.transcript.iter().enumerate() {
+        let (iid, mut body) = match known.get(index).filter(|(_, was)| was == message || (restart(was) && restart(message))) {
+            Some((iid, _)) => (iid.clone(), run.context[index].1.clone()),
+            None => {
+                let (iid, mut body) = (new_item_id(), row_of(message));
+                let role = match message.role() {
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                    _ => "user",
+                };
+                // The restart line is classified as a live commit's is (a cancel line shows as the turn's end); it names
+                // no attachment, so no attachment is read.
+                let facts = row_facts(&mut body, &mut UserText::new(&NoAttachments)).unwrap_or(RowFacts { visible: true, prompt: None });
+                rows.push(ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: facts.visible, body: body.clone(), prompt: facts.prompt });
+                (iid, body)
+            }
+        };
+        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
+            let meta = object.entry("meta").or_insert_with(|| json!({}));
+            if let Some(meta) = meta.as_object_mut() {
+                meta.insert("sentRequestTail".into(), Value::Bool(true));
+            }
+        }
+        replacement.push((iid, body));
+    }
+    CrashedRows { sealed: false, rows, context: Some(replacement), context_tokens: None }
 }
 
 pub(super) use mixdog_core_session::session::run::new_item_id;
@@ -262,22 +359,31 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 enum Job {
     Commit(u64, ItemCommit),
     Compact(u64, mixdog_core_session::session::run::Compaction),
+    Draft(u64, Value),
+}
+
+/// `TURN_CHECKPOINT_THROTTLE_MS` (`ask-turn-state.mjs:14`): streamed text is drafted at most this often; every other
+/// change of the draft is written at once (`checkpoint.schedule(true)`).
+const DRAFT_THROTTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// When the draft was last written, and whether a throttled write is armed.
+#[derive(Default)]
+struct DraftClock {
+    last: Option<tokio::time::Instant>,
+    armed: bool,
 }
 
 /// `TranscriptSink` over the run's port: commits go to the actor in order on one task, and
 /// `durable` waits for that task. `Ticket(0)` is the turn's input row, which the actor committed.
 struct PortSink {
-    jobs: mpsc::UnboundedSender<Job>,
+    jobs: Jobs,
     done: watch::Receiver<u64>,
-    seq: AtomicU64,
     port: RunPort,
     rows: Arc<StoredRows>,
     live: LiveTurnPublisher,
     turn: Mutex<Vec<AgentMessage>>,
     /// The item the shown assistant text belongs to, until its message commits.
     streaming: Arc<Mutex<Option<ItemId>>>,
-    /// `markAssistantMessageCommitted` empties it.
-    observed: Arc<Mutex<Observed>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
@@ -290,6 +396,7 @@ struct PortSink {
     /// (`appendAssistantTurnMessage` writes them on that message).
     terminal: Mutex<Option<(u32, u64)>>,
     applied: AppliedSkills,
+    drafted: Mutex<DraftClock>,
 }
 
 /// Where the skills a prompt loaded are stamped: the thread's row of that prompt.
@@ -334,6 +441,51 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The run's jobs in order, and the draft they take from: what a draft takes from `observed`, and an assistant commit
+/// empties of it, is numbered and queued while `observed` is held, so no draft of a message lands after the message's row.
+struct Jobs {
+    /// `markAssistantMessageCommitted` empties it.
+    observed: Arc<Mutex<Observed>>,
+    seq: AtomicU64,
+    tx: mpsc::UnboundedSender<Job>,
+    /// Called once a draft's body is taken, before it is queued.
+    #[cfg(any(test, feature = "test-support"))]
+    taken: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Jobs {
+    /// Queues what the draft gained since its last write.
+    fn draft(&self) {
+        let mut observed = lock(&self.observed);
+        if let Some(body) = observed.undrafted() {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(taken) = lock(&self.taken).take() {
+                taken();
+            }
+            self.queue(&mut observed, |n| Job::Draft(n, body));
+        }
+    }
+
+    /// Queues a row of the run (an assistant message's ends its draft), after the seal of the turn's reply if any.
+    fn row(&self, assistant: bool, sealed: Option<Value>, item: ItemCommit) -> u64 {
+        let mut observed = lock(&self.observed);
+        if assistant {
+            observed.message_committed();
+        }
+        if let Some(sealed) = sealed {
+            self.queue(&mut observed, |n| Job::Draft(n, sealed));
+        }
+        self.queue(&mut observed, |n| Job::Commit(n, item))
+    }
+
+    /// Numbers and queues one job; `_held` is the observed record, held by the caller.
+    fn queue(&self, _held: &mut Observed, job: impl FnOnce(u64) -> Job) -> u64 {
+        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = self.tx.send(job(n));
+        n
+    }
+}
+
 impl PortSink {
     fn spawn(
         port: RunPort,
@@ -352,9 +504,9 @@ impl PortSink {
         let worker = port.clone();
         drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
             while let Some(job) = queue.recv().await {
+                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                 let n = match job {
                     Job::Commit(n, item) => {
-                        // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                         if let Err(error) = worker.commit_item(item).await {
                             tracing::warn!("[session] message save failed: {error:?}");
                         }
@@ -366,11 +518,63 @@ impl PortSink {
                         }
                         n
                     }
+                    // Node reports a failed checkpoint write and goes on (`[turn-checkpoint] write failed`).
+                    Job::Draft(n, body) => {
+                        if let Err(error) = worker.draft(body).await {
+                            tracing::warn!("[turn-checkpoint] write failed: {error:?}");
+                        }
+                        n
+                    }
                 };
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied })
+        let jobs = Jobs {
+            observed,
+            seq: AtomicU64::new(0),
+            tx: jobs,
+            #[cfg(any(test, feature = "test-support"))]
+            taken: Mutex::default(),
+        };
+        Arc::new(Self { jobs, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
+    }
+
+    /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
+    /// older than [`DRAFT_THROTTLE`], else once that much time has passed.
+    fn draft(self: &Arc<Self>, now: bool) {
+        let wait = {
+            let mut clock = lock(&self.drafted);
+            let at = tokio::time::Instant::now();
+            match clock.last {
+                Some(last) if !now && at < last + DRAFT_THROTTLE => {
+                    if std::mem::replace(&mut clock.armed, true) {
+                        return;
+                    }
+                    last + DRAFT_THROTTLE - at
+                }
+                _ => {
+                    clock.last = Some(at);
+                    drop(clock);
+                    self.write_draft();
+                    return;
+                }
+            }
+        };
+        let sink = self.clone();
+        drop(tokio::spawn(async move {
+            mixdog_rt::time::sleep(wait).await;
+            {
+                let mut clock = lock(&sink.drafted);
+                clock.armed = false;
+                clock.last = Some(tokio::time::Instant::now());
+            }
+            sink.write_draft();
+        }));
+    }
+
+    /// Queues what the draft gained since its last write, in order with the run's rows.
+    fn write_draft(&self) {
+        self.jobs.draft();
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -446,7 +650,7 @@ impl PortSink {
 
     /// Every queued commit is durable (or failed).
     async fn flush(&self) {
-        let last = self.seq.load(Ordering::SeqCst);
+        let last = self.jobs.seq.load(Ordering::SeqCst);
         let mut done = self.done.clone();
         let _ = done.wait_for(|d| *d >= last).await;
     }
@@ -460,9 +664,13 @@ fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> mixdog_core_session::sess
 #[async_trait]
 impl TranscriptSink for PortSink {
     async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
+        // A save writes the throttled draft first (the transcript snapshot hook's `flushNow`): a crash at the row's write
+        // leaves what streamed of it.
+        self.write_draft();
         let mut row = row_of(message);
+        let mut terminal = None;
         if message.role() == Role::Assistant {
-            let terminal = lock(&self.terminal).take();
+            terminal = lock(&self.terminal).take();
             self.stamp_assistant(&mut row, message, terminal);
         }
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
@@ -485,13 +693,12 @@ impl TranscriptSink for PortSink {
         } else {
             (row, true, None)
         };
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.rows.record(message, row.clone());
         if message.role() == Role::Tool {
             // The authoritative result is in the transcript now: an early notice of it is no longer pending
             // (`recordToolResult` deletes it).
             if let Some(id) = message.tool_call_id() {
-                lock(&self.observed).results.retain(|early| early.tool_call_id() != Some(id));
+                lock(&self.jobs.observed).results.retain(|early| early.tool_call_id() != Some(id));
             }
             if let Some(hook) = &self.on_tool_result {
                 hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
@@ -503,15 +710,9 @@ impl TranscriptSink for PortSink {
             self.live.publish(&turn, &*self.rows);
         }
         let shown = if message.role() == Role::Assistant { lock(&self.streaming).take() } else { None };
-        if message.role() == Role::Assistant {
-            let mut observed = lock(&self.observed);
-            observed.text.clear();
-            observed.reasoning.clear();
-            observed.calls.clear();
-            // The shown item is the message's item: a later rewrite of the context names it by this id.
-            if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
-                lock(&self.iids).insert(id.clone(), iid.clone());
-            }
+        // The shown item is the message's item: a later rewrite of the context names it by this id.
+        if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
+            lock(&self.iids).insert(id.clone(), iid.clone());
         }
         let role = match message.role() {
             Role::System => "system",
@@ -520,16 +721,17 @@ impl TranscriptSink for PortSink {
             Role::Tool => "tool",
             Role::Developer => "developer",
         };
+        // The turn's final reply seals its draft first (`sealed` checkpoint), durable before the row is sent: a turn whose
+        // reply row then fails to land is still recovered finished.
+        let sealed = terminal.is_some().then(|| json!({ "sealed": row.clone() }));
         let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt };
-        let _ = self.jobs.send(Job::Commit(n, item));
-        Ok(Ticket(n))
+        Ok(Ticket(self.jobs.row(message.role() == Role::Assistant, sealed, item)))
     }
 
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let replacement = messages.iter().map(|m| (self.iid_of(m), row_of(m))).collect();
         let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
-        let _ = self.jobs.send(Job::Compact(n, compaction));
+        self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
     }
 
     fn message_id(&self) -> String {
@@ -545,6 +747,8 @@ impl TranscriptSink for PortSink {
         }
     }
 
+    /// Waits for the save to end, with no bound of its own (a cancelled run stops waiting, `Run::until_durable`). A refused
+    /// row does not fail the running turn: Node gates only the next turn's open on durability (`turn-durability.mjs`).
     async fn durable(&self, ticket: Ticket) {
         if ticket.0 == 0 {
             let _ = self.port.input_durable().await;
@@ -592,6 +796,51 @@ struct Observed {
     calls: Vec<mixdog_core_api::domain::provider::ToolCall>,
     /// Results that settled but were not committed in call order (`__earlyNotify`).
     results: Vec<AgentMessage>,
+    /// How much of the above the run's draft holds (`journalDelta`'s cursor): the lengths of `text`, `reasoning` and
+    /// `calls`, the phase, and the early results not yet written.
+    drafted_text: usize,
+    drafted_reasoning: usize,
+    drafted_calls: usize,
+    drafted_tools: bool,
+    undrafted_results: Vec<Value>,
+}
+
+impl Observed {
+    /// `markAssistantMessageCommitted`: the message holds what was drafted of it.
+    fn message_committed(&mut self) {
+        self.text.clear();
+        self.reasoning.clear();
+        self.calls.clear();
+        self.drafted_text = 0;
+        self.drafted_reasoning = 0;
+        self.drafted_calls = 0;
+    }
+
+    /// What the draft gained since its last write (a `draft` record's body, `RunDraft`), or `None`.
+    fn undrafted(&mut self) -> Option<Value> {
+        let mut body = serde_json::Map::new();
+        if self.text.len() > self.drafted_text {
+            body.insert("text".into(), json!(self.text[self.drafted_text..]));
+            self.drafted_text = self.text.len();
+        }
+        if self.reasoning.len() > self.drafted_reasoning {
+            body.insert("reasoning".into(), json!(self.reasoning[self.drafted_reasoning..]));
+            self.drafted_reasoning = self.reasoning.len();
+        }
+        if self.calls.len() > self.drafted_calls {
+            let calls = row_of(&AgentMessage::assistant("", self.calls[self.drafted_calls..].to_vec()));
+            body.insert("calls".into(), calls.get("toolCalls").cloned().unwrap_or_default());
+            self.drafted_calls = self.calls.len();
+        }
+        if !self.undrafted_results.is_empty() {
+            body.insert("results".into(), Value::Array(std::mem::take(&mut self.undrafted_results)));
+        }
+        if self.tools != self.drafted_tools {
+            body.insert("tools".into(), json!(self.tools));
+            self.drafted_tools = self.tools;
+        }
+        (!body.is_empty()).then_some(Value::Object(body))
+    }
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -614,10 +863,14 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The session's conversation transcript (`onAssistantText` appends to it, `ask-callbacks.mjs:92`).
+    transcript: Option<mixdog_core_session::session::transcript_writer::TurnTranscript>,
     /// The turn's provider requests so far (`model_request_<n>`, `tool_batch_<n>`).
     requests: std::sync::atomic::AtomicU32,
     /// The tool calls the current request's response streamed, `{ id, name, arguments }`.
     streamed_calls: Mutex<Vec<Value>>,
+    /// Writes the run's draft (`checkpoint.schedule`) as the record above changes.
+    sink: Arc<PortSink>,
     /// The thread's model context, whose sensitive marks a tool batch's execution calls set.
     context: mixdog_core_session::session::run::ModelContext,
 }
@@ -689,6 +942,9 @@ impl PortObserver {
 
 impl RunObserver for PortObserver {
     fn event(&self, event: RunEvent) {
+        if let (RunEvent::AssistantText { text, .. }, Some(transcript)) = (&event, &self.transcript) {
+            transcript.assistant_text(text);
+        }
         match event {
             RunEvent::Stage(Stage::Connecting) => {
                 lock(&self.observed).tools = false;
@@ -699,9 +955,12 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Stage("streaming".to_owned(), None));
             }
             RunEvent::Stage(Stage::Requesting) => {
+                self.progress.stage("requesting");
                 let _ = self.out.send(Shown::Stage("requesting".to_owned(), None));
             }
             RunEvent::ProviderSendStarted => {
+                lock(&self.observed).tools = false;
+                self.sink.draft(true);
                 let index = self.requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 lock(&self.streamed_calls).clear();
                 let _ = self.out.send(Shown::ModelRequest(index, mixdog_app_protocol::v2::thread::ModelRequestPhase::Started, None));
@@ -732,6 +991,7 @@ impl RunObserver for PortObserver {
                     observed.started = true;
                     observed.text.push_str(&text);
                 }
+                self.sink.draft(false);
                 self.text(text);
             }
             RunEvent::ReasoningDelta(text) => {
@@ -743,6 +1003,7 @@ impl RunObserver for PortObserver {
                     observed.started = true;
                     observed.reasoning.push_str(&text);
                 }
+                self.sink.draft(false);
                 self.reasoning(text);
             }
             RunEvent::Stage(Stage::Notice { message, tone }) => {
@@ -790,6 +1051,10 @@ impl RunObserver for PortObserver {
             // `applyStageChange('account-changed')`: the selection change is thread state, never a transcript item.
             // The pool's `onStageChange('reconnecting', { message })` before it retries on the next account: the
             // client's status (`applyStageChange`: the spinner's mode and verb), never a transcript notice.
+            // A provider ladder's `emitProviderRetryStage` before its wait: the client's status, as Node raises it.
+            RunEvent::Stage(Stage::Reconnecting { payload: Some(payload), .. }) => {
+                let _ = self.out.send(Shown::Stage("reconnecting".to_owned(), Some(payload)));
+            }
             RunEvent::Stage(Stage::AccountSwitching { message }) => {
                 let _ = self.out.send(Shown::Stage("reconnecting".to_owned(), Some(serde_json::json!({ "message": message }))));
             }
@@ -800,6 +1065,9 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
+            }
+            RunEvent::TurnEffort(effort) => {
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::TurnEffort(effort)));
             }
             // On the loop's own task, before the assistant turn carrying the calls is committed (its encode reads the marks).
             RunEvent::ExecutionCalls(calls) => {
@@ -813,6 +1081,7 @@ impl RunObserver for PortObserver {
                     observed.tools = true;
                     observed.calls.extend(calls.iter().cloned());
                 }
+                self.sink.draft(true);
                 self.end_reasoning();
                 self.progress.stage("tool_running");
                 for call in &calls {
@@ -826,9 +1095,13 @@ impl RunObserver for PortObserver {
                     self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
                 }
                 if !self.cancel.is_cancelled() {
-                    let mut observed = lock(&self.observed);
-                    observed.started = true;
-                    observed.results.push(message);
+                    {
+                        let mut observed = lock(&self.observed);
+                        observed.started = true;
+                        observed.undrafted_results.push(row_of(&message));
+                        observed.results.push(message);
+                    }
+                    self.sink.draft(true);
                 }
             }
             _ => {}
@@ -1015,7 +1288,7 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -1072,6 +1345,12 @@ async fn drive(
         if port.save_header(patch.change).await.is_err() {
             return failed("the session's prompt could not be saved", Value::Null);
         }
+    }
+    // `ensureSessionTranscriptWriter(); transcript.appendUser(prompt)` (`turn-prepare.mjs:162-163`): the prompt as submitted,
+    // before the turn's reminders ride it.
+    let turn_transcript = transcripts.as_ref().and_then(|files| files.turn(thread.as_str(), &header, &prior));
+    if let Some(transcript) = &turn_transcript {
+        transcript.user(input_body.get("content").unwrap_or(&Value::Null));
     }
     let surface_now = surface.borrow().clone();
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
@@ -1267,7 +1546,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()), context: context.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()), context: context.clone(), sink: sink.clone(), transcript: turn_transcript.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1371,6 +1650,10 @@ async fn drive(
                 asked_at_ms: asked_at,
             };
             let _ = port.settled(settled).await;
+            // `transcript.appendFinalAssistant(result)` (`turn-settle.mjs:44`): `historyContent ?? content`.
+            if let Some(turn_transcript) = &turn_transcript {
+                turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
+            }
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
             if let Some(state) = output.provider_state.clone() {
@@ -1419,6 +1702,9 @@ async fn drive(
 
 #[cfg(test)]
 mod tests {
+    #[path = "../../turn_durability_replay.rs"]
+    mod turn_durability_replay;
+
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicI64;
     use std::time::Duration;
@@ -1439,6 +1725,93 @@ mod tests {
     use super::*;
     use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
+
+    /// The process died again after a recovery's rows landed and before its end record: the next recovery keeps the restart
+    /// line where it stands and adds no second one.
+    #[test]
+    fn a_recovery_whose_rows_landed_adds_no_second_restart_line() {
+        use mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+        let row = |role: &str, text: &str| json!({ "role": role, "content": text });
+        let context = vec![
+            (ItemId::from("in"), row("user", "do the task")),
+            (ItemId::from("partial"), row("assistant", "partial streamed answer")),
+            (ItemId::from("restart"), row("user", PROCESS_RESTART_INTERRUPT_MESSAGE)),
+        ];
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { started: true, input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        assert!(left.rows.is_empty(), "no row is added: {:?}", left.rows.iter().map(|row| row.body.clone()).collect::<Vec<_>>());
+        let kept: Vec<String> = left.context.expect("the context restarts on the turn").into_iter().map(|(iid, _)| iid.as_str().to_owned()).collect();
+        assert_eq!(kept, ["in", "partial", "restart"]);
+    }
+
+    /// A run that died with nothing drafted (only its draft's opening body) is finalized from its rows alone, as Node's reconnect
+    /// recovery finalizes it (`recover_after_restart`, which the session crate's scripted runs answer a crash with): the same
+    /// rows are added, in the same order.
+    #[test]
+    fn a_draftless_crash_is_finalized_as_the_reconnect_recovery_finalizes_it() {
+        let context = vec![
+            (ItemId::from("in"), json!({ "role": "user", "content": "read a" })),
+            (ItemId::from("call"), json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] })),
+        ];
+        let bodies: Vec<Value> = context.iter().map(|(_, body)| body.clone()).collect();
+        let reconnect: Vec<(String, Value)> = mixdog_agent::interrupt::recover_after_restart(&bodies)
+            .expect("recovered")
+            .into_iter()
+            .filter_map(|row| match row {
+                mixdog_agent::interrupt::RecoveredRow::New { role, body } => Some((role.to_owned(), body)),
+                mixdog_agent::interrupt::RecoveredRow::Kept { .. } => None,
+            })
+            .collect();
+        assert!(!reconnect.is_empty());
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        let added: Vec<(String, Value)> = left.rows.into_iter().map(|row| (row.role.unwrap_or_default(), row.body)).collect();
+        let shape = |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
+        assert_eq!(shape(&added), shape(&reconnect));
+    }
+
+    /// A throttled draft takes the streamed text while the message's row commits on another thread: the draft is queued
+    /// before the row (a draft after it would recover the message a second time). The row's commit runs at the first moment
+    /// it can: at once if nothing holds the draft between taking and queuing it, else once the draft lets go.
+    #[test]
+    fn a_draft_taken_while_its_message_commits_is_queued_before_the_row() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let observed = Observed { started: true, text: "reading".into(), ..Observed::default() };
+        let jobs = Arc::new(Jobs { observed: Arc::new(Mutex::new(observed)), seq: AtomicU64::new(0), tx, taken: Mutex::default() });
+        let later: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+        let (committer, pending) = (jobs.clone(), later.clone());
+        *lock(&jobs.taken) = Some(Box::new(move || {
+            let free = jobs_free(&committer);
+            let commit = move || {
+                let item = ItemCommit { iid: ItemId::from("row"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "reading" }), prompt: None };
+                committer.row(true, None, item);
+            };
+            if free {
+                commit();
+            } else {
+                *lock(&pending) = Some(std::thread::spawn(commit));
+            }
+        }));
+        jobs.draft();
+        if let Some(thread) = lock(&later).take() {
+            thread.join().expect("the commit");
+        }
+        let mut order = Vec::new();
+        while let Ok(job) = rx.try_recv() {
+            order.push(match job {
+                Job::Draft(_, body) => format!("draft {}", body["text"].as_str().unwrap_or_default()),
+                Job::Commit(_, item) => format!("row {}", item.iid.as_str()),
+                Job::Compact(..) => "compact".to_owned(),
+            });
+        }
+        assert_eq!(order, ["draft reading", "row row"]);
+    }
+
+    fn jobs_free(jobs: &Jobs) -> bool {
+        jobs.observed.try_lock().is_ok()
+    }
 
     struct Steps(VecDeque<StreamEvent>);
 
@@ -1530,6 +1903,26 @@ mod tests {
         more: Vec<Arc<dyn Tool>>,
         /// A key the settings reconcile adds to the header, and the headers the turns were assembled from.
         settle: Option<Arc<Settle>>,
+        /// The route's effort wiring a turn is assembled with (the effort replay).
+        effort: Option<Arc<EffortParts>>,
+    }
+
+    /// What the host's route wiring puts on a turn whose route takes effort updates (`assemble.rs`): the header's effort
+    /// on the requests, the projection inputs, the step's auto-effort anchor and its judge.
+    struct EffortParts {
+        effort: Option<String>,
+        route: mixdog_agent::effort::EffortRoute,
+        step_auto: Option<mixdog_agent::step_effort::StepAutoEffort>,
+        judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
+    }
+
+    /// The scripted provider as the effort-taking adapter (`attempt_with` is its `attempt`).
+    struct EffortScripted(Arc<dyn ProviderAdapter>);
+    #[async_trait]
+    impl mixdog_agent::effort::EffortAdapter for EffortScripted {
+        async fn attempt_with(&self, request: Arc<ModelRequest>, _: Option<mixdog_agent::effort::EffortProjection>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.0.attempt(request).await
+        }
     }
 
     struct Settle {
@@ -1563,6 +1956,12 @@ mod tests {
                 exclusive_with: Vec::new(),
             };
             let tokens = mixdog_rt::testing::tokens();
+            let mut config = RunConfig::new(input.thread.clone(), input.turn.clone(), "m");
+            if let Some(effort) = &self.effort {
+                config.options.effort = effort.effort.clone();
+                config.effort = Some(mixdog_agent::effort::EffortWiring { route: effort.route.clone(), adapter: Arc::new(EffortScripted(self.provider.clone())) });
+                config.step_auto_effort = effort.step_auto.clone();
+            }
             Ok(Assembled {
                 provider: self.provider.clone(),
                 tools: ToolSet::new(std::iter::once(Arc::new(Echo(spec)) as Arc<dyn Tool>).chain(self.more.iter().cloned()).collect()),
@@ -1582,7 +1981,7 @@ mod tests {
                 },
                 gate: Box::new(|_| Arc::new(AllowAll)),
                 worktree: self.workspace.to_string_lossy().into_owned(),
-                config: RunConfig::new(input.thread.clone(), input.turn.clone(), "m"),
+                config,
                 clock: Arc::new(Fixed),
                 decider: Arc::new(MockRetryDecider),
                 guards: Arc::new(NoGuards),
@@ -1596,13 +1995,163 @@ mod tests {
                 rows: Arc::default(),
                 tail: None,
                 side: None,
-                step_judge: None,
+                step_judge: self.effort.as_ref().and_then(|e| e.judge.clone()),
                 artifacts: None,
                 images: None,
                 failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
+        }
+    }
+
+    /// The judge model's answer as the turn-effort recording scripted it (`judgeTurn` answering `JUDGE.step`).
+    struct RecordedProbs(Vec<f64>);
+    #[async_trait]
+    impl mixdog_services::effort_judge::judge::StepProbs for RecordedProbs {
+        async fn probs(&self, _: mixdog_agent::step_effort::StepInput) -> Result<Vec<f64>, mixdog_services::effort_judge::error::JudgeError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`, client mode): Node's TUI session store over its real
+    /// session runtime ran a turn (a tool call, then a reply) on an Anthropic route with effort fixed (`high`), none, and
+    /// Auto at `medium` with the step judged after the tool call; each change its route state published
+    /// (`local-session-runtime.mjs` `publishChanged`) was recorded whole, in order, with the state before the turn and how
+    /// it ended. The same turn here: the session actor starts it, the factory builds the run with the route's effort wiring
+    /// and the judge over the recorded judge answers, and every `thread/route/updated` frame the actor sent the thread's feed
+    /// is read in order, whole sequence; each request's effort is the recorded one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_actor_publishes_the_turn_effort_sequence_node_published() {
+        use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot};
+        for name in ["fixed", "none", "auto-step"] {
+            let recorded: Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/turn-effort/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+            let effort = recorded["route"]["effort"].as_str().map(str::to_owned);
+            let model = recorded["route"]["model"].as_str().unwrap().to_owned();
+            let prompt = recorded["prompt"].as_str().unwrap().to_owned();
+            let route = EffortRoute {
+                provider: "anthropic".into(),
+                model: model.clone(),
+                mode: Some(EffortMode::Anthropic),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: effort.clone().map(|e| EffortSnapshot { provider: "anthropic".into(), model: model.clone(), mode: EffortMode::Anthropic, initial_effort: e.clone(), effort: e }),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            };
+            let probs = |kind: &str| recorded["judge"][kind].as_array().unwrap().iter().map(|p| p.as_f64().unwrap()).collect::<Vec<f64>>();
+            let (step_auto, judge) = if recorded["autoEffort"] == "on" {
+                let options = mixdog_ai::effort::effort_options_for("anthropic", &json!({ "id": model, "reasoningLevels": ["low", "medium", "high"], "customReasoning": true }), None);
+                let base = mixdog_services::effort_judge::ladder::resolve_auto_effort(effort.as_deref().unwrap(), &options, &probs("turn")).expect("the route's effort is on its ladder").effort.to_owned();
+                let ladder = Arc::new(mixdog_services::effort_judge::AutoLadder { base: base.clone(), options });
+                let judge: Arc<dyn mixdog_agent::step_effort::StepEffortJudge> = Arc::new(mixdog_services::effort_judge::EffortJudge::over(Arc::new(RecordedProbs(probs("step"))), ladder));
+                (Some(mixdog_agent::step_effort::StepAutoEffort { request: prompt.clone(), base }), Some(judge))
+            } else {
+                (None, None)
+            };
+            let provider = Arc::new(Scripted {
+                id: ProviderId::from("anthropic"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(VecDeque::from([
+                    vec![
+                        StreamEvent::TextDelta("reading".into()),
+                        StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "path": "a.txt" }), native_type: None }),
+                        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                    ],
+                    vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                ])),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            });
+            let workspace = tempfile::tempdir().unwrap();
+            let rig = Rig::new();
+            let mut deps = rig.deps_parts(rig.store.clone());
+            let parts = Parts {
+                provider: provider.clone(),
+                workspace: workspace.path().to_path_buf(),
+                more: Vec::new(),
+                settle: None,
+                effort: Some(Arc::new(EffortParts { effort: effort.clone(), route, step_auto, judge })),
+            };
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+            let directory = SessionDirectory::new(Arc::new(deps));
+            // The session as Node's run had it: the route's provider and model, and the window the catalog gave the model
+            // (the recording's first publication: 500000, 500000, 100).
+            let published = &recorded["client"]["published"][0];
+            let mut header = mixdog_store::schema::record::Header::new();
+            for (key, value) in [("provider", json!("anthropic")), ("model", json!(model)), ("kind", json!("task")), ("cwd", json!("/ws"))] {
+                header.insert(key.into(), value);
+            }
+            for key in ["contextWindow", "rawContextWindow", "effectiveContextWindowPercent"] {
+                header.insert(key.into(), published[key].clone());
+            }
+            assert_eq!(published["sessionProvider"], "anthropic", "{name}: the recording's route");
+            let id = ThreadId::from(format!("effort-{name}"));
+            directory.create_with_id(id.clone(), header, json!({})).await.expect("the session");
+            directory.open(&id, &CallContext::internal("test")).await.expect("the session opens");
+            let handle = directory.handle(&id).expect("loaded");
+            let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
+            // `initial` and `atStart`: the route state before the turn, and what was published before it.
+            let before = frames("thread/route/updated");
+            assert_eq!(before.len(), recorded["client"]["atStart"].as_array().unwrap().len(), "{name}: nothing is published before the turn");
+            assert_eq!(before.last().map_or(Value::Null, |p| p["value"]["turnEffort"].clone()), recorded["client"]["initial"], "{name}: the effort before the turn");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1")).await.expect("turn/start");
+            eventually_on_awaiting(|| format!("{name}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
+            // `status`: the turn the client's `submitAndWait` saw end `done` is the one that completed.
+            assert_eq!(recorded["client"]["status"], "done", "{name}: the recorded turn ended done");
+            assert_eq!(frames("turn/completed").len(), 1, "{name}: the turn completed once");
+            // Every publication of the client's route state (`publishChanged`: the keys that changed, the first one the whole
+            // route), in order. The core publishes the whole route with each frame: Node's changes accumulate into the state the
+            // client held after each publication, and `turnEffort` is compared in each. The other keys of Node's first publication
+            // (`sessionId`, `sessionProvider`, `sessionModel`, the context windows and limits, `agentScope`) are the MANIFEST's
+            // declared exclusion: this rig's thread stores no route and the windows are `thread/context/updated`'s.
+            // A publication that does not carry `turnEffort` is the client's first snapshot of a route that never changed (the
+            // `none` scenario): the core publishes no frame for a route that did not change. Declared in the MANIFEST.
+            // The core's publications, as Node's keys: the route frames carry `turnEffort`, the context frames the windows
+            // and limits. Node publishes only what changed, so the first publication holds the whole route and each later
+            // one the keys that changed; the core's first route frame and first context frame make the first, each later
+            // route frame one more, and a later context frame must repeat the first's windows (nothing changed).
+            let routes = frames("thread/route/updated");
+            let contexts = frames("thread/context/updated");
+            const CONTEXT_KEYS: [&str; 6] = ["contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "displayContextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+            let window_of = |frame: &Value| -> serde_json::Map<String, Value> { CONTEXT_KEYS.iter().map(|k| ((*k).to_owned(), frame["value"][*k].clone())).collect() };
+            let first_context = window_of(contexts.first().expect("a context frame"));
+            for later in &contexts[1..] {
+                assert_eq!(window_of(later), first_context, "{name}: a later context frame changes no window");
+            }
+            let mut core: Vec<serde_json::Map<String, Value>> = routes.iter().map(|f| serde_json::Map::from_iter([("turnEffort".to_owned(), f["value"]["turnEffort"].clone())])).collect();
+            if core.is_empty() {
+                core.push(serde_json::Map::new());
+            }
+            core[0].extend(first_context);
+            // The session's route as the thread's state holds it (`thread/read`): its provider and model.
+            let Reply::Value(read) = handle.request(CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") }).await.expect("thread/read") else { panic!("thread/read answers a value") };
+            for key in ["sessionProvider", "sessionModel"] {
+                core[0].insert(key.to_owned(), read["state"]["route"][key].clone());
+            }
+            let node = recorded["client"]["published"].as_array().unwrap();
+            assert_eq!(core.len(), node.len(), "{name}: one publication for each of Node's");
+            // Each publication compared whole, key by key, over the route, provider, model and catalog window the recording
+            // ran with. The only keys that differ are the identity keys, asserted exactly: the core's frames carry no `sessionId`
+            // and no `agentScope` (the frame's `threadId` names the thread). A publication without `turnEffort` (scenario
+            // `none`: a route that never changed) is compared as it is: the core has no route frame, and no such key.
+            // `displayContextWindow` differs in it too: Node's first publication is made before its first status pass and holds 0,
+            // while the core shows the seated route's window from the start (`SessionState::context`); asserted exactly below.
+            const NAMED_ABSENCES: [&str; 3] = ["agentScope", "displayContextWindow", "sessionId"];
+            for (n, (node, core)) in node.iter().zip(&core).enumerate() {
+                let node = node.as_object().unwrap();
+                let mut differing: Vec<&str> = node.keys().chain(core.keys()).filter(|k| node.get(*k) != core.get(*k)).map(String::as_str).collect();
+                differing.sort_unstable();
+                differing.dedup();
+                let named: &[&str] = if n == 0 { &NAMED_ABSENCES } else { &[] };
+                assert_eq!(differing, named, "{name}: publication {n}: the keys that differ from Node's");
+                if n == 0 {
+                    assert_eq!((node["displayContextWindow"].as_i64(), core["displayContextWindow"].as_i64()), (Some(0), node["contextWindow"].as_i64()), "{name}: the window the core shows from the start");
+                }
+            }
+            let sent: Vec<Value> = lock(&provider.requests).iter().map(|r| json!(r.options.effort)).collect();
+            let node: Vec<Value> = recorded["sends"].as_array().unwrap().iter().map(|s| s["requestEffort"].clone()).collect();
+            assert_eq!(sent, node, "{name}: each request's effort");
         }
     }
 
@@ -1638,7 +2187,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1680,6 +2229,189 @@ mod tests {
         let _ = AtomicI64::new(0);
     }
 
+    /// The provider that, when its request arrives, makes the store refuse the next write (the assistant row the reply commits).
+    struct RefusesNextSave {
+        inner: Arc<Scripted>,
+        refuse: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for RefusesNextSave {
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.inner.attempt(request).await
+        }
+    }
+
+    /// `fixtures/turn-durability` `save-failure-tool-rounds`: while the saves fail Node carries the turn on through its tool
+    /// rounds to the answer (it gates only the next turn's open on durability, `turn-durability.mjs`). A row the store refuses
+    /// here neither stops the tool the row carried nor the requests after it: the recorded number of requests is sent, every
+    /// tool runs, the answer is stored, and no storage error is raised inside the turn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_row_save_does_not_stop_the_running_turn_as_node_carries_it_on() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-durability/golden.json")).expect("golden");
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "save-failure-tool-rounds").expect("the recorded case");
+        let recorded_sends = case["steps"][0]["sends"].as_u64().expect("sends") as usize;
+        let round = |text: &str, id: &str| {
+            vec![
+                StreamEvent::TextDelta(text.into()),
+                StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: "echo".into(), arguments: json!({ "a": id }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ]
+        };
+        let scripted = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([round("reading", "c1"), round("reading again", "c2"), says("answer")])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let provider = Arc::new(RefusesNextSave { inner: scripted.clone(), refuse: rig.store.fail_next.clone() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+
+        let stored = || format!("{:?}", rig.store.records(&id));
+        eventually_on_awaiting(|| "the answer in the store".to_owned(), &[handle.stepped()], || (stored().contains("answer") && !handle.turn_busy()).then_some(())).await;
+        assert_eq!(lock(&scripted.requests).len(), recorded_sends, "the requests Node sent while its saves failed");
+        assert!(["c1", "c2"].iter().all(|id| stored().contains(&format!("echo:{{\\\"a\\\":\\\"{id}\\\"}}")) || stored().contains(&format!("echo:{{\"a\":\"{id}\"}}"))), "both tool rounds ran: {}", stored());
+        assert!(!stored().contains("is not saved to disk"), "no storage error inside the turn: {}", stored());
+    }
+
+    struct TranscriptNow;
+    impl mixdog_core_session::session::Clock for TranscriptNow {
+        fn now_ms(&self) -> i64 {
+            1_772_600_767_890
+        }
+    }
+
+    /// `fixtures/session-transcript/turn-lead.json`: Node's exec turn over its real session runtime, a Lead session with
+    /// memory on and a value it marked sensitive, wrote `<home>/projects/<slug>/<id>.jsonl` as the prompt, the text the
+    /// model surfaced before its tool call and the final answer, each with the value redacted. The same turn here goes
+    /// the whole production way (the session actor starts it, the factory builds the run, the loop asks the provider and
+    /// runs the tool) and leaves the same file; the cwd, the project slug, the session id and the wall clock are names.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_writes_the_conversation_transcript_node_wrote() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/session-transcript/turn-lead.json")).expect("the recording");
+        let script = recorded["script"].as_array().expect("script");
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::TextDelta(script[0]["text"].as_str().unwrap().to_owned()),
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: script[0]["calls"][0][1].clone(), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta(script[1]["text"].as_str().unwrap().to_owned()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcripts = Some(files.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let project = workspace.path().to_string_lossy().into_owned();
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": project }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        // The value the session marked sensitive, as the recording's browser fill marked it.
+        rig.sensitive.remember(id.as_str(), &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "ref": "e1", "text": recorded["secret"], "sensitive": true } } })]);
+        let handle = directory.handle(&id).expect("loaded");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": recorded["prompt"] } }), "op-1"))
+            .await
+            .expect("turn/start");
+        let rows = || rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+        eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (rows() >= 4 && !handle.turn_busy()).then_some(())).await;
+        let header = handle.header_snapshot();
+        files.turn(id.as_str(), &header, &[]).expect("the session's transcript").flushed().await;
+
+        let cwd = header["cwd"].as_str().expect("cwd").to_owned();
+        let slug = mixdog_core_session::session::purge::project_slug(&cwd);
+        let path = home.path().join("projects").join(&slug).join(format!("{id}.jsonl"));
+        let written = std::fs::read_to_string(&path).expect("the transcript");
+        let named = written
+            .replace(&serde_json::to_string(&cwd).unwrap()[1..serde_json::to_string(&cwd).unwrap().len() - 1], "<cwd>")
+            .replace(id.as_str(), recorded["sessionId"].as_str().unwrap())
+            .replace("\"timestamp\":\"2026-03-04T05:06:07.890Z\"", "\"timestamp\":\"<now>\"");
+        let node = recorded["atClose"]["files"].as_object().expect("files");
+        let key = format!("<slug>/{}.jsonl", recorded["sessionId"].as_str().unwrap());
+        assert_eq!(node.keys().collect::<Vec<_>>(), [&key], "Node wrote one transcript, named as here");
+        assert_eq!(named, node[&key].as_str().unwrap());
+    }
+
+    /// `fixtures/session-transcript/turn-exec.json`: Node's own exec runtime (memory switched off for the session,
+    /// `MIXDOG_FEATURE_MEMORY=0`) writes its transcript only inside its pristine home, which is gone when the exec ends,
+    /// with the memory ingest disabled there: nothing of the conversation is left for memory. A session whose memory is
+    /// off writes no transcript here.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_with_memory_off_leaves_no_transcript_for_memory() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/session-transcript/turn-exec.json")).expect("the recording");
+        assert_eq!(recorded["memoryFeature"], false);
+        assert_eq!(recorded["atClose"]["memoryIngestDisabled"], "1");
+        assert_eq!(recorded["afterExec"], json!({ "userProjects": [], "pristineHomeLeft": false }));
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcripts = Some(files.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let project = workspace.path().to_string_lossy().into_owned();
+        let params = json!({ "opId": "op-start", "kind": "task", "projectPath": project, "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false } });
+        let reply = directory.request(request("thread/start", params, "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": recorded["prompt"] } }), "op-1")).await.expect("turn/start");
+        let rows = || rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+        eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (rows() >= 2 && !handle.turn_busy()).then_some(())).await;
+        assert!(files.turn(id.as_str(), &handle.header_snapshot(), &[]).is_none(), "no writer for a memory-off session");
+        assert!(!home.path().join("projects").exists(), "nothing was written for memory");
+    }
+
     /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
     /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
     /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
@@ -1706,7 +2438,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1765,7 +2497,7 @@ mod tests {
         let rig = Rig::new();
         let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()), effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1799,7 +2531,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1871,7 +2603,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2008,7 +2740,7 @@ mod tests {
             rig.quota.subscribe(move |_| woke.notify_one())
         };
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2102,7 +2834,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2186,7 +2918,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), sinks, Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(searcher)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), sinks, Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(searcher)], settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2239,7 +2971,7 @@ mod tests {
             let workspace = tempfile::tempdir().unwrap();
             let rig = Rig::new();
             let mut deps = rig.deps_parts(rig.store.clone());
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
             let directory = SessionDirectory::new(Arc::new(deps));
             let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2306,6 +3038,7 @@ mod tests {
                 step_auto_effort: None,
                 text_only: None,
                 attachments: None,
+                file_text: None,
                 model_max_output_tokens: None,
             }
         }
@@ -2593,20 +3326,46 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
-        turn_world_with(provider, Arc::new(NoMcp), Vec::new(), false).await
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false).await
     }
 
     /// [`turn_world`] whose sessions take their MCP tools from `mcp`, and whose registry resolves `connected` by name
     /// whatever the folder, as `McpAwareResolver` resolves a ready server's tool (`McpHub::tool_in`); `lead`: the turn
     /// settings are a Lead surface host's (`LeadSurfaceHost`, the MCP fold and the refresh every call starts with) over the world's threads.
     async fn turn_world_with(provider: Arc<dyn ProviderAdapter>, mcp: Arc<dyn super::super::session_tools::SessionMcp>, connected: Vec<Arc<dyn Tool>>, lead: bool) -> World {
+        turn_world_full(provider, mcp, connected, lead, None, None, Arc::new(MockFileService::default()), false).await
+    }
+
+    /// [`turn_world`] over `threads` (the rig's memory store when `None`) with `pool` as the tool pool (`list` and `Skill`
+    /// when `None`).
+    async fn turn_world_over(provider: Arc<dyn ProviderAdapter>, threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>, pool: Option<Vec<Arc<dyn Tool>>>) -> World {
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, threads, pool, Arc::new(MockFileService::default()), false).await
+    }
+
+    /// [`turn_world`] over the tools `pool` and the file service `files` its tools read and write through; with
+    /// `header_surfaces` the tool surface of a thread is the one its header names (`HeaderToolSurfaces`), not the rig's empty one.
+    async fn turn_world_files(provider: Arc<dyn ProviderAdapter>, pool: Vec<Arc<dyn Tool>>, files: Arc<dyn mixdog_core_api::domain::fs::FileService>, header_surfaces: bool) -> World {
+        turn_world_full(provider, Arc::new(NoMcp), Vec::new(), false, None, Some(pool), files, header_surfaces).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn turn_world_full(
+        provider: Arc<dyn ProviderAdapter>,
+        mcp: Arc<dyn super::super::session_tools::SessionMcp>,
+        connected: Vec<Arc<dyn Tool>>,
+        lead: bool,
+        threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>,
+        pool: Option<Vec<Arc<dyn Tool>>>,
+        files: Arc<dyn mixdog_core_api::domain::fs::FileService>,
+        header_surfaces: bool,
+    ) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
         let ledger = Arc::new(Ledger::default());
         let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
         let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
-        let mut pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
+        let mut pool: Vec<Arc<dyn Tool>> = pool.unwrap_or_else(|| vec![named("list"), named("Skill")]);
         // A Lead world's bridge sessions reach their deferred tools through the product's `call_tool`.
         let late_catalog = Arc::new(LateCatalog::default());
         if lead {
@@ -2650,7 +3409,7 @@ mod tests {
                 clock: clock.clone(),
             },
             next: next.clone(),
-            files: Arc::new(MockFileService::default()),
+            files,
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
@@ -2674,21 +3433,29 @@ mod tests {
             work: rig.work.clone(),
             cycles: Arc::default(),
             config: Arc::new(Config),
-            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
+            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), media: None, heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
             ladder: Arc::new(NoLadder),
             shells: None,
             liveness,
             search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
+            reuses: Arc::default(),
             deps: Box::new({
-                let store = rig.store.clone();
+                // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
+                let production_surface = threads.is_some();
+                let store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
                 let rig_deps = rig.deps_parts(store);
                 move |runs| {
                     let mut deps = rig_deps;
                     deps.runs = runs;
+                    if production_surface {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                    }
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
                     // A Lead world's sessions are judged by the surface the composition derives from the header (`compose_flip`).
                     if lead {
                         deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(surfaces_from));
+                    } else if header_surfaces {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
                     }
                     deps
                 }
@@ -2726,7 +3493,7 @@ mod tests {
             let host = super::super::surface_host::tests::lead_host_over(threads.clone(), threads.clone(), mcp);
             assert!(path.turn_settings.bind(Arc::new(host)).is_ok());
             // As `compose_flip` binds it: the directory's running headers, the Lead's exclusions, the bridge definitions.
-            let catalog = super::super::session_catalog::SessionCatalog::new(directory.clone(), threads, surfaces_from_catalog, Arc::new(super::super::surface_host::tests::Bridge(super::super::surface_host::tests::node_bridge())), clock.clone())
+            let catalog = super::super::session_catalog::SessionCatalog::new(directory.clone(), threads.clone(), threads, surfaces_from_catalog, Arc::new(super::super::surface_host::tests::Bridge(super::super::surface_host::tests::node_bridge())), clock.clone())
                 .with_refresh(path.turn_settings.clone());
             assert!(late_catalog.0.set(Arc::new(catalog)).is_ok());
         } else {
@@ -3081,7 +3848,7 @@ mod tests {
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
-        let World { workspace, rig, next, directory, .. } = turn_world(provider.clone()).await;
+        let World { workspace, rig, directory, .. } = turn_world(provider.clone()).await;
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
@@ -3117,12 +3884,14 @@ mod tests {
             calibration,
         });
         let tokens = mixdog_rt::testing::tokens();
+        let late = Arc::new(super::super::compose_parts::LateDirectory::default());
+        late.bind(&directory);
         let manual = super::super::manual_compaction::HostManualCompaction::new(super::super::manual_compaction::ManualParts {
             world: Arc::new(ManualWorld { threads: threads.clone(), window }),
             threads: threads.clone(),
             config: Arc::new(ManualConfig(settings)),
             compactors: Arc::new(super::super::compactors::SessionCompactors::new(Arc::new(ManualCompactionWorld(host.clone())), Arc::new(Fixed))),
-            next,
+            directory: late,
             hooks: Arc::new(ManualNoHooks),
             gauge: Arc::new(ManualGauge),
             clock: Arc::new(Fixed),
@@ -3130,8 +3899,9 @@ mod tests {
             io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             data_dir: workspace.path().join("data"),
             blobs: Arc::new(NoBlobs),
+            reuses: Arc::default(),
         });
-        let answer = manual.compact(&id, "manual", false).await.expect("the compaction").expect("a compaction answer");
+        let answer = manual.compact(&id, "manual", false, &mixdog_agent::cancel::Cancel::default()).await.expect("the compaction").expect("a compaction answer");
         assert_eq!(answer["changed"], true, "{answer}");
         assert_eq!(host.sender.calls.load(std::sync::atomic::Ordering::SeqCst) as u64, scenario["compaction"]["summaryRequests"].as_u64().unwrap(), "the summary requests of the pass");
         let header = threads.header(&id).await.expect("the header");
@@ -3524,6 +4294,18 @@ mod tests {
     #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
     mod tests_manifest;
 
+    #[path = "../explicit_skills_node_cases.rs"]
+    mod explicit_skills_node_cases;
+
+    #[path = "../skill_wire_node_cases.rs"]
+    mod skill_wire_node_cases;
+
+    #[path = "../completion_node_cases.rs"]
+    mod completion_node_cases;
+
+    #[path = "../live_cwd_node_cases.rs"]
+    mod live_cwd_node_cases;
+
     #[path = "../../offload_prune_turn_tests.rs"]
     mod offload_prune_turn_tests;
 
@@ -3845,8 +4627,7 @@ mod tests {
                         StreamEvent::ToolCallDone(ToolCall { id: "h1".into(), name: "hold".into(), arguments: json!({}), native_type: None }),
                         StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                     ],
-                    // The terminal drain after this reply takes the queued prompt, as Node's drain after its first reply.
-                    says("Done."),
+                    // The host's queue hands the queued prompt over after the tool batch: the one reply answers it.
                     says("Done."),
                 ]
             } else {
@@ -3865,7 +4646,7 @@ mod tests {
             let hold: Arc<dyn Tool> = Arc::new(Hold { spec: named_spec("hold"), started: started.clone(), release: release.clone() });
             let late = Arc::new(std::sync::OnceLock::new());
             let factory = |more: Vec<Arc<dyn Tool>>| {
-                let parts = Skilled { inner: Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more, settle: None }, skills: skill_parts.clone(), directory: late.clone() };
+                let parts = Skilled { inner: Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more, settle: None, effort: None }, skills: skill_parts.clone(), directory: late.clone() };
                 Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)))
             };
             let rig = Rig::new();
@@ -3883,15 +4664,18 @@ mod tests {
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": case["prompt"] } }), "op-1")).await.expect("turn/start");
             if let Some(queued) = queued {
                 mixdog_core_session::session::testing::awaiting(|| format!("{label}: the held tool to start"), started.notified()).await;
-                handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), "op-2")).await.expect("the queued prompt");
-                // The drain hands over durable entries only: the tool is let go once the queued entry is in the store.
+                // The core takes a prompt for a thread whose turn runs through the host's queue (`turn/start`; a send to a busy worker,
+                // `enqueue_turn`): Node's manager queue holds only notifications for the core's producers, which `queue_completion`
+                // carries. The drain hands over durable entries only: the tool is let go once the queued entry is in the store.
+                // (From no client connection: Node's queued entry carries no device, which a connection's prompt is stamped with.)
+                let typed = CoreRequest { method: Method("turn/start"), params: json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), op: Some(OpId::from("op-2")), ctx: CallContext::internal("queued-prompt") };
+                handle.request(typed).await.expect("the queued prompt");
                 let durable = || rig.store.records(&id).iter().any(|(_, record)| matches!(record, Record::Queue(_)));
                 eventually_on_awaiting(|| format!("{label}: the queued entry in the store"), &[&rig.store.committed, handle.stepped()], || durable().then_some(())).await;
                 release.notify_one();
             }
             let chips = |lines: Vec<(String, Value)>| lines.into_iter().map(|(_, chips)| chips).collect::<Vec<_>>();
             // The skills are prepared (and stamped) before the request the reply answers.
-            let replies = if queued.is_some() { 2 } else { 1 };
             let replied = || {
                 rig.store
                     .records(&id)
@@ -3901,7 +4685,7 @@ mod tests {
                         _ => false,
                     })
                     .count()
-                    == replies
+                    == 1
             };
             eventually_on_awaiting(|| format!("{label}: the turn's reply in the store"), &[handle.stepped()], || replied().then_some(())).await;
             // A turn without its terminal record is one the process died in, which opening a thread again recovers (a restart line
@@ -3954,4 +4738,7 @@ mod tests {
 
     #[path = "../../session_message_sanitize_replay.rs"]
     mod session_message_sanitize_replay;
+
+    #[path = "../../session_read_cache_replay.rs"]
+    mod session_read_cache_replay;
 }

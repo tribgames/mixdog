@@ -43,6 +43,11 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/providers/local/mod.rs', 150, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 40, 'ManagedRuntime')],
     missing: [],
   },
+  'corrupt-state-file-cases': {
+    rust: [r('mixdog-store/src/state.rs', 399, 'CoreState::open_or_set_aside'), r('mixdog-services/src/memory/cycles/ledger.rs', 73, 'Ledger::write')],
+    notPublic: [],
+    missing: ['a reader of memory-cycle-state.json (the statusline segment): Node-only, the core only writes the file'],
+  },
   'git-launch-cases': {
     rust: [r('mixdog-scm/src/git_launch.rs', 119, 'resolve_layout'), r('mixdog-scm/src/git_launch.rs', 207, 'launch_environment'), r('mixdog-scm/src/git_launch.rs', 267, 'launch_for'), r('mixdog-scm/src/git_launch.rs', 287, 'git_command'), r('mixdog-scm/src/git_launch.rs', 295, 'forget_missing'), r('mixdog-scm/src/git.rs', 90, 'start_git')],
     missing: ['startGitSync (the synchronous start with the same retry): no function'],
@@ -134,6 +139,10 @@ export const REPLAY_TARGETS = {
     protocolMethods: ['thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492'],
     notPublic: ['mixdog-core-session/src/session/inheritance.rs:100 `carry_into` is pub(super): it is reached through thread/fork'],
   },
+  'session-call-lanes': {
+    protocolMethods: ['every method but initialize is admitted through the call lanes (mixdog-app-server/src/server.rs:117 `lane_of`: turn/interrupt, thread/approval/answer and the other control calls never queue; thread/start, thread/read, thread/resume, turn/start, project and terminal calls are interactive)'],
+    notPublic: ['mixdog-app-server/src/lanes.rs:241 `CallLanes` is pub(crate): the replay is the crate\'s own test (tests/call_lanes.rs)'],
+  },
   'session-lane-backlog-cases': {
     missing: ['the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found'],
   },
@@ -147,6 +156,19 @@ export const REPLAY_TARGETS = {
     notPublic: ['idle reclaim around a running shell job: actor.rs:162 IDLE_EVICT, :1233 arm_idle_evict, :1248 has_active("shell") (private)'],
     missing: ['the desktop SessionHost pane (the rows it publishes from the job watcher timers, the show / hide reload): no counterpart found'],
   },
+  'named-attachment-file-cases': {
+    rust: [r('mixdog-core/src/run_host/attachment_store.rs', 291, 'StoreFiles'), r('mixdog-core/src/run_host/attachment_reference.rs', 156, 'ReferencedMedia', 'attached_files_note, reference_part_with'), r('mixdog-core/src/run_host/attachment_reference.rs', 286, 'AttachedFile'), r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments')],
+    notPublic: ['the submission intake (materializePromptSubmission, attachmentsForIntake) is not replayed: its recorded output is the input of the core calls'],
+  },
+  'message-attachments-cases': {
+    rust: [r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments'), r('mixdog-core-session/src/session/transcript_rows.rs', 925, 'restore')],
+    notPublic: ['the persisted metadata writer and the submission intake (store.mjs) are not part of this replay: the recording gives the attachment list the intake produced, the replay starts from it'],
+  },
+  'task-notification-envelope-cases': {
+    rust: [r('mixdog-agent/src/agent_tool/board.rs', 255, 'render_agent_completion'), r('mixdog-agent/src/project.rs', 196, 'is_model_visible_tool_completion_wrapper'), r('mixdog-protocol/src/text_class.rs', 76, 'parse_task_notification'), r('mixdog-core-session/src/session/delivered.rs', 66, 'DeliveredCompletions')],
+    notPublic: ['mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test'],
+    missing: ['modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)'],
+  },
   'slash-commands-cases': {
     missing: ['slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart', 'the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI'],
   },
@@ -159,6 +181,15 @@ export const REPLAY_TARGETS = {
   },
   'store-summary-workspace-cases': {
     rust: [r('mixdog-store/src/summary.rs', 107, 'workspace_summary')],
+  },
+  'cursor-client-version-cases': {
+    rust: [r('mixdog-ai/src/client_versions.rs', 511, 'ClientVersions', 'warm (client_versions.rs:608), cursor (client_versions.rs:592)')],
+  },
+  'file-has-data-cases': {
+    rust: [r('mixdog-services/src/local_provider/catalog.rs', 29, 'file_has_data'), r('mixdog-services/src/local_provider/catalog.rs', 42, 'exact_file')],
+  },
+  'skill-creator-validator-cases': {
+    rust: [r('mixdog-mcp/src/skills.rs', 218, 'collect_skills')],
   },
   'computer-error-recovery': {
     rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],

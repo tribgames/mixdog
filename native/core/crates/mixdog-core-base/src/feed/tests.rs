@@ -417,6 +417,8 @@ fn attach_under_load_folds_to_the_actor_state() {
     const EVENTS: u64 = 10_000;
     const CONNECTIONS: u64 = 50;
     const KEYS: u64 = 64;
+    /// How long a connection may take to fold the last event before the test fails by name (a bound, not a wait).
+    const CAUGHT_UP_WITHIN: Duration = Duration::from_secs(120);
     let snapshot_bytes = 2048;
     let limits = FeedLimits {
         ring_bytes: 64 << 10,
@@ -459,6 +461,7 @@ fn attach_under_load_folds_to_the_actor_state() {
                     let windows = [Window::LastItems(50), Window::LastItems(20)];
                     let mut window = windows[0].clone();
                     start.wait();
+                    let began = std::time::Instant::now();
                     loop {
                         let finished = done.load(Ordering::Acquire);
                         match &current {
@@ -482,9 +485,16 @@ fn attach_under_load_folds_to_the_actor_state() {
                                 }
                             }
                         }
-                        if finished && current.is_some() {
+                        // An attach's snapshot is encoded off this thread, so a connection is done only once it has
+                        // folded the last event: one that attached after the producer finished has nothing yet.
+                        if finished && current.is_some() && client.last == Some(EVENTS) {
                             break;
                         }
+                        assert!(
+                            began.elapsed() < CAUGHT_UP_WITHIN,
+                            "connection {i} did not fold event {EVENTS} within {CAUGHT_UP_WITHIN:?}: last {:?} after {attaches} attaches",
+                            client.last
+                        );
                         std::thread::yield_now();
                     }
                     let sub = current.unwrap();

@@ -406,11 +406,32 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn native_pdf(&self) -> bool {
         self.pool.primary.native_pdf()
     }
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.pool.primary.send_stages(model)
+    }
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.pool.primary.retry_line(model)
+    }
+    async fn prepare_send(&self, request: &ModelRequest) {
+        self.pool.primary.prepare_send(request).await;
+    }
+    fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
+        self.pool.primary.send_stages_of(request)
+    }
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.pool.primary.retry_line_of(request)
+    }
     fn native_documents(&self) -> Option<bool> {
         self.pool.primary.native_documents()
     }
     fn input_excludes_cache(&self) -> Option<bool> {
         self.pool.primary.input_excludes_cache()
+    }
+    async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
+        self.pool.primary.media_support(request).await
+    }
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        self.pool.primary.takes_vision(request).await
     }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         self.pool.primary.first_response_budget(model, parameters)

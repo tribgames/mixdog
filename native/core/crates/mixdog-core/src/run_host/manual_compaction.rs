@@ -23,6 +23,7 @@ use mixdog_agent::compact::pressure::{
     Archived, CommitInput, CompactionPlan, Route, StatusInput, SummaryFacts, TRANSCRIPT_MOVED_ERROR, TranscriptSigner, UsageSnapshotArgs, commit_compaction, compaction_plan,
     failed_compaction, invalidate_provider_context_baseline, record_context_usage_snapshot, usage_totals,
 };
+use mixdog_agent::cancel::Cancel;
 use mixdog_agent::compact::tool_schema::RequestTools;
 use mixdog_agent::env::{Clock, CompactError, CompactRequest, CompactTrigger};
 use mixdog_agent::message::AgentMessage;
@@ -48,7 +49,6 @@ use super::context_world::request_definitions;
 use super::factory::new_item_id;
 use super::host_seams::{CompactorSource, ConfigSeams};
 use super::message_row::{message_of, row_of};
-use super::next_request_source::NextRequestSource;
 use super::rearm::{rearm_late_deferred_tools, rearm_prompt_settings_notice};
 use super::tool_exposure::native_request_tools;
 
@@ -60,8 +60,8 @@ pub struct ManualParts {
     pub threads: Arc<dyn ThreadState>,
     pub config: Arc<dyn ConfigSeams>,
     pub compactors: Arc<dyn CompactorSource>,
-    /// Binds the session directory the commit goes through, as the other directory-side parts are.
-    pub next: Arc<NextRequestSource>,
+    /// The session directory the commit goes through, bound once it is built, as the other directory-side parts are.
+    pub directory: Arc<super::compose_parts::LateDirectory>,
     pub hooks: Arc<dyn CompactHooks>,
     pub gauge: Arc<dyn ContextStatusCache>,
     pub clock: Arc<dyn Clock>,
@@ -71,6 +71,8 @@ pub struct ManualParts {
     pub io: ToolIo,
     pub data_dir: PathBuf,
     pub blobs: Arc<dyn BlobReads>,
+    /// The sessions' result caches: a compaction that replaced the transcript starts the session a new read epoch.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The meters of a thread's pressure on one provider, as the latest `prepare_books` left them.
@@ -280,7 +282,14 @@ impl HostManualCompaction {
     /// `recordFailedCompaction` and the save after it: the thread keeps its conversation; its
     /// `compaction` record says what happened.
     async fn record_failure(&self, thread: &ThreadId, snapshot: &ContextSnapshot, messages: &[AgentMessage], plan: &CompactionPlan, usage: Option<&Value>, error: &str, fresh_error: Option<&str>) -> Result<Value, CoreError> {
-        let header = self.parts.threads.header(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+        // A session that closed, was deleted or shut down under the compaction (its abort is why this records a failure) is gone
+        // from the directory: Node holds the session it loaded, its save is dropped by the close's generation, and the result
+        // is returned all the same. So the pass's own snapshot of the header stands in, and nothing is stored.
+        let header = match self.parts.threads.header(thread).await {
+            Ok(header) => header,
+            Err(_) if self.session_ended(thread) => snapshot.header.clone(),
+            Err(e) => return Err(failed(DOMAIN, format!("{e:?}"))),
+        };
         let now = self.now();
         let mut working = header.clone();
         if let Some(usage) = usage {
@@ -292,27 +301,56 @@ impl HostManualCompaction {
         working.insert("compaction".into(), Value::Object(outcome.compaction));
         working.insert("updatedAt".into(), number(now));
         let change = header_change(&header, &working);
-        self.parts.threads.patch_header(thread, change.set, change.unset).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+        match self.parts.threads.patch_header(thread, change.set, change.unset).await {
+            Ok(()) => {}
+            Err(_) if self.session_ended(thread) => {}
+            Err(e) => return Err(failed(DOMAIN, format!("{e:?}"))),
+        }
         Ok(outcome.result)
+    }
+
+    /// The thread was closed, deleted or shut down (it is no longer loaded, or is closed): the directory refuses it work.
+    fn session_ended(&self, thread: &ThreadId) -> bool {
+        !self.parts.directory.directory().is_some_and(|directory| directory.is_open(thread))
     }
 }
 
+/// Where a pass reads the thread's model context and commits its result: the session directory.
 #[async_trait]
-impl ManualCompaction for HostManualCompaction {
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
+pub(crate) trait PassTranscript: Send + Sync {
+    async fn context(&self, thread: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError>;
+    async fn commit(&self, thread: &ThreadId, snapshot: Vec<ItemId>, compaction: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError>;
+}
+
+#[async_trait]
+impl PassTranscript for mixdog_core_session::session::SessionDirectory {
+    async fn context(&self, thread: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError> {
+        self.model_context(thread).read().await
+    }
+    async fn commit(&self, thread: &ThreadId, snapshot: Vec<ItemId>, compaction: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError> {
+        self.commit_compaction(thread, snapshot, compaction, Some(header)).await
+    }
+}
+
+impl HostManualCompaction {
+    /// The manual pass over `snapshot`'s thread (`runSessionCompaction` with `force`), reading and committing through
+    /// `transcript`.
+    pub(crate) async fn pass(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, snapshot: ContextSnapshot, transcript: &dyn PassTranscript, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
         let parts = &self.parts;
-        let Some(snapshot) = parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
-        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
-        let context = directory.model_context(thread).read().await?;
+        let context = transcript.context(thread).await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
         let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
         let snapshot = Arc::new(snapshot);
         let session_messages = priced(&snapshot.header, &messages);
+        // Node prices the plan with synchronous blob reads: a stored text attachment counts its text, and a read that
+        // fails for now throws out of `runSessionCompaction` before anything is recorded.
+        snapshot.media.prepare(&messages).await.map_err(|message| failed(DOMAIN, message))?;
         let plan = forced_plan(&snapshot, &session_messages).map_err(|message| failed(DOMAIN, message))?;
         let Some(plan) = plan else { return Ok(None) };
 
         // The compactor of the thread's route: `runSessionHandoff`.
         let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
+        // What left is reported only when its stored row shows (`prepareCompactionArchive`): the pass reads them here.
         let input = CompactorInput {
             settings,
             rows: registered(&messages, &rows),
@@ -332,14 +370,22 @@ impl ManualCompaction for HostManualCompaction {
         // The manager's savings gate passed: `compactStartedAt`, then PreCompact (`onStageChange('compacting')`).
         let started_at = self.now();
         parts.hooks.pre(thread, trigger).await;
-        let output = match compactor.compact(request(require)).await {
+        // `runFreshContextCompact`'s `signal.throwIfAborted()` and the summary send's signal: the session's abort ends the pass,
+        // and dropping the pass's future (cancel-safe) ends the summary request in flight.
+        let compacted = tokio::select! {
+            biased;
+            () = cancel.cancelled() => Err(CompactError::Aborted),
+            compacted = compactor.compact(request(require)) => compacted,
+        };
+        let output = match compacted {
             Ok(output) => output,
             Err(CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) => {
                 return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
-                let message = "compact aborted";
-                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, message, Some(message)).await.map(Some);
+                // Node records the abort signal's own text (`error.message` of the reason it threw).
+                let message = if cancel.is_aborted() { cancel.reason() } else { "compact aborted".to_owned() };
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
         };
         if output.skipped {
@@ -406,14 +452,25 @@ impl ManualCompaction for HostManualCompaction {
             header_change(header, &working)
         });
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
-        match directory.commit_compaction(thread, snapshot_ids, compaction, Some(header)).await? {
+        match transcript.commit(thread, snapshot_ids, compaction, header).await? {
             CompactionCommit::Applied => {
+                // `compaction-runner.mjs:699`: `resetReadStateAfterCompaction` once the changed transcript is adopted.
+                self.parts.reuses.compacted(thread.as_str());
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
             // The conversation moved: nothing was applied, the summary's usage still counts.
             CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), TRANSCRIPT_MOVED_ERROR, None).await.map(Some),
         }
+    }
+}
+
+#[async_trait]
+impl ManualCompaction for HostManualCompaction {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
+        let Some(snapshot) = self.parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
+        let Some(directory) = self.parts.directory.directory() else { return Ok(None) };
+        self.pass(thread, trigger, require_reduction, snapshot, &*directory, cancel).await
     }
 
     /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
@@ -424,7 +481,7 @@ impl ManualCompaction for HostManualCompaction {
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
         let parts = &self.parts;
         let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
-        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        let Some(directory) = parts.directory.directory() else { return Ok(None) };
         let context = directory.model_context(source).read().await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
         let messages = super::factory::session_messages(&stored, &rows).map_err(|e| failed(DOMAIN, e))?;
@@ -501,7 +558,8 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {
         let meters = self.parts.world.lowering(thread, provider);
-        meters.0.prepare(messages).await;
+        // A read that fails for now leaves the gauge pricing the part as unread until the next read.
+        let _ = meters.0.prepare(messages).await;
         self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert((thread.as_str().to_owned(), provider.to_owned()), meters);
     }
 

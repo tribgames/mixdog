@@ -37,6 +37,9 @@ test-support = []
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync", "test-util"] }
@@ -47,7 +50,7 @@ mixdog-app-protocol = { workspace = true }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-trace = { workspace = true }
+mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-workspace ={ workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
@@ -60,3 +63,9 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-exthost = { workspace = true, features = ["test-support"] }

@@ -1,0 +1,74 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-effort.mjs --tree <b6f10295a export>",
+  "exclusions": [
+    "client.published: the session id the runtime names (process id and clock) is written <session>",
+    "client.published: every publication is compared whole, in order, with the core's (its route frames' turnEffort, its first context frame's windows and limits for the first publication); the replay session has the recording's provider, model and catalog window (anthropic, claude-opus-5, 500000, 500000, 100), so sessionProvider, sessionModel and the windows are compared; the keys that differ are named and asserted exactly, not left out: in the first publication sessionId and agentScope (no core frame carries them: the frame's threadId names the thread) and displayContextWindow (Node publishes it as 0 before its first status pass; the core shows the seated route's window from the start, asserted equal to the contextWindow); no key differs in a later publication. The publication without turnEffort (scenario none: a route that never changed) is compared as it is: the core has no route frame and no such key"
+  ],
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 1548,
+      "path": "auto-step.json",
+      "sha256": "8cfdfadcda1a10a46e16a904a9f721b84c4348d3671e83622f852d90dd14eb78"
+    },
+    {
+      "bytes": 1399,
+      "path": "fixed.json",
+      "sha256": "7a57125e033ebcc5838cf60dd7604f54e6924addf49393b4cb5ac2c9f52ab9e3"
+    },
+    {
+      "bytes": 1355,
+      "path": "none.json",
+      "sha256": "12aa3c64c3b79d132302807a95e55b85fb8210995d3c8bb62b74ee52c641c77b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
+      "sha256": "8f974af9f70f86e55bfba0850a7a19197ac0bec15fc13fa0fdfe3de29c9fa725"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
+      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/intercept.mjs",
+      "sha256": "a080fa2c7df9cf3629ae4304d14ca3c66e68e14c6afddc7ca8d22da38063e47a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-effort.mjs",
+  "recorderSha256": "4ccc3adc44a5e9a2e5e3e3ade59d9c217a76677a01f965090350bc3ca698cd6a",
+  "scenarios": [
+    "fixed",
+    "none",
+    "auto-step"
+  ],
+  "set": "turn-effort",
+  "totalBytes": 4302
+}

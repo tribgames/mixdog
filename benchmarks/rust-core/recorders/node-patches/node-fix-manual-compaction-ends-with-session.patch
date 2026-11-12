@@ -1,0 +1,272 @@
+diff --git a/src/runtime/agent/orchestrator/session/manager/manual-compaction-ends-with-session.test.mjs b/src/runtime/agent/orchestrator/session/manager/manual-compaction-ends-with-session.test.mjs
+new file mode 100644
+index 0000000..f90ac2b
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/manager/manual-compaction-ends-with-session.test.mjs
+@@ -0,0 +1,112 @@
++// A manual compaction is work its session owns: closing the session (closeSession, which a session delete runs
++// first) or the runtime (quiesce aborts every registered controller) ends it, and the stored result names why.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++const previous = process.env.MIXDOG_DATA_DIR;
++const root = mkdtempSync(join(tmpdir(), 'mixdog-manual-compaction-close-'));
++process.env.MIXDOG_DATA_DIR = root;
++test.after(() => {
++  if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
++  else process.env.MIXDOG_DATA_DIR = previous;
++  // The live process still holds the session writer locks under `root`; a temp directory it leaves is the OS's to clear.
++  try {
++    rmSync(root, { recursive: true, force: true });
++  } catch {}
++});
++
++const { compactSessionMessages } = await import('./session-crud.mjs');
++const { closeSession } = await import('./session-close.mjs');
++const { SessionClosedError } = await import('./session-errors.mjs');
++const { saveSessionAsync } = await import('../store.mjs');
++const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
++const { createSessionOps } = await import('../../../../../session-runtime/turn/session-ops.mjs');
++const { activeTurnControls } = await import('../../../../../session-runtime/boot/config.mjs');
++const mgr = await import('../manager.mjs');
++
++const words = (n, w) => Array.from({ length: n }, (_, i) => `${w}${i}`).join(' ');
++const sessionOf = (id) => ({
++  id,
++  provider: 'openai',
++  model: 'gpt-x',
++  contextWindow: 8000,
++  rawContextWindow: 8000,
++  effectiveContextWindowPercent: 100,
++  tools: [],
++  messages: Array.from({ length: 40 }, (_, i) => (i % 2 ? { role: 'user', content: words(80, `u${i}_`) } : { role: 'assistant', content: words(80, `a${i}_`) })),
++  compaction: { auto: true },
++});
++
++/** A summary provider whose send honours the signal it is given and otherwise answers once `release` runs. */
++function summaryProvider() {
++  let started;
++  const sent = new Promise((resolve) => (started = resolve));
++  let release;
++  const released = new Promise((resolve) => (release = resolve));
++  const provider = {
++    name: 'openai',
++    send: (_messages, _model, _tools, opts) => {
++      started(opts?.signal ?? null);
++      return new Promise((resolve, reject) => {
++        opts?.signal?.addEventListener('abort', () => reject(opts.signal.reason), { once: true });
++        released.then(() => resolve({ content: 'SUMMARY', usage: { inputTokens: 1000, outputTokens: 50, cachedTokens: 0 } }));
++      });
++    },
++  };
++  return { provider, sent, release };
++}
++
++test('a manual compaction nobody closes commits: its own hold is no turn in flight', async () => {
++  const live = sessionOf('manual-compaction-commits');
++  await saveSessionAsync(live);
++  const { provider, release } = summaryProvider();
++  release();
++  const result = await _withRegisteredProviderForTestAsync('openai', provider, () => compactSessionMessages(live.id));
++  assert.equal(result.error, undefined);
++  assert.equal(result.changed, true);
++});
++
++test('closing the session ends its running manual compaction with the close as the reason', async () => {
++  const live = sessionOf('manual-compaction-close');
++  await saveSessionAsync(live);
++  const { provider, sent, release } = summaryProvider();
++  const result = await _withRegisteredProviderForTestAsync('openai', provider, async () => {
++    const compacting = compactSessionMessages(live.id);
++    await sent;
++    assert.equal(await closeSession(live.id, 'cli-agent-close'), true);
++    // A provider that ignored the abort would answer now and the compaction would commit.
++    release();
++    return compacting;
++  });
++  assert.equal(result.changed, false);
++  assert.equal(result.error, 'Session "manual-compaction-close" closed: closeSession (reason=cli-agent-close)');
++});
++
++test('closing the runtime ends the manual compaction the session ops registered', async () => {
++  const live = sessionOf('manual-compaction-runtime-close');
++  await saveSessionAsync(live);
++  const rt = { activeTurnAbortControllers: new Set(), closeRequested: false, session: live };
++  const controls = activeTurnControls(rt);
++  const ops = createSessionOps({
++    getSession: () => live,
++    setSession: () => {},
++    getActiveTurnCount: () => 0,
++    mgr,
++    invalidateContextStatusCache: () => {},
++    registerActiveTurnController: controls.registerActiveTurnController,
++  });
++  const { provider, sent, release } = summaryProvider();
++  const result = await _withRegisteredProviderForTestAsync('openai', provider, async () => {
++    const compacting = ops.compact();
++    await sent;
++    assert.equal(controls.abortActiveTurns(new SessionClosedError(live.id, 'runtime close (reason=cli-exit)', 'cli-exit')), true);
++    release();
++    return compacting;
++  });
++  assert.equal(result.changed, false);
++  assert.equal(result.error, 'Session "manual-compaction-runtime-close" closed: runtime close (reason=cli-exit)');
++  assert.equal(rt.activeTurnAbortControllers.size, 0, 'the compaction lets go of its controller');
++});
+diff --git a/src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs b/src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs
+index 59529b7..692ae60 100644
+--- a/src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs
+@@ -588,6 +588,28 @@ export function getSessionAbortSignal(sessionId) {
+   return _runtimeState.get(sessionId)?.controller?.signal ?? null;
+ }
+ 
++/**
++ * A manual compaction's hold on its session: a controller of its own that
++ * closeSession aborts with the session's (`entry.compactionController`; it is
++ * not a turn's controller, so the session does not count as running a turn and
++ * the compaction's own commit is not refused as "turn in progress"). The
++ * signal the compaction runs under ends with the first of that controller, the
++ * session's own controller (a parent link's, or a turn's) and `outerSignal`
++ * (the runtime's: its close aborts every active turn).
++ */
++export function beginManualCompaction(sessionId, outerSignal = null) {
++  const entry = _touchRuntime(sessionId);
++  const controller = createAbortController();
++  entry.compactionController = controller;
++  const signals = [controller.signal, entry.controller?.signal, outerSignal].filter(Boolean);
++  return {
++    signal: AbortSignal.any(signals),
++    end() {
++      if (entry.compactionController === controller) entry.compactionController = null;
++    },
++  };
++}
++
+ /**
+  * Link a parent AbortSignal to a sub-session's controller so that aborting
+  * the parent (fan-out deadline or caller ESC) tears down the agent role's
+diff --git a/src/runtime/agent/orchestrator/session/manager/session-close.mjs b/src/runtime/agent/orchestrator/session/manager/session-close.mjs
+index 4e1d90a..00b999e 100644
+--- a/src/runtime/agent/orchestrator/session/manager/session-close.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/session-close.mjs
+@@ -228,6 +228,12 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
+     } catch {
+       /* ignore */
+     }
++    // A manual compaction running on the session ends with it.
++    try {
++      entry.compactionController?.abort(new SessionClosedError(id, `closeSession (reason=${reason})`, reason));
++    } catch {
++      /* ignore */
++    }
+   }
+   forgetSideQuestion(id, { cancel: true });
+   closeProviderConnections(id, `session-close:${reason}`);
+diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
+index ca19c4c..4365b2e 100644
+--- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
+@@ -26,7 +26,7 @@ import {
+   resetSessionBp3Environment,
+ } from './prompt-utils.mjs';
+ import { getProvider } from '../../providers/registry.mjs';
+-import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
++import { isSessionCompactionBlocked, beginManualCompaction, _runtimeEntries } from './runtime-liveness.mjs';
+ import { mintSessionId } from './session-id.mjs';
+ import { useOwnScratchEnvironment } from './session-scratch-environment.mjs';
+ import { rebindToChangedPrefix } from '../thinking-binding.mjs';
+@@ -388,18 +388,28 @@ export async function compactSessionMessages(sessionId, options = {}) {
+   if (isSessionCompactionBlocked(sessionId)) {
+     return { changed: false, reason: 'compact skipped: turn in progress' };
+   }
+-  const result = await runSessionCompaction(session, {
+-    mode: 'manual',
+-    force: true,
+-    // One fresh-context path owns Main and Agent sessions. Main hydrates
+-    // its canonical Memory handoff; Agent generates a session-local one.
+-    filterOldHistoryForIngest: true,
+-    provider: getProvider(session.provider),
+-    sessionId,
+-    signal: getSessionAbortSignal(sessionId),
+-    requireReduction: options.requireReduction === true,
+-    onStageChange: options.onStageChange,
+-  });
++  // The compaction is work the session owns: closing the session (or the
++  // runtime) while it runs ends it, and what it recorded says why.
++  const hold = beginManualCompaction(sessionId, options.signal ?? null);
++  let result;
++  try {
++    result = await runSessionCompaction(session, {
++      mode: 'manual',
++      force: true,
++      // One fresh-context path owns Main and Agent sessions. Main hydrates
++      // its canonical Memory handoff; Agent generates a session-local one.
++      filterOldHistoryForIngest: true,
++      provider: getProvider(session.provider),
++      sessionId,
++      signal: hold.signal,
++      requireReduction: options.requireReduction === true,
++      onStageChange: options.onStageChange,
++    });
++  } finally {
++    hold.end();
++  }
+   if (!result) return null;
+   if (result.skipped) return result;
++  // A session closed or deleted under the compaction is not saved by it: the save would recreate a deleted session.
++  if (hold.signal.aborted && hold.signal.reason?.name === 'SessionClosedError') return result;
+   const now = Date.now();
+diff --git a/src/session-runtime/turn/session-ops.mjs b/src/session-runtime/turn/session-ops.mjs
+index 9d3e391..0327898 100644
+--- a/src/session-runtime/turn/session-ops.mjs
++++ b/src/session-runtime/turn/session-ops.mjs
+@@ -23,6 +23,7 @@ export function createSessionOps(deps) {
+     resolveCwdPath,
+     agentStatusState,
+     getReservedSessionId,
++    registerActiveTurnController,
+   } = deps;
+ 
+   function recoverAgentWorkers() {
+@@ -72,16 +73,27 @@ export function createSessionOps(deps) {
+     // Dispatch PreCompact only after the manager's savings gate. A skipped
+     // auto-clear must not run hooks, invalidate context or schedule reminders.
+     const trigger = options.requireReduction === true ? 'auto_clear' : 'manual';
+-    const result = await mgr.compactSessionMessages(session.id, {
+-      requireReduction: options.requireReduction === true,
+-      onStageChange: async () => {
+-        try {
+-          await session.preCompactHook?.({ trigger });
+-        } catch {
+-          /* best-effort: PreCompact hook must never break compact */
+-        }
+-      },
+-    });
++    // The compaction is registered like a turn: the runtime's close aborts every
++    // registered controller, so a close ends it instead of waiting for its result.
++    const controller = new AbortController();
++    const unregister =
++      typeof registerActiveTurnController === 'function' ? registerActiveTurnController(controller) : () => {};
++    let result;
++    try {
++      result = await mgr.compactSessionMessages(session.id, {
++        requireReduction: options.requireReduction === true,
++        signal: controller.signal,
++        onStageChange: async () => {
++          try {
++            await session.preCompactHook?.({ trigger });
++          } catch {
++            /* best-effort: PreCompact hook must never break compact */
++          }
++        },
++      });
++    } finally {
++      unregister();
++    }
+     if (result?.skipped) return result;
+     try {
+       await session.postCompactHook?.({ trigger });

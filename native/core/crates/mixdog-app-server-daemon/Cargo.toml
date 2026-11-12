@@ -104,7 +104,7 @@ mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net", "io-util"] }
 # The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
@@ -142,6 +142,12 @@ mixdog-ledger = { workspace = true }
 mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-services = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-exthost = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-trace = { workspace = true, features = ["flush-probe"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

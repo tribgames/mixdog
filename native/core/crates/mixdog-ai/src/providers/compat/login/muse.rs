@@ -345,6 +345,7 @@ impl LoginFlow for MuseCodeLogin {
             })
             .await?;
             let credentials = mint_key(&http, &token).await?;
+            file.keep(&[&credentials.access_token, &credentials.api_key]);
             file.save(&credentials)
                 .await
                 .map_err(|err| failed("store", err.to_string()))?;

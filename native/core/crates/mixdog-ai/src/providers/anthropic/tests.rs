@@ -54,6 +54,7 @@ use crate::transport::http::HttpSend;
 
 mod fast_replay;
 mod floor_fallback;
+mod stream_replay;
 mod warm;
 
 // ---------------------------------------------------------------------------

@@ -99,8 +99,6 @@ const STORES: &[Store] = &[
 const RETIRED_FILES: &[&str] = &[
     "agent-worker-header-cache.json",
     "bridge-workers.json",
-    "session-summaries.json",
-    "session-summaries.log",
     "session-sweep-records.json",
     "session-catalog.sqlite",
     "session-catalog.sqlite-wal",

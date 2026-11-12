@@ -168,7 +168,7 @@ pub const INDEX_FILE: &str = "index/store.sqlite";
 
 /// Whether an open of the index failed because of the file itself: another identity, or
 /// bytes SQLite cannot read as a database.
-fn needs_rebuild(e: &DbError) -> bool {
+pub(crate) fn needs_rebuild(e: &DbError) -> bool {
     match e {
         DbError::Rebuild(_) => true,
         DbError::Sqlite(e) => matches!(
@@ -381,10 +381,11 @@ const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
-const PURGE_TABLES: [(&str, &str); 17] = [
+const PURGE_TABLES: [(&str, &str); 18] = [
     ("offload_refs", "source, session"),
     ("offload_known", "session"),
     ("offload_marks", "session"),
+    ("archived_agents", "session, child"),
     ("history", "session, ordinal"),
     ("model_switches", "session, ordinal"),
     ("amends", "session, ordinal"),
@@ -508,6 +509,10 @@ fn upsert_edge(
         None
     };
     write_row(tx, &row, dirty, labels)?;
+    tx.prepare_cached("DELETE FROM archived_agents WHERE session = ?1")?.execute([&head.session])?;
+    for child in crate::archived_agent::children(&head.header) {
+        tx.prepare_cached("INSERT INTO archived_agents (session, child) VALUES (?1, ?2)")?.execute([&head.session, &child])?;
+    }
     let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
     let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
     Ok((row.summary.len(), edge))
@@ -1955,6 +1960,20 @@ impl SqliteStore {
         .await
     }
 
+    /// The sessions not deleted whose header carries `child`'s archived result (`archived_agents`).
+    pub async fn archived_agent_parents(&self, child: &str) -> Result<Vec<String>, DbError> {
+        let child = child.to_owned();
+        self.read(move |c| {
+            let mut stmt = c.prepare_cached(
+                "SELECT a.session FROM archived_agents a JOIN sessions s ON s.id = a.session
+                 WHERE a.child = ?1 AND s.deleted = 0 AND s.log_id <> '' ORDER BY a.session",
+            )?;
+            let rows = stmt.query_map([&child], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+    }
+
     /// Whether the session was deleted (its header's delete mark, or `mark_deleted`);
     /// `None` for a session the index does not hold (never created, or purged).
     pub async fn deleted(&self, session: &str) -> Result<Option<bool>, DbError> {
@@ -2182,6 +2201,67 @@ impl SqliteStore {
     ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
         let (rows, next) = self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
         crate::context::read_frames(lane, sessions, rows, next)
+    }
+
+    /// How many messages the model context of `lineage` holds: the rows of [`Self::context_page_on_lane`], counted
+    /// from the index alone (no frame is read or parsed), so asking for the length of a context costs one index scan
+    /// instead of the context's bytes. A history that changes under the scan starts it again.
+    pub fn context_len_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+    ) -> Result<usize, crate::context::ContextError> {
+        const PAGE_ROWS: usize = 4096;
+        'restart: loop {
+            let (mut cursor, mut len) = (None, 0);
+            loop {
+                match self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                    Ok((rows, next)) => {
+                        len += rows.len();
+                        match next {
+                            Some(next) => cursor = Some(next),
+                            None => return Ok(len),
+                        }
+                    }
+                    Err(DbError::CursorStale) => continue 'restart,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+    }
+
+    /// The page [`Self::context_page_on_lane`] would return for the rows from the `skip`th on (`skip` counted as in
+    /// [`Self::context_len_on_lane`]), as one page: the index is scanned for every row, but only those rows' frames are read.
+    /// A history that changes under the scan starts it again.
+    pub fn context_page_from_on_lane(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        sessions: &Path,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        skip: usize,
+    ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
+        const PAGE_ROWS: usize = 4096;
+        let rows = 'restart: loop {
+            let (mut cursor, mut seen, mut kept) = (None, 0usize, Vec::new());
+            loop {
+                match self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                    Ok((rows, next)) => {
+                        let before = seen;
+                        seen += rows.len();
+                        kept.extend(rows.into_iter().skip(skip.saturating_sub(before)));
+                        match next {
+                            Some(next) => cursor = Some(next),
+                            None => break 'restart kept,
+                        }
+                    }
+                    Err(DbError::CursorStale) => continue 'restart,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        };
+        crate::context::read_frames(lane, sessions, rows, None)
     }
 
     /// `history_page` inside a job already on the read lane (the open's J2 window read).

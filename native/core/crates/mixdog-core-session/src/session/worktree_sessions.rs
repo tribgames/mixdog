@@ -24,7 +24,7 @@ use mixdog_scm::worktree::maintenance::SessionActivity;
 use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::maintenance::ShellJob;
 use mixdog_spawn::tasks::TaskRegistry;
-use mixdog_spawn::tasks::TaskStatus;
+use mixdog_spawn::tasks::TaskRow;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
@@ -99,7 +99,7 @@ impl SessionSource for StoredWorktreeSessions {
         self.tasks
             .list()
             .into_iter()
-            .filter(|job| job.surface == "shell" && !job.foreground && (job.status == TaskStatus::Running || job.termination_unconfirmed))
+            .filter(TaskRow::reserves_folder)
             .map(|job| {
                 if job.cwd.is_empty() {
                     return Err(plain(format!("Cannot inspect shell job {}.", job.task_id)));

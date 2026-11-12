@@ -1,6 +1,7 @@
 // Only the `#![cfg(windows)]` suites use it.
 #[cfg(windows)]
 mod support;
+mod bundled_skills_suite;
 mod card_suite;
 mod catalog_suite;
 mod compact_suite;
@@ -32,6 +33,7 @@ mod posttool_suite;
 mod pretool_suite;
 mod scope_runtime_suite;
 mod scope_suite;
+mod scopes_node_cases_suite;
 mod setupmcp_suite;
 mod skill_catalog_suite;
 mod skillfm_suite;

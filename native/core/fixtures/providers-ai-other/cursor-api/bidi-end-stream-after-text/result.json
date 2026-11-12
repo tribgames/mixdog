@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "stream_aborted",
-    "connectCode": null,
-    "cursorCode": "stream_aborted",
-    "liveTextEmitted": true,
-    "message": "Cursor stream was aborted",
     "name": "Error",
-    "providerRecoveryExhausted": null,
-    "reauthRequired": null,
-    "retryAfterMs": null,
+    "message": "Cursor internal: fixture mid-stream failure",
+    "status": 500,
+    "code": "internal",
+    "cursorCode": "internal",
+    "connectCode": null,
     "retryable": null,
-    "status": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": true
-  }
+    "unsafeToRetry": true,
+    "liveTextEmitted": true,
+    "providerRecoveryExhausted": null
+  },
+  "dispatchedToolCalls": []
 }

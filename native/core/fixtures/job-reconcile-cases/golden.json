@@ -1,0 +1,28 @@
+{
+  "note": "Node's job reconcile at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-job-reconcile-cases.mjs",
+  "test": "src/session-runtime/services/agent-tool/job-task-reconcile.test.mjs",
+  "cases": [
+    {
+      "case": "a watchdog stop that recovered partial output reaches the owner as a failure, not a completion",
+      "taskId": "task_watchdog",
+      "label": "worker",
+      "value": {
+        "tag": "worker",
+        "content": "partial findings",
+        "stallAbort": true
+      },
+      "finalStatus": "idle",
+      "recorded": {
+        "status": "failed",
+        "terminalReason": "agent-watchdog-partial",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "result": {
+          "tag": "worker",
+          "content": "partial findings",
+          "stallAbort": true
+        },
+        "notification": "<task-notification>\n<task-id>task_watchdog</task-id>\n<tag>worker</tag>\n<status>failed</status>\n<summary>Agent \"worker\" failed</summary>\n<result>\npartial findings\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+      }
+    }
+  ]
+}

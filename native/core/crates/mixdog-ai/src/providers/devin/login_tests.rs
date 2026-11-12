@@ -49,6 +49,17 @@ async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
     assert_thrown("devinExchange", login_message(&failure));
 }
 
+/// The token Devin's sign-in keeps (`token`, a field no OAuth grant names) is a credential from the moment it is kept:
+/// a later text that repeats it is redacted (review 1124e).
+#[tokio::test]
+async fn the_token_a_sign_in_keeps_is_a_credential_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let scripted = Scripted::new(&[(200, r#"{"token":"devin-login-token-7a31c9e0"}"#)]);
+    let provider = login(CredentialFile::new(dir.path().join("devin-oauth.json"), io()), scripted, 0);
+    provider.exchange("the-code", "the-verifier", "unused").await.expect("signed in");
+    assert_eq!(crate::oauth::carried::remembered().redact_str("echo devin-login-token-7a31c9e0 end"), "echo [REDACTED] end");
+}
+
 #[test]
 fn the_authorize_url_is_nodes_for_its_state_and_challenge() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();

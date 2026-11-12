@@ -1,0 +1,49 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-worktree-names-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "slug: the slug and its name error; bound: the length bound; unique: the unique slug; random: whether the slug matches the test's pattern (the suffix is random in Node)",
+  "excluded": {
+    "registerWorktreeCacheCleanups registers each cleanup exactly once": "DIFFERENCE: Node registers the cache cleanups turn-worktree-snapshots, turn-snapshot-store and code-graph; the core composes its worktree store with one root cleanup, \"folder release\" (compose_flip.rs), and none of Node's three",
+    "registered cleanups report ok with { removed, kept } for an unknown root": "DIFFERENCE: the core has none of Node's three cache cleanups to run (see the case above)",
+    "slugs are short, lowercase and Windows-safe: \"  Café crème: déjà vu  \"": "DIFFERENCE: Node folds accents (NFKD, combining marks dropped) and gives \"cafe-creme-deja-vu\"; the core treats every non-ASCII letter as a separator and gives \"caf-cr-me-d-j-vu\""
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6018,
+      "path": "golden.json",
+      "sha256": "48bc7d2a508aa0f3d7abf31af034dea9f49704a511f48c6d469928d4a5e9ce94"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-worktree-names-cases.mjs",
+  "recorderSha256": "b3a79e026a80c8156aa1ba015cc7b6d3ef2cbddde0e62a0745708d04111c2caa",
+  "set": "worktree-names-cases",
+  "totalBytes": 6018
+}

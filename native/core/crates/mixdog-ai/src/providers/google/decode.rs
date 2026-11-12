@@ -99,6 +99,16 @@ fn finish_kind(reason: &str) -> FinishKind {
     }
 }
 
+/// `geminiPolicyFinishCode`: the policy-refusal code of a finish (or block) reason, `None` for any other reason.
+pub fn policy_finish_code(reason: &str) -> Option<&'static str> {
+    match finish_kind(reason) {
+        FinishKind::Policy => Some("safety"),
+        FinishKind::Recitation => Some("recitation"),
+        FinishKind::Language => Some("content_filter"),
+        _ => None,
+    }
+}
+
 fn count(um: &Value, camel: &str, snake: &str) -> Option<u64> {
     let v = um.get(camel).or_else(|| um.get(snake))?;
     v.as_u64().or_else(|| v.as_f64().map(|f| f.max(0.0) as u64))
@@ -209,8 +219,10 @@ pub struct GeminiDecoder {
     leak: LeakGuard,
     /// Fingerprints of every call the guard or the native filter let through.
     dispatched: HashSet<String>,
-    /// Calls recovered from text, released with the native ones after a clean finish.
+    /// Calls recovered from text (Node's `getLeakedToolCalls()`); with `defer` they are released after a clean finish.
     leaked: Vec<ToolCall>,
+    /// The guard holds recovered calls until a clean finish (`deferToolCalls`); off, each is dispatched as it is recovered.
+    defer: bool,
     /// Native calls held for the same release, so the turn's list is native first, then leaked.
     native_done: Vec<ToolCall>,
     /// The answer text of the chunk being decoded, when the guard is on.
@@ -220,10 +232,17 @@ pub struct GeminiDecoder {
     shown: String,
     /// The model the replay envelope is bound to (`requestContext.model`), when the decoder knows the request.
     model: Option<String>,
+    /// `Date.now()` for an in-band error's reset instant.
+    clock: std::sync::Arc<dyn Fn() -> std::time::SystemTime + Send + Sync>,
+    /// A failure met after other events of the same read: reported by the next call.
+    failed: Option<ProviderError>,
+    /// A test's view of every call the guard recovered (`getLeakedToolCalls()`), whether or not the turn released it.
+    #[cfg(any(test, feature = "test-support"))]
+    recovered_view: Option<std::sync::Arc<std::sync::Mutex<Vec<ToolCall>>>>,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
-fn chunk_progress(chunk: &Value) -> Option<ProgressKind> {
+pub fn chunk_progress(chunk: &Value) -> Option<ProgressKind> {
     let parts = chunk.pointer("/candidates/0/content/parts").and_then(Value::as_array)?;
     let has_text = |part: &Value| part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty());
     let thought = |part: &Value| part.get("thought") == Some(&Value::Bool(true));
@@ -257,12 +276,37 @@ impl GeminiDecoder {
             leak: LeakGuard::new(HashSet::new(), false),
             dispatched: HashSet::new(),
             leaked: Vec::new(),
+            defer: true,
             native_done: Vec::new(),
             chunk_text: String::new(),
             raw: String::new(),
             shown: String::new(),
             model: None,
+            clock: std::sync::Arc::new(std::time::SystemTime::now),
+            failed: None,
+            #[cfg(any(test, feature = "test-support"))]
+            recovered_view: None,
         }
+    }
+
+    /// Every call the guard recovers, as `getLeakedToolCalls()` lists them, kept for the test after the stream ends (a
+    /// failed stream releases none of them).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn recovered_calls(&mut self) -> std::sync::Arc<std::sync::Mutex<Vec<ToolCall>>> {
+        self.recovered_view.get_or_insert_with(Default::default).clone()
+    }
+
+    /// A replay's virtual wall clock in place of the system's.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_clock(mut self, clock: impl Fn() -> std::time::SystemTime + Send + Sync + 'static) -> Self {
+        self.clock = std::sync::Arc::new(clock);
+        self
+    }
+
+    /// The calls recovered from text and not yet released (what Node's guard returns as `getLeakedToolCalls()`).
+    #[cfg(test)]
+    pub(super) fn held_leaked_calls(&self) -> &[ToolCall] {
+        &self.leaked
     }
 
     /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
@@ -275,6 +319,13 @@ impl GeminiDecoder {
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
     pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
         self.leak = LeakGuard::new(names, false);
+        self
+    }
+
+    /// `deferToolCalls: false`: a recovered call is dispatched the moment it is recovered, so a failure after it is a
+    /// replay boundary (`emittedToolCall`). Every adapter of the product defers.
+    pub fn with_deferred_calls(mut self, defer: bool) -> Self {
+        self.defer = defer;
         self
     }
 
@@ -296,6 +347,14 @@ impl GeminiDecoder {
             if !self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
                 continue;
             }
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(view) = &self.recovered_view {
+                view.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call.clone());
+            }
+            if !self.defer {
+                self.exposure.tool_dispatched = true;
+                out.push(StreamEvent::ToolCallDone(call.clone()));
+            }
             self.leaked.push(call);
             out.push(StreamEvent::Progress(ProgressKind::Tool));
         }
@@ -308,7 +367,10 @@ impl GeminiDecoder {
                 out.push(StreamEvent::ToolCallDone(call));
             }
         }
-        out.extend(std::mem::take(&mut self.leaked).into_iter().map(StreamEvent::ToolCallDone));
+        let leaked = std::mem::take(&mut self.leaked);
+        if self.defer {
+            out.extend(leaked.into_iter().map(StreamEvent::ToolCallDone));
+        }
     }
 
     fn line(&mut self, raw: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
@@ -345,16 +407,17 @@ impl GeminiDecoder {
         } else {
             payload
         };
-        if let Some(mut err) = in_band(&chunk, self.dialect.errors) {
+        if let Some(mut err) = in_band(&chunk, &self.dialect.errors, (self.clock)()) {
             err.exposure = self.exposure;
             return Err(err);
         }
         self.saw_chunk = true;
         out.push(StreamEvent::ChunkProgress(chunk_progress(&chunk)));
+        // A blocked prompt ends the turn as `PROMPT_<blockReason>`; a candidate's own finish reason outranks it.
         if let Some(reason) = chunk.pointer("/promptFeedback/blockReason").and_then(Value::as_str)
             && finish_kind(reason) != FinishKind::Unfinished
         {
-            self.finish.get_or_insert_with(|| reason.to_owned());
+            self.finish.get_or_insert_with(|| format!("PROMPT_{reason}"));
         }
         if let Some(um) = chunk.get("usageMetadata").filter(|v| v.is_object()) {
             self.usage = Some(um.clone());
@@ -455,18 +518,24 @@ impl GeminiDecoder {
         }
     }
 
+    /// `geminiIncompleteError` (Gemini API, Vertex AI) / Antigravity's `ProviderIncompleteError`: the turn ended on
+    /// `reason`.
     fn fail(&self, kind: ErrorKind, code: &str, reason: &str) -> ProviderError {
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
         err.code = Some(code.to_owned());
-        err.message = format!("response incomplete: finishReason={reason}");
+        let route = if self.dialect.errors.antigravity_endpoint.is_some() { "Antigravity" } else { "Gemini" };
+        err.message = format!("{route} response incomplete: finishReason={reason}");
+        err.finish_reason = Some(reason.into());
         err.exposure = self.exposure;
         err
     }
 
     fn conclude(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut out = Vec::new();
+        // `assertGeminiStreamCompleted` names the consumer's label (`gemini-stream.mjs:237`, `:244`).
+        let label = self.dialect.errors.label;
         if !self.saw_chunk {
-            return Err(truncated("stream truncated: empty stream", self.exposure));
+            return Err(truncated(&format!("{label} truncated: empty stream"), self.exposure));
         }
         let kind = self.finish.as_deref().map_or(FinishKind::Unfinished, finish_kind);
         let whole_calls = self.whole_calls > 0 && !self.incomplete_call;
@@ -474,20 +543,23 @@ impl GeminiDecoder {
         // none); only an output cutoff or an unmapped finish is named.
         let stop = match kind {
             FinishKind::Unfinished if whole_calls => None,
-            FinishKind::Unfinished => return Err(truncated("stream truncated: no finishReason", self.exposure)),
+            FinishKind::Unfinished => return Err(truncated(&format!("{label} truncated: no finishReason"), self.exposure)),
             _ if self.incomplete_call => {
                 return Err(truncated("stream truncated: unfinished function call", self.exposure));
             }
             FinishKind::Complete => None,
             FinishKind::OutputLimit if whole_calls => None,
+            // An output cut that showed text is the truncated answer the session keeps (Node throws
+            // `PROVIDER_INCOMPLETE` and `send-with-recovery.mjs` `isPromotableIncomplete` promotes it); with no text
+            // there is nothing to keep, and the turn fails.
+            FinishKind::OutputLimit if !self.exposure.text_emitted => {
+                let reason = self.finish.clone().unwrap_or_default();
+                return Err(self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason));
+            }
             FinishKind::OutputLimit => Some(StopReason::MaxTokens),
             FinishKind::Policy | FinishKind::Language | FinishKind::Recitation => {
                 let reason = self.finish.clone().unwrap_or_default();
-                let code = match kind {
-                    FinishKind::Recitation => "recitation",
-                    FinishKind::Language => "content_filter",
-                    _ => "safety",
-                };
+                let code = policy_finish_code(&reason).unwrap_or_default();
                 return Err(self.fail(ErrorKind::Policy, code, &reason));
             }
             FinishKind::InvalidToolCall if !self.exposure.text_emitted => {
@@ -550,16 +622,30 @@ impl GeminiDecoder {
 
 impl WireDecoder for GeminiDecoder {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.failed.take() {
+            return Err(err);
+        }
         self.buf.extend_from_slice(unit);
         let mut out = Vec::new();
         while let Some(end) = self.buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = self.buf.drain(..=end).collect();
-            self.line(&line[..line.len() - 1], &mut out)?;
+            if let Err(err) = self.line(&line[..line.len() - 1], &mut out) {
+                // Node relays every chunk before the failing one of the same read (`relayChunk` per payload): those
+                // events go out first, and the failure ends the stream on the next call.
+                if out.is_empty() {
+                    return Err(err);
+                }
+                self.failed = Some(err);
+                break;
+            }
         }
         Ok(out)
     }
 
     fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.failed.take() {
+            return Err(err);
+        }
         let rest = std::mem::take(&mut self.buf);
         let mut out = Vec::new();
         self.line(&rest, &mut out)?;
@@ -585,7 +671,7 @@ mod tests {
             owner: ProviderId::from("gemini"),
             envelope,
             usage: UsageStyle::Inclusive,
-            errors: ErrorDialect { capacity_by_status: false },
+            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
         })
     }
 

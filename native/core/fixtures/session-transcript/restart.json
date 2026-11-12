@@ -1,0 +1,113 @@
+{
+  "scenario": "restart",
+  "file": "sess_restart.jsonl (the writer case restart-source)",
+  "starts": [
+    {
+      "label": "the first start after the writer was killed",
+      "count": 3,
+      "inserts": [
+        {
+          "ts": 1772600767890,
+          "role": "user",
+          "content": "question [redacted]",
+          "sourceRef": "transcript:sess_restart#1",
+          "sessionId": "sess_restart",
+          "turn": 1,
+          "project": null,
+          "timeSource": "recorded"
+        },
+        {
+          "ts": 1772600767890,
+          "role": "assistant",
+          "content": "thinking aloud",
+          "sourceRef": "transcript:sess_restart#2",
+          "sessionId": "sess_restart",
+          "turn": 2,
+          "project": null,
+          "timeSource": "recorded"
+        },
+        {
+          "ts": 1772600767890,
+          "role": "assistant",
+          "content": "the answer",
+          "sourceRef": "transcript:sess_restart#3",
+          "sessionId": "sess_restart",
+          "turn": 3,
+          "project": null,
+          "timeSource": "recorded"
+        }
+      ],
+      "position": {
+        "bytes": 776,
+        "lineIndex": 3,
+        "generation": 0
+      },
+      "persisted": {}
+    },
+    {
+      "label": "a start after one killed before its position was persisted",
+      "count": 3,
+      "inserts": [
+        {
+          "ts": 1772600767890,
+          "role": "user",
+          "content": "question [redacted]",
+          "sourceRef": "transcript:sess_restart#1",
+          "sessionId": "sess_restart",
+          "turn": 1,
+          "project": null,
+          "timeSource": "recorded"
+        },
+        {
+          "ts": 1772600767890,
+          "role": "assistant",
+          "content": "thinking aloud",
+          "sourceRef": "transcript:sess_restart#2",
+          "sessionId": "sess_restart",
+          "turn": 2,
+          "project": null,
+          "timeSource": "recorded"
+        },
+        {
+          "ts": 1772600767890,
+          "role": "assistant",
+          "content": "the answer",
+          "sourceRef": "transcript:sess_restart#3",
+          "sessionId": "sess_restart",
+          "turn": 3,
+          "project": null,
+          "timeSource": "recorded"
+        }
+      ],
+      "position": {
+        "bytes": 776,
+        "lineIndex": 3,
+        "generation": 0
+      },
+      "persisted": {
+        "<file>": {
+          "bytes": 776,
+          "lineIndex": 3,
+          "generation": 0
+        }
+      }
+    },
+    {
+      "label": "a start with nothing new",
+      "count": 0,
+      "inserts": [],
+      "position": {
+        "bytes": 776,
+        "lineIndex": 3,
+        "generation": 0
+      },
+      "persisted": {
+        "<file>": {
+          "bytes": 776,
+          "lineIndex": 3,
+          "generation": 0
+        }
+      }
+    }
+  ]
+}

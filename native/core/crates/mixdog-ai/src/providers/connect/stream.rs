@@ -20,6 +20,7 @@ pub struct DecodedStream {
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     ended: bool,
     fault_code: Option<&'static str>,
+    fault_prefix: Option<&'static str>,
 }
 
 impl DecodedStream {
@@ -30,7 +31,15 @@ impl DecodedStream {
             queue: VecDeque::new(),
             ended: false,
             fault_code: None,
+            fault_prefix: None,
         }
+    }
+
+    /// The words a body fault is given: this prefix and undici's `terminated`, the error a `fetch` body whose socket failed
+    /// rejects with.
+    pub fn with_fault_prefix(mut self, prefix: &'static str) -> Self {
+        self.fault_prefix = Some(prefix);
+        self
     }
 
     /// The provider code a body fault carries (the provider's own label for
@@ -72,12 +81,22 @@ impl ModelStream for DecodedStream {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
                     err.code = self.fault_code.map(str::to_owned);
+                    if let Some(prefix) = self.fault_prefix {
+                        err.message = format!("{prefix}{}", crate::transport::link::TERMINATED);
+                    }
                     self.fail(err);
                 }
                 None => {
                     self.ended = true;
                     let result = self.decoder.finish();
+                    // A decoder that ends in failure but still owes events (the leak guard's held-back text) hands them
+                    // out first and keeps the failure for the next call.
+                    let owes_failure = matches!(&result, Ok(events) if !events.is_empty()) && !self.decoder.terminal_seen();
                     self.push(result);
+                    if owes_failure {
+                        let failure = self.decoder.finish();
+                        self.push(failure);
+                    }
                 }
             }
         }

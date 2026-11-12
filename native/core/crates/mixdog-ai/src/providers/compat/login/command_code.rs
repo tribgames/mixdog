@@ -156,6 +156,7 @@ async fn settle(http: &Http, file: &CredentialFile, candidate: CommandCodeCreden
         user_id,
         user_name: if user_name.is_empty() { candidate.user_name } else { user_name },
     };
+    file.keep(&[&credentials.api_key]);
     file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
     Ok(Some(credentials.user_id))
 }

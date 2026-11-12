@@ -19,7 +19,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "process", "io-util", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "process", "io-util", "macros", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
@@ -63,6 +63,9 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-exthost = { path = ".", features = ["test-support"] }
 
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).

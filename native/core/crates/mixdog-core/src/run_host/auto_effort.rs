@@ -26,7 +26,7 @@ use mixdog_core_run::run_host::route_wiring::WiringSource;
 use mixdog_core_run::run_host::route_wiring::turn_effort_configuration_mode;
 use crate::run_host::settings::AutoEffortSource;
 use crate::run_host::step_judge::{LadderSources, ladder_facts};
-use mixdog_core_session::session::effort_prewarm::auto_effort_mode;
+use mixdog_core_session::session::auto_effort_mode::auto_effort_mode;
 use mixdog_core_config::tool_modules::value::auto_effort_base;
 
 /// The auto-effort settings over the saved agent config and the process environment.
@@ -95,8 +95,7 @@ pub trait EffortConfiguration: Send + Sync {
     async fn configured(&self, header: &Header) -> bool;
 }
 
-/// [`EffortConfiguration`] over the provider registry, with the facts a route wire reads (the same
-/// ones `JudgePrewarm` is built with, so a prewarm and a turn agree).
+/// [`EffortConfiguration`] over the provider registry, with the facts a route wire reads.
 pub struct RegistryConfiguration {
     registry: Arc<ProviderRegistry>,
     wiring: Arc<dyn WiringSource>,

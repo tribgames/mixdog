@@ -1,0 +1,72 @@
+{
+  "note": "Node's foreground settle across the runtime shutdown at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-shell-settle-shutdown-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/tools/lib/shell-run-settle.slow.test.mjs",
+  "cases": [
+    {
+      "case": "the shutdown during the unconfirmed wait, then the confirmed exit",
+      "observed": [
+        {
+          "what": "the folder after the unconfirmed settle",
+          "value": "WORKTREE_BUSY_JOBS"
+        },
+        {
+          "what": "the shutdown answer",
+          "value": {
+            "killed": 0,
+            "cancelledJobs": 0,
+            "confirmedJobs": 0,
+            "unconfirmedJobs": [],
+            "treeUnconfirmedJobs": [],
+            "cancelledWatchers": 0
+          }
+        },
+        {
+          "what": "the folder after the shutdown",
+          "value": "WORKTREE_BUSY_JOBS"
+        },
+        {
+          "what": "the folder at the end",
+          "value": null
+        }
+      ]
+    },
+    {
+      "case": "the shutdown during the unconfirmed wait, then another session's release",
+      "observed": [
+        {
+          "what": "the folder after the unconfirmed settle",
+          "value": "WORKTREE_BUSY_JOBS"
+        },
+        {
+          "what": "the shutdown answer",
+          "value": {
+            "killed": 0,
+            "cancelledJobs": 0,
+            "confirmedJobs": 0,
+            "unconfirmedJobs": [],
+            "treeUnconfirmedJobs": [],
+            "cancelledWatchers": 0
+          }
+        },
+        {
+          "what": "the folder after the shutdown",
+          "value": "WORKTREE_BUSY_JOBS"
+        },
+        {
+          "what": "the release by another session",
+          "value": {
+            "released": true
+          }
+        },
+        {
+          "what": "the child after the release",
+          "value": "running"
+        },
+        {
+          "what": "the folder at the end",
+          "value": null
+        }
+      ]
+    }
+  ]
+}

@@ -192,6 +192,9 @@ struct State {
     running: HashMap<String, Arc<Run>>,
     /// Relays held back per room while its talk runs: a relay never cuts a member off.
     relays: HashMap<String, Vec<RoomCall>>,
+    /// Per room, the send/ask requests still on their way to `route` (`intakes`): the stop button
+    /// cancels them even when no exchange runs yet.
+    intakes: HashMap<String, Vec<Arc<AtomicBool>>>,
 }
 
 pub struct RoomCalls<R: CallRunner> {
@@ -313,7 +316,7 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         }
         let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.state();
-        !intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
+        !intakes.contains_key(room_id) && !state.intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
     }
 
     /// Binds the observer of every request `route` takes (once).
@@ -335,6 +338,26 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
 
     pub fn is_running(&self, room_id: &str) -> bool {
         self.state().running.contains_key(room_id)
+    }
+
+    /// `intake(roomId, run)`: a request on its way to `route`, registered before its first await;
+    /// the returned latch reads true once the stop button was pressed. [`Self::release_intake`]
+    /// drops it.
+    pub fn request_intake(&self, room_id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.state().intakes.entry(room_id.to_owned()).or_default().push(flag.clone());
+        flag
+    }
+
+    /// The request of `flag` reached `route` or failed.
+    pub fn release_intake(&self, room_id: &str, flag: &Arc<AtomicBool>) {
+        let mut state = self.state();
+        if let Some(pending) = state.intakes.get_mut(room_id) {
+            pending.retain(|each| !Arc::ptr_eq(each, flag));
+            if pending.is_empty() {
+                state.intakes.remove(room_id);
+            }
+        }
     }
 
     /// Routes a new request into room `room_id`: it starts an exchange or, while one runs, merges
@@ -464,13 +487,19 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         self.start(room_id, request, run);
     }
 
-    /// The stop button: the relays held back end cancelled, the user messages on their way route
-    /// nothing, the speaking member's turn is cut off and no one else gets a turn. True when an
-    /// exchange was cancelled or a message was on its way.
+    /// The stop button: the relays held back end cancelled, the user messages and requests on their way are
+    /// stopped, the speaking member's turn is cut off and no one else gets a turn. True when an exchange was
+    /// cancelled or a message or request was on its way.
     pub fn stop(self: &Arc<Self>, room_id: &str) -> bool {
-        let (queued, active) = {
+        let (queued, active, requests) = {
             let mut state = self.state();
-            (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned())
+            let requests = state.intakes.get(room_id).map_or(0, |pending| {
+                for request in pending {
+                    request.store(true, Ordering::SeqCst);
+                }
+                pending.len()
+            });
+            (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned(), requests)
         };
         cancel_all(&queued);
         let incoming = {
@@ -481,7 +510,7 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
             }
             !pending.is_empty()
         };
-        let Some(active) = active else { return incoming };
+        let Some(active) = active else { return incoming || requests > 0 };
         active.set_stopped();
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);

@@ -180,6 +180,10 @@ pub trait McpScopes: Send + Sync {
     /// the scope's first connect settled (a second opener waits for the first's). `Err`: the scope
     /// or the owner was released, so nothing is opened.
     async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
+    /// [`open`](Self::open) without the wait: the scope is registered and its first connect started, and the
+    /// caller goes on while it runs, as a Node runtime's boot starts `connectConfiguredMcp()` unawaited
+    /// (`boot/tools.mjs:56`).
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
     /// Releases every scope `owner` holds, exactly once: its servers close. Not awaited.
     fn release(&self, owner: &str);
     /// The runtime scope (the one `rt.mcpScopeId` of the runtime the daemon's own callers act as,
@@ -188,6 +192,8 @@ pub trait McpScopes: Send + Sync {
     /// (`tool-surface.mjs:100,109,142`). It is never handed to a session: each session is created with a
     /// scope of its own, as each Node `createSession` boots a runtime of its own.
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
+    /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
+    async fn await_initial(&self, _scope: &str) {}
 }
 
 /// A server's toggle chain: the state last asked (`desired`) and the run in flight (`running`), which every
@@ -267,6 +273,18 @@ impl McpGlue {
     pub async fn connect_runtime_scope(&self) -> Result<(), String> {
         let cwd = self.surface.current_cwd(None).await?;
         self.scopes.open_runtime(&cwd.to_string_lossy()).await.map(drop).map_err(|error| error.to_string())
+    }
+
+    /// Returns once the first connect of every open scope settled: the signal a recording or replay waits on before it
+    /// submits a turn, so the first request does not depend on which server finished connecting first.
+    pub async fn connections_settled(&self) {
+        self.scopes.all_settled().await;
+    }
+
+    /// How many callers wait for a scope's first connect now (`load_tool` waiting for a server still connecting is one);
+    /// the receiver follows the count: the signal a replay waits on before it lets a held connect go.
+    pub fn first_connect_waiters(&self) -> tokio::sync::watch::Receiver<usize> {
+        self.scopes.waiting_all()
     }
 
     /// Starts [`connect_runtime_scope`](Self::connect_runtime_scope) in the background and does not wait
@@ -710,12 +728,20 @@ impl McpScopes for McpGlue {
         self.scopes.open(scope, owner, &cwd.to_string_lossy()).await
     }
 
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.scopes.start(scope, owner, &cwd.to_string_lossy())
+    }
+
     fn release(&self, owner: &str) {
         self.scopes.release(owner);
     }
 
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
         self.scopes.open_runtime(&cwd.to_string_lossy()).await
+    }
+
+    async fn await_initial(&self, scope: &str) {
+        self.scopes.await_initial(scope).await;
     }
 }
 

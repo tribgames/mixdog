@@ -17,17 +17,19 @@
 // the commit and fails unless the tree is exactly it). Credentials are fake; the global dispatcher is replaced by one
 // that refuses every connection, so nothing can reach a network (Node's `preconnect` would otherwise send a HEAD).
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, exactProductIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, exactProductIdentity, nodeTreeIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
 import { nodeRealTool, writeJsonCompact } from './lib/tool-definitions.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, NODE_COMMIT);
+// `--patch <file>[,<file>…]`: the tree is the reference commit with those Node changes applied; the manifest names them.
+const identity = args.get('patch') ? nodeTreeIdentity(args, tree, NODE_COMMIT) : exactProductIdentity(tree, NODE_COMMIT);
 const OUT = join(FIXTURES_ROOT, 'wire-anthropic-gemini');
 
 const dataDir = mkdtempSync(join(tmpdir(), 'wire-anthropic-gemini-'));
@@ -680,8 +682,9 @@ await writeJsonCompact(tree, join(OUT, 'gemini.json'), { recorder: 'benchmarks/r
 writeSetManifest(OUT, {
   set: 'wire-anthropic-gemini',
   recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs --tree <exact export of b6f10295a>',
+  command: 'node benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs --tree <exact export of b6f10295a>' + (args.get('patch') ? ` --patch ${args.get('patch')}` : ''),
   identity,
+  extra: { ...recorderProvenance(import.meta.url) },
 });
 await writeJsonCompact(tree, join(OUT, 'observer.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', scenarios: observerRuns });
 closeUsageLedgers();

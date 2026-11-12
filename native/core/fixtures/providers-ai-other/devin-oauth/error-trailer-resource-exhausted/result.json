@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "resource_exhausted",
-    "connectCode": "resource_exhausted",
-    "cursorCode": null,
-    "liveTextEmitted": null,
-    "message": "Devin GetChatMessage resource_exhausted: fixture quota",
     "name": "DevinWireError",
-    "providerRecoveryExhausted": null,
-    "reauthRequired": null,
-    "retryAfterMs": null,
-    "retryable": true,
+    "message": "Devin GetChatMessage resource_exhausted: fixture quota",
     "status": 429,
+    "code": "resource_exhausted",
+    "cursorCode": null,
+    "connectCode": "resource_exhausted",
+    "retryable": true,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": null
+  },
+  "dispatchedToolCalls": []
 }

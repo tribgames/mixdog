@@ -29,6 +29,8 @@ mod custom_probe_tests;
 #[cfg(test)]
 mod custom_send_tests;
 #[cfg(test)]
+mod credential_transitions_tests;
+#[cfg(test)]
 mod oauth_credentials_tests;
 #[cfg(test)]
 mod oauth_status_tests;
