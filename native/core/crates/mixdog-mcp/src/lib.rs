@@ -13,6 +13,7 @@ pub mod deadlines;
 pub mod declaration_cache;
 pub mod extension_service;
 pub mod gmail_verify;
+pub mod google_mcp;
 pub mod hook_bus;
 pub mod hook_runner;
 pub mod hooks;
