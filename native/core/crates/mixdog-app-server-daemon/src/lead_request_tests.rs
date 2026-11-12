@@ -128,12 +128,12 @@ fn answer(mut stream: TcpStream, wire: &str, model: &str, posts: &Sender<Post>) 
     stream.write_all(reply.as_bytes()).expect("the answer");
 }
 
-/// The files of a scenario, by path, under `root`; `{DATA}` is the data directory.
-fn put_files(root: &Path, files: &Value, data: &Path) {
+/// The files of a scenario, by path, under `root`; `{DATA}` is the data directory and `{GATE_PORT}` the port of this test's gate.
+fn put_files(root: &Path, files: &Value, data: &Path, gate_port: u16) {
     for (rel, text) in files.as_object().into_iter().flatten() {
         let path = root.join(rel);
         std::fs::create_dir_all(path.parent().expect("a parent")).expect("the folder");
-        std::fs::write(path, text.as_str().expect("file text").replace("{DATA}", &slashed(data))).expect("the file");
+        std::fs::write(path, text.as_str().expect("file text").replace("{DATA}", &slashed(data)).replace("{GATE_PORT}", &gate_port.to_string())).expect("the file");
     }
 }
 
@@ -267,6 +267,17 @@ async fn replay(name: &str, dir: PathBuf) {
     }
     let data = crate::compose_test_support::data_in(&dir);
     let (port, posts) = endpoint(route["wire"].as_str().expect("wire"), model);
+    // The gate of a slow MCP stub (the recorder's `gateServer`): the stub connects to it and holds its handshake until it is sent a byte.
+    let gate = TcpListener::bind("127.0.0.1:0").expect("a loopback port for the gate");
+    let gate_port = gate.local_addr().expect("its address").port();
+    let (stubs, arrivals) = channel();
+    std::thread::spawn(move || {
+        for stream in gate.incoming().flatten() {
+            if stubs.send(stream).is_err() {
+                break;
+            }
+        }
+    });
 
     let mut config = case["config"].clone();
     let providers = json!({ provider: {
@@ -287,8 +298,8 @@ async fn replay(name: &str, dir: PathBuf) {
     }] } });
     std::fs::create_dir_all(data.join("catalogs")).expect("the catalog directory");
     std::fs::write(data.join("catalogs").join("snapshot.json"), snapshot.to_string()).expect("the catalog cache");
-    put_files(&data, &case["data"], &data);
-    put_files(&ws, &case["workspace"], &data);
+    put_files(&data, &case["data"], &data, gate_port);
+    put_files(&ws, &case["workspace"], &data, gate_port);
     if case["gitInit"] == true {
         let made = std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(&ws).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().expect("git runs");
         assert!(made.success(), "git init in the workspace");
@@ -313,7 +324,8 @@ async fn replay(name: &str, dir: PathBuf) {
     )
     .await
     .expect("the composed core");
-    let (connector, shutdown) = serve_in_process(std::sync::Arc::new(core), outgoing).expect("the in-process server");
+    let core = std::sync::Arc::new(core);
+    let (connector, shutdown) = serve_in_process(core.clone(), outgoing).expect("the in-process server");
     let mut halves = connector.open(&Target { id: "in-process".into() }).await.expect("a connection");
     call(&mut halves, 0, "initialize", json!({ "clientInfo": { "name": "lead-request", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": {} })).await;
     // The desktop's new task: a thread in the project on the draft's route, the route applied, then the first prompt.
@@ -322,6 +334,32 @@ async fn replay(name: &str, dir: PathBuf) {
     let thread = started["thread"]["id"].as_str().expect("thread id").to_owned();
     if !settings_route {
         call(&mut halves, 2, "route/set", json!({ "opId": op(2), "threadId": thread, "route": { "provider": provider, "model": model, "applyToCurrentSession": true, "keepMainModel": false } })).await;
+    }
+    // The turn starts only once the configured servers' initial connect settled (the recorder waits for Node's `mcp:ready` / `mcp:failed`); a scenario
+    // that holds a server's handshake on purpose starts it while the connect is in flight.
+    const CONNECT_DEADLINE: Duration = Duration::from_secs(60);
+    let mut held_stubs = None;
+    if let Some(mode) = case["mcpGate"].as_str() {
+        // The core connects the configured servers under the runtime's scope and under the thread's own, so the stub is started more than once.
+        let arrival = tokio::task::spawn_blocking(move || {
+            let first = arrivals.recv_timeout(CONNECT_DEADLINE);
+            (first, arrivals)
+        });
+        let (first, arrivals) = arrival.await.expect("the gate's wait");
+        let mut first = first.unwrap_or_else(|_| panic!("the slow MCP stub did not connect to the gate within {} s", CONNECT_DEADLINE.as_secs()));
+        if mode == "released" {
+            first.write_all(b"go").expect("opening the gate");
+            std::thread::spawn(move || {
+                for mut stub in arrivals {
+                    let _ = stub.write_all(b"go");
+                }
+            });
+        } else {
+            held_stubs = Some((first, arrivals));
+        }
+    }
+    if case["mcpGate"] != "held" {
+        tokio::time::timeout(CONNECT_DEADLINE, core.mcp_connections_settled()).await.unwrap_or_else(|_| panic!("the initial MCP connect did not settle within {} s", CONNECT_DEADLINE.as_secs()));
     }
     let prompt = format!("{PROMPT_TOKEN} {}", case["prompt"].as_str().expect("prompt"));
     let turn = call(&mut halves, 3, "turn/start", json!({ "opId": op(3), "threadId": thread, "input": { "prompt": prompt } })).await;
@@ -337,6 +375,13 @@ async fn replay(name: &str, dir: PathBuf) {
     })
     .await
     .expect("the endpoint's wait");
+    // A stub still holding its handshake is let go, so it ends with the core.
+    if let Some((mut first, arrivals)) = held_stubs {
+        first.write_all(b"go").expect("opening the gate");
+        for mut stub in arrivals.try_iter() {
+            let _ = stub.write_all(b"go");
+        }
+    }
     shutdown.run().await;
 
     let scratch = format!("s.{}", &Sha256::digest(thread.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>()[..16]);
@@ -516,6 +561,18 @@ fn settings_route_default() {
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn settings_route_git_module_off() {
     crate::compose_test_support::in_child(module_path!(), "settings_route_git_module_off", runtime(), |dir| replay("settings-route-git-module-off", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_slow_submitted_before_connect() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_slow_submitted_before_connect", runtime(), |dir| replay("mcp-slow-submitted-before-connect", dir));
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn mcp_slow_submitted_after_connect() {
+    crate::compose_test_support::in_child(module_path!(), "mcp_slow_submitted_after_connect", runtime(), |dir| replay("mcp-slow-submitted-after-connect", dir));
 }
 
 #[test]

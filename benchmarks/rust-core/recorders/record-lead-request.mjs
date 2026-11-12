@@ -10,6 +10,8 @@
 //
 //   node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <export of b6f10295a with node_modules> --patch <node-fix-spawn-model-settings.patch>,<node-fix-deferred-listing-trigger.patch> [--only <scenario>]
 //
+// The turn is submitted only after the daemon's own `mcp:ready` / `mcp:failed` boot line (every configured MCP server finished its initial connect);
+// the scenarios with `mcpGate` hold a stub's handshake behind a loopback gate this recorder owns, to show the first request differs with the connect.
 // Each scenario is run twice: the first run is the recording, the second a check that it is byte-identical (a difference fails the recorder and names where).
 //
 // Output: native/core/fixtures/lead-request/golden.json (+ MANIFEST.json). Each scenario holds the settings it was recorded under (`config`,
@@ -109,6 +111,33 @@ async function provider(route) {
   };
 }
 
+/** The gate of a slow MCP stub: a loopback listener the stub connects to, and holds its handshake until `open` sends it a byte. */
+async function gateServer() {
+  let sockets = [];
+  let connected;
+  const arrival = new Promise((resolve) => {
+    connected = resolve;
+  });
+  const server = createServer();
+  server.on('connection', (socket) => {
+    sockets.push(socket);
+    connected(socket);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: server.address().port,
+    /** Settles when the stub has connected: its connect is in flight and held. */
+    arrival,
+    open: () => sockets.forEach((socket) => socket.write('go')),
+    close: () =>
+      new Promise((resolve) => {
+        sockets.forEach((socket) => socket.destroy());
+        sockets = [];
+        server.close(resolve);
+      }),
+  };
+}
+
 /** The programs a scenario puts on the PATH: git always, and what it names. */
 const scenarioPrograms = (scenario) => ['git', ...(scenario.path ?? [])];
 
@@ -118,7 +147,7 @@ const put = (root, rel, text) => {
 };
 
 /** The profile of one scenario: every root the daemon resolves is inside `sandbox`; the settings and files are the scenario's. */
-function seed(sandbox, scenario, route, baseURL) {
+function seed(sandbox, scenario, route, baseURL, gatePort) {
   const home = join(sandbox, 'home');
   const data = join(home, '.mixdog', 'data');
   const ws = join(sandbox, 'ws');
@@ -144,6 +173,10 @@ function seed(sandbox, scenario, route, baseURL) {
     MIXDOG_DAEMON_SPAWNED_FOR: 'session',
     NO_PROXY: '127.0.0.1,localhost',
     TZ: 'UTC',
+    // The daemon's own `mcp:ready` / `mcp:failed` boot line says the initial connect of every configured server settled.
+    // (After its ready line the daemon sends its stderr to daemon.log unless `MIXDOG_DAEMON_ALLOW_STDERR` is set.)
+    MIXDOG_BOOT_PROFILE: '1',
+    MIXDOG_DAEMON_ALLOW_STDERR: '1',
     // The catalogs are fetched from the network and change daily: the daemon starts without them, as a replay's core does.
     NODE_OPTIONS: `--import ${pathToFileURL(OFFLINE_NETWORK).href}`,
     ...(scenario.mcp ? {} : { MIXDOG_DISABLE_MCP: '1' }),
@@ -170,7 +203,7 @@ function seed(sandbox, scenario, route, baseURL) {
     },
   };
   writeFileSync(join(data, 'mixdog-config.json'), JSON.stringify(config, null, 2).replaceAll('{DATA}', data.replaceAll('\\', '/')));
-  for (const [rel, text] of Object.entries(scenario.data ?? {})) put(data, rel, text);
+  for (const [rel, text] of Object.entries(scenario.data ?? {})) put(data, rel, text.replaceAll('{GATE_PORT}', String(gatePort)));
   for (const [rel, text] of Object.entries(scenario.workspace ?? {})) put(ws, rel, text);
   // A developer's machine has git (and node, for a server started with `node`) on its PATH: the folders of the programs the scenario names are added.
   const programs = { git: () => spawnSync('where', ['git'], { encoding: 'utf8', windowsHide: true }).stdout.split(/\r?\n/)[0], node: () => process.execPath };
@@ -183,16 +216,22 @@ async function oneScenario(scenario) {
   const route = ROUTES[scenario.route];
   const sandbox = mkdtempSync(join(scratchRoot, 'lead-req-'));
   const server = await provider(route);
+  const gate = await gateServer();
   let child = null;
   let doc = null;
   let watcher = null;
   let attached = null;
   let stderr = '';
   try {
-    const { env, data, ws, home } = seed(sandbox, scenario, route, server.baseURL);
+    const { env, data, ws, home } = seed(sandbox, scenario, route, server.baseURL, gate.port);
     child = spawn(process.execPath, [join(tree, 'src/standalone/daemon.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, cwd: ws });
+    let mcpSettled;
+    const mcpConnects = new Promise((resolve) => {
+      mcpSettled = resolve;
+    });
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
+      if (/\[mixdog-boot\] \S+ mcp:(ready|failed)\b/.test(stderr)) mcpSettled();
     });
     const read = () => {
       try {
@@ -227,6 +266,17 @@ async function oneScenario(scenario) {
     // A new task whose draft names no route starts on the model the settings choose (configureDraft returns before setRoute).
     if (!scenario.settingsRoute) await withDeadline(attached.call('session.configure', { sessionId, action: 'setRoute', args: [{ provider: route.provider, model: route.model, applyToCurrentSession: true, keepMainModel: false }] }), 'setRoute');
     await withDeadline(attached.call('session.subscribe', { sessionId }), 'session.subscribe');
+    // The turn is submitted only once the configured servers' initial connect settled (Node starts it unawaited and a turn's grace for it is zero, so
+    // a server still connecting is not in the first request). The one exception is a scenario that holds a server's handshake on purpose.
+    if (scenario.mcpGate === 'held') {
+      await withDeadline(gate.arrival, 'the slow MCP stub to start connecting (it holds its handshake)');
+    } else {
+      if (scenario.mcpGate === 'released') {
+        await withDeadline(gate.arrival, 'the slow MCP stub to start connecting');
+        gate.open();
+      }
+      await withDeadline(mcpConnects, 'the daemon to report the initial MCP connect settled (mcp:ready or mcp:failed)');
+    }
     const submitted = await withDeadline(attached.call('session.submit', { sessionId, prompt: `${PROMPT_TOKEN} ${scenario.prompt ?? 'hello'}` }), 'session.submit');
     if (submitted?.accepted !== true) throw new Error(`session.submit: ${JSON.stringify(submitted)}`);
     const request = await withDeadline(server.arrival((post) => JSON.stringify(post.body).includes(PROMPT_TOKEN)), 'the provider to receive the lead request');
@@ -235,17 +285,17 @@ async function oneScenario(scenario) {
     console.error(`daemon stderr:\n${stderr}`);
     throw error;
   } finally {
-    // Every step below runs whatever the one before it did: a failed stop request or close never leaves the daemon, its watcher or the endpoint running.
+    // Every step below runs whatever the one before it did. The daemon's whole process tree is ended while the daemon is alive (its children, a stub or a
+    // PowerShell probe, would outlive a daemon that exits first and hold the sandbox folders), not stopped through the daemon.
     watcher?.close();
     await withDeadline(attached?.close() ?? Promise.resolve(), 'the client to close', 10_000).catch(() => {});
-    if (doc) {
-      await fetch(`http://127.0.0.1:${doc.endpoints.session.port}/stop`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mixdog-daemon-token': doc.endpoints.session.token }, body: JSON.stringify({ force: true }), signal: AbortSignal.timeout(10_000) }).catch(() => {});
-    }
     if (child && child.exitCode === null) {
       const exited = new Promise((resolve) => child.once('exit', resolve));
-      await withDeadline(exited, 'the daemon to exit', 60_000).catch(() => spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }));
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      await withDeadline(exited, 'the daemon to exit', 60_000);
     }
     await server.close();
+    await gate.close();
     rmSync(sandbox, { recursive: true, force: true });
   }
 }
@@ -307,7 +357,7 @@ const only = args.get('only');
 const recorded = [];
 for (const scenario of LEAD_SCENARIOS.filter((s) => !only || s.name === only)) {
   const request = await recordChecked(scenario);
-  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, env: scenario.env ?? {}, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, request });
+  recorded.push({ name: scenario.name, route: scenario.route, routeSpec: ROUTES[scenario.route], path: scenarioPrograms(scenario), prompt: scenario.prompt ?? 'hello', config: scenario.config ?? {}, data: scenario.data ?? {}, workspace: scenario.workspace ?? {}, gitInit: scenario.gitInit ?? false, env: scenario.env ?? {}, settingsRoute: scenario.settingsRoute ?? false, mcp: scenario.mcp ?? null, mcpGate: scenario.mcpGate ?? null, request });
   console.log(`${scenario.name}: ${JSON.stringify(request.body).length} bytes`);
 }
 if (only) {

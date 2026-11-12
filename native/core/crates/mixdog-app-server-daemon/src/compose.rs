@@ -463,6 +463,13 @@ impl ComposedCore {
         self.real.close_data_files();
     }
 
+    /// Returns once every open MCP scope's first connect settled (connected or failed): what the recording waits on (Node's
+    /// `mcp:ready` / `mcp:failed` boot line) before it submits a turn.
+    #[cfg(test)]
+    pub(crate) async fn mcp_connections_settled(&self) {
+        self.real.mcp_glue.connections_settled().await;
+    }
+
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]
     pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {
