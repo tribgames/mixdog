@@ -61,6 +61,10 @@ param(
     # The checkout the core is built in; the detached worker (started through WMI, which passes no environment)
     # gets it here.
     [string]$CoreBuildRoot = '',
+    # A mixdogd built ahead (see `dev-fast-direct.mjs --action=stamp-core-binary`): used instead of running cargo.
+    [string]$CoreBinary = '',
+    # Ends right before the detached worker would start and prints what it would do; changes nothing.
+    [switch]$StopBeforeSwap,
     [int]$FeedPort = 9357
 )
 
@@ -212,6 +216,7 @@ function Start-FastDirectWorker {
         + " -FastStatePath $(ConvertTo-PowerShellLiteral $FastStatePath)" `
         + " -FastArtifactDir $(ConvertTo-PowerShellLiteral $FastArtifactDir)" `
         + " -CoreBuildRoot $(ConvertTo-PowerShellLiteral $coreBuildRoot)" `
+        + $(if ($CoreBinary) { " -CoreBinary $(ConvertTo-PowerShellLiteral $CoreBinary)" } else { '' }) `
         + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
     return Start-DetachedDeployWorker -ModeName 'FastDirect' -WorkerLabel 'fast deploy' `
         -WorkerArguments $workerArguments
@@ -537,7 +542,19 @@ function Wait-ForFreshDaemon {
 # checkout of the same files has newer mtimes, so cargo would rebuild all 41 crates every deploy).
 $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
 
+function Get-BuiltCorePath {
+    if ($CoreBinary) { return $CoreBinary }
+    return Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+}
+
 function Build-LocalCore {
+    if ($CoreBinary) {
+        # Built ahead (any cargo target dir); only valid while the sources are the ones it was stamped with.
+        Write-Step "using the prebuilt core $CoreBinary"
+        & node $fastDirectHelper --action=assert-core-binary "--binary=$CoreBinary" "--source-root=$coreBuildRoot"
+        if ($LASTEXITCODE -ne 0) { throw "The prebuilt core does not match the sources." }
+        return $CoreBinary
+    }
     Write-Step 'building mixdogd (cargo build --release -p mixdog-cli)'
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot"
@@ -1025,7 +1042,7 @@ function Install-IncrementalBuild {
             Install-PreparedArtifact $runtimeCode $installedPackage
         }
         if ($coreChanged) {
-            $builtCore = Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+            $builtCore = Get-BuiltCorePath
             if (-not (Test-Path -LiteralPath $builtCore -PathType Leaf)) { throw "Built core is missing: $builtCore" }
             $installedCore = Join-Path $installedResources 'core\mixdogd.exe'
             Backup-InstalledArtifact $installedCore 'mixdogd.exe'
@@ -1185,6 +1202,17 @@ if ($FastDirect -and $BuildOnly) {
 if ($FastDirect -and -not $FastDirectWorker) {
     if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
         $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
+    }
+    if ($StopBeforeSwap) {
+        Write-Step 'stopping before the swap (-StopBeforeSwap); the detached worker would:'
+        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'ask the running 1.4.5 daemon to drain through /upgrade and wait until it exits (no timer)' }
+        Write-Host "  1. close the app: $(if ($appBefore.Count) { 'pid ' + ($appBefore.ProcessId -join ', ') } else { '(not running)' })"
+        Write-Host "  2. $drain"
+        Write-Host '  3. force-stop what still holds files under the install dir (after 10 s)'
+        Write-Host "  4. $(if ($fastPlan.full) { "replace every entry of $InstallDir with $unpackedDir (the old ones are kept aside until the new app has published a core)" } else { "swap the changed artifacts (shell: $(@($fastPlan.targets).Count -gt 0), core: $([bool]$fastPlan.core), runtime package: $([bool]$fastPlan.runtime))" })"
+        Write-Host '  5. start the app and wait for a fresh daemon.json and a visible window; on failure restore step 4'
+        Write-Host "plan current: yes (inputs match the plan); installed now: $installedBefore; target: $targetVersion; core: $(if ($CoreBinary) { $CoreBinary } else { 'built by cargo' })"
+        exit 0
     }
     Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
     $workerPid = Start-FastDirectWorker
