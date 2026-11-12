@@ -7577,6 +7577,27 @@
       ],
       "type": "string"
     },
+    "ProxyAccountRouting": {
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "sessionAccountId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accountId",
+        "provider"
+      ],
+      "type": "object"
+    },
     "ProxyBinary": {
       "description": "A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it is never carried: the sender inlines the bytes (under its byte budget), and a reference that stays travels as `unavailable`.",
       "oneOf": [
@@ -7759,14 +7780,14 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "media_type"
+            "mediaType"
           ],
           "type": "object"
         },
@@ -7781,7 +7802,7 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": [
                 "string",
                 "null"
@@ -7847,19 +7868,19 @@
       "oneOf": [
         {
           "properties": {
-            "allowed_domains": {
+            "allowedDomains": {
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
-            "context_size": {
+            "contextSize": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "include_sources": {
+            "includeSources": {
               "type": "boolean"
             },
             "kind": {
@@ -7868,7 +7889,7 @@
               ],
               "type": "string"
             },
-            "max_uses": {
+            "maxUses": {
               "format": "uint32",
               "minimum": 0.0,
               "type": [
@@ -7876,10 +7897,10 @@
                 "null"
               ]
             },
-            "tool_type": {
+            "toolType": {
               "type": "string"
             },
-            "user_location": {
+            "userLocation": {
               "anyOf": [
                 {
                   "$ref": "#/definitions/ProxyLocation"
@@ -7891,10 +7912,10 @@
             }
           },
           "required": [
-            "allowed_domains",
-            "include_sources",
+            "allowedDomains",
+            "includeSources",
             "kind",
-            "tool_type"
+            "toolType"
           ],
           "type": "object"
         }
@@ -7913,14 +7934,14 @@
               ],
               "type": "string"
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "mime_type"
+            "mimeType"
           ],
           "type": "object"
         },
@@ -7993,6 +8014,17 @@
     },
     "ProxyMessage": {
       "properties": {
+        "accountRouting": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyAccountRouting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The account that served this answer, as the server kept it from the run's `accountRouting` event (Node `providerMetadata.accountRouting`): the PC's pool reads it back from the history to keep the conversation on that account."
+        },
         "assistantBlocks": true,
         "cacheTier": {
           "anyOf": [
@@ -8097,6 +8129,11 @@
           ]
         },
         "fast": {
+          "type": "boolean"
+        },
+        "forkedTransportScope": {
+          "default": false,
+          "description": "The server forked this request from a session (a side question) and gave it a transport scope of its own (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and releases it when the request ends.",
           "type": "boolean"
         },
         "hostedTools": {
@@ -8253,7 +8290,7 @@
                 "null"
               ]
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             },
             "source": {
@@ -8267,7 +8304,7 @@
             }
           },
           "required": [
-            "mime_type",
+            "mimeType",
             "source",
             "type"
           ],
@@ -8920,6 +8957,20 @@
     },
     "RoomResetParams": {
       "description": "Params of `room/reset`.",
+      "properties": {
+        "input": true,
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "opId"
+      ],
+      "type": "object"
+    },
+    "RoomSendParams": {
+      "description": "Params of `room/send`: `input` is `{ threadId, prompt, options }`, the room log and the turn input `turn/start` takes.",
       "properties": {
         "input": true,
         "opId": {
@@ -15214,6 +15265,29 @@
         },
         "params": {
           "$ref": "#/definitions/RoomLeaveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `submitToSession` on a room log (`session-host.ts:1089-1091` → `agentRooms.send`): a user's message posted into the room and routed to its members; the reply is `true`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "room/send"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RoomSendParams"
         }
       },
       "required": [

@@ -8,10 +8,13 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const cli = parseArgs();
 const tree = resolveTree(cli);
+// `--patch <file>`: the tree is the reference commit with that Node fix applied (a clear Node bug fixed on both sides).
+const patched = cli.get('patch');
 const SET = 'thread-settings';
 const stage = stageSet(join(FIXTURES_ROOT, SET));
 
@@ -433,8 +436,9 @@ writeJson(join(stage, 'context-switch.json'), { cases: contextCases });
 writeSetManifest(stage, {
   set: SET,
   recorder: 'benchmarks/rust-core/recorders/record-thread-settings.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-thread-settings.mjs --tree <tree>',
-  identityTree: tree,
+  command: 'node benchmarks/rust-core/recorders/record-thread-settings.mjs --tree <tree>' + (patched ? ' --patch ' + patched : ''),
+  ...(patched ? { identity: nodeTreeIdentity(cli, tree, 'b6f10295a2f698afc85332467192de28500bd146') } : { identityTree: tree }),
+  extra: recorderProvenance(import.meta.url),
 });
 commitStage(stage, join(FIXTURES_ROOT, SET));
 console.log(`thread settings: route cases ${routeCases.length}, settings scenarios ${settingsRecorded.length}, context cases ${contextCases.length}`);

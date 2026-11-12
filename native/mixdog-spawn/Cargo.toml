@@ -41,6 +41,11 @@ core = [
 # terminal replay's core (`mixdogd` built with `--features terminal-lease-clock`) enable it; no shipped artifact does.
 lease-clock = ["core"]
 
+# Every terminal tab runs the scripted shell (`crate::scripted::profile`) over pipes while `MIXDOG_TERMINAL_SCRIPTED_SHELL` is set, so a
+# replay compares exactly the bytes it typed: only the terminal lane replay's core (`mixdogd` built with `--features replay-controls`)
+# enables it; no shipped artifact does.
+scripted-shell = ["core"]
+
 # The tests of the library half run with `--features core-test`; the binary's own tests do not
 # see them.
 core-test = [
@@ -68,7 +73,7 @@ name = "exit_window"
 required-features = ["core-test"]
 
 [[test]]
-name = "adoption_failure"
+name = "atomic_job"
 required-features = ["core-test"]
 
 [[test]]

@@ -585,6 +585,7 @@ mod tests {
             ComposeConfig {
                 data_dir: data.clone(),
                 user_data_dir: dir.path().join("userdata"),
+                runtime_root: dir.path().join("runtime"),
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                 outgoing: outgoing.clone(),
@@ -630,6 +631,7 @@ mod tests {
             ComposeConfig {
                 data_dir: data.clone(),
                 user_data_dir: dir.path().join("userdata"),
+                runtime_root: dir.path().join("runtime"),
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                 outgoing: outgoing.clone(),
@@ -735,6 +737,7 @@ mod tests {
                     ComposeConfig {
                         data_dir: crate::compose_test_support::data_in(&dir),
                         user_data_dir: dir.join("userdata"),
+                        runtime_root: dir.join("runtime"),
                         js_runtime: crate::js_runtime::fixture(&dir),
                         ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                         outgoing: outgoing.clone(),

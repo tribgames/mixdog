@@ -79,11 +79,7 @@ mod tests {
 
     use super::*;
 
-    // Read at run time: an `include_str!` put the 1.3 MB recording into every test build of the crate.
-    #[allow(clippy::disallowed_methods)] // test fixture loading
-    static TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/quota-usable/quota-usable-twin.json")).unwrap()
-    });
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
 
     /// Answers the one streamed request it is given and keeps what it was asked.
     struct Pc {

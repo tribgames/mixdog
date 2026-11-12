@@ -1,5 +1,7 @@
 mod admission;
+mod anthropic_bound_frame;
 mod ai_other_fixtures;
+mod anthropic_request_gzip;
 mod ai_other_no_timer;
 mod broker;
 mod native_search_request;
@@ -11,6 +13,7 @@ mod openai_delta;
 mod openai_fixtures;
 mod openai_labels;
 mod openai_login;
+mod openai_env_switches;
 mod openai_metadata;
 mod openai_models;
 mod openai_oauth;

@@ -623,10 +623,15 @@ fn a_cut_or_filtered_turn_never_dispatches_its_tool_calls() {
     let sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"k\"}}]}}]}\n\n\
                data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
     let mut decoder = codec.decoder(&base_request("m"));
-    let events = decoder.feed(sse.as_bytes()).unwrap();
-    assert!(tool_calls_of(&events).is_empty());
-    assert_eq!(stop_of(&events), StopReason::MaxTokens);
-    assert!(decoder.exposure().tool_input_cut);
+    // `normalizeCompatChatResponse` fails the turn; the call (its cut arguments ride as the invalid-arguments marker) is
+    // held by the error and never dispatched.
+    decoder.feed(sse.as_bytes()).unwrap();
+    let err = decoder.finish().expect_err("a cut turn that holds a call fails");
+    assert_eq!((err.kind, err.code.as_deref()), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE")));
+    assert_eq!(err.partial_tool_calls.len(), 1);
+    assert_eq!(err.partial_tool_calls[0].name, "lookup");
+    assert_eq!(err.partial_tool_calls[0].arguments["__rawArguments"], "{\"k");
+    assert!(!err.exposure.tool_dispatched);
 }
 
 /// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the

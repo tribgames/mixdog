@@ -69,8 +69,6 @@ impl ModelResponse {
 pub struct ResponseBuilder {
     response: ModelResponse,
     ids: ToolCallIds,
-    /// The id each live call was resolved to, by the id the provider gave it.
-    resolved: std::collections::HashMap<String, String>,
     completed: bool,
 }
 
@@ -82,7 +80,6 @@ impl ResponseBuilder {
                 ..ModelResponse::default()
             },
             ids,
-            resolved: std::collections::HashMap::new(),
             completed: false,
         }
     }
@@ -94,24 +91,14 @@ impl ResponseBuilder {
             StreamEvent::ReasoningDelta(text) => response.reasoning.push_str(&text),
             StreamEvent::ReasoningReplay(replay) => response.replay.push(replay),
             StreamEvent::FinalContent(text) => response.content = text,
-            StreamEvent::ReturnedCalls(calls) => {
+            StreamEvent::ReturnedCalls(mut calls) => {
                 // A call that also ran live keeps the id it was resolved to then.
-                response.tool_calls = calls
-                    .into_iter()
-                    .map(|mut call| {
-                        match self.resolved.get(&call.id) {
-                            Some(id) => call.id = id.clone(),
-                            None => self.ids.resolve(&mut call),
-                        }
-                        call
-                    })
-                    .collect();
+                self.ids.resolve_all(&mut calls);
+                response.tool_calls = calls;
             }
             StreamEvent::ThinkingBlocks(blocks) => response.thinking_blocks = Some(blocks),
             StreamEvent::ToolCallDone(mut call) => {
-                let original = call.id.clone();
                 self.ids.resolve(&mut call);
-                self.resolved.insert(original, call.id.clone());
                 response.tool_calls.push(call);
             }
             StreamEvent::Usage(usage) => response.usage = usage,
@@ -335,7 +322,7 @@ mod tests {
         // an Anthropic turn whose call leaked as stored on its assistant message, and the content the compatible
         // Responses collector returns when the guard hid all of the text.
         let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
         let scenario = |route: &str, name: &str| {
             golden["scenarios"].as_array().unwrap().iter().find(|s| s["route"] == route && s["name"] == name).unwrap().clone()
         };

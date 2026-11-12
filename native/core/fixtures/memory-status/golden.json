@@ -1,0 +1,21 @@
+{
+  "clockMs": 1748736000000,
+  "seedSql": "INSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (0, 'user', 'x', 'ref-0', 1);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (1, 'user', 'x', 'ref-1', 1);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (2, 'user', 'x', 'ref-2', 1);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (3, 'user', 'x', 'ref-3', 1);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (4, 'user', 'x', 'ref-4', 0);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (5, 'user', 'x', 'ref-5', 0);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (6, 'user', 'x', 'ref-6', 0);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (7, 'user', 'x', 'ref-7', 0);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (8, 'user', 'x', 'ref-8', 0);\nINSERT INTO entries (ts, role, content, source_ref, is_root) VALUES (9, 'user', 'x', 'ref-9', 0);\nUPDATE entries SET chunk_root = id WHERE is_root = 1;\nUPDATE entries SET category = CASE WHEN id <= 3 THEN 'decision' ELSE 'fact' END, status = 'pending'::entry_status WHERE is_root = 1;\nINSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('tone', 'Answer briefly', 'rule', NULL, NULL, 0, 0);\nINSERT INTO meta (key, value) VALUES ('state.cycle_last_run', '{\"cycle1\": 1748735680000, \"cycle1_heartbeat\": 1748735680000}'::jsonb)",
+  "args": {
+    "action": "status"
+  },
+  "status": {
+    "result": {
+      "text": "entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\nstatus: pending:4\ncategories: decision:3, fact:1\ncore_memory: user=1\nembedding_index: ready dims=384\nbootstrap: complete\nlast_cycle1: 5m ago",
+      "content": [
+        {
+          "type": "text",
+          "text": "entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\nstatus: pending:4\ncategories: decision:3, fact:1\ncore_memory: user=1\nembedding_index: ready dims=384\nbootstrap: complete\nlast_cycle1: 5m ago"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "statusJson": "{\"text\":\"entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\\nstatus: pending:4\\ncategories: decision:3, fact:1\\ncore_memory: user=1\\nembedding_index: ready dims=384\\nbootstrap: complete\\nlast_cycle1: 5m ago\",\"content\":[{\"type\":\"text\",\"text\":\"entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\\nstatus: pending:4\\ncategories: decision:3, fact:1\\ncore_memory: user=1\\nembedding_index: ready dims=384\\nbootstrap: complete\\nlast_cycle1: 5m ago\"}],\"isError\":false}",
+  "stateFileText": "{\"running\":null,\"backlog\":{\"unchunked\":0,\"at\":0},\"cycles\":{\"cycle1\":{\"last_success_at\":1748735680000,\"last_error_at\":0,\"last_error\":null,\"consecutive_failures\":0}},\"updatedAt\":1748736000000}\n"
+}

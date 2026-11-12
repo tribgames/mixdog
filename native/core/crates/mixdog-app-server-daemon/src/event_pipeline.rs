@@ -384,7 +384,8 @@ impl EventPipeline {
                 return None;
             }
         };
-        match serde_json::from_slice::<Value>(&bytes) {
+        // A webhook field holding a lone surrogate escape is a string to Node, which stores it: U+FFFD here.
+        match serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)) {
             Ok(Value::Object(item)) => Some(item),
             _ => {
                 // Corrupt bytes (or not an event record) can never run: set aside.
@@ -626,11 +627,11 @@ mod tests {
 
     /// Recorded from Node's real `event-pipeline.mjs`, `event-queue.mjs` and `executor.mjs`
     /// (`record-event-pipeline.mjs`).
-    const GOLDEN: &str = include_str!("../../../fixtures/event-pipeline/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/event-pipeline/golden.json");
     const NOW: i64 = 1_700_000_000_000;
 
     fn golden() -> Value {
-        serde_json::from_str(GOLDEN).unwrap()
+        serde_json::from_str(&GOLDEN).unwrap()
     }
 
     #[derive(Default)]
@@ -772,7 +773,7 @@ mod tests {
                     if snapshot(dir.path()).await == want {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_millis(2)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(2)).await;
                 }
                 assert_eq!(snapshot(dir.path()).await, want, "{at}");
                 let injected: Vec<Value> = sink.got.lock().unwrap().drain(..).map(|(event, prompt)| serde_json::json!({"event": event, "instruction": prompt})).collect();
@@ -780,5 +781,35 @@ mod tests {
                 assert_eq!(injected, expected, "{at}: injections");
             }
         }
+    }
+
+    /// A queued event Node wrote from a webhook whose field held a lone surrogate escape
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads the item Node's
+    /// `JSON.parse` reads (the half emoji as U+FFFD) instead of quarantining it as corrupt.
+    #[tokio::test]
+    async fn a_queued_item_node_wrote_with_half_an_emoji_is_read_whole() {
+        let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "event-queue").unwrap();
+        let rel = case["file"].as_str().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let files = QueueFiles {
+            fs: Arc::new(LocalFileService::new()),
+            read: tokens.interactive_io,
+            write: tokens.durability_io,
+            root: AbsPath::new(dir.path().join("events")).unwrap(),
+        };
+        let pipeline = EventPipeline::new(files, Arc::new(Sink::default()), &serde_json::json!({"rules": [], "queue": {}}), Arc::new(|| NOW));
+        pipeline.ensure_dirs().await;
+        std::fs::copy(set.join("event-queue/before").join(rel), dir.path().join(rel)).unwrap();
+        let name = rel.rsplit('/').next().unwrap();
+        let item = pipeline.read_item(name).await.unwrap();
+        assert_eq!(Value::Object(item.clone()), case["before"][rel]);
+        // Node's own rewrite of the record: one failed inject requeues it with its attempt count, under its own name.
+        let claimed = pipeline.claim(name).await.unwrap();
+        pipeline.requeue(&claimed, &item).await;
+        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(rel)).unwrap()).unwrap();
+        assert_eq!(written, case["after"][rel]);
     }
 }

@@ -1,0 +1,4611 @@
+{
+ "$comment": "The class of every string field of every client request, client notification and answer to a server request, with its reason: `free` (a lone surrogate there is read as U+FFFD) or `refused` (a lone surrogate there refuses the frame). It is the independent statement src/free_text.rs FREE_TEXT must equal: the contract test (tests/it/contract.rs every_string_field_is_classed_once_and_free_text_is_listed_free) fails on a field of the schema in no class or in two, a classed field the schema does not have, and any difference between the `free` fields here and FREE_TEXT, either way. Fields are pointers into the payload; `*` is any one array index or map key, a last `{}` the keys of the map there, a last `**` every value and key below. `payloads` enumerates, for each value the schema leaves untyped, the string fields its reader reads (`fields`, or the `schema` definition it deserialises into), with that reader as `source`; `open` names a part that has no fixed fields by nature (JSON a model, a tool, a provider or the language-server protocol wrote, or a setting value whose shape its path decides) with its class and reason: only such a part may be classed whole as `**`. How it was derived: by hand, field by field, not from FREE_TEXT. The string fields come from the protocol schema (schema/client_request.json, client_notification.json, server_request_methods.json; the contract test walks the same files), and for a value the schema leaves untyped from the code of the core that reads it (`payloads` names that code as `source`; LSP params from the methods Node allows and the LSP 3.17 specification). Each field's class was decided from what that reader, and the Node code it ports, does with the string: looked up, matched, run, parsed, sent as an address or a header, or compared with a file or a store -> refused; shown, stored or written as text and compared with nothing -> free; where a recording shows what Node does with a lone unit there, the recording decides and the reason names it. FREE_TEXT was then written to this list and is checked against it, not the other way round: a field added to the schema is in no class until a person classes it here, and the test fails meanwhile.",
+ "payloads": {
+  "request": {
+   "feedback/upload": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/feedback.rs normalize, normalize_attachments",
+     "fields": [
+      "/id",
+      "/kind",
+      "/message",
+      "/replyTo",
+      "/attachments/*/name",
+      "/attachments/*/mimeType",
+      "/attachments/*/data"
+     ]
+    }
+   },
+   "channel/call": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/channels/call.rs dispatch, tools.rs dispatch, setup.rs run, admin.rs save_schedule_row/save_webhook_row, ports.rs WebhookPatch::from_params",
+     "fields": [
+      "/sessionId",
+      "/transcriptPath",
+      "/name",
+      "/automationKind",
+      "/def/name",
+      "/def/newName",
+      "/def/instructions",
+      "/def/description",
+      "/def/time",
+      "/def/at",
+      "/def/timezone",
+      "/def/days",
+      "/def/days/*",
+      "/def/cwd",
+      "/def/attachments/*",
+      "/def/owner",
+      "/def/executorAgentId",
+      "/entry/name",
+      "/entry/newName",
+      "/entry/instructions",
+      "/entry/description",
+      "/entry/time",
+      "/entry/at",
+      "/entry/timezone",
+      "/entry/days",
+      "/entry/days/*",
+      "/entry/cwd",
+      "/entry/attachments/*",
+      "/entry/owner",
+      "/entry/executorAgentId",
+      "/entry/parser",
+      "/entry/secret",
+      "/webhook/domain",
+      "/webhook/port"
+     ]
+    }
+   },
+   "route/set": {
+    "/route": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort",
+      "/fallbacks/*/provider",
+      "/fallbacks/*/model",
+      "/fallbacks/*/effort",
+      "/modelParameters/*",
+      "/modelParameters/{}"
+     ]
+    }
+   },
+   "thread/start": {
+    "/draft/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-session/src/session/new_route.rs draft_pick (copies provider, model, effort; never reads fallbacks)",
+     "fields": []
+    },
+    "/draft/worktree": {
+     "source": "native/core/crates/mixdog-core-session/src/session/new_task.rs (a truthy check, replaced with {})",
+     "fields": []
+    }
+   },
+   "thread/delete": {
+    "/ifIdle": {
+     "source": "native/core/crates/mixdog-core-session/src/session/delete.rs idle_refusal",
+     "fields": [
+      "/lastUsedAt"
+     ]
+    }
+   },
+   "thread/fork": {
+    "/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort"
+     ]
+    }
+   },
+   "thread/continueInModel": {
+    "/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort"
+     ]
+    }
+   },
+   "thread/compact/start": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/turn_ops.rs compact_trigger, actor/turn_ops.rs compact_start (requireReduction, recoverAgent: booleans)",
+     "fields": []
+    }
+   },
+   "thread/approval/answer": {
+    "/result": {
+     "source": "native/core/crates/mixdog-core-base/src/approvals/mod.rs validate: serde_json::from_value::<ToolApprovalDecision>",
+     "schema": "server_request_methods.json#ToolApprovalDecision"
+    }
+   },
+   "thread/goal/set": {
+    "/goal": {
+     "source": "native/core/crates/mixdog-core-goal/src/goal/control.rs request, control, control_create; state.rs parse_user_command",
+     "fields": [
+      "",
+      "/command",
+      "/objective",
+      "/duration",
+      "/expectedGoalId",
+      "/action"
+     ]
+    }
+   },
+   "thread/goal/control": {
+    "/args": {
+     "source": "native/core/crates/mixdog-core-goal/src/goal/control.rs control, control_edit, control_resume, control_time",
+     "fields": [
+      "/command",
+      "/objective",
+      "/duration",
+      "/expectedGoalId",
+      "/time_limit_minutes",
+      "/action"
+     ]
+    }
+   },
+   "thread/contextStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/thread_context.rs context_status (takes _options, reads nothing)",
+     "fields": []
+    }
+   },
+   "thread/getSessionUsage": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/session_usage.rs other_session_ids",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "thread/getSessionWorktreeWork": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs session_ids",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "thread/inheritancePreflight": {
+    "/selection": {
+     "source": "native/core/crates/mixdog-core-session/src/session/inheritance.rs (route provider, model)",
+     "fields": [
+      "/provider",
+      "/model"
+     ]
+    }
+   },
+   "thread/agentControl": {
+    "/args": {
+     "source": "native/core/crates/mixdog-tools/src/orch/agent dispatch.rs run, scope.rs Scope::of, flow/send.rs, flow/spawn.rs, resume.rs, model_select.rs",
+     "fields": [
+      "/type",
+      "/scope",
+      "/terminal",
+      "/term",
+      "/task_id",
+      "/tag",
+      "/sessionId",
+      "/agent",
+      "/cwd",
+      "/taskType",
+      "/typeHint",
+      "/cacheKey",
+      "/skillSelection",
+      "/model",
+      "/provider",
+      "/effort",
+      "/file",
+      "/prompt",
+      "/message",
+      "/context"
+     ]
+    }
+   },
+   "thread/switchContext": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs switch_context (desktopSession goes on unread: thread_switches.rs switch_context ignores it)",
+     "fields": [
+      "/cwd"
+     ]
+    }
+   },
+   "thread/setEffort": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs (sessionOnly: a boolean)",
+     "fields": []
+    }
+   },
+   "thread/setWorkflow": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs session_scope",
+     "fields": [
+      "/scope"
+     ]
+    }
+   },
+   "thread/setOrchestrationMode": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs session_scope",
+     "fields": [
+      "/scope"
+     ]
+    }
+   },
+   "thread/revertTurnChanges": {
+    "/file": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs mutate_changes (file.as_str)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "thread/reapplyTurnChanges": {
+    "/file": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs mutate_changes (file.as_str)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "thread/stageAttachmentOriginal": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/composer_image.rs stage_original_payload",
+     "fields": [
+      "/data"
+     ]
+    }
+   },
+   "thread/resizeImage": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/composer_image.rs resize_image",
+     "fields": [
+      "/data",
+      "/mimeType",
+      "/filename"
+     ]
+    }
+   },
+   "thread/requestWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs request_input",
+     "fields": [
+      "/name",
+      "/carryChanges",
+      "/prompt",
+      "/txId"
+     ]
+    }
+   },
+   "thread/mergeWorkspace": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs merge_input",
+     "fields": [
+      "/target"
+     ]
+    }
+   },
+   "thread/selectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs select_input",
+     "fields": [
+      "/branch",
+      "/txId"
+     ]
+    }
+   },
+   "project/inspectProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch"
+     ]
+    }
+   },
+   "project/getProjectBranchMenu": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath"
+     ]
+    }
+   },
+   "project/previewWorktreeCleanup": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs cleanup_options",
+     "fields": [
+      "/repoCommonDir"
+     ]
+    }
+   },
+   "project/selectProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/startPoint",
+      "/branch"
+     ]
+    }
+   },
+   "project/mergeProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch",
+      "/target"
+     ]
+    }
+   },
+   "project/manageProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch",
+      "/target",
+      "/action",
+      "/commit",
+      "/targetCommit",
+      "/startPoint"
+     ]
+    }
+   },
+   "project/removeWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (force: a boolean, expectedRevision: a number)",
+     "fields": []
+    },
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (force: a boolean)",
+     "fields": []
+    }
+   },
+   "project/pruneWorktrees": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs cleanup_options",
+     "fields": [
+      "/repoCommonDir"
+     ]
+    }
+   },
+   "project/deleteWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/entryId"
+     ]
+    }
+   },
+   "project/setArchivedSessionWorktrees": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "project/setProjectConnectorEnabled": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "project/update": {
+    "/alias": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs project/update (a string or null)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "agent/saveAgentDefinition": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/service.rs no_widen (noWiden: a boolean)",
+     "fields": []
+    },
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/edit.rs plan_save, save_files, apply_manifest_edits; avatar.rs avatar_update; mod.rs (route)",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body",
+      "/persona",
+      "/expectedRevision",
+      "/kind",
+      "/route/provider",
+      "/route/model",
+      "/route/effort",
+      "/route/fallbacks/*/provider",
+      "/route/fallbacks/*/model",
+      "/route/fallbacks/*/effort",
+      "/route/modelParameters/*",
+      "/avatar/kind",
+      "/avatar/file",
+      "/avatar/data",
+      "/avatar/color",
+      "/avatar/variant",
+      "/avatar/species",
+      "/avatar/accessory",
+      "/avatar/expression",
+      "/avatar/states/*",
+      "/avatar/states/*/data",
+      "/avatar/states/*/poster",
+      "/connectors/*/id",
+      "/connectors/*/tools/*",
+      "/connectors/off/*",
+      "/connectors/tools/*",
+      "/route/modelParameters/{}",
+      "/avatar/states/{}"
+     ]
+    }
+   },
+   "agent/setAgentConnectors": {
+    "/connectors": {
+     "source": "native/core/crates/mixdog-mcp/src/permissions.rs parse_connector_policy",
+     "fields": [
+      "/*/id",
+      "/*/tools/*",
+      "/off/*",
+      "/tools/*"
+     ]
+    },
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/setAgentConnectorEnabled": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/setAgentConnectorToolPermission": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    },
+    "/permission": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs set_tool_permission (Permission::parse)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "agent/setAgentPermission": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/service.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/saveLeadIdentity": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/lead.rs save_lead_identity; avatar.rs avatar_update",
+     "fields": [
+      "/name",
+      "/avatar/kind",
+      "/avatar/file",
+      "/avatar/data",
+      "/avatar/color",
+      "/avatar/variant",
+      "/avatar/species",
+      "/avatar/accessory",
+      "/avatar/expression",
+      "/avatar/states/*",
+      "/avatar/states/*/data",
+      "/avatar/states/*/poster",
+      "/avatar/states/{}"
+     ]
+    }
+   },
+   "agent/setLeadAppearance": {
+    "/avatar": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/avatar.rs avatar_update",
+     "fields": [
+      "/kind",
+      "/file",
+      "/data",
+      "/color",
+      "/variant",
+      "/species",
+      "/accessory",
+      "/expression",
+      "/states/*",
+      "/states/*/data",
+      "/states/*/poster",
+      "/states/{}"
+     ]
+    }
+   },
+   "agent/memory/delete": {
+    "/indexRevision": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/home_api.rs (the revision token)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "room/create": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs config_input, members_of",
+     "fields": [
+      "/name",
+      "/members/*"
+     ]
+    }
+   },
+   "room/update": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of, RoomPatch",
+     "fields": [
+      "/roomId",
+      "/name",
+      "/members/*"
+     ]
+    }
+   },
+   "room/continue": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/leave": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/reset": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/remove": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "instructions/saveInstructionFile": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/instructions.rs save",
+     "fields": [
+      "/body",
+      "/group",
+      "/id",
+      "/expectedRevision"
+     ]
+    }
+   },
+   "instructions/resetInstructionFile": {
+    "/expectedRevision": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/instructions.rs reset",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "connector/addConnectorAccount": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs add_connector_account; connector_model.rs",
+     "fields": [
+      "/connector",
+      "/email",
+      "/appPassword",
+      "/key",
+      "/oauthClientId",
+      "/oauthClientSecret"
+     ]
+    }
+   },
+   "config/getNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": [
+      "/provider"
+     ]
+    }
+   },
+   "config/testNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": [
+      "/provider"
+     ]
+    }
+   },
+   "config/setAutoClear": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_auto_clear",
+     "fields": [
+      "/provider",
+      "/duration"
+     ]
+    }
+   },
+   "config/setCompactionSettings": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_compaction_settings",
+     "fields": [
+      "/summaryMode"
+     ]
+    }
+   },
+   "config/setProfile": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_profile",
+     "fields": [
+      "/title",
+      "/name",
+      "/language",
+      "/lang",
+      "/experienceLevel"
+     ]
+    }
+   },
+   "config/setSystemShell": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_system_shell",
+     "fields": [
+      "",
+      "/command"
+     ]
+    }
+   },
+   "config/setTheme": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_theme (persist: a boolean)",
+     "fields": []
+    }
+   },
+   "config/setWebSearchRoute": {
+    "/next": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/search.rs plan",
+     "fields": [
+      "/provider",
+      "/toolType",
+      "/model",
+      "/effort",
+      "/fallbacks/*/provider",
+      "/fallbacks/*/model",
+      "/fallbacks/*/effort"
+     ]
+    }
+   },
+   "config/installBuiltinFeature": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs installBuiltinFeature",
+     "fields": [
+      "/engines/*"
+     ]
+    }
+   },
+   "config/setWorktreeSettings": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-scm/src/worktree/settings.rs apply_patch",
+     "fields": [
+      "/newTaskDefault",
+      "/branchPrefix"
+     ]
+    }
+   },
+   "config/setNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": []
+    },
+    "/patch": {
+     "source": "native/core/crates/mixdog-ai/src/netproxy/setting.rs",
+     "fields": [
+      "/mode",
+      "/url",
+      "/exceptions",
+      "/exceptions/*"
+     ]
+    }
+   },
+   "config/saveWorkflowPack": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/pack.rs save_pack",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body"
+     ]
+    }
+   },
+   "config/createWorkflow": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/pack.rs create_pack, save_pack",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body"
+     ]
+    }
+   },
+   "config/setModelPreferences": {
+    "/changes": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/prefs.rs",
+     "fields": [
+      "/*/model"
+     ]
+    }
+   },
+   "config/completeOnboarding": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/onboarding.rs",
+     "fields": [
+      "/visited/*",
+      "/presets/*/id",
+      "/version",
+      "/defaultRoute/provider",
+      "/defaultRoute/model",
+      "/defaultRoute/effort",
+      "/webSearchRoute/provider",
+      "/webSearchRoute/toolType",
+      "/workflowRoutes/*/provider",
+      "/workflowRoutes/*/model",
+      "/workflowRoutes/*/effort",
+      "/agentRoutes/*/provider",
+      "/agentRoutes/*/model",
+      "/agentRoutes/*/effort"
+     ]
+    }
+   },
+   "config/saveStarterGuideState": {
+    "/state": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs required_starter_guide",
+     "fields": [
+      "/visited/*"
+     ]
+    }
+   },
+   "config/completeSetupRequest": {
+    "/receipt": {
+     "source": "native/core/crates/mixdog-core-agents/src/setup/requests.rs complete",
+     "fields": [
+      "/error"
+     ]
+    }
+   },
+   "config/value/write": {
+    "/value": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs value_write, edit_of",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a setting value at any path, of any shape: the relay-writable paths (RELAY_SETTING_PATHS, service.rs) hold booleans and enums, the others ids and scopes; no setting the clients write is typed text"
+      }
+     }
+    }
+   },
+   "config/batchWrite": {
+    "/edits/*/value": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs batch, edit_of",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "as config/value/write /value"
+      }
+     }
+    }
+   },
+   "channel/getChannelSettings": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs (includeStatus: a boolean)",
+     "fields": []
+    }
+   },
+   "channel/setWebhookConfig": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-services/src/channels/ports.rs WebhookPatch::from_params",
+     "fields": [
+      "/domain",
+      "/port"
+     ]
+    }
+   },
+   "channel/saveSchedule": {
+    "/entry": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs save_schedule_row",
+     "fields": [
+      "/name",
+      "/newName",
+      "/instructions",
+      "/description",
+      "/time",
+      "/at",
+      "/timezone",
+      "/days",
+      "/days/*",
+      "/cwd",
+      "/attachments/*",
+      "/owner",
+      "/executorAgentId"
+     ]
+    }
+   },
+   "channel/saveWebhook": {
+    "/entry": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs save_webhook_row",
+     "fields": [
+      "/name",
+      "/parser",
+      "/instructions",
+      "/description",
+      "/secret",
+      "/cwd",
+      "/attachments/*",
+      "/owner",
+      "/executorAgentId"
+     ]
+    }
+   },
+   "import/getConversationImportJobs": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/jobId"
+     ]
+    }
+   },
+   "import/listImportableConversations": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs list_params",
+     "fields": [
+      "/query",
+      "/project",
+      "/cursor",
+      "/source"
+     ]
+    }
+   },
+   "import/startConversationImport": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs selection_ids",
+     "fields": [
+      "/requestId",
+      "/selection/ids/*",
+      "/selection/viewId",
+      "/selection/excludeIds/*"
+     ]
+    }
+   },
+   "import/cancelConversationImport": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/jobId"
+     ]
+    }
+   },
+   "import/registerConversationImportFile": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/source",
+      "/path"
+     ]
+    }
+   },
+   "media/listMediaAssets": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/service.rs",
+     "fields": [
+      "/kind",
+      "/boardId"
+     ]
+    }
+   },
+   "media/listMediaLanes": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/service.rs (reads nothing)",
+     "fields": []
+    }
+   },
+   "media/readMediaAsset": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/variant"
+     ]
+    }
+   },
+   "media/resolveMediaFile": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/variant"
+     ]
+    }
+   },
+   "media/startMediaJob": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/jobs.rs",
+     "fields": [
+      "/prompt",
+      "/account",
+      "/sessionId",
+      "/sourceType",
+      "/lane",
+      "/kind",
+      "/model",
+      "/boardId",
+      "/references/*/base64",
+      "/references/*/mime"
+     ]
+    }
+   },
+   "media/deleteMediaAssets": {
+    "/filter": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/ids/*",
+      "/kind",
+      "/boardId"
+     ]
+    }
+   },
+   "media/setMediaAssetBoard": {
+    "/boardId": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "media/setMediaDefault": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/kind",
+      "/lane",
+      "/model"
+     ]
+    }
+   },
+   "media/setMediaPin": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/kind",
+      "/lane",
+      "/model",
+      "/account"
+     ]
+    }
+   },
+   "media/cacheMediaThumbnail": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/base64",
+      "/mime"
+     ]
+    }
+   },
+   "mcp/getMcpOAuthLoginStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_glue.rs (reads no string)",
+     "fields": []
+    }
+   },
+   "mcp/addMcpServer": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs add_mcp_server, add_connector_account; mcp_server_input.rs",
+     "fields": [
+      "/connector",
+      "/email",
+      "/appPassword",
+      "/key",
+      "/oauthClientId",
+      "/oauthClientSecret",
+      "/name",
+      "/url",
+      "/type",
+      "/headers/*",
+      "/command",
+      "/args/*",
+      "/env/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*",
+      "/headers/{}",
+      "/env/{}",
+      "/env_http_headers/{}"
+     ]
+    }
+   },
+   "mcp/saveMcpServer": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs save_mcp_server; mcp_server_input.rs",
+     "fields": [
+      "/originalName",
+      "/name",
+      "/url",
+      "/type",
+      "/headers/*",
+      "/command",
+      "/args/*",
+      "/env/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*",
+      "/headers/{}",
+      "/env/{}",
+      "/env_http_headers/{}"
+     ]
+    }
+   },
+   "mcp/beginMcpOAuthLogin": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs begin_oauth_login (reads no string)",
+     "fields": []
+    }
+   },
+   "mcp/probeMcpServerAuth": {
+    "/cfg": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs probe_mcp_server_auth",
+     "fields": [
+      "/type",
+      "/url",
+      "/headers/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*",
+      "/headers/{}",
+      "/env_http_headers/{}"
+     ]
+    }
+   },
+   "mcp/enablePluginMcp": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs enable_plugin_mcp",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "account/listWebSearchModels": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/account.rs (force, refresh: booleans)",
+     "fields": []
+    }
+   },
+   "account/getQuotaHistory": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/quota.rs QuotaHistoryOptions",
+     "fields": [
+      "/provider",
+      "/account",
+      "/window",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay"
+     ]
+    }
+   },
+   "account/beginOAuthProviderLogin": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs",
+     "fields": [
+      "/accountId"
+     ]
+    }
+   },
+   "account/updateProviderAccounts": {
+    "/change": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs parse_account_change",
+     "fields": [
+      "/selectedId",
+      "/order/*",
+      "/policy",
+      "/rename/id",
+      "/rename/label"
+     ]
+    }
+   },
+   "account/saveProviderApiKey": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs save_provider_api_key_inner",
+     "fields": [
+      "/authMode"
+     ]
+    }
+   },
+   "account/saveCustomProvider": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_admin.rs resolve, validate_transport_fields",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey",
+      "/headers/{}",
+      "/requestBody/{}",
+      "/modelWires/{}"
+     ]
+    }
+   },
+   "account/updateCustomProviderModel": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_admin.rs plain_patch (MODEL_PATCH_KEYS)",
+     "fields": [
+      "/name",
+      "/reasoning/levels/*",
+      "/reasoning/wireFormat",
+      "/reasoning/wireValues/*",
+      "/reasoning/replay"
+     ]
+    }
+   },
+   "account/testCustomProvider": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_probe.rs test, custom_admin.rs resolve_input",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey",
+      "/headers/{}",
+      "/requestBody/{}",
+      "/modelWires/{}"
+     ]
+    }
+   },
+   "account/discoverCustomProviderModels": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_probe.rs discover_models, custom_admin.rs resolve_input",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey",
+      "/headers/{}",
+      "/requestBody/{}",
+      "/modelWires/{}"
+     ]
+    }
+   },
+   "account/consumeCodexRateLimitResetCredit": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs consume_codex_reset_credit",
+     "fields": [
+      "/expectedOfferRevision",
+      "/idempotencyKey"
+     ]
+    }
+   },
+   "localProvider/inspectHuggingFaceModel": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/local_provider/hugging_face.rs",
+     "fields": [
+      "/repository"
+     ]
+    }
+   },
+   "usage/getUsageDashboard": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/dashboards.rs (booleans)",
+     "fields": []
+    }
+   },
+   "usage/getUsageStats": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/stats.rs UsageStatsOptions",
+     "fields": [
+      "/source",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay",
+      "/startTime",
+      "/endTime"
+     ]
+    }
+   },
+   "usage/getUsageRequests": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/mod.rs get_usage_requests",
+     "fields": [
+      "/source",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay",
+      "/startTime",
+      "/endTime",
+      "/cursor"
+     ]
+    }
+   },
+   "update/checkForUpdate": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/update.rs (force: a boolean)",
+     "fields": []
+    }
+   },
+   "voice/transcribeAudio": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/voice/service.rs",
+     "fields": [
+      "/data",
+      "/mimeType"
+     ]
+    }
+   },
+   "skills/skillsStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs requested_cwd",
+     "fields": [
+      "/projectPath",
+      "/cwd"
+     ]
+    }
+   },
+   "skills/addSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs add_global_skill",
+     "fields": [
+      "/name",
+      "/description",
+      "/whenToUse",
+      "/instructions",
+      "/body",
+      "/toolDependencies/*"
+     ]
+    }
+   },
+   "skills/saveSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs save_skill_document",
+     "fields": [
+      "/originalName",
+      "/name",
+      "/description",
+      "/whenToUse",
+      "/instructions",
+      "/body",
+      "/toolDependencies/*"
+     ]
+    }
+   },
+   "skills/removeSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs remove_global_skill",
+     "fields": [
+      "/name"
+     ]
+    }
+   },
+   "plugins/addPlugin": {
+    "/source": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs add_plugin, normalize_source",
+     "fields": [
+      "",
+      "/source",
+      "/name"
+     ]
+    }
+   },
+   "plugins/updatePlugin": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "plugins/setPluginEnabled": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "plugins/removePlugin": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "memory/memoryControl": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/memory/action.rs run, project_of, agent_of, edit_target",
+     "fields": [
+      "/op",
+      "/element",
+      "/summary",
+      "/category",
+      "/id",
+      "/index_revision",
+      "/project_id",
+      "/agent_id",
+      "/cwd",
+      "/target_project_id",
+      "/target_cwd",
+      "/source",
+      "/memory_caller",
+      "/project_paths/*",
+      "/format"
+     ]
+    }
+   },
+   "memory/recall": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/memory/recall/mod.rs recall_search_args",
+     "fields": [
+      "/query",
+      "/id",
+      "/period",
+      "/sort",
+      "/category",
+      "/cursor",
+      "/sessionId",
+      "/session_id",
+      "/cwd",
+      "/projectScope",
+      "/currentSessionId",
+      "/memory_caller"
+     ]
+    }
+   },
+   "diagnostics/runDoctor": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/diagnostics.rs (notice: a boolean)",
+     "fields": []
+    }
+   },
+   "projectFs/writeTextBatch": {
+    "/files": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs batch_files",
+     "fields": [
+      "/*/relPath",
+      "/*/rel",
+      "/*/content",
+      "/*/expectedContent"
+     ]
+    }
+   },
+   "projectFs/searchText": {
+    "/options": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs text_query",
+     "fields": [
+      "/query",
+      "/include",
+      "/exclude"
+     ]
+    }
+   },
+   "projectFs/replaceText": {
+    "/options": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs text_query",
+     "fields": [
+      "/query",
+      "/include",
+      "/exclude"
+     ]
+    }
+   },
+   "projectFs/workspaceFile/write": {
+    "/folders": {
+     "source": "native/core/crates/mixdog-workspace/src/editorcfg.rs write_workspace_file",
+     "fields": [
+      "/*/path",
+      "/*/name"
+     ]
+    }
+   },
+   "transfer/beginRead": {
+    "/source/input": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs transfer/beginRead (reads nothing of it)",
+     "fields": []
+    }
+   },
+   "lsp/document": {
+    "/document": {
+     "source": "native/core/crates/mixdog-workspace/src/lsp.rs DocumentInput::from_value",
+     "fields": [
+      "/kind",
+      "/languageId",
+      "/relPath",
+      "/content"
+     ]
+    }
+   },
+   "lsp/request": {
+    "/request": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs lsp/request, lsp.rs request (forwarded as given; the fields are those of the params of each method Node allows, apps/desktop/src/shared/contract-workspace.ts DESKTOP_LSP_REQUEST_METHODS, by the LSP 3.17 specification)",
+     "fields": [
+      "/relPath",
+      "/languageId",
+      "/method",
+      "/params/textDocument/uri",
+      "/params/workDoneToken",
+      "/params/partialResultToken",
+      "/params/context/triggerCharacter",
+      "/params/label",
+      "/params/labelDetails/detail",
+      "/params/labelDetails/description",
+      "/params/detail",
+      "/params/documentation",
+      "/params/documentation/kind",
+      "/params/documentation/value",
+      "/params/sortText",
+      "/params/filterText",
+      "/params/insertText",
+      "/params/textEditText",
+      "/params/textEdit/newText",
+      "/params/additionalTextEdits/*/newText",
+      "/params/commitCharacters/*",
+      "/params/command/title",
+      "/params/command/command",
+      "/params/context/activeSignatureHelp/signatures/*/label",
+      "/params/context/activeSignatureHelp/signatures/*/documentation",
+      "/params/context/activeSignatureHelp/signatures/*/documentation/kind",
+      "/params/context/activeSignatureHelp/signatures/*/documentation/value",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/kind",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value",
+      "/params/newName",
+      "/params/context/only/*",
+      "/params/context/diagnostics/*/code",
+      "/params/context/diagnostics/*/codeDescription/href",
+      "/params/context/diagnostics/*/source",
+      "/params/context/diagnostics/*/message",
+      "/params/context/diagnostics/*/relatedInformation/*/location/uri",
+      "/params/context/diagnostics/*/relatedInformation/*/message",
+      "/params/title",
+      "/params/kind",
+      "/params/diagnostics/*/code",
+      "/params/diagnostics/*/codeDescription/href",
+      "/params/diagnostics/*/source",
+      "/params/diagnostics/*/message",
+      "/params/diagnostics/*/relatedInformation/*/location/uri",
+      "/params/diagnostics/*/relatedInformation/*/message",
+      "/params/disabled/reason",
+      "/params/edit/changes/{}",
+      "/params/edit/changes/*/*/newText",
+      "/params/edit/changes/*/*/annotationId",
+      "/params/edit/documentChanges/*/textDocument/uri",
+      "/params/edit/documentChanges/*/edits/*/newText",
+      "/params/edit/documentChanges/*/edits/*/annotationId",
+      "/params/edit/documentChanges/*/kind",
+      "/params/edit/documentChanges/*/uri",
+      "/params/edit/documentChanges/*/oldUri",
+      "/params/edit/documentChanges/*/newUri",
+      "/params/edit/documentChanges/*/annotationId",
+      "/params/edit/changeAnnotations/{}",
+      "/params/edit/changeAnnotations/*/label",
+      "/params/edit/changeAnnotations/*/description",
+      "/params/options/{}",
+      "/params/options/*",
+      "/params/ch",
+      "/params/target",
+      "/params/tooltip",
+      "/params/tooltip/kind",
+      "/params/tooltip/value",
+      "/params/previousResultId",
+      "/params/label/*/value",
+      "/params/label/*/tooltip",
+      "/params/label/*/tooltip/kind",
+      "/params/label/*/tooltip/value",
+      "/params/label/*/location/uri",
+      "/params/label/*/command/title",
+      "/params/label/*/command/command",
+      "/params/textEdits/*/newText",
+      "/params/item/name",
+      "/params/item/detail",
+      "/params/item/uri",
+      "/params/query",
+      "/params/command"
+     ],
+     "open": {
+      "/params/data": {
+       "class": "refused",
+       "reason": "a server's own data on an item it returned (completion item, code lens, code action, document link, inlay hint), sent back for the server to find the item by: opaque to the client, refused whole"
+      },
+      "/params/item/data": {
+       "class": "refused",
+       "reason": "a call-hierarchy item's server data, sent back for the server to find the item by: refused whole"
+      },
+      "/params/command/arguments": {
+       "class": "refused",
+       "reason": "a command's arguments, given to the command the server runs: refused whole"
+      },
+      "/params/label/*/command/arguments": {
+       "class": "refused",
+       "reason": "an inlay-hint label part's command arguments, given to the command the server runs: refused whole"
+      },
+      "/params/arguments": {
+       "class": "refused",
+       "reason": "workspace/executeCommand's arguments, given to the command the server runs: refused whole"
+      },
+      "/params/context/diagnostics/*/data": {
+       "class": "refused",
+       "reason": "a diagnostic's server data, sent back for the server to match its own diagnostic: refused whole"
+      },
+      "/params/diagnostics/*/data": {
+       "class": "refused",
+       "reason": "a code action's diagnostics' server data, sent back for the server to match its own diagnostic: refused whole"
+      }
+     }
+    }
+   },
+   "document/preview": {
+    "/options": {
+     "source": "native/core/crates/mixdog-exthost/src/document.rs document/preview (reads rel and root only)",
+     "fields": []
+    }
+   },
+   "document/previewPages": {
+    "/options": {
+     "source": "native/core/crates/mixdog-exthost/src/document.rs previewPages (page numbers)",
+     "fields": []
+    }
+   },
+   "github/request": {
+    "/input": {
+     "source": "native/core/crates/mixdog-scm/src/gh/contract.rs validate",
+     "fields": [
+      "/action",
+      "/repo",
+      "/hostname",
+      "/owner",
+      "/organization",
+      "/event",
+      "/sha",
+      "/base",
+      "/head",
+      "/ref",
+      "/tag",
+      "/target",
+      "/workflow",
+      "/inputs/*",
+      "/method",
+      "/state",
+      "/visibility",
+      "/labels/*",
+      "/title",
+      "/body",
+      "/description",
+      "/inputs/{}"
+     ]
+    }
+   },
+   "github/pr/view": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_view required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/diff": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_diff required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/create": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs create_args",
+     "fields": [
+      "/base",
+      "/head",
+      "/title",
+      "/body"
+     ]
+    }
+   },
+   "github/pr/checkout": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_checkout required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/merge": {
+    "/method": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs merge_args",
+     "fields": [
+      ""
+     ]
+    },
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs merge_args required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "review/diff/get": {
+    "/files/*": {
+     "source": "native/core/crates/mixdog-scm/src/input.rs review_files, git_path",
+     "fields": [
+      "",
+      "/path",
+      "/0"
+     ]
+    }
+   },
+   "process/spawn": {
+    "/owner": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "terminal/ensure": {
+    "/options": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "terminal/attach": {
+    "/resumeFrom": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "remoteAccess/settleOwedControllerKeys": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs settle_owed",
+     "fields": [
+      "/0/*"
+     ]
+    }
+   },
+   "remoteAccess/deliverScreenControllerKey": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs deliver_key",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "remoteAccess/registerPushSubscription": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs register_push (a Web Push subscription, stored as given)",
+     "fields": [
+      "/endpoint",
+      "/keys/p256dh",
+      "/keys/auth"
+     ]
+    }
+   },
+   "remoteAccess/registerNativePush": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs register_native_push (stored as given)",
+     "fields": [
+      "/token",
+      "/platform"
+     ]
+    }
+   },
+   "browser/command": {
+    "/input": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs BrowserPage::dispatch (forwards it); the host reads it: apps/desktop/src/main/browser/page-surface-control.ts createPageInputDispatcher",
+     "fields": [
+      "/type",
+      "/url",
+      "/text",
+      "/key",
+      "/phase",
+      "/button"
+     ]
+    }
+   },
+   "visualize/command": {
+    "/input": {
+     "source": "native/core/crates/mixdog-exthost/src/domain_visualize.rs required_tab_command, reopen",
+     "fields": [
+      "/sessionId",
+      "/entry",
+      "/tabId",
+      "/format",
+      "/renderId",
+      "/error",
+      "/resource",
+      "/url",
+      "/assets/*",
+      "/label",
+      "/content/kind",
+      "/content/source",
+      "/content/title",
+      "/targets/*"
+     ]
+    }
+   },
+   "host/state/set": {
+    "/value": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/host.rs state_set; the desktop sends browserTabs (apps/desktop/src/main/host/browser-tabs.ts `{tabs}`, protocol/desktop-operation-route.ts the tab list itself: shared/contract-browser.ts DesktopRemoteBrowserTab), browserImport (DesktopBrowserImportProgress) and displayPreferences (protocol/section-reads.ts readDisplayPreferences: {theme, language})",
+     "fields": [
+      "/tabs/*/id",
+      "/tabs/*/title",
+      "/tabs/*/url",
+      "/*/id",
+      "/*/title",
+      "/*/url",
+      "/jobId",
+      "/item",
+      "/state",
+      "/error",
+      "/theme",
+      "/language"
+     ]
+    }
+   },
+   "browser/webrtcSignal": {
+    "/signal": {
+     "source": "native/core/crates/mixdog-remote/src/webrtc/signal.rs ClientSignal::parse",
+     "fields": [
+      "/type",
+      "/receiveCodecs/*",
+      "/source",
+      "/sdp",
+      "/fingerprints/*",
+      "/documentId",
+      "/reason",
+      "/detail"
+     ]
+    }
+   },
+   "browser/stream": {
+    "/request": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view_streams.rs normalize_stream_options (numbers, fit: an object of numbers)",
+     "fields": []
+    }
+   },
+   "modelProxy/run": {
+    "/call/request/messages/*/assistantBlocks": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded to the provider)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a model's earlier content blocks (text, thinking), forwarded to the provider and never compared"
+      }
+     }
+    },
+    "/call/request/messages/*/content/*/source/content": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs part_in (DocumentSource::Content)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a document's content, forwarded to the provider"
+      }
+     }
+    },
+    "/call/request/messages/*/nativeToolSearch": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (provider compared with the request's)",
+     "fields": [
+      "/provider",
+      "/toolReferences/*"
+     ]
+    },
+    "/call/request/messages/*/providerReplay/*/items": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded; the owner compared is providerReplay/*/owner, outside the items)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a model's reasoning items, forwarded to the provider"
+      }
+     }
+    },
+    "/call/request/messages/*/thinkingBlocks": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded unchanged)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a model's thinking text, forwarded to the provider"
+      }
+     }
+    },
+    "/call/request/messages/*/toolCalls/*/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs message_in (forwarded as tool_use.input)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "tool-call arguments a model wrote, forwarded to the provider"
+      }
+     }
+    },
+    "/call/request/options/modelParameters": {
+     "source": "native/core/crates/mixdog-ai/src/providers (read by key: anthropic/codec.rs, google/serving.rs, compat/chat/options.rs)",
+     "fields": [
+      "/*",
+      "/{}"
+     ]
+    },
+    "/call/request/options/providerState": {
+     "source": "native/core/crates/mixdog-core-api/src/domain/provider.rs ProviderState; mixdog-ai/src/providers/google/adapter.rs (cache name compared)",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "provider-owned continuation state (cache names, response ids, account ids) that the providers compare with their own; it never holds typed text"
+      }
+     }
+    },
+    "/call/request/tools/*/inputSchema": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs request_in (ToolDefinition.input_schema, forwarded)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a tool's JSON schema (descriptions written in a tool's source), forwarded to the provider"
+      }
+     }
+    }
+   },
+   "transfer/grant/mint": {
+    "/attachmentId": {
+     "source": "native/core/crates/mixdog-workspace/src/transfer.rs grant mint (an attachment id)",
+     "fields": [
+      ""
+     ]
+    },
+    "/sessionId": {
+     "source": "native/core/crates/mixdog-workspace/src/transfer.rs grant mint (the conversation's id)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "room/send": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/user_send.rs UserMessage::of",
+     "fields": [
+      "/threadId"
+     ],
+     "schema": "client_request.json#TurnInput"
+    }
+   }
+  },
+  "notification": {
+   "host/update/report": {
+    "/state": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/host.rs notify; apps/desktop/src/shared/contract-session.ts DesktopUpdaterState",
+     "fields": [
+      "/status",
+      "/version",
+      "/message"
+     ]
+    }
+   },
+   "host/browser/page": {
+    "/geometry": {
+     "source": "native/core/crates/mixdog-remote/src/webrtc/signal.rs Geometry::parse (numbers)",
+     "fields": []
+    }
+   },
+   "host/browser/frame": {
+    "/frame": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs frame_facts, picture",
+     "fields": [
+      "/image/data"
+     ]
+    }
+   },
+   "model/proxy/event": {
+    "/event/call/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "tool-call arguments a model wrote"
+      }
+     }
+    },
+    "/event/calls/*/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "tool-call arguments a model wrote"
+      }
+     }
+    },
+    "/event/replay/items": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "a model's reasoning items"
+      }
+     }
+    },
+    "/event/state": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "provider-owned continuation state, as modelProxy/run /call/request/options/providerState"
+      }
+     }
+    },
+    "/event/usage/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs usage_in",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a provider's raw usage object (counts and provider keys), kept as given"
+      }
+     }
+    },
+    "/event/value": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in (citations, server tool blocks, thinking blocks)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "text a model or a web page wrote (citations, thinking)"
+      }
+     }
+    },
+    "/event/route": {
+     "source": "native/core/crates/mixdog-core-api/src/domain/provider.rs WirePin::from_route",
+     "fields": [
+      "/provider",
+      "/model",
+      "/wire",
+      "/source"
+     ]
+    }
+   }
+  },
+  "answer": {
+   "host/browser/command": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs (the answer is dropped: .map(|_| ()))",
+     "fields": []
+    }
+   },
+   "host/browser/liveControl": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs (the answer is dropped: .map(|_| ()))",
+     "fields": []
+    }
+   },
+   "host/files/trashItem": {
+    "": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs projectFs trash (the answer is dropped: .map(|_| ...))",
+     "fields": []
+    }
+   },
+   "host/screen/displays": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs; apps/desktop/src/shared/remote-webrtc.ts RemoteScreenDisplaySummary (renderer/remote-screen-state.ts readScreenDisplays)",
+     "fields": [
+      "/*/screenId",
+      "/*/label"
+     ]
+    }
+   },
+   "host/update/command": {
+    "": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/update.rs; apps/desktop/src/shared/contract-session.ts DesktopUpdaterState",
+     "fields": [
+      "/status",
+      "/version",
+      "/message"
+     ]
+    }
+   },
+   "host/visualize/command": {
+    "": {
+     "source": "native/core/crates/mixdog-exthost/src/domain_visualize.rs call, thumbnail; mixdog-app-server-daemon/src/compose_domains/export.rs render",
+     "fields": [
+      "/path",
+      "/thumbnail"
+     ]
+    }
+   },
+   "model/proxy/execute": {
+    "/result/failure/partialUsage/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs usage_in",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a provider's raw usage object, kept as given"
+      }
+     }
+    },
+    "/result/models/*/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a provider's raw model record, kept as given"
+      }
+     }
+    }
+   }
+  }
+ },
+ "classes": [
+  {
+   "class": "free",
+   "reason": "A Goal's objective, typed or as a `/goal` command.",
+   "fields": [
+    "request thread/goal/control /args/command",
+    "request thread/goal/control /args/objective",
+    "request thread/goal/set /goal",
+    "request thread/goal/set /goal/command",
+    "request thread/goal/set /goal/objective"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A model call run on the desktop: the conversation's text, a model's output, a tool's description and schema, a provider's error text; forwarded to and from the provider, never compared (model and tool names, ids and provider state stay refused).",
+   "fields": [
+    "answer model/proxy/execute /result/failure/message",
+    "answer model/proxy/execute /result/failure/notices/*/message",
+    "answer model/proxy/execute /result/models/*/displayName",
+    "answer model/proxy/execute /result/models/*/picker/description",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/label",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/options/*/label",
+    "answer model/proxy/execute /result/models/*/picker/serviceTiers/*/description",
+    "notification model/proxy/event /event/call/arguments/**",
+    "notification model/proxy/event /event/calls/*/arguments/**",
+    "notification model/proxy/event /event/delta",
+    "notification model/proxy/event /event/message",
+    "notification model/proxy/event /event/pointer",
+    "notification model/proxy/event /event/reason",
+    "notification model/proxy/event /event/replay/items/**",
+    "notification model/proxy/event /event/stop/value",
+    "notification model/proxy/event /event/text",
+    "notification model/proxy/event /event/value/**",
+    "request modelProxy/run /call/request/messages/*/assistantBlocks/**",
+    "request modelProxy/run /call/request/messages/*/content",
+    "request modelProxy/run /call/request/messages/*/content/*/source/content/**",
+    "request modelProxy/run /call/request/messages/*/content/*/text",
+    "request modelProxy/run /call/request/messages/*/content/*/title",
+    "request modelProxy/run /call/request/messages/*/providerReplay/*/items/**",
+    "request modelProxy/run /call/request/messages/*/thinkingBlocks/**",
+    "request modelProxy/run /call/request/messages/*/toolCalls/*/arguments/**",
+    "request modelProxy/run /call/request/messages/*/turnReminder",
+    "request modelProxy/run /call/request/options/hostedTools/*/userLocation/city",
+    "request modelProxy/run /call/request/options/hostedTools/*/userLocation/region",
+    "request modelProxy/run /call/request/tools/*/description",
+    "request modelProxy/run /call/request/tools/*/inputSchema/**"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A patch's text (file content), given to `git apply`.",
+   "fields": [
+    "request git/applyPatch /patch"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A person's answer to a tool approval or a question (the decision itself is `approved`/`response`, an enum).",
+   "fields": [
+    "answer item/browser/requestApproval /answers/*/text",
+    "answer item/browser/requestApproval /editedArgs/*",
+    "answer item/browser/requestApproval /reason",
+    "answer item/browser/requestApproval /reply",
+    "answer item/computer/requestApproval /answers/*/text",
+    "answer item/computer/requestApproval /editedArgs/*",
+    "answer item/computer/requestApproval /reason",
+    "answer item/computer/requestApproval /reply",
+    "answer item/permissions/requestApproval /answers/*/text",
+    "answer item/permissions/requestApproval /editedArgs/*",
+    "answer item/permissions/requestApproval /reason",
+    "answer item/permissions/requestApproval /reply",
+    "answer item/tool/requestApproval /answers/*/text",
+    "answer item/tool/requestApproval /editedArgs/*",
+    "answer item/tool/requestApproval /reason",
+    "answer item/tool/requestApproval /reply",
+    "answer item/tool/requestUserInput /answers/*/text",
+    "answer item/tool/requestUserInput /editedArgs/*",
+    "answer item/tool/requestUserInput /reason",
+    "answer item/tool/requestUserInput /reply",
+    "request thread/approval/answer /result/answers/*/text",
+    "request thread/approval/answer /result/editedArgs/*",
+    "request thread/approval/answer /result/reason",
+    "request thread/approval/answer /result/reply"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A server's arguments and environment values as a person typed them (the names stay identifiers): given to the server's process as Node's spawn gave them (U+FFFD).",
+   "fields": [
+    "request mcp/addMcpServer /input/args/*",
+    "request mcp/addMcpServer /input/env/*",
+    "request mcp/saveMcpServer /input/args/*",
+    "request mcp/saveMcpServer /input/env/*",
+    "request thread/agentControl /args/context",
+    "request thread/agentControl /args/message",
+    "request thread/agentControl /args/prompt",
+    "request thread/askSide /question",
+    "request thread/queue/delete /currentText",
+    "request thread/requestWorktree /input/prompt"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A skill's name is checked to `[a-z0-9-]` (mixdog-mcp skills.rs `validate_name`): one that held a lone unit is refused by that check with Node's message, as Node's was.",
+   "fields": [
+    "request channel/call /args/def/description",
+    "request channel/call /args/def/instructions",
+    "request channel/call /args/entry/description",
+    "request channel/call /args/entry/instructions",
+    "request channel/saveSchedule /entry/description",
+    "request channel/saveSchedule /entry/instructions",
+    "request channel/saveWebhook /entry/description",
+    "request channel/saveWebhook /entry/instructions",
+    "request config/completeSetupRequest /receipt/error",
+    "request config/createWorkflow /payload/body",
+    "request config/createWorkflow /payload/description",
+    "request config/createWorkflow /payload/name",
+    "request config/saveWorkflowPack /payload/body",
+    "request config/saveWorkflowPack /payload/description",
+    "request config/saveWorkflowPack /payload/name",
+    "request feedback/upload /input/message",
+    "request git/globalConfig/write /value",
+    "request github/pr/create /value/body",
+    "request github/pr/create /value/title",
+    "request github/request /input/body",
+    "request github/request /input/description",
+    "request github/request /input/title",
+    "request media/startMediaJob /input/prompt",
+    "request memory/memoryControl /args/element",
+    "request memory/memoryControl /args/summary",
+    "request skills/addSkill /input/body",
+    "request skills/addSkill /input/description",
+    "request skills/addSkill /input/instructions",
+    "request skills/addSkill /input/name",
+    "request skills/addSkill /input/whenToUse",
+    "request skills/saveSkill /input/body",
+    "request skills/saveSkill /input/description",
+    "request skills/saveSkill /input/instructions",
+    "request skills/saveSkill /input/name",
+    "request skills/saveSkill /input/whenToUse"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Commit messages, given to git as Node's spawn gave them (U+FFFD).",
+   "fields": [
+    "request git/amend /message",
+    "request git/commit /message",
+    "request git/commitPaths /input/message",
+    "request git/stash /message"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "File content being written: the workspace refuses it with Node's message (mixdog-workspace fsops.rs `check_paired`); a document's text as an editor holds it. A save's expected content is file text too: the workspace marks one that held a lone unit, and it equals no file Node would have saved over (a lossless file never holds one): refused at Node's comparison with Node's sentence (mixdog-workspace fsops.rs `expected_text`; recorded, native/core/fixtures/inbound-lone-surrogate).",
+   "fields": [
+    "request lsp/document /document/content",
+    "request projectFs/backup/write /content",
+    "request projectFs/replaceText /options/query",
+    "request projectFs/replaceText /replacement",
+    "request projectFs/writeText /content",
+    "request projectFs/writeText /expectedContent",
+    "request projectFs/writeTextBatch /files/*/content",
+    "request projectFs/writeTextBatch /files/*/expectedContent"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Search queries: a plain-text workspace one matches nothing, as Node's matched nothing (mixdog-workspace textsearch.rs, search.rs); the others search for U+FFFD, the documented difference (decisions.md); git gets what Node's spawn gave it.",
+   "fields": [
+    "request git/log /query",
+    "request import/listImportableConversations /params/query",
+    "request localProvider/searchLocalProviderModels /query",
+    "request memory/recall /args/query",
+    "request memory/recall /query",
+    "request project/codeGraph /query",
+    "request projectFs/searchText /options/query",
+    "request search/update /query",
+    "request thread/list /searchTerm",
+    "request thread/search /query",
+    "request tools/toolsStatus /query",
+    "request tools/toolsStatus /snapshotUserMessage"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Text stored as written: notes, personas, definitions, instructions, prompts, descriptions.",
+   "fields": [
+    "request agent/saveAgentDefinition /payload/body",
+    "request agent/saveAgentDefinition /payload/description",
+    "request agent/saveAgentDefinition /payload/name",
+    "request agent/saveAgentDefinition /payload/persona",
+    "request agent/saveLeadAgentBody /text",
+    "request agent/saveLeadIdentity /payload/name",
+    "request agent/saveLeadPersona /text",
+    "request agent/setLeadCreated /description",
+    "request instructions/saveInstructionFile /input/body",
+    "request thread/pushNotice /text"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Text typed into a remote browser page or a terminal, written to the page or the pty as UTF-8 (Node's write gave the unit as U+FFFD too); a log line.",
+   "fields": [
+    "notification client/perfLog /line",
+    "notification terminal/input /data",
+    "request browser/command /input/text"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "The text of a turn, a steer or a queued message (the steer and the queue send turn/start's input), a `/goal` command typed in the composer, the composer's text handed back with a queued entry.",
+   "fields": [
+    "request room/send /input/options/displayText",
+    "request room/send /input/options/goalCommand",
+    "request room/send /input/options/pastedImages/*/metadataText",
+    "request room/send /input/options/pastedTexts/*/text",
+    "request room/send /input/prompt",
+    "request room/send /input/prompt/*/text",
+    "request thread/start /initialInput/options/displayText",
+    "request thread/start /initialInput/options/goalCommand",
+    "request thread/start /initialInput/options/pastedImages/*/metadataText",
+    "request thread/start /initialInput/options/pastedTexts/*/text",
+    "request thread/start /initialInput/prompt",
+    "request thread/start /initialInput/prompt/*/text",
+    "request turn/start /input/options/displayText",
+    "request turn/start /input/options/goalCommand",
+    "request turn/start /input/options/pastedImages/*/metadataText",
+    "request turn/start /input/options/pastedTexts/*/text",
+    "request turn/start /input/prompt",
+    "request turn/start /input/prompt/*/text"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Titles, names and renames shown as typed (the record's id is separate).",
+   "fields": [
+    "request account/discoverCustomProviderModels /input/name",
+    "request account/saveCustomProvider /input/name",
+    "request account/testCustomProvider /input/name",
+    "request account/updateCustomProviderModel /patch/name",
+    "request account/updateProviderAccounts /change/rename/label",
+    "request config/setProfile /input/name",
+    "request config/setProfile /input/title",
+    "request media/createMediaBoard /name",
+    "request media/renameMediaBoard /name",
+    "request project/update /alias",
+    "request projectFs/workspaceFile/write /folders/*/name",
+    "request remoteAccess/setClientAlias /alias",
+    "request remoteAccess/setName /name",
+    "request room/create /input/name",
+    "request room/update /input/name",
+    "request thread/name/set /title"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Values a person types into a form. A workflow's inputs: a JSON body. A custom provider's extra body fields: a JSON body, whose size the core measures as Node's JSON.stringify does, each lone unit as its six-character escape (mixdog-core-domains ai_account/custom_config.rs normalize_request_body). A custom provider's header values: Node's check refuses a value outside Latin-1 with `[custom-provider] headers.<name> has an invalid value`, and the core's check refuses U+FFFD with the same text before anything is sent (normalize_headers). A probed MCP server's header values: never sent, any header is configured authentication, Node and the core answer {auth: configured}. Recorded: native/core/fixtures/lone-surrogate-wire (custom-*-header-lone, custom-*-body-*, mcp-probe-header-lone).",
+   "fields": [
+    "request account/discoverCustomProviderModels /input/headers/*",
+    "request account/discoverCustomProviderModels /input/requestBody/*",
+    "request account/saveCustomProvider /input/headers/*",
+    "request account/saveCustomProvider /input/requestBody/*",
+    "request account/testCustomProvider /input/headers/*",
+    "request account/testCustomProvider /input/requestBody/*",
+    "request github/request /input/inputs/*",
+    "request mcp/probeMcpServerAuth /cfg/headers/*"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "What a page or a model shows: visualize tab labels, titles and inline content, a page's title and error.",
+   "fields": [
+    "notification host/browser/surface /error",
+    "notification host/browser/surface /title",
+    "request host/state/set /value/*/history/*/label",
+    "request host/state/set /value/*/tabs/*/annotations/*/label",
+    "request host/state/set /value/*/tabs/*/label",
+    "request host/state/set /value/*/tabs/*/panes/*/inline/title",
+    "request host/state/set /value/*/tabs/*/panes/*/label",
+    "request host/state/set /value/*/tabs/*/problems/*/message",
+    "request host/state/set /value/*/tabs/*/remoteLabel",
+    "request host/state/set /value/*/tabs/*/versions/*/label",
+    "request host/state/set /value/state/history/*/label",
+    "request host/state/set /value/state/tabs/*/annotations/*/label",
+    "request host/state/set /value/state/tabs/*/label",
+    "request host/state/set /value/state/tabs/*/panes/*/inline/title",
+    "request host/state/set /value/state/tabs/*/panes/*/label",
+    "request host/state/set /value/state/tabs/*/problems/*/message",
+    "request host/state/set /value/state/tabs/*/remoteLabel",
+    "request host/state/set /value/state/tabs/*/versions/*/label",
+    "request visualize/command /input/content/source",
+    "request visualize/command /input/content/title",
+    "request visualize/command /input/error",
+    "request visualize/command /input/label"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name.",
+   "fields": [
+    "answer host/screen/displays /*/label",
+    "answer host/update/command /message",
+    "notification host/update/report /state/message",
+    "request host/state/set /value/*/title",
+    "request host/state/set /value/error",
+    "request host/state/set /value/tabs/*/title"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a URL, host, domain, port or transport, parsed and matched",
+   "fields": [
+    "answer host/capture/fileSnapshot /dataUrl",
+    "answer model/proxy/execute /result/failure/transport/transport",
+    "answer model/proxy/execute /result/failure/verificationUrl",
+    "request account/completeOAuthProviderLogin /callbackUrl",
+    "request account/discoverCustomProviderModels /input/baseURL",
+    "request account/saveCustomProvider /input/baseURL",
+    "request account/testCustomProvider /input/baseURL",
+    "request browser/command /input/url",
+    "request channel/call /args/webhook/domain",
+    "request channel/call /args/webhook/port",
+    "request channel/setWebhookConfig /patch/domain",
+    "request channel/setWebhookConfig /patch/port",
+    "request config/setNetworkProxy /patch/url",
+    "request github/request /input/hostname",
+    "request host/remoteTarget/set /endpoint",
+    "request host/state/set /value/*/url",
+    "request host/state/set /value/openUrl",
+    "request host/state/set /value/tabs/*/url",
+    "request mcp/addMcpServer /input/url",
+    "request mcp/completeMcpOAuthLogin /callbackUrl",
+    "request mcp/probeMcpServerAuth /cfg/url",
+    "request mcp/saveMcpServer /input/url",
+    "request modelProxy/run /call/request/messages/*/content/*/source/url",
+    "request remoteAccess/registerPushSubscription /input/endpoint",
+    "request remoteAccess/removePushSubscription /endpoint",
+    "request transfer/authorizeRead /source/href",
+    "request ui/providerModels/announce /origin",
+    "request visualize/command /input/url"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a close reason code the phone's WebRTC stack writes",
+   "fields": [
+    "request browser/webrtcSignal /signal/detail",
+    "request browser/webrtcSignal /signal/reason"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a duration, parsed into a number of milliseconds; text holding a lone unit is no duration and Node refused it in the same parser",
+   "fields": [
+    "request config/setAutoClear /input/duration",
+    "request thread/goal/control /args/duration",
+    "request thread/goal/set /goal/duration"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a file's name: compared with a folder's entries before a file is made or opened, or the name of a file the client read from disk; a name holding a lone unit names no file Node would have found (decisions.md \"frame-lone-surrogate\")",
+   "fields": [
+    "request feedback/upload /input/attachments/*/name",
+    "request modelProxy/run /call/request/messages/*/content/*/filename",
+    "request projectFs/create /name",
+    "request projectFs/rename /newName",
+    "request room/send /input/options/pastedImages/*/filename",
+    "request room/send /input/options/pastedTexts/*/filename",
+    "request room/send /input/prompt/*/filename",
+    "request thread/resizeImage /input/filename",
+    "request thread/start /initialInput/options/pastedImages/*/filename",
+    "request thread/start /initialInput/options/pastedTexts/*/filename",
+    "request thread/start /initialInput/prompt/*/filename",
+    "request transfer/beginWrite /name",
+    "request turn/start /input/options/pastedImages/*/filename",
+    "request turn/start /input/options/pastedTexts/*/filename",
+    "request turn/start /input/prompt/*/filename"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a git ref, commit, tag or config key, or a worktree name that becomes a branch and folder name: matched against the repository; git and Node's ref checks refuse a ref that is not well-formed text",
+   "fields": [
+    "request git/cherryPickCommit /value",
+    "request git/createTag /value",
+    "request git/deleteBranch /input/branch",
+    "request git/deleteTag /value",
+    "request git/globalConfig/write /key",
+    "request git/renameBranch /input/nextBranch",
+    "request git/resetToCommit /value",
+    "request git/revertCommit /value",
+    "request thread/requestWorktree /input/name",
+    "request thread/selectBranch /input/branch"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a git ref, commit, tag or label: matched against the repository, whose ref checks refuse a ref that is not well-formed text",
+   "fields": [
+    "request config/setWorktreeSettings /patch/branchPrefix",
+    "request git/renameBranch /input/branch",
+    "request git/requestContext /input/base",
+    "request git/stashApply /ref",
+    "request git/stashDrop /ref",
+    "request github/pr/create /value/base",
+    "request github/pr/create /value/head",
+    "request github/request /input/base",
+    "request github/request /input/head",
+    "request github/request /input/labels/*",
+    "request github/request /input/ref",
+    "request github/request /input/sha",
+    "request github/request /input/tag",
+    "request project/inspectProjectBranch /input/branch",
+    "request project/manageProjectBranch /input/branch",
+    "request project/manageProjectBranch /input/commit",
+    "request project/manageProjectBranch /input/startPoint",
+    "request project/manageProjectBranch /input/targetCommit",
+    "request project/mergeProjectBranch /input/branch",
+    "request project/selectProjectBranch /input/branch",
+    "request project/selectProjectBranch /input/startPoint",
+    "request thread/agentControl /args/tag"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary the reader matches, written by the client app, never typed text",
+   "fields": [
+    "answer host/localPage/url ",
+    "answer host/systemProxy/resolve /rules",
+    "answer host/update/command /status",
+    "answer item/browser/requestApproval /remember",
+    "answer item/browser/requestApproval /response",
+    "answer item/browser/requestApproval /scope",
+    "answer item/computer/requestApproval /remember",
+    "answer item/computer/requestApproval /response",
+    "answer item/computer/requestApproval /scope",
+    "answer item/permissions/requestApproval /remember",
+    "answer item/permissions/requestApproval /response",
+    "answer item/permissions/requestApproval /scope",
+    "answer item/tool/requestApproval /remember",
+    "answer item/tool/requestApproval /response",
+    "answer item/tool/requestApproval /scope",
+    "answer item/tool/requestUserInput /remember",
+    "answer item/tool/requestUserInput /response",
+    "answer item/tool/requestUserInput /scope",
+    "answer model/proxy/execute /result/failure/code",
+    "answer model/proxy/execute /result/failure/delivery",
+    "answer model/proxy/execute /result/failure/kind",
+    "answer model/proxy/execute /result/failure/outcome/outcome",
+    "answer model/proxy/execute /result/failure/quotaLimit",
+    "answer model/proxy/execute /result/failure/quotaScope",
+    "answer model/proxy/execute /result/failure/transport/fault",
+    "answer model/proxy/execute /result/models/*/defaultReasoningLevel",
+    "answer model/proxy/execute /result/models/*/mode",
+    "answer model/proxy/execute /result/models/*/picker/defaultModelParameters/*",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/kind",
+    "answer model/proxy/execute /result/models/*/picker/parameterVariants/*/*",
+    "answer model/proxy/execute /result/models/*/picker/reasoningOptions/*/type",
+    "answer model/proxy/execute /result/models/*/picker/reasoningOptions/*/values/*",
+    "answer model/proxy/execute /result/models/*/picker/releaseDate",
+    "answer model/proxy/execute /result/models/*/reasoningContentField",
+    "answer model/proxy/execute /result/providers/*/authState",
+    "answer model/proxy/execute /result/providers/*/type",
+    "answer model/proxy/execute /result/result",
+    "answer model/proxy/execute /result/route/source",
+    "notification host/power /event",
+    "notification host/update/report /state/status",
+    "notification model/proxy/event /event/item",
+    "notification model/proxy/event /event/kind",
+    "notification model/proxy/event /event/phase",
+    "notification model/proxy/event /event/replay/owner",
+    "notification model/proxy/event /event/route/source",
+    "notification model/proxy/event /event/stop/kind",
+    "notification model/proxy/event /event/type",
+    "request account/discoverCustomProviderModels /input/discovery",
+    "request account/discoverCustomProviderModels /input/protocol",
+    "request account/getQuotaHistory /options/account",
+    "request account/getQuotaHistory /options/anchor",
+    "request account/getQuotaHistory /options/view",
+    "request account/getQuotaHistory /options/window",
+    "request account/refreshProviderSetup /renewCredential",
+    "request account/saveCustomProvider /input/discovery",
+    "request account/saveCustomProvider /input/protocol",
+    "request account/saveProviderApiKey /options/authMode",
+    "request account/testCustomProvider /input/discovery",
+    "request account/testCustomProvider /input/protocol",
+    "request account/updateCustomProviderModel /patch/reasoning/replay",
+    "request account/updateProviderAccounts /change/order/*",
+    "request account/updateProviderAccounts /change/policy",
+    "request agent/recordAgentApprovalAudit /action",
+    "request agent/recordAgentApprovalAudit /decision",
+    "request agent/saveAgentDefinition /payload/avatar/accessory",
+    "request agent/saveAgentDefinition /payload/avatar/color",
+    "request agent/saveAgentDefinition /payload/avatar/expression",
+    "request agent/saveAgentDefinition /payload/avatar/kind",
+    "request agent/saveAgentDefinition /payload/avatar/species",
+    "request agent/saveAgentDefinition /payload/avatar/states/*",
+    "request agent/saveAgentDefinition /payload/avatar/variant",
+    "request agent/saveAgentDefinition /payload/connectors/off/*",
+    "request agent/saveAgentDefinition /payload/kind",
+    "request agent/saveLeadIdentity /payload/avatar/accessory",
+    "request agent/saveLeadIdentity /payload/avatar/color",
+    "request agent/saveLeadIdentity /payload/avatar/expression",
+    "request agent/saveLeadIdentity /payload/avatar/kind",
+    "request agent/saveLeadIdentity /payload/avatar/species",
+    "request agent/saveLeadIdentity /payload/avatar/states/*",
+    "request agent/saveLeadIdentity /payload/avatar/variant",
+    "request agent/setAgentConnectorToolPermission /permission",
+    "request agent/setAgentConnectors /connectors/off/*",
+    "request agent/setAgentPermission /action",
+    "request agent/setAgentPermission /mode",
+    "request agent/setLeadAppearance /avatar/accessory",
+    "request agent/setLeadAppearance /avatar/color",
+    "request agent/setLeadAppearance /avatar/expression",
+    "request agent/setLeadAppearance /avatar/kind",
+    "request agent/setLeadAppearance /avatar/species",
+    "request agent/setLeadAppearance /avatar/states/*",
+    "request agent/setLeadAppearance /avatar/variant",
+    "request browser/command /action",
+    "request browser/command /input/button",
+    "request browser/command /input/phase",
+    "request browser/command /input/type",
+    "request browser/webrtcSignal /signal/source",
+    "request browser/webrtcSignal /signal/type",
+    "request channel/call /args/automationKind",
+    "request channel/call /args/def/attachments/*",
+    "request channel/call /args/def/owner",
+    "request channel/call /args/entry/attachments/*",
+    "request channel/call /args/entry/owner",
+    "request channel/call /args/entry/parser",
+    "request channel/retryRoutineDelivery /kind",
+    "request channel/saveSchedule /entry/attachments/*",
+    "request channel/saveSchedule /entry/owner",
+    "request channel/saveWebhook /entry/attachments/*",
+    "request channel/saveWebhook /entry/owner",
+    "request channel/saveWebhook /entry/parser",
+    "request config/batchWrite /edits/*/mode",
+    "request config/claimSetupRequest /owner",
+    "request config/completeOnboarding /payload/visited/*",
+    "request config/completeOnboarding /payload/webSearchRoute/toolType",
+    "request config/completeSetupRequest /owner",
+    "request config/isSetupRequestActive /owner",
+    "request config/read /keys/*",
+    "request config/saveStarterGuideState /state/visited/*",
+    "request config/setBotOrder /order/*",
+    "request config/setCompactionSettings /input/summaryMode",
+    "request config/setExtensionScope /kind",
+    "request config/setNetworkProxy /patch/exceptions",
+    "request config/setNetworkProxy /patch/exceptions/*",
+    "request config/setNetworkProxy /patch/mode",
+    "request config/setProfile /input/experienceLevel",
+    "request config/setProfile /input/lang",
+    "request config/setProfile /input/language",
+    "request config/setSystemShell /input",
+    "request config/setWebSearchRoute /next/toolType",
+    "request config/setWorktreeSettings /patch/newTaskDefault",
+    "request config/value/write /announce",
+    "request config/value/write /mode",
+    "request feedback/upload /input/kind",
+    "request feedback/upload /input/replyTo",
+    "request git/ignore /scope",
+    "request git/resetToCommit /mode",
+    "request git/revertFile /mode",
+    "request github/pr/merge /method",
+    "request github/request /input/action",
+    "request github/request /input/event",
+    "request github/request /input/method",
+    "request github/request /input/organization",
+    "request github/request /input/owner",
+    "request github/request /input/state",
+    "request github/request /input/target",
+    "request github/request /input/visibility",
+    "request host/state/set /value/*/active",
+    "request host/state/set /value/*/goneOpens/*/call",
+    "request host/state/set /value/*/goneOpens/*/tab",
+    "request host/state/set /value/*/history/*/kind",
+    "request host/state/set /value/*/tabs/*/annotations/*/selector",
+    "request host/state/set /value/*/tabs/*/panes/*/inline/kind",
+    "request host/state/set /value/*/tabs/*/panes/*/inline/source",
+    "request host/state/set /value/*/tabs/*/panes/*/kind",
+    "request host/state/set /value/*/tabs/*/panes/*/remoteTarget",
+    "request host/state/set /value/*/tabs/*/panes/*/target",
+    "request host/state/set /value/*/tabs/*/problems/*/kind",
+    "request host/state/set /value/*/tabs/*/problems/*/source",
+    "request host/state/set /value/item",
+    "request host/state/set /value/language",
+    "request host/state/set /value/state",
+    "request host/state/set /value/state/active",
+    "request host/state/set /value/state/goneOpens/*/call",
+    "request host/state/set /value/state/goneOpens/*/tab",
+    "request host/state/set /value/state/history/*/kind",
+    "request host/state/set /value/state/tabs/*/annotations/*/selector",
+    "request host/state/set /value/state/tabs/*/panes/*/inline/kind",
+    "request host/state/set /value/state/tabs/*/panes/*/inline/source",
+    "request host/state/set /value/state/tabs/*/panes/*/kind",
+    "request host/state/set /value/state/tabs/*/panes/*/remoteTarget",
+    "request host/state/set /value/state/tabs/*/panes/*/target",
+    "request host/state/set /value/state/tabs/*/problems/*/kind",
+    "request host/state/set /value/state/tabs/*/problems/*/source",
+    "request host/state/set /value/tab",
+    "request host/state/set /value/theme",
+    "request host/state/set /value/updated",
+    "request import/listImportableConversations /params/source",
+    "request import/registerConversationImportFile /params/source",
+    "request initialize /capabilities/optOutNotificationMethods/*",
+    "request initialize /clientInfo/kind",
+    "request instructions/getInstructionFile /group",
+    "request instructions/resetInstructionFile /group",
+    "request instructions/saveInstructionFile /input/group",
+    "request instructions/setInstructionFiles /mode",
+    "request localProvider/discardLocalProviderInstallation /phase",
+    "request localProvider/startLocalProviderInstallation /phase",
+    "request localProvider/startLocalProviderModelMaintenance /operation",
+    "request lsp/document /document/kind",
+    "request lsp/request /request/method",
+    "request mcp/addMcpServer /input/env_http_headers/*",
+    "request mcp/addMcpServer /input/type",
+    "request mcp/probeMcpServerAuth /cfg/env_http_headers/*",
+    "request mcp/probeMcpServerAuth /cfg/type",
+    "request mcp/saveMcpServer /input/env_http_headers/*",
+    "request mcp/saveMcpServer /input/type",
+    "request media/deleteMediaAssets /filter/kind",
+    "request media/getMediaDefault /kind",
+    "request media/listMediaAssets /options/kind",
+    "request media/readMediaAsset /options/variant",
+    "request media/resolveMediaFile /options/variant",
+    "request media/setMediaDefault /input/kind",
+    "request media/setMediaPin /input/account",
+    "request media/setMediaPin /input/kind",
+    "request media/startMediaJob /input/account",
+    "request media/startMediaJob /input/kind",
+    "request media/startMediaJob /input/sourceType",
+    "request memory/memoryControl /args/category",
+    "request memory/memoryControl /args/format",
+    "request memory/memoryControl /args/index_revision",
+    "request memory/memoryControl /args/memory_caller",
+    "request memory/memoryControl /args/op",
+    "request memory/memoryControl /args/source",
+    "request memory/recall /args/category",
+    "request memory/recall /args/memory_caller",
+    "request memory/recall /args/projectScope",
+    "request memory/recall /args/sort",
+    "request modelProxy/run /call/method",
+    "request modelProxy/run /call/request/messages/*/content/*/source/kind",
+    "request modelProxy/run /call/request/messages/*/content/*/type",
+    "request modelProxy/run /call/request/messages/*/phase",
+    "request modelProxy/run /call/request/messages/*/providerReplay/*/owner",
+    "request modelProxy/run /call/request/messages/*/role",
+    "request modelProxy/run /call/request/messages/*/source",
+    "request modelProxy/run /call/request/options/effortProjection/updates/*/1",
+    "request modelProxy/run /call/request/options/hostedTools/*/allowedDomains/*",
+    "request modelProxy/run /call/request/options/hostedTools/*/contextSize",
+    "request modelProxy/run /call/request/options/hostedTools/*/kind",
+    "request modelProxy/run /call/request/options/hostedTools/*/toolType",
+    "request modelProxy/run /call/request/options/hostedTools/*/userLocation/country",
+    "request modelProxy/run /call/request/options/promptCacheScope",
+    "request modelProxy/run /call/request/options/requestKind",
+    "request modelProxy/run /call/request/options/thread/turn",
+    "request modelProxy/run /call/request/options/toolChoice",
+    "request modelProxy/run /call/request/options/xaiResponsesCacheScope",
+    "request notify/test /target",
+    "request op/status /scope",
+    "request plugins/addPlugin /source",
+    "request plugins/addPlugin /source/source",
+    "request process/spawn /env/*",
+    "request process/spawn /outputMode",
+    "request project/codeGraph /mode",
+    "request project/manageProjectBranch /input/action",
+    "request project/manageProjectBranch /input/target",
+    "request project/mergeProjectBranch /input/target",
+    "request projectFs/recovery /action",
+    "request remoteAccess/deliverScreenControllerKey /input",
+    "request remoteAccess/pairCode /action",
+    "request remoteAccess/registerNativePush /input/platform",
+    "request remoteAccess/settleOwedControllerKeys /input/0/*",
+    "request review/diff/get /files/*/0",
+    "request review/diff/get /scope",
+    "request review/diff/get /source",
+    "request room/send /input/options/pastedImages/*/type",
+    "request room/send /input/options/pastedTexts/*/source",
+    "request room/send /input/options/priority",
+    "request room/send /input/prompt/*/textKind",
+    "request room/send /input/prompt/*/type",
+    "request thread/agentControl /args/scope",
+    "request thread/agentControl /args/taskType",
+    "request thread/agentControl /args/term",
+    "request thread/agentControl /args/terminal",
+    "request thread/agentControl /args/type",
+    "request thread/agentControl /args/typeHint",
+    "request thread/approval/answer /result/remember",
+    "request thread/approval/answer /result/response",
+    "request thread/approval/answer /result/scope",
+    "request thread/approval/answerNotification /action",
+    "request thread/goal/control /action",
+    "request thread/goal/control /args/action",
+    "request thread/goal/set /goal/action",
+    "request thread/items/list /cursor/type",
+    "request thread/items/list /sortDirection",
+    "request thread/list /sortDirection",
+    "request thread/mergeWorkspace /input/target",
+    "request thread/requestWorktree /input/carryChanges",
+    "request thread/setOrchestrationMode /mode",
+    "request thread/setOrchestrationMode /options/scope",
+    "request thread/setToolMode /mode",
+    "request thread/setWorkflow /options/scope",
+    "request thread/start /draft/orchestrationMode",
+    "request thread/start /initialInput/options/pastedImages/*/type",
+    "request thread/start /initialInput/options/pastedTexts/*/source",
+    "request thread/start /initialInput/options/priority",
+    "request thread/start /initialInput/prompt/*/textKind",
+    "request thread/start /initialInput/prompt/*/type",
+    "request thread/start /kind",
+    "request thread/start /session/approvalMode",
+    "request thread/start /session/toolMode",
+    "request thread/start /session/toolProfile",
+    "request thread/turns/list /sortDirection",
+    "request transfer/authorizeRead /purpose",
+    "request transfer/authorizeRead /source/kind",
+    "request transfer/beginRead /source/kind",
+    "request transfer/beginWrite /scope",
+    "request turn/start /input/options/pastedImages/*/type",
+    "request turn/start /input/options/pastedTexts/*/source",
+    "request turn/start /input/options/priority",
+    "request turn/start /input/prompt/*/textKind",
+    "request turn/start /input/prompt/*/type",
+    "request ui/settings/announce /scope",
+    "request update/desktop/command /action",
+    "request usage/getUsageRequests /options/anchor",
+    "request usage/getUsageRequests /options/source",
+    "request usage/getUsageRequests /options/view",
+    "request usage/getUsageStats /options/anchor",
+    "request usage/getUsageStats /options/source",
+    "request usage/getUsageStats /options/view",
+    "request visualize/command /action",
+    "request visualize/command /input/content/kind",
+    "request visualize/command /input/entry",
+    "request visualize/command /input/format",
+    "request visualize/command /input/resource",
+    "request visualize/command /input/targets/*"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a map's key: an id, a name or a parameter the reader looks the value up by (an environment variable, a header, an attachment or a model parameter); a key is never typed text, and two keys that read as one would overwrite each other",
+   "fields": [
+    "answer item/browser/requestApproval /editedArgs/{}",
+    "answer item/computer/requestApproval /editedArgs/{}",
+    "answer item/permissions/requestApproval /editedArgs/{}",
+    "answer item/tool/requestApproval /editedArgs/{}",
+    "answer item/tool/requestUserInput /editedArgs/{}",
+    "answer model/proxy/execute /result/models/*/picker/customReasoning/wireValues/{}",
+    "answer model/proxy/execute /result/models/*/picker/defaultModelParameters/{}",
+    "answer model/proxy/execute /result/models/*/picker/parameterVariants/*/{}",
+    "answer model/proxy/execute /result/models/*/wire/{}",
+    "answer model/proxy/execute /result/providers/{}",
+    "request account/discoverCustomProviderModels /input/headers/{}",
+    "request account/discoverCustomProviderModels /input/modelWires/{}",
+    "request account/discoverCustomProviderModels /input/requestBody/{}",
+    "request account/saveCustomProvider /input/headers/{}",
+    "request account/saveCustomProvider /input/modelWires/{}",
+    "request account/saveCustomProvider /input/requestBody/{}",
+    "request account/testCustomProvider /input/headers/{}",
+    "request account/testCustomProvider /input/modelWires/{}",
+    "request account/testCustomProvider /input/requestBody/{}",
+    "request agent/saveAgentDefinition /payload/avatar/states/{}",
+    "request agent/saveAgentDefinition /payload/route/modelParameters/{}",
+    "request agent/saveLeadIdentity /payload/avatar/states/{}",
+    "request agent/setLeadAppearance /avatar/states/{}",
+    "request github/request /input/inputs/{}",
+    "request mcp/addMcpServer /input/env/{}",
+    "request mcp/addMcpServer /input/env_http_headers/{}",
+    "request mcp/addMcpServer /input/headers/{}",
+    "request mcp/probeMcpServerAuth /cfg/env_http_headers/{}",
+    "request mcp/probeMcpServerAuth /cfg/headers/{}",
+    "request mcp/saveMcpServer /input/env/{}",
+    "request mcp/saveMcpServer /input/env_http_headers/{}",
+    "request mcp/saveMcpServer /input/headers/{}",
+    "request modelProxy/run /call/request/options/modelParameters/{}",
+    "request process/spawn /env/{}",
+    "request room/send /input/options/attachmentSizes/{}",
+    "request room/send /input/options/pastedImages/{}",
+    "request room/send /input/options/pastedTexts/{}",
+    "request route/set /route/modelParameters/{}",
+    "request thread/approval/answer /result/editedArgs/{}",
+    "request thread/continueInModel /route/modelParameters/{}",
+    "request thread/fork /route/modelParameters/{}",
+    "request thread/start /draft/route/modelParameters/{}",
+    "request thread/start /initialInput/options/attachmentSizes/{}",
+    "request thread/start /initialInput/options/pastedImages/{}",
+    "request thread/start /initialInput/options/pastedTexts/{}",
+    "request turn/start /input/options/attachmentSizes/{}",
+    "request turn/start /input/options/pastedImages/{}",
+    "request turn/start /input/options/pastedTexts/{}"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a model, provider, route, effort, tool, connector, plugin, workflow or agent id from a catalog, matched against it",
+   "fields": [
+    "answer model/proxy/execute /result/failure/outcome/model",
+    "answer model/proxy/execute /result/failure/partialModel",
+    "answer model/proxy/execute /result/failure/rejectedTool",
+    "answer model/proxy/execute /result/models/*/aliasTarget",
+    "answer model/proxy/execute /result/models/*/picker/accessPrograms/*",
+    "answer model/proxy/execute /result/models/*/picker/additionalSpeedTiers/*",
+    "answer model/proxy/execute /result/models/*/picker/customReasoning/wireFormat",
+    "answer model/proxy/execute /result/models/*/picker/customReasoning/wireValues/*",
+    "answer model/proxy/execute /result/models/*/picker/defaultServiceTier",
+    "answer model/proxy/execute /result/models/*/picker/fastEfforts/*",
+    "answer model/proxy/execute /result/models/*/picker/tier",
+    "answer model/proxy/execute /result/models/*/providerName",
+    "answer model/proxy/execute /result/models/*/reasoningLevels/*",
+    "answer model/proxy/execute /result/models/*/wire",
+    "answer model/proxy/execute /result/models/*/wire/*",
+    "answer model/proxy/execute /result/providers/*/hiddenModels/*",
+    "answer model/proxy/execute /result/route/wire",
+    "notification model/proxy/event /event/call/nativeType",
+    "notification model/proxy/event /event/calls/*/nativeType",
+    "notification model/proxy/event /event/model",
+    "notification model/proxy/event /event/pricingModel",
+    "notification model/proxy/event /event/provider",
+    "notification model/proxy/event /event/route/model",
+    "notification model/proxy/event /event/route/provider",
+    "notification model/proxy/event /event/route/wire",
+    "request account/discoverCustomProviderModels /input/modelWires/*",
+    "request account/discoverCustomProviderModels /input/wires/*",
+    "request account/getQuotaHistory /options/provider",
+    "request account/saveCustomProvider /input/modelWires/*",
+    "request account/saveCustomProvider /input/wires/*",
+    "request account/testCustomProvider /input/modelWires/*",
+    "request account/testCustomProvider /input/wires/*",
+    "request account/updateCustomProviderModel /patch/reasoning/levels/*",
+    "request account/updateCustomProviderModel /patch/reasoning/wireFormat",
+    "request account/updateCustomProviderModel /patch/reasoning/wireValues/*",
+    "request agent/saveAgentDefinition /payload/connectors/*/tools/*",
+    "request agent/saveAgentDefinition /payload/connectors/tools/*",
+    "request agent/saveAgentDefinition /payload/route/effort",
+    "request agent/saveAgentDefinition /payload/route/fallbacks/*/effort",
+    "request agent/saveAgentDefinition /payload/route/fallbacks/*/model",
+    "request agent/saveAgentDefinition /payload/route/fallbacks/*/provider",
+    "request agent/saveAgentDefinition /payload/route/model",
+    "request agent/saveAgentDefinition /payload/route/modelParameters/*",
+    "request agent/saveAgentDefinition /payload/route/provider",
+    "request agent/setAgentConnectorToolPermission /toolName",
+    "request agent/setAgentConnectors /connectors/*/tools/*",
+    "request agent/setAgentConnectors /connectors/tools/*",
+    "request config/completeOnboarding /payload/agentRoutes/*/effort",
+    "request config/completeOnboarding /payload/agentRoutes/*/model",
+    "request config/completeOnboarding /payload/agentRoutes/*/provider",
+    "request config/completeOnboarding /payload/defaultRoute/effort",
+    "request config/completeOnboarding /payload/defaultRoute/model",
+    "request config/completeOnboarding /payload/defaultRoute/provider",
+    "request config/completeOnboarding /payload/webSearchRoute/provider",
+    "request config/completeOnboarding /payload/workflowRoutes/*/effort",
+    "request config/completeOnboarding /payload/workflowRoutes/*/model",
+    "request config/completeOnboarding /payload/workflowRoutes/*/provider",
+    "request config/getNetworkProxy /options/provider",
+    "request config/installBuiltinFeature /options/engines/*",
+    "request config/setAutoClear /input/provider",
+    "request config/setAutoEffortBase /level",
+    "request config/setModelPreferences /changes/*/model",
+    "request config/setWebSearchRoute /next/effort",
+    "request config/setWebSearchRoute /next/fallbacks/*/effort",
+    "request config/setWebSearchRoute /next/fallbacks/*/model",
+    "request config/setWebSearchRoute /next/fallbacks/*/provider",
+    "request config/setWebSearchRoute /next/model",
+    "request config/setWebSearchRoute /next/provider",
+    "request config/testNetworkProxy /options/provider",
+    "request connector/addConnectorAccount /input/connector",
+    "request github/request /input/workflow",
+    "request mcp/addMcpServer /input/connector",
+    "request mcp/enablePluginMcp /plugin",
+    "request media/setMediaDefault /input/model",
+    "request media/setMediaPin /input/model",
+    "request media/startMediaJob /input/model",
+    "request modelProxy/run /allowedProviders/*",
+    "request modelProxy/run /call/model",
+    "request modelProxy/run /call/provider",
+    "request modelProxy/run /call/request/messages/*/nativeToolSearch/provider",
+    "request modelProxy/run /call/request/messages/*/nativeToolSearch/toolReferences/*",
+    "request modelProxy/run /call/request/messages/*/toolCalls/*/nativeType",
+    "request modelProxy/run /call/request/model",
+    "request modelProxy/run /call/request/options/effort",
+    "request modelProxy/run /call/request/options/effortProjection/initialEffort",
+    "request modelProxy/run /call/request/options/modelParameters/*",
+    "request modelProxy/run /call/request/options/verbosity",
+    "request plugins/removePlugin /plugin",
+    "request plugins/setPluginEnabled /plugin",
+    "request plugins/updatePlugin /plugin",
+    "request route/set /route/effort",
+    "request route/set /route/fallbacks/*/effort",
+    "request route/set /route/fallbacks/*/model",
+    "request route/set /route/fallbacks/*/provider",
+    "request route/set /route/model",
+    "request route/set /route/modelParameters/*",
+    "request route/set /route/provider",
+    "request skills/addSkill /input/toolDependencies/*",
+    "request skills/saveSkill /input/toolDependencies/*",
+    "request thread/agentControl /args/agent",
+    "request thread/agentControl /args/effort",
+    "request thread/agentControl /args/model",
+    "request thread/agentControl /args/provider",
+    "request thread/agentControl /args/skillSelection",
+    "request thread/continueInModel /route/effort",
+    "request thread/continueInModel /route/fallbacks/*/effort",
+    "request thread/continueInModel /route/fallbacks/*/model",
+    "request thread/continueInModel /route/fallbacks/*/provider",
+    "request thread/continueInModel /route/model",
+    "request thread/continueInModel /route/modelParameters/*",
+    "request thread/continueInModel /route/provider",
+    "request thread/fork /route/effort",
+    "request thread/fork /route/fallbacks/*/effort",
+    "request thread/fork /route/fallbacks/*/model",
+    "request thread/fork /route/fallbacks/*/provider",
+    "request thread/fork /route/model",
+    "request thread/fork /route/modelParameters/*",
+    "request thread/fork /route/provider",
+    "request thread/inheritancePreflight /selection/model",
+    "request thread/inheritancePreflight /selection/provider",
+    "request thread/pushNotice /level",
+    "request thread/start /draft/route/effort",
+    "request thread/start /draft/route/model",
+    "request thread/start /draft/route/modelParameters/*",
+    "request thread/start /draft/route/provider"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a path, or a file, command or record name compared with what is on disk or in a store: a name holding a lone unit names nothing Node would have found (decisions.md \"frame-lone-surrogate\")",
+   "fields": [
+    "answer host/visualize/command /path",
+    "request agent/saveAgentDefinition /payload/avatar/file",
+    "request agent/saveLeadIdentity /payload/avatar/file",
+    "request agent/setLeadAppearance /avatar/file",
+    "request channel/call /args/def/cwd",
+    "request channel/call /args/entry/cwd",
+    "request channel/call /args/transcriptPath",
+    "request channel/saveSchedule /entry/cwd",
+    "request channel/saveWebhook /entry/cwd",
+    "request config/batchWrite /edits/*/path",
+    "request config/setExtensionScope /projects/*",
+    "request config/value/write /path",
+    "request document/preview /rel",
+    "request document/preview /root",
+    "request document/previewPages /rel",
+    "request document/previewPages /root",
+    "request fs/watch /path",
+    "request git/abortOperation /cwd",
+    "request git/amend /cwd",
+    "request git/applyPatch /cwd",
+    "request git/applyPatch /path",
+    "request git/branches /cwd",
+    "request git/cherryPickCommit /cwd",
+    "request git/commit /cwd",
+    "request git/commitPaths /cwd",
+    "request git/commitPaths /input/paths/*",
+    "request git/continue /cwd",
+    "request git/createTag /cwd",
+    "request git/deleteBranch /cwd",
+    "request git/deleteTag /cwd",
+    "request git/diff /cwd",
+    "request git/diff /path",
+    "request git/fetch /cwd",
+    "request git/ignore /cwd",
+    "request git/ignore /path",
+    "request git/log /cwd",
+    "request git/pull /cwd",
+    "request git/push /cwd",
+    "request git/renameBranch /cwd",
+    "request git/requestContext /cwd",
+    "request git/requestContext /input/paths/*",
+    "request git/resetToCommit /cwd",
+    "request git/revertCommit /cwd",
+    "request git/revertFile /cwd",
+    "request git/revertFile /path",
+    "request git/show /cwd",
+    "request git/showDiff /cwd",
+    "request git/showDiff /path",
+    "request git/showFile /cwd",
+    "request git/showFile /path",
+    "request git/stage /cwd",
+    "request git/stage /paths/*",
+    "request git/stash /cwd",
+    "request git/stashApply /cwd",
+    "request git/stashDrop /cwd",
+    "request git/stashList /cwd",
+    "request git/stashPop /cwd",
+    "request git/status /cwd",
+    "request git/sync /cwd",
+    "request git/undoLastCommit /cwd",
+    "request git/unstage /cwd",
+    "request git/unstage /paths/*",
+    "request git/unwatch /cwd",
+    "request git/watch /cwd",
+    "request github/pr/checkout /cwd",
+    "request github/pr/create /cwd",
+    "request github/pr/defaultBranch /cwd",
+    "request github/pr/diff /cwd",
+    "request github/pr/list /cwd",
+    "request github/pr/merge /cwd",
+    "request github/pr/view /cwd",
+    "request github/request /cwd",
+    "request github/request /input/repo",
+    "request host/state/set /value/*/tabs/*/cwd",
+    "request host/state/set /value/*/tabs/*/panes/*/path",
+    "request host/state/set /value/*/tabs/*/panes/*/root",
+    "request host/state/set /value/state/tabs/*/cwd",
+    "request host/state/set /value/state/tabs/*/panes/*/path",
+    "request host/state/set /value/state/tabs/*/panes/*/root",
+    "request import/listImportableConversations /params/project",
+    "request import/registerConversationImportFile /params/path",
+    "request localProvider/inspectHuggingFaceModel /options/repository",
+    "request lsp/document /document/relPath",
+    "request lsp/document /projectPath",
+    "request lsp/document /root",
+    "request lsp/request /projectPath",
+    "request lsp/request /request/relPath",
+    "request lsp/request /root",
+    "request lsp/subscribe /root",
+    "request lsp/unsubscribe /root",
+    "request mcp/saveMcpServer /input/originalName",
+    "request memory/memoryControl /args/cwd",
+    "request memory/memoryControl /args/project_paths/*",
+    "request memory/memoryControl /args/target_cwd",
+    "request memory/recall /args/cwd",
+    "request process/spawn /argv/*",
+    "request process/spawn /cwd",
+    "request process/spawn /shell",
+    "request project/codeGraph /path",
+    "request project/create /path",
+    "request project/delete /path",
+    "request project/directory /path",
+    "request project/ensureDirectory /path",
+    "request project/getProjectBranchMenu /input/projectPath",
+    "request project/getProjectConnectors /projectPath",
+    "request project/inspectProjectBranch /input/projectPath",
+    "request project/manageProjectBranch /input/projectPath",
+    "request project/mergeProjectBranch /input/projectPath",
+    "request project/previewWorktreeCleanup /input/repoCommonDir",
+    "request project/pruneWorktrees /input/repoCommonDir",
+    "request project/read /path",
+    "request project/recoveryDirectory /path",
+    "request project/selectProjectBranch /input/projectPath",
+    "request project/setProjectConnectorEnabled /projectPath",
+    "request project/touch /path",
+    "request project/update /path",
+    "request projectFs/backup/delete /sourcePath",
+    "request projectFs/backup/read /sourcePath",
+    "request projectFs/backup/write /sourcePath",
+    "request projectFs/browseDirs /path",
+    "request projectFs/captureSnapshot /rel",
+    "request projectFs/captureSnapshot /root",
+    "request projectFs/copy /rel",
+    "request projectFs/copy /root",
+    "request projectFs/copy /targetDirRel",
+    "request projectFs/create /relDir",
+    "request projectFs/create /root",
+    "request projectFs/entryPath /rel",
+    "request projectFs/entryPath /root",
+    "request projectFs/listDir /rel",
+    "request projectFs/listDir /root",
+    "request projectFs/localPageUrl /rel",
+    "request projectFs/localPageUrl /root",
+    "request projectFs/move /rel",
+    "request projectFs/move /root",
+    "request projectFs/move /targetDirRel",
+    "request projectFs/previewFile /rel",
+    "request projectFs/previewFile /root",
+    "request projectFs/previewRange /rel",
+    "request projectFs/previewRange /root",
+    "request projectFs/readEditorSettings /rel",
+    "request projectFs/readEditorSettings /root",
+    "request projectFs/readEditorSettings /workspaceFile",
+    "request projectFs/readLocal /path",
+    "request projectFs/readText /rel",
+    "request projectFs/readText /root",
+    "request projectFs/recovery /root",
+    "request projectFs/rename /rel",
+    "request projectFs/rename /root",
+    "request projectFs/replaceText /root",
+    "request projectFs/searchText /root",
+    "request projectFs/stat /rel",
+    "request projectFs/stat /root",
+    "request projectFs/statLocal /paths/*",
+    "request projectFs/trash /rel",
+    "request projectFs/trash /root",
+    "request projectFs/workspaceFile/read /workspaceFile",
+    "request projectFs/workspaceFile/write /folders/*/path",
+    "request projectFs/workspaceFile/write /workspaceFile",
+    "request projectFs/writeText /rel",
+    "request projectFs/writeText /root",
+    "request projectFs/writeTextBatch /files/*/rel",
+    "request projectFs/writeTextBatch /files/*/relPath",
+    "request projectFs/writeTextBatch /root",
+    "request review/diff/get /cwd",
+    "request review/diff/get /files/*",
+    "request review/diff/get /files/*/path",
+    "request review/diff/get /oldPath",
+    "request review/diff/get /path",
+    "request room/send /input/options/pastedImages/*/sourcePath",
+    "request search/start /roots/*",
+    "request skills/setDisabledSkills /names/*",
+    "request skills/skillsStatus /options/cwd",
+    "request skills/skillsStatus /options/projectPath",
+    "request thread/agentControl /args/cwd",
+    "request thread/agentControl /args/file",
+    "request thread/list /cwd",
+    "request thread/metadata/update /projectPath",
+    "request thread/reapplyTurnChanges /file",
+    "request thread/revertTurnChanges /file",
+    "request thread/revertTurnReviewFile /file",
+    "request thread/setCwd /path",
+    "request thread/start /draft/projectPath",
+    "request thread/start /initialInput/options/pastedImages/*/sourcePath",
+    "request thread/start /projectPath",
+    "request thread/switchContext /input/cwd",
+    "request transfer/authorizeRead /source/path",
+    "request transfer/authorizeRead /source/rel",
+    "request transfer/beginRead /source/path",
+    "request transfer/beginRead /source/projectPath",
+    "request transfer/beginRead /source/rel",
+    "request transfer/beginRead /source/relPath",
+    "request transfer/beginRead /source/root",
+    "request transfer/beginWrite /rel",
+    "request transfer/beginWrite /root",
+    "request transfer/beginZip /rel",
+    "request transfer/beginZip /root",
+    "request transfer/grant/mint /path",
+    "request transfer/readRange /rel",
+    "request transfer/readRange /root",
+    "request transfer/trash/entry /path",
+    "request transfer/trash/entry /rel",
+    "request transfer/trash/info /path",
+    "request turn/start /input/options/pastedImages/*/sourcePath"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a phone's machine-written account of a reconnect (phase, state and issue tokens); the core keeps only [A-Za-z0-9_=@:. -] of it for its log",
+   "fields": [
+    "notification remote/connectionTimeline /text"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a provider's raw model record, kept as given",
+   "fields": [
+    "answer model/proxy/execute /result/models/*/raw/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a provider's raw usage object (counts and provider keys), kept as given",
+   "fields": [
+    "notification model/proxy/event /event/usage/raw/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a provider's raw usage object, kept as given",
+   "fields": [
+    "answer model/proxy/execute /result/failure/partialUsage/raw/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a pull-request number",
+   "fields": [
+    "request github/pr/checkout /value",
+    "request github/pr/diff /value",
+    "request github/pr/merge /value",
+    "request github/pr/view /value"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a record's key, not a label: the core finds the record by it or checks it is unique by it (a schedule, webhook, MCP server, plugin, built-in tool or feature, skill, environment variable), as Node did by the same string; the label a person reads is a separate field where one exists",
+   "fields": [
+    "request account/checkCustomProviderKeyEnv /name",
+    "request channel/call /args/def/name",
+    "request channel/call /args/def/newName",
+    "request channel/call /args/entry/name",
+    "request channel/call /args/entry/newName",
+    "request channel/call /args/name",
+    "request channel/call /name",
+    "request channel/deleteSchedule /name",
+    "request channel/deleteWebhook /name",
+    "request channel/retryRoutineDelivery /name",
+    "request channel/runScheduleNow /name",
+    "request channel/runWebhookNow /name",
+    "request channel/saveSchedule /entry/name",
+    "request channel/saveSchedule /entry/newName",
+    "request channel/saveWebhook /entry/name",
+    "request channel/setScheduleEnabled /name",
+    "request channel/setWebhookEnabled /name",
+    "request channel/testWebhook /name",
+    "request config/installBuiltinFeature /name",
+    "request config/setBuiltinToolEnabled /name",
+    "request config/setExtensionScope /name",
+    "request mcp/addMcpServer /input/name",
+    "request mcp/beginMcpOAuthLogin /name",
+    "request mcp/enablePluginMcp /plugin/name",
+    "request mcp/getMcpServerConfig /name",
+    "request mcp/reconnectMcp /name",
+    "request mcp/removeMcpServer /name",
+    "request mcp/saveMcpServer /input/name",
+    "request mcp/setMcpServerEnabled /name",
+    "request mcp/signOutMcpServer /name",
+    "request plugins/addPlugin /source/name",
+    "request plugins/removePlugin /plugin/name",
+    "request plugins/setPluginEnabled /plugin/name",
+    "request plugins/updatePlugin /plugin/name",
+    "request skills/removeSkill /input/name",
+    "request skills/saveSkill /input/originalName",
+    "request skills/skillContent /name"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a secret, token or credential name: compared by the service that issued it, never shown; a pasted secret holding a lone unit is not the secret (Node sent the escape as given, UTF-8 conversion makes it U+FFFD), so the request is refused with the field named rather than sending a different secret",
+   "fields": [
+    "request account/authenticateProvider /secret",
+    "request account/discoverCustomProviderModels /input/apiKey",
+    "request account/discoverCustomProviderModels /input/apiKeyEnv",
+    "request account/discoverCustomProviderModels /input/extraApiKeys/*/apiKey",
+    "request account/saveCustomProvider /input/apiKeyEnv",
+    "request account/saveCustomProvider /input/extraApiKeys/*/apiKey",
+    "request account/saveCustomProviderKey /secret",
+    "request account/saveOpenAIUsageSessionKey /secret",
+    "request account/saveProviderApiKey /secret",
+    "request account/testCustomProvider /input/apiKey",
+    "request account/testCustomProvider /input/apiKeyEnv",
+    "request account/testCustomProvider /input/extraApiKeys/*/apiKey",
+    "request channel/call /args/entry/secret",
+    "request channel/saveWebhook /entry/secret",
+    "request connector/addConnectorAccount /input/oauthClientId",
+    "request connector/addConnectorAccount /input/oauthClientSecret",
+    "request localProvider/deleteLocalProviderModel /confirmationToken",
+    "request mcp/addMcpServer /input/appPassword",
+    "request mcp/addMcpServer /input/bearer_token_env_var",
+    "request mcp/addMcpServer /input/oauthClientId",
+    "request mcp/addMcpServer /input/oauthClientSecret",
+    "request mcp/probeMcpServerAuth /cfg/bearer_token_env_var",
+    "request mcp/saveMcpServer /input/bearer_token_env_var",
+    "request projectFs/captureSnapshot /accessToken",
+    "request projectFs/entryPath /accessToken",
+    "request projectFs/localPageUrl /accessToken",
+    "request projectFs/previewFile /accessToken",
+    "request projectFs/previewRange /accessToken",
+    "request projectFs/readText /accessToken",
+    "request projectFs/stat /accessToken",
+    "request projectFs/writeText /accessToken",
+    "request transfer/beginRead /source/accessToken"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a selector of files (glob or path), compared with file names",
+   "fields": [
+    "request projectFs/replaceText /options/exclude",
+    "request projectFs/replaceText /options/include",
+    "request projectFs/replaceText /relPaths/*",
+    "request projectFs/searchText /options/exclude",
+    "request projectFs/searchText /options/include"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a setting value at any path, of any shape: the relay-writable paths (RELAY_SETTING_PATHS, service.rs) hold booleans and enums, the others ids and scopes; no setting the clients write is typed text",
+   "fields": [
+    "request config/value/write /value/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a sign-in address or a secret sent to a service as it is: compared by that service, never shown as text",
+   "fields": [
+    "request account/saveCustomProvider /input/apiKey",
+    "request approval/provideSecret /secret",
+    "request connector/addConnectorAccount /input/appPassword",
+    "request connector/addConnectorAccount /input/email",
+    "request mcp/addMcpServer /input/email"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a time, date, duration, version or schedule field, parsed into a number or matched against a fixed form",
+   "fields": [
+    "answer host/update/command /version",
+    "notification host/update/report /state/version",
+    "request account/discoverCustomProviderModels /input/schemaVersion",
+    "request account/getQuotaHistory /options/endDay",
+    "request account/getQuotaHistory /options/startDay",
+    "request account/saveCustomProvider /input/schemaVersion",
+    "request account/testCustomProvider /input/schemaVersion",
+    "request channel/call /args/def/at",
+    "request channel/call /args/def/days",
+    "request channel/call /args/def/days/*",
+    "request channel/call /args/def/time",
+    "request channel/call /args/def/timezone",
+    "request channel/call /args/entry/at",
+    "request channel/call /args/entry/days",
+    "request channel/call /args/entry/days/*",
+    "request channel/call /args/entry/time",
+    "request channel/call /args/entry/timezone",
+    "request channel/saveSchedule /entry/at",
+    "request channel/saveSchedule /entry/days",
+    "request channel/saveSchedule /entry/days/*",
+    "request channel/saveSchedule /entry/time",
+    "request channel/saveSchedule /entry/timezone",
+    "request config/completeOnboarding /payload/version",
+    "request git/createTag /at",
+    "request initialize /clientInfo/build",
+    "request initialize /clientInfo/version",
+    "request memory/recall /args/period",
+    "request modelProxy/run /call/request/options/hostedTools/*/userLocation/timezone",
+    "request thread/delete /ifIdle/lastUsedAt",
+    "request thread/goal/control /args/time_limit_minutes",
+    "request transfer/readRange /version",
+    "request usage/getUsageRequests /options/endDay",
+    "request usage/getUsageRequests /options/endTime",
+    "request usage/getUsageRequests /options/startDay",
+    "request usage/getUsageRequests /options/startTime",
+    "request usage/getUsageStats /options/endDay",
+    "request usage/getUsageStats /options/endTime",
+    "request usage/getUsageStats /options/startDay",
+    "request usage/getUsageStats /options/startTime"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a tool, model, provider or parameter id that the core matches against its catalog or tool list; the text a person reads beside it (displayName, description, label) is listed as free text",
+   "fields": [
+    "answer model/proxy/execute /result/models/*/name",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/options/*/value",
+    "answer model/proxy/execute /result/models/*/picker/serviceTiers/*/name",
+    "answer model/proxy/execute /result/providers/*/name",
+    "notification model/proxy/event /event/call/name",
+    "notification model/proxy/event /event/calls/*/name",
+    "notification model/proxy/event /event/name",
+    "request modelProxy/run /call/request/messages/*/accountRouting/accountId",
+    "request modelProxy/run /call/request/messages/*/accountRouting/provider",
+    "request modelProxy/run /call/request/messages/*/accountRouting/sessionAccountId",
+    "request modelProxy/run /call/request/messages/*/toolCalls/*/name",
+    "request modelProxy/run /call/request/tools/*/name"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an effort level or output style id from a fixed list",
+   "fields": [
+    "request thread/setEffort /value",
+    "request thread/setOutputStyle /value"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an executable path run as a process: a path, not text",
+   "fields": [
+    "request config/setSystemShell /input/command",
+    "request mcp/addMcpServer /input/command",
+    "request mcp/saveMcpServer /input/command"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text",
+   "fields": [
+    "answer host/screen/displays /*/screenId",
+    "answer item/browser/requestApproval /answers/*/selected/*",
+    "answer item/computer/requestApproval /answers/*/selected/*",
+    "answer item/permissions/requestApproval /answers/*/selected/*",
+    "answer item/tool/requestApproval /answers/*/selected/*",
+    "answer item/tool/requestUserInput /answers/*/selected/*",
+    "answer model/proxy/execute /result/models/*/id",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/id",
+    "answer model/proxy/execute /result/models/*/picker/serviceTiers/*/id",
+    "answer model/proxy/execute /result/route/profileId",
+    "notification browser/streamAck /sessionId",
+    "notification host/browser/frame /tabId",
+    "notification host/browser/page /documentId",
+    "notification host/browser/page /tabId",
+    "notification host/browser/surface /sessionId",
+    "notification host/browser/surface /tabId",
+    "notification host/notification/clicked /threadId",
+    "notification model/proxy/event /event/accountId",
+    "notification model/proxy/event /event/call/id",
+    "notification model/proxy/event /event/calls/*/id",
+    "notification model/proxy/event /event/id",
+    "notification model/proxy/event /event/sessionAccountId",
+    "notification model/proxy/event /requestId",
+    "notification model/proxy/heartbeat /requestIds/*",
+    "notification modelProxy/cancel /runId",
+    "notification process/input /processHandle",
+    "notification terminal/input /tabId",
+    "notification terminal/resize /tabId",
+    "notification ui/newTab/created /openRequestId",
+    "notification ui/newTab/created /pageId",
+    "notification ui/newTab/created /sessionId",
+    "notification ui/screenSessions/changed /browserId",
+    "notification ui/screenSessions/changed /sessionIds/*",
+    "notification ui/screenSessions/changed /visualizeSessionIds/*",
+    "notification ui/terminalRun/claimed /requestId",
+    "request account/authenticateProvider /opId",
+    "request account/authenticateProvider /providerId",
+    "request account/authenticateProvider /threadId",
+    "request account/beginOAuthProviderLogin /opId",
+    "request account/beginOAuthProviderLogin /options/accountId",
+    "request account/beginOAuthProviderLogin /providerId",
+    "request account/beginOAuthProviderLogin /threadId",
+    "request account/cancelOAuthProviderLogin /flowId",
+    "request account/cancelOAuthProviderLogin /opId",
+    "request account/cancelOAuthProviderLogin /threadId",
+    "request account/checkCustomProviderKeyEnv /opId",
+    "request account/checkCustomProviderKeyEnv /threadId",
+    "request account/completeOAuthProviderLogin /flowId",
+    "request account/completeOAuthProviderLogin /opId",
+    "request account/completeOAuthProviderLogin /threadId",
+    "request account/consumeCodexRateLimitResetCredit /opId",
+    "request account/consumeCodexRateLimitResetCredit /options/expectedOfferRevision",
+    "request account/consumeCodexRateLimitResetCredit /options/idempotencyKey",
+    "request account/consumeCodexRateLimitResetCredit /threadId",
+    "request account/discoverCustomProviderModels /input/auth",
+    "request account/discoverCustomProviderModels /input/extraApiKeys/*/id",
+    "request account/discoverCustomProviderModels /input/id",
+    "request account/discoverCustomProviderModels /opId",
+    "request account/discoverCustomProviderModels /threadId",
+    "request account/forgetProviderAuth /accountId",
+    "request account/forgetProviderAuth /opId",
+    "request account/forgetProviderAuth /providerId",
+    "request account/forgetProviderAuth /threadId",
+    "request account/getOAuthProviderLoginStatus /flowId",
+    "request account/getOAuthProviderLoginStatus /threadId",
+    "request account/getQuotaHistory /threadId",
+    "request account/listWebSearchModels /threadId",
+    "request account/loginOAuthProvider /opId",
+    "request account/loginOAuthProvider /providerId",
+    "request account/loginOAuthProvider /threadId",
+    "request account/refreshProviderSetup /opId",
+    "request account/removeCustomProvider /opId",
+    "request account/removeCustomProvider /providerId",
+    "request account/removeCustomProvider /threadId",
+    "request account/saveCustomProvider /input/auth",
+    "request account/saveCustomProvider /input/extraApiKeys/*/id",
+    "request account/saveCustomProvider /input/id",
+    "request account/saveCustomProvider /opId",
+    "request account/saveCustomProvider /threadId",
+    "request account/saveCustomProviderKey /opId",
+    "request account/saveCustomProviderKey /providerId",
+    "request account/saveCustomProviderKey /threadId",
+    "request account/saveOpenAIUsageSessionKey /opId",
+    "request account/saveOpenAIUsageSessionKey /threadId",
+    "request account/saveProviderApiKey /opId",
+    "request account/saveProviderApiKey /providerId",
+    "request account/saveProviderApiKey /threadId",
+    "request account/testCustomProvider /input/auth",
+    "request account/testCustomProvider /input/extraApiKeys/*/id",
+    "request account/testCustomProvider /input/id",
+    "request account/testCustomProvider /opId",
+    "request account/testCustomProvider /threadId",
+    "request account/updateCustomProviderModel /modelId",
+    "request account/updateCustomProviderModel /opId",
+    "request account/updateCustomProviderModel /providerId",
+    "request account/updateCustomProviderModel /threadId",
+    "request account/updateProviderAccounts /change/rename/id",
+    "request account/updateProviderAccounts /change/selectedId",
+    "request account/updateProviderAccounts /opId",
+    "request account/updateProviderAccounts /providerId",
+    "request account/updateProviderAccounts /threadId",
+    "request agent/agentDefinitionPresence /agentIds/*",
+    "request agent/agentDefinitionPresence /threadId",
+    "request agent/archivedAgentIdentities /agentIds/*",
+    "request agent/archivedAgentIdentities /threadId",
+    "request agent/deleteAgentDefinition /agentId",
+    "request agent/deleteAgentDefinition /opId",
+    "request agent/deleteAgentDefinition /threadId",
+    "request agent/getAgentAlwaysAllowedTools /agentId",
+    "request agent/getAgentAlwaysAllowedTools /threadId",
+    "request agent/getAgentAvatarImage /agentId",
+    "request agent/getAgentAvatarImage /threadId",
+    "request agent/getAgentConnectorTools /agentId",
+    "request agent/getAgentConnectorTools /threadId",
+    "request agent/getAgentConnectors /agentId",
+    "request agent/getAgentConnectors /threadId",
+    "request agent/getAgentDefinition /agentId",
+    "request agent/getAgentDefinition /threadId",
+    "request agent/getAgentPermissions /agentId",
+    "request agent/getAgentPermissions /threadId",
+    "request agent/getLeadAgentBody /threadId",
+    "request agent/getLeadAppearance /threadId",
+    "request agent/getLeadHomeRoute /threadId",
+    "request agent/getLeadPersona /threadId",
+    "request agent/getLeadStatus /threadId",
+    "request agent/home/open /agentId",
+    "request agent/home/open /opId",
+    "request agent/home/reset /agentId",
+    "request agent/home/reset /opId",
+    "request agent/memory/delete /agentId",
+    "request agent/memory/delete /entryId",
+    "request agent/memory/delete /indexRevision",
+    "request agent/memory/delete /opId",
+    "request agent/memory/list /agentId",
+    "request agent/purgeAgentDefinition /agentId",
+    "request agent/purgeAgentDefinition /opId",
+    "request agent/purgeAgentDefinition /threadId",
+    "request agent/recordAgentApprovalAudit /agentId",
+    "request agent/recordAgentApprovalAudit /opId",
+    "request agent/recordAgentApprovalAudit /threadId",
+    "request agent/restoreAgentDefinition /agentId",
+    "request agent/restoreAgentDefinition /opId",
+    "request agent/restoreAgentDefinition /threadId",
+    "request agent/saveAgentDefinition /opId",
+    "request agent/saveAgentDefinition /payload/connectors/*/id",
+    "request agent/saveAgentDefinition /payload/expectedRevision",
+    "request agent/saveAgentDefinition /payload/id",
+    "request agent/saveAgentDefinition /threadId",
+    "request agent/saveLeadAgentBody /opId",
+    "request agent/saveLeadAgentBody /threadId",
+    "request agent/saveLeadIdentity /opId",
+    "request agent/saveLeadIdentity /threadId",
+    "request agent/saveLeadPersona /opId",
+    "request agent/saveLeadPersona /threadId",
+    "request agent/setAgentConnectorEnabled /agentId",
+    "request agent/setAgentConnectorEnabled /connectorId",
+    "request agent/setAgentConnectorEnabled /opId",
+    "request agent/setAgentConnectorEnabled /threadId",
+    "request agent/setAgentConnectorToolPermission /agentId",
+    "request agent/setAgentConnectorToolPermission /connectorId",
+    "request agent/setAgentConnectorToolPermission /opId",
+    "request agent/setAgentConnectorToolPermission /threadId",
+    "request agent/setAgentConnectors /agentId",
+    "request agent/setAgentConnectors /connectors/*/id",
+    "request agent/setAgentConnectors /opId",
+    "request agent/setAgentConnectors /threadId",
+    "request agent/setAgentPermission /agentId",
+    "request agent/setAgentPermission /opId",
+    "request agent/setAgentPermission /threadId",
+    "request agent/setLeadAppearance /opId",
+    "request agent/setLeadAppearance /threadId",
+    "request agent/setLeadCreated /opId",
+    "request agent/setLeadCreated /threadId",
+    "request app/subscribe /resumeFrom/epoch",
+    "request approval/provideSecret /opId",
+    "request approval/provideSecret /requestId",
+    "request blob/put /digest",
+    "request blob/read /digest",
+    "request browser/command /input/key",
+    "request browser/stream /sessionId",
+    "request browser/webrtcSignal /signal/documentId",
+    "request channel/call /args/def/executorAgentId",
+    "request channel/call /args/entry/executorAgentId",
+    "request channel/call /args/sessionId",
+    "request channel/call /opId",
+    "request channel/deleteSchedule /opId",
+    "request channel/deleteSchedule /threadId",
+    "request channel/deleteWebhook /opId",
+    "request channel/deleteWebhook /threadId",
+    "request channel/getChannelSettings /threadId",
+    "request channel/getChannelSetup /threadId",
+    "request channel/getChannelWorkerStatus /threadId",
+    "request channel/retryRoutineDelivery /opId",
+    "request channel/retryRoutineDelivery /threadId",
+    "request channel/runScheduleNow /opId",
+    "request channel/runScheduleNow /threadId",
+    "request channel/runWebhookNow /opId",
+    "request channel/runWebhookNow /threadId",
+    "request channel/saveSchedule /entry/executorAgentId",
+    "request channel/saveSchedule /opId",
+    "request channel/saveSchedule /threadId",
+    "request channel/saveWebhook /entry/executorAgentId",
+    "request channel/saveWebhook /opId",
+    "request channel/saveWebhook /threadId",
+    "request channel/setScheduleEnabled /opId",
+    "request channel/setScheduleEnabled /threadId",
+    "request channel/setWebhookConfig /opId",
+    "request channel/setWebhookConfig /threadId",
+    "request channel/setWebhookEnabled /opId",
+    "request channel/setWebhookEnabled /threadId",
+    "request channel/testWebhook /opId",
+    "request channel/testWebhook /threadId",
+    "request config/batchWrite /opId",
+    "request config/claimSetupRequest /id",
+    "request config/claimSetupRequest /opId",
+    "request config/claimSetupRequest /threadId",
+    "request config/completeOnboarding /opId",
+    "request config/completeOnboarding /payload/presets/*/id",
+    "request config/completeOnboarding /threadId",
+    "request config/completeSetupRequest /id",
+    "request config/completeSetupRequest /opId",
+    "request config/completeSetupRequest /threadId",
+    "request config/createWorkflow /opId",
+    "request config/createWorkflow /payload/id",
+    "request config/createWorkflow /threadId",
+    "request config/deleteWorkflow /opId",
+    "request config/deleteWorkflow /threadId",
+    "request config/deleteWorkflow /workflowId",
+    "request config/getAutoClear /threadId",
+    "request config/getBotOrder /threadId",
+    "request config/getCacheWarmingSettings /threadId",
+    "request config/getCompactionSettings /threadId",
+    "request config/getConfiguredOrchestrationMode /threadId",
+    "request config/getDeveloperSettings /threadId",
+    "request config/getHeartbeatSettings /threadId",
+    "request config/getNetworkProxy /threadId",
+    "request config/getOrchestrationMode /threadId",
+    "request config/getOutputStyle /threadId",
+    "request config/getProfile /threadId",
+    "request config/getReactionSettings /threadId",
+    "request config/getRecapSettings /threadId",
+    "request config/getSessionTitleSettings /threadId",
+    "request config/getSystemShell /threadId",
+    "request config/getTheme /threadId",
+    "request config/getToolModuleSettings /threadId",
+    "request config/getUpdateSettings /threadId",
+    "request config/getWorkflowPack /threadId",
+    "request config/getWorkflowPack /workflowId",
+    "request config/getWorktreeSettings /threadId",
+    "request config/installBuiltinFeature /opId",
+    "request config/installBuiltinFeature /threadId",
+    "request config/isSetupRequestActive /id",
+    "request config/isSetupRequestActive /threadId",
+    "request config/listOutputStyles /threadId",
+    "request config/saveStarterGuideState /opId",
+    "request config/saveStarterGuideState /threadId",
+    "request config/saveWorkflowPack /opId",
+    "request config/saveWorkflowPack /payload/id",
+    "request config/saveWorkflowPack /threadId",
+    "request config/setAiSessionTitles /opId",
+    "request config/setAiSessionTitles /threadId",
+    "request config/setAutoClear /opId",
+    "request config/setAutoClear /threadId",
+    "request config/setAutoEffortBase /opId",
+    "request config/setAutoEffortBase /threadId",
+    "request config/setAutoUpdate /opId",
+    "request config/setAutoUpdate /threadId",
+    "request config/setBotOrder /opId",
+    "request config/setBotOrder /threadId",
+    "request config/setBuiltinToolEnabled /opId",
+    "request config/setBuiltinToolEnabled /threadId",
+    "request config/setCacheWarmingEnabled /opId",
+    "request config/setCacheWarmingEnabled /threadId",
+    "request config/setCompactionSettings /opId",
+    "request config/setCompactionSettings /threadId",
+    "request config/setDeveloperOption /id",
+    "request config/setDeveloperOption /opId",
+    "request config/setDeveloperOption /threadId",
+    "request config/setExtensionScope /opId",
+    "request config/setExtensionScope /threadId",
+    "request config/setHeartbeatEnabled /opId",
+    "request config/setHeartbeatEnabled /threadId",
+    "request config/setHeartbeatInterval /opId",
+    "request config/setHeartbeatInterval /threadId",
+    "request config/setMemoryToolsEnabled /opId",
+    "request config/setMemoryToolsEnabled /threadId",
+    "request config/setModelPreferences /opId",
+    "request config/setModelPreferences /providerId",
+    "request config/setModelPreferences /threadId",
+    "request config/setNetworkProxy /opId",
+    "request config/setNetworkProxy /threadId",
+    "request config/setProfile /opId",
+    "request config/setProfile /threadId",
+    "request config/setReactionsEnabled /opId",
+    "request config/setReactionsEnabled /threadId",
+    "request config/setRecapEnabled /opId",
+    "request config/setRecapEnabled /threadId",
+    "request config/setSystemShell /opId",
+    "request config/setSystemShell /threadId",
+    "request config/setTheme /id",
+    "request config/setTheme /opId",
+    "request config/setTheme /threadId",
+    "request config/setWebSearchEnabled /opId",
+    "request config/setWebSearchEnabled /threadId",
+    "request config/setWebSearchRoute /opId",
+    "request config/setWebSearchRoute /threadId",
+    "request config/setWorktreeSettings /opId",
+    "request config/setWorktreeSettings /threadId",
+    "request config/skipOnboarding /opId",
+    "request config/skipOnboarding /threadId",
+    "request config/testNetworkProxy /threadId",
+    "request config/value/write /opId",
+    "request connector/addConnectorAccount /input/key",
+    "request connector/addConnectorAccount /opId",
+    "request connector/addConnectorAccount /threadId",
+    "request connector/listConnectorTools /connectorId",
+    "request connector/listConnectorTools /threadId",
+    "request diagnostics/runDoctor /opId",
+    "request diagnostics/runDoctor /threadId",
+    "request document/installLibreOffice /opId",
+    "request fast/set /opId",
+    "request fast/set /threadId",
+    "request feed/subscribe /feedId",
+    "request feed/subscribe /resumeFrom/epoch",
+    "request feed/unsubscribe /feedId",
+    "request feedback/upload /input/id",
+    "request feedback/upload /opId",
+    "request fs/unwatch /watchId",
+    "request fs/watch /watchId",
+    "request git/abortOperation /opId",
+    "request git/amend /opId",
+    "request git/applyPatch /opId",
+    "request git/cherryPickCommit /opId",
+    "request git/cli/install /opId",
+    "request git/commit /opId",
+    "request git/commitPaths /opId",
+    "request git/continue /opId",
+    "request git/createTag /opId",
+    "request git/deleteBranch /opId",
+    "request git/deleteTag /opId",
+    "request git/fetch /opId",
+    "request git/globalConfig/write /opId",
+    "request git/ignore /opId",
+    "request git/pull /opId",
+    "request git/push /opId",
+    "request git/renameBranch /opId",
+    "request git/resetToCommit /opId",
+    "request git/revertCommit /opId",
+    "request git/revertFile /opId",
+    "request git/show /hash",
+    "request git/showDiff /hash",
+    "request git/showFile /rev",
+    "request git/stage /opId",
+    "request git/stash /opId",
+    "request git/stashApply /opId",
+    "request git/stashDrop /opId",
+    "request git/stashPop /opId",
+    "request git/sync /opId",
+    "request git/undoLastCommit /opId",
+    "request git/unstage /opId",
+    "request github/install /opId",
+    "request github/login/cancel /flowId",
+    "request github/login/cancel /opId",
+    "request github/login/openBrowser /flowId",
+    "request github/login/openBrowser /opId",
+    "request github/login/start /opId",
+    "request github/login/status /flowId",
+    "request github/logout /opId",
+    "request github/pr/checkout /opId",
+    "request github/pr/create /opId",
+    "request github/pr/merge /opId",
+    "request github/request /opId",
+    "request github/star /opId",
+    "request host/claim /hostId",
+    "request host/remoteTarget/set /token",
+    "request host/state/set /key",
+    "request host/state/set /value/*/history/*/id",
+    "request host/state/set /value/*/id",
+    "request host/state/set /value/*/sessionId",
+    "request host/state/set /value/*/tabs/*/id",
+    "request host/state/set /value/*/tabs/*/panes/*/remoteRenderId",
+    "request host/state/set /value/jobId",
+    "request host/state/set /value/sessionId",
+    "request host/state/set /value/state/history/*/id",
+    "request host/state/set /value/state/sessionId",
+    "request host/state/set /value/state/tabs/*/id",
+    "request host/state/set /value/state/tabs/*/panes/*/remoteRenderId",
+    "request host/state/set /value/tabs/*/id",
+    "request import/cancelConversationImport /opId",
+    "request import/cancelConversationImport /params/jobId",
+    "request import/cancelConversationImport /threadId",
+    "request import/getConversationImportJobs /params/jobId",
+    "request import/getConversationImportJobs /threadId",
+    "request import/listImportableConversations /params/cursor",
+    "request import/listImportableConversations /threadId",
+    "request import/registerConversationImportFile /opId",
+    "request import/registerConversationImportFile /threadId",
+    "request import/startConversationImport /opId",
+    "request import/startConversationImport /params/requestId",
+    "request import/startConversationImport /params/selection/excludeIds/*",
+    "request import/startConversationImport /params/selection/ids/*",
+    "request import/startConversationImport /params/selection/viewId",
+    "request import/startConversationImport /threadId",
+    "request instructions/getInstructionFile /id",
+    "request instructions/getInstructionFile /threadId",
+    "request instructions/listInstructionFiles /threadId",
+    "request instructions/resetInstructionFile /expectedRevision",
+    "request instructions/resetInstructionFile /id",
+    "request instructions/resetInstructionFile /opId",
+    "request instructions/resetInstructionFile /threadId",
+    "request instructions/saveInstructionFile /input/expectedRevision",
+    "request instructions/saveInstructionFile /input/id",
+    "request instructions/saveInstructionFile /opId",
+    "request instructions/saveInstructionFile /threadId",
+    "request instructions/setInstructionFiles /opId",
+    "request instructions/setInstructionFiles /threadId",
+    "request localProvider/cancelLocalProviderInstallation /jobId",
+    "request localProvider/cancelLocalProviderInstallation /opId",
+    "request localProvider/cancelLocalProviderInstallation /threadId",
+    "request localProvider/deleteLocalProviderModel /opId",
+    "request localProvider/deleteLocalProviderModel /threadId",
+    "request localProvider/discardLocalProviderInstallation /modelId",
+    "request localProvider/discardLocalProviderInstallation /opId",
+    "request localProvider/discardLocalProviderInstallation /threadId",
+    "request localProvider/getLocalProviderModelDetails /modelId",
+    "request localProvider/getLocalProviderModelDetails /threadId",
+    "request localProvider/inspectHuggingFaceModel /threadId",
+    "request localProvider/installLocalProviderModel /modelId",
+    "request localProvider/installLocalProviderModel /opId",
+    "request localProvider/installLocalProviderModel /threadId",
+    "request localProvider/registerHuggingFaceModel /opId",
+    "request localProvider/registerHuggingFaceModel /previewId",
+    "request localProvider/registerHuggingFaceModel /threadId",
+    "request localProvider/searchLocalProviderModels /threadId",
+    "request localProvider/setLocalProviderContext /modelId",
+    "request localProvider/setLocalProviderContext /opId",
+    "request localProvider/setLocalProviderContext /threadId",
+    "request localProvider/setLocalProviderIdleTtl /opId",
+    "request localProvider/setLocalProviderIdleTtl /threadId",
+    "request localProvider/startLocalProviderInstallation /modelId",
+    "request localProvider/startLocalProviderInstallation /opId",
+    "request localProvider/startLocalProviderInstallation /threadId",
+    "request localProvider/startLocalProviderModelMaintenance /modelId",
+    "request localProvider/startLocalProviderModelMaintenance /opId",
+    "request localProvider/startLocalProviderModelMaintenance /threadId",
+    "request lsp/document /document/languageId",
+    "request lsp/request /opId",
+    "request lsp/request /request/languageId",
+    "request mcp/addMcpServer /input/key",
+    "request mcp/addMcpServer /opId",
+    "request mcp/addMcpServer /threadId",
+    "request mcp/beginMcpOAuthLogin /opId",
+    "request mcp/beginMcpOAuthLogin /threadId",
+    "request mcp/cancelMcpOAuthLogin /flowId",
+    "request mcp/cancelMcpOAuthLogin /opId",
+    "request mcp/cancelMcpOAuthLogin /threadId",
+    "request mcp/completeMcpOAuthLogin /flowId",
+    "request mcp/completeMcpOAuthLogin /opId",
+    "request mcp/completeMcpOAuthLogin /threadId",
+    "request mcp/enablePluginMcp /opId",
+    "request mcp/enablePluginMcp /plugin/id",
+    "request mcp/enablePluginMcp /threadId",
+    "request mcp/getMcpOAuthLoginStatus /flowId",
+    "request mcp/getMcpOAuthLoginStatus /threadId",
+    "request mcp/getMcpServerConfig /threadId",
+    "request mcp/mcpStatus /threadId",
+    "request mcp/probeMcpServerAuth /opId",
+    "request mcp/probeMcpServerAuth /threadId",
+    "request mcp/reconnectMcp /opId",
+    "request mcp/reconnectMcp /threadId",
+    "request mcp/removeMcpServer /opId",
+    "request mcp/removeMcpServer /threadId",
+    "request mcp/saveMcpServer /opId",
+    "request mcp/saveMcpServer /threadId",
+    "request mcp/setMcpServerEnabled /opId",
+    "request mcp/setMcpServerEnabled /threadId",
+    "request mcp/signOutMcpServer /opId",
+    "request mcp/signOutMcpServer /threadId",
+    "request media/cacheMediaThumbnail /id",
+    "request media/cacheMediaThumbnail /opId",
+    "request media/cacheMediaThumbnail /threadId",
+    "request media/cancelMediaJob /id",
+    "request media/cancelMediaJob /opId",
+    "request media/cancelMediaJob /threadId",
+    "request media/createMediaBoard /opId",
+    "request media/createMediaBoard /threadId",
+    "request media/deleteMediaAsset /id",
+    "request media/deleteMediaAsset /opId",
+    "request media/deleteMediaAsset /threadId",
+    "request media/deleteMediaAssets /filter/boardId",
+    "request media/deleteMediaAssets /filter/ids/*",
+    "request media/deleteMediaAssets /opId",
+    "request media/deleteMediaAssets /threadId",
+    "request media/deleteMediaBoard /id",
+    "request media/deleteMediaBoard /opId",
+    "request media/deleteMediaBoard /threadId",
+    "request media/getMediaDefault /threadId",
+    "request media/getMediaJob /id",
+    "request media/getMediaJob /threadId",
+    "request media/getMediaPins /threadId",
+    "request media/listMediaAssets /options/boardId",
+    "request media/listMediaAssets /threadId",
+    "request media/listMediaBoards /threadId",
+    "request media/listMediaLanes /threadId",
+    "request media/openMediaAsset /id",
+    "request media/openMediaAsset /opId",
+    "request media/openMediaAsset /threadId",
+    "request media/openMediaFolder /id",
+    "request media/openMediaFolder /opId",
+    "request media/openMediaFolder /threadId",
+    "request media/readMediaAsset /id",
+    "request media/readMediaAsset /threadId",
+    "request media/renameMediaBoard /id",
+    "request media/renameMediaBoard /opId",
+    "request media/renameMediaBoard /threadId",
+    "request media/resolveMediaFile /id",
+    "request media/resolveMediaFile /threadId",
+    "request media/setMediaAssetBoard /boardId",
+    "request media/setMediaAssetBoard /ids/*",
+    "request media/setMediaAssetBoard /opId",
+    "request media/setMediaAssetBoard /threadId",
+    "request media/setMediaDefault /input/lane",
+    "request media/setMediaDefault /opId",
+    "request media/setMediaDefault /threadId",
+    "request media/setMediaPin /input/lane",
+    "request media/setMediaPin /opId",
+    "request media/setMediaPin /threadId",
+    "request media/startMediaJob /input/boardId",
+    "request media/startMediaJob /input/lane",
+    "request media/startMediaJob /input/sessionId",
+    "request media/startMediaJob /opId",
+    "request media/startMediaJob /threadId",
+    "request memory/memoryControl /args/agent_id",
+    "request memory/memoryControl /args/id",
+    "request memory/memoryControl /args/project_id",
+    "request memory/memoryControl /args/target_project_id",
+    "request memory/memoryControl /opId",
+    "request memory/memoryControl /threadId",
+    "request memory/recall /args/currentSessionId",
+    "request memory/recall /args/cursor",
+    "request memory/recall /args/id",
+    "request memory/recall /args/sessionId",
+    "request memory/recall /args/session_id",
+    "request memory/recall /opId",
+    "request memory/recall /threadId",
+    "request modelProxy/run /call/request/messages/*/content/*/source/id",
+    "request modelProxy/run /call/request/messages/*/toolCallId",
+    "request modelProxy/run /call/request/messages/*/toolCalls/*/id",
+    "request modelProxy/run /call/request/options/parentSessionId",
+    "request modelProxy/run /call/request/options/promptCacheKey",
+    "request modelProxy/run /call/request/options/sessionId",
+    "request modelProxy/run /call/request/options/thread/id",
+    "request modelProxy/run /runId",
+    "request notify/test /opId",
+    "request op/status /opIds/*",
+    "request plugins/addPlugin /opId",
+    "request plugins/addPlugin /threadId",
+    "request plugins/pluginsStatus /threadId",
+    "request plugins/reloadPlugins /opId",
+    "request plugins/reloadPlugins /threadId",
+    "request plugins/removePlugin /opId",
+    "request plugins/removePlugin /plugin/id",
+    "request plugins/removePlugin /threadId",
+    "request plugins/setPluginEnabled /opId",
+    "request plugins/setPluginEnabled /plugin/id",
+    "request plugins/setPluginEnabled /threadId",
+    "request plugins/updatePlugin /opId",
+    "request plugins/updatePlugin /plugin/id",
+    "request plugins/updatePlugin /threadId",
+    "request process/kill /processHandle",
+    "request process/resizePty /processHandle",
+    "request process/spawn /opId",
+    "request process/spawn /processHandle",
+    "request process/writeStdin /processHandle",
+    "request project/create /opId",
+    "request project/delete /opId",
+    "request project/deleteWorktree /input/entryId",
+    "request project/deleteWorktree /opId",
+    "request project/deleteWorktree /threadId",
+    "request project/ensureDirectory /opId",
+    "request project/getProjectBranchMenu /threadId",
+    "request project/getProjectConnectors /threadId",
+    "request project/inspectProjectBranch /threadId",
+    "request project/listWorktrees /threadId",
+    "request project/manageProjectBranch /opId",
+    "request project/manageProjectBranch /threadId",
+    "request project/mergeProjectBranch /opId",
+    "request project/mergeProjectBranch /threadId",
+    "request project/previewWorktreeCleanup /threadId",
+    "request project/pruneWorktrees /opId",
+    "request project/pruneWorktrees /threadId",
+    "request project/removeWorktree /opId",
+    "request project/removeWorktree /threadId",
+    "request project/selectProjectBranch /opId",
+    "request project/selectProjectBranch /threadId",
+    "request project/setArchivedSessionWorktrees /input/sessionIds/*",
+    "request project/setArchivedSessionWorktrees /opId",
+    "request project/setArchivedSessionWorktrees /threadId",
+    "request project/setProjectConnectorEnabled /connectorId",
+    "request project/setProjectConnectorEnabled /opId",
+    "request project/setProjectConnectorEnabled /threadId",
+    "request project/touch /opId",
+    "request project/update /opId",
+    "request projectFs/backup/delete /opId",
+    "request projectFs/backup/write /opId",
+    "request projectFs/copy /opId",
+    "request projectFs/create /opId",
+    "request projectFs/move /opId",
+    "request projectFs/readText /readId",
+    "request projectFs/recovery /id",
+    "request projectFs/recovery /opId",
+    "request projectFs/recovery /revision",
+    "request projectFs/rename /opId",
+    "request projectFs/replaceText /opId",
+    "request projectFs/trash /opId",
+    "request projectFs/workspaceFile/write /opId",
+    "request projectFs/writeText /opId",
+    "request projectFs/writeTextBatch /opId",
+    "request remoteAccess/activate /opId",
+    "request remoteAccess/deliverScreenControllerKey /opId",
+    "request remoteAccess/pairCode /opId",
+    "request remoteAccess/registerNativePush /input/token",
+    "request remoteAccess/registerNativePush /opId",
+    "request remoteAccess/registerPushSubscription /input/keys/auth",
+    "request remoteAccess/registerPushSubscription /input/keys/p256dh",
+    "request remoteAccess/registerPushSubscription /opId",
+    "request remoteAccess/removeNativePush /opId",
+    "request remoteAccess/removeNativePush /token",
+    "request remoteAccess/removePushSubscription /opId",
+    "request remoteAccess/resolveClaim /claimId",
+    "request remoteAccess/resolveClaim /opId",
+    "request remoteAccess/revokeClient /clientId",
+    "request remoteAccess/revokeClient /opId",
+    "request remoteAccess/rotate /opId",
+    "request remoteAccess/setClientAlias /clientId",
+    "request remoteAccess/setClientAlias /opId",
+    "request remoteAccess/setEnabled /opId",
+    "request remoteAccess/setName /opId",
+    "request remoteAccess/settleOwedControllerKeys /opId",
+    "request review/diff/get /checkpointId",
+    "request review/diff/get /cursor",
+    "request review/diff/get /known",
+    "request review/diff/get /threadId",
+    "request room/continue /input/roomId",
+    "request room/continue /opId",
+    "request room/create /input/members/*",
+    "request room/create /opId",
+    "request room/leave /input/roomId",
+    "request room/leave /opId",
+    "request room/remove /input/roomId",
+    "request room/remove /opId",
+    "request room/reset /input/roomId",
+    "request room/reset /opId",
+    "request room/send /input/options/clientSubmissionId",
+    "request room/send /input/options/pastedImages/*/attachmentRef",
+    "request room/send /input/options/pastedImages/*/originalRef",
+    "request room/send /input/options/pastedTexts/*/attachmentRef",
+    "request room/send /input/options/retryAttemptId",
+    "request room/send /input/options/retryTurnId",
+    "request room/send /input/prompt/*/attachmentRef",
+    "request room/send /input/threadId",
+    "request room/send /opId",
+    "request room/update /input/members/*",
+    "request room/update /input/roomId",
+    "request room/update /opId",
+    "request route/set /agentId",
+    "request route/set /opId",
+    "request route/set /threadId",
+    "request search/start /consumer",
+    "request search/start /sessionId",
+    "request search/stop /sessionId",
+    "request search/update /sessionId",
+    "request skills/addSkill /opId",
+    "request skills/addSkill /threadId",
+    "request skills/getDisabledSkills /threadId",
+    "request skills/reloadSkills /opId",
+    "request skills/reloadSkills /threadId",
+    "request skills/removeSkill /opId",
+    "request skills/removeSkill /threadId",
+    "request skills/saveSkill /opId",
+    "request skills/saveSkill /threadId",
+    "request skills/setDisabledSkills /opId",
+    "request skills/setDisabledSkills /threadId",
+    "request skills/skillContent /threadId",
+    "request skills/skillsStatus /threadId",
+    "request terminal/attach /tabId",
+    "request terminal/dispose /opId",
+    "request terminal/dispose /tabId",
+    "request terminal/ensure /opId",
+    "request terminal/ensure /tabId",
+    "request terminal/focus /tabId",
+    "request terminal/pause /tabId",
+    "request terminal/resume /tabId",
+    "request thread/agentControl /args/cacheKey",
+    "request thread/agentControl /args/sessionId",
+    "request thread/agentControl /args/task_id",
+    "request thread/agentControl /opId",
+    "request thread/agentControl /threadId",
+    "request thread/approval/answer /approvalId",
+    "request thread/approval/answer /result/answers/*/selected/*",
+    "request thread/approval/answer /threadId",
+    "request thread/approval/answerNotification /approvalId",
+    "request thread/approval/answerNotification /threadId",
+    "request thread/archive /opId",
+    "request thread/archive /threadId",
+    "request thread/askSide /opId",
+    "request thread/askSide /threadId",
+    "request thread/attachment/list /cursor",
+    "request thread/attachment/list /threadId",
+    "request thread/backgroundTerminals/clean /opId",
+    "request thread/backgroundTerminals/clean /threadId",
+    "request thread/backgroundTerminals/release /opId",
+    "request thread/backgroundTerminals/release /taskId",
+    "request thread/backgroundTerminals/release /threadId",
+    "request thread/backgroundTerminals/terminate /opId",
+    "request thread/backgroundTerminals/terminate /taskId",
+    "request thread/backgroundTerminals/terminate /threadId",
+    "request thread/cancelSide /opId",
+    "request thread/cancelSide /targetThreadId",
+    "request thread/cancelSide /threadId",
+    "request thread/clear /opId",
+    "request thread/clear /threadId",
+    "request thread/clearSessionChangeHistory /opId",
+    "request thread/clearSessionChangeHistory /threadId",
+    "request thread/compact/start /opId",
+    "request thread/compact/start /threadId",
+    "request thread/contextStatus /threadId",
+    "request thread/continueInModel /opId",
+    "request thread/continueInModel /threadId",
+    "request thread/delete /opId",
+    "request thread/delete /threadId",
+    "request thread/finalAnswer/read /threadId",
+    "request thread/fork /intoThreadId",
+    "request thread/fork /opId",
+    "request thread/fork /threadId",
+    "request thread/getBranchMenu /threadId",
+    "request thread/getSessionUsage /options/sessionIds/*",
+    "request thread/getSessionUsage /threadId",
+    "request thread/getSessionWorktreeWork /input/sessionIds/*",
+    "request thread/getSessionWorktreeWork /threadId",
+    "request thread/goal/clear /opId",
+    "request thread/goal/clear /threadId",
+    "request thread/goal/control /args/expectedGoalId",
+    "request thread/goal/control /opId",
+    "request thread/goal/control /threadId",
+    "request thread/goal/set /goal/expectedGoalId",
+    "request thread/goal/set /opId",
+    "request thread/goal/set /threadId",
+    "request thread/inheritancePreflight /sourceThreadId",
+    "request thread/inheritancePreflight /threadId",
+    "request thread/items/list /cursor",
+    "request thread/items/list /cursor/itemId",
+    "request thread/items/list /threadId",
+    "request thread/items/list /turnId",
+    "request thread/items/read /itemIds/*",
+    "request thread/items/read /threadId",
+    "request thread/items/read /turnId",
+    "request thread/list /cursor",
+    "request thread/list /sortKey",
+    "request thread/listShellJobs /threadId",
+    "request thread/listStoppableShellJobs /threadId",
+    "request thread/mergeWorkspace /opId",
+    "request thread/mergeWorkspace /threadId",
+    "request thread/metadata/update /opId",
+    "request thread/metadata/update /threadId",
+    "request thread/modelMessages/list /threadId",
+    "request thread/name/set /opId",
+    "request thread/name/set /threadId",
+    "request thread/pushNotice /opId",
+    "request thread/pushNotice /threadId",
+    "request thread/queue/delete /opId",
+    "request thread/queue/delete /queuedId",
+    "request thread/queue/delete /submissionId",
+    "request thread/queue/delete /threadId",
+    "request thread/quotaResume/cancel /opId",
+    "request thread/quotaResume/cancel /threadId",
+    "request thread/quotaResume/schedule /opId",
+    "request thread/quotaResume/schedule /threadId",
+    "request thread/read /threadId",
+    "request thread/readState/update /opId",
+    "request thread/readState/update /threadId",
+    "request thread/reapplyTurnChanges /checkpointId",
+    "request thread/reapplyTurnChanges /opId",
+    "request thread/reapplyTurnChanges /threadId",
+    "request thread/requestWorktree /input/txId",
+    "request thread/requestWorktree /opId",
+    "request thread/requestWorktree /threadId",
+    "request thread/resizeImage /opId",
+    "request thread/resizeImage /threadId",
+    "request thread/resume /resumeFrom/epoch",
+    "request thread/resume /threadId",
+    "request thread/revertTurnChanges /checkpointId",
+    "request thread/revertTurnChanges /opId",
+    "request thread/revertTurnChanges /threadId",
+    "request thread/revertTurnReview /checkpointId",
+    "request thread/revertTurnReview /opId",
+    "request thread/revertTurnReview /threadId",
+    "request thread/revertTurnReviewFile /checkpointId",
+    "request thread/revertTurnReviewFile /opId",
+    "request thread/revertTurnReviewFile /threadId",
+    "request thread/rewind /itemId",
+    "request thread/rewind /opId",
+    "request thread/rewind /threadId",
+    "request thread/selectBranch /input/txId",
+    "request thread/selectBranch /opId",
+    "request thread/selectBranch /threadId",
+    "request thread/setCwd /opId",
+    "request thread/setCwd /threadId",
+    "request thread/setEffort /opId",
+    "request thread/setEffort /threadId",
+    "request thread/setOrchestrationMode /opId",
+    "request thread/setOrchestrationMode /threadId",
+    "request thread/setOutputStyle /opId",
+    "request thread/setOutputStyle /threadId",
+    "request thread/setToolMode /opId",
+    "request thread/setToolMode /threadId",
+    "request thread/setWorkflow /opId",
+    "request thread/setWorkflow /threadId",
+    "request thread/setWorkflow /workflowId",
+    "request thread/stageAttachmentOriginal /opId",
+    "request thread/stageAttachmentOriginal /threadId",
+    "request thread/start /draft/workflowId",
+    "request thread/start /initialInput/options/clientSubmissionId",
+    "request thread/start /initialInput/options/pastedImages/*/attachmentRef",
+    "request thread/start /initialInput/options/pastedImages/*/originalRef",
+    "request thread/start /initialInput/options/pastedTexts/*/attachmentRef",
+    "request thread/start /initialInput/options/retryAttemptId",
+    "request thread/start /initialInput/options/retryTurnId",
+    "request thread/start /initialInput/prompt/*/attachmentRef",
+    "request thread/start /opId",
+    "request thread/switchContext /opId",
+    "request thread/switchContext /threadId",
+    "request thread/turns/list /cursor",
+    "request thread/turns/list /threadId",
+    "request thread/unarchive /opId",
+    "request thread/unarchive /threadId",
+    "request thread/unsubscribe /threadId",
+    "request tidy/getTidyEngineStatus /threadId",
+    "request tidy/getTidyInstallStatus /threadId",
+    "request tools/toolsStatus /threadId",
+    "request transfer/abort /transferId",
+    "request transfer/authorizeRead /sessionId",
+    "request transfer/authorizeRead /source/assetId",
+    "request transfer/authorizeRead /source/attachmentId",
+    "request transfer/authorizeRead /source/itemId",
+    "request transfer/beginRead /source/assetId",
+    "request transfer/beginRead /source/attachmentId",
+    "request transfer/beginRead /source/threadId",
+    "request transfer/beginWrite /opId",
+    "request transfer/commit /opId",
+    "request transfer/commit /transferId",
+    "request transfer/endRead /transferId",
+    "request transfer/finishRead /transferId",
+    "request transfer/grant/mint /attachmentId",
+    "request transfer/grant/mint /sessionId",
+    "request transfer/readRange /transferId",
+    "request transfer/redeemGrant /grantId",
+    "request transfer/trash/entry /opId",
+    "request transfer/writeChunk /transferId",
+    "request turn/interrupt /submissionId",
+    "request turn/interrupt /threadId",
+    "request turn/interrupt /turnId",
+    "request turn/retryFailed /opId",
+    "request turn/retryFailed /threadId",
+    "request turn/retryFailed /turnKey",
+    "request turn/start /input/options/clientSubmissionId",
+    "request turn/start /input/options/pastedImages/*/attachmentRef",
+    "request turn/start /input/options/pastedImages/*/originalRef",
+    "request turn/start /input/options/pastedTexts/*/attachmentRef",
+    "request turn/start /input/options/retryAttemptId",
+    "request turn/start /input/options/retryTurnId",
+    "request turn/start /input/prompt/*/attachmentRef",
+    "request turn/start /opId",
+    "request turn/start /threadId",
+    "request turn/steer /expectedTurnId",
+    "request turn/steer /queuedId",
+    "request turn/steer /threadId",
+    "request update/checkForUpdate /opId",
+    "request update/checkForUpdate /threadId",
+    "request update/desktop/command /opId",
+    "request update/getUpdateStatus /threadId",
+    "request update/runUpdateNow /opId",
+    "request update/runUpdateNow /threadId",
+    "request usage/getUsageDashboard /threadId",
+    "request usage/getUsageRequests /options/cursor",
+    "request usage/getUsageRequests /threadId",
+    "request usage/getUsageStats /threadId",
+    "request visualize/command /input/renderId",
+    "request visualize/command /input/sessionId",
+    "request visualize/command /input/tabId",
+    "request voice/getVoiceStatus /threadId",
+    "request voice/prepareTranscription /opId",
+    "request voice/prepareTranscription /threadId",
+    "request voice/toggleVoice /opId",
+    "request voice/toggleVoice /threadId",
+    "request voice/transcribeAudio /opId",
+    "request voice/transcribeAudio /threadId"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an image's bytes (base64) and the metadata line the resize wrote from it, not typed text",
+   "fields": [
+    "request room/send /input/options/pastedImages/*/content",
+    "request thread/start /initialInput/options/pastedImages/*/content",
+    "request turn/start /input/options/pastedImages/*/content"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "as config/value/write /value",
+   "fields": [
+    "request config/batchWrite /edits/*/value/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "compared with the file's content on disk (the stale-content check): a lone unit there equalled nothing in Node; read as U+FFFD it would equal a real U+FFFD, so it is refused",
+   "fields": [
+    "request projectFs/backup/write /expectedContent"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "encoded bytes or a media type (base64, data URL, SDP), decoded, not text",
+   "fields": [
+    "answer host/visualize/command /thumbnail",
+    "notification host/browser/frame /frame/image/data",
+    "notification process/input /bytesB64",
+    "request agent/saveAgentDefinition /payload/avatar/data",
+    "request agent/saveAgentDefinition /payload/avatar/states/*/data",
+    "request agent/saveAgentDefinition /payload/avatar/states/*/poster",
+    "request agent/saveLeadIdentity /payload/avatar/data",
+    "request agent/saveLeadIdentity /payload/avatar/states/*/data",
+    "request agent/saveLeadIdentity /payload/avatar/states/*/poster",
+    "request agent/setLeadAppearance /avatar/data",
+    "request agent/setLeadAppearance /avatar/states/*/data",
+    "request agent/setLeadAppearance /avatar/states/*/poster",
+    "request blob/put /bytesB64",
+    "request browser/webrtcSignal /signal/fingerprints/*",
+    "request browser/webrtcSignal /signal/receiveCodecs/*",
+    "request browser/webrtcSignal /signal/sdp",
+    "request feedback/upload /input/attachments/*/data",
+    "request feedback/upload /input/attachments/*/mimeType",
+    "request host/state/set /value/*/tabs/*/restoreAssets/*",
+    "request host/state/set /value/*/tabs/*/thumbnail",
+    "request host/state/set /value/state/tabs/*/restoreAssets/*",
+    "request host/state/set /value/state/tabs/*/thumbnail",
+    "request media/cacheMediaThumbnail /input/base64",
+    "request media/cacheMediaThumbnail /input/mime",
+    "request media/startMediaJob /input/references/*/base64",
+    "request media/startMediaJob /input/references/*/mime",
+    "request modelProxy/run /call/request/messages/*/cacheTier",
+    "request modelProxy/run /call/request/messages/*/content/*/mimeType",
+    "request modelProxy/run /call/request/messages/*/content/*/source/data",
+    "request modelProxy/run /call/request/messages/*/content/*/source/mediaType",
+    "request modelProxy/run /call/request/messages/*/content/*/source/mimeType",
+    "request process/writeStdin /bytesB64",
+    "request projectFs/writeText /encoding",
+    "request room/send /input/options/pastedImages/*/mediaType",
+    "request room/send /input/options/pastedImages/*/originalMediaType",
+    "request room/send /input/options/pastedTexts/*/mimeType",
+    "request room/send /input/prompt/*/data",
+    "request room/send /input/prompt/*/mimeType",
+    "request thread/resizeImage /input/data",
+    "request thread/resizeImage /input/mimeType",
+    "request thread/stageAttachmentOriginal /input/data",
+    "request thread/start /initialInput/options/pastedImages/*/mediaType",
+    "request thread/start /initialInput/options/pastedImages/*/originalMediaType",
+    "request thread/start /initialInput/options/pastedTexts/*/mimeType",
+    "request thread/start /initialInput/prompt/*/data",
+    "request thread/start /initialInput/prompt/*/mimeType",
+    "request transfer/writeChunk /bytesB64",
+    "request turn/start /input/options/pastedImages/*/mediaType",
+    "request turn/start /input/options/pastedImages/*/originalMediaType",
+    "request turn/start /input/options/pastedTexts/*/mimeType",
+    "request turn/start /input/prompt/*/data",
+    "request turn/start /input/prompt/*/mimeType",
+    "request visualize/command /input/assets/*",
+    "request voice/transcribeAudio /input/data",
+    "request voice/transcribeAudio /input/mimeType"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "host-only (an agent queue entry's context): a connection's request carrying it is invalidParams before any check of its text",
+   "fields": [
+    "request room/send /input/options/context",
+    "request thread/start /initialInput/options/context",
+    "request turn/start /input/options/context"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "provider-owned continuation state (cache names, response ids, account ids) that the providers compare with their own; it never holds typed text",
+   "fields": [
+    "request modelProxy/run /call/request/options/providerState/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "provider-owned continuation state, as modelProxy/run /call/request/options/providerState",
+   "fields": [
+    "notification model/proxy/event /event/state/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "the client app's own name, a constant of the shipped client",
+   "fields": [
+    "request initialize /clientInfo/name",
+    "request initialize /clientInfo/title"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an MCP server's header value becomes a header on every request to the server: refused naming the field, nothing saved (decisions.md \"Lone UTF-16 surrogates in client strings\"). Node saves the server and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString ...`), sending nothing; the core's refusal without side effect is the accepted difference (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)",
+   "fields": [
+    "request mcp/addMcpServer /input/headers/*",
+    "request mcp/saveMcpServer /input/headers/*"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Language-server params a person reads or a document receives as given: an item's detail, documentation, label details and tooltips, a code action's title and disabled reason, a command's title, a call-hierarchy item's detail, a signature's label and documentation, and the new text of an edit (insert text, text edits, workspace-edit text and change annotations). The server shows them or writes them into a document and compares them with nothing; Node sent a lone unit there as its JSON escape and the core sends U+FFFD, the replacement glyph either way (decisions.md \"frame-lone-surrogate\").",
+   "fields": [
+    "request lsp/request /request/params/detail",
+    "request lsp/request /request/params/documentation",
+    "request lsp/request /request/params/documentation/value",
+    "request lsp/request /request/params/labelDetails/detail",
+    "request lsp/request /request/params/labelDetails/description",
+    "request lsp/request /request/params/insertText",
+    "request lsp/request /request/params/textEditText",
+    "request lsp/request /request/params/textEdit/newText",
+    "request lsp/request /request/params/additionalTextEdits/*/newText",
+    "request lsp/request /request/params/textEdits/*/newText",
+    "request lsp/request /request/params/title",
+    "request lsp/request /request/params/command/title",
+    "request lsp/request /request/params/label/*/command/title",
+    "request lsp/request /request/params/disabled/reason",
+    "request lsp/request /request/params/tooltip",
+    "request lsp/request /request/params/tooltip/value",
+    "request lsp/request /request/params/label/*/tooltip",
+    "request lsp/request /request/params/label/*/tooltip/value",
+    "request lsp/request /request/params/edit/changes/*/*/newText",
+    "request lsp/request /request/params/edit/documentChanges/*/edits/*/newText",
+    "request lsp/request /request/params/edit/changeAnnotations/*/label",
+    "request lsp/request /request/params/edit/changeAnnotations/*/description",
+    "request lsp/request /request/params/item/detail",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/label",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation/value",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Language-server params that carry document text, a message or a label, sent back as the editor holds them: a trigger or typed character (the character typed into the document), a completion item's label, sort and filter text and commit characters, an inlay hint's label parts, a signature parameter's label, and a diagnostic's source, message and related message (the shipped editor sends `marker.message` in every code action request, apps/desktop/src/renderer/editor-lsp-providers.ts, and a diagnostic may quote document text). Node forwards a lone unit as its JSON escape and the server reads it; the core forwards U+FFFD, the replacement glyph either way (decisions.md \"frame-lone-surrogate\"; recorded: native/core/fixtures/lone-surrogate-wire lsp-code-action-diagnostic-lone)",
+   "fields": [
+    "request lsp/request /request/params/context/triggerCharacter",
+    "request lsp/request /request/params/ch",
+    "request lsp/request /request/params/label",
+    "request lsp/request /request/params/label/*/value",
+    "request lsp/request /request/params/sortText",
+    "request lsp/request /request/params/filterText",
+    "request lsp/request /request/params/commitCharacters/*",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+    "request lsp/request /request/params/context/diagnostics/*/source",
+    "request lsp/request /request/params/context/diagnostics/*/message",
+    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/message",
+    "request lsp/request /request/params/diagnostics/*/source",
+    "request lsp/request /request/params/diagnostics/*/message",
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/message"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)",
+   "fields": [
+    "request lsp/request /request/params/newName",
+    "request lsp/request /request/params/query",
+    "request lsp/request /request/params/command",
+    "request lsp/request /request/params/command/command",
+    "request lsp/request /request/params/label/*/command/command",
+    "request lsp/request /request/params/item/name"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text",
+   "fields": [
+    "request lsp/request /request/params/textDocument/uri",
+    "request lsp/request /request/params/workDoneToken",
+    "request lsp/request /request/params/partialResultToken",
+    "request lsp/request /request/params/edit/changes/{}",
+    "request lsp/request /request/params/edit/changes/*/*/annotationId",
+    "request lsp/request /request/params/edit/documentChanges/*/textDocument/uri",
+    "request lsp/request /request/params/edit/documentChanges/*/edits/*/annotationId",
+    "request lsp/request /request/params/edit/documentChanges/*/uri",
+    "request lsp/request /request/params/edit/documentChanges/*/oldUri",
+    "request lsp/request /request/params/edit/documentChanges/*/newUri",
+    "request lsp/request /request/params/edit/documentChanges/*/annotationId",
+    "request lsp/request /request/params/edit/changeAnnotations/{}",
+    "request lsp/request /request/params/target",
+    "request lsp/request /request/params/previousResultId",
+    "request lsp/request /request/params/item/uri",
+    "request lsp/request /request/params/label/*/location/uri"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text",
+   "fields": [
+    "request lsp/request /request/params/context/diagnostics/*/code",
+    "request lsp/request /request/params/context/diagnostics/*/codeDescription/href",
+    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/location/uri",
+    "request lsp/request /request/params/diagnostics/*/code",
+    "request lsp/request /request/params/diagnostics/*/codeDescription/href",
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/location/uri"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text",
+   "fields": [
+    "request lsp/request /request/params/documentation/kind",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation/kind",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/kind",
+    "request lsp/request /request/params/tooltip/kind",
+    "request lsp/request /request/params/label/*/tooltip/kind",
+    "request lsp/request /request/params/kind",
+    "request lsp/request /request/params/context/only/*",
+    "request lsp/request /request/params/edit/documentChanges/*/kind",
+    "request lsp/request /request/params/options/{}",
+    "request lsp/request /request/params/options/*"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server",
+   "fields": [
+    "request lsp/request /request/params/data/**",
+    "request lsp/request /request/params/item/data/**",
+    "request lsp/request /request/params/command/arguments/**",
+    "request lsp/request /request/params/label/*/command/arguments/**",
+    "request lsp/request /request/params/arguments/**",
+    "request lsp/request /request/params/context/diagnostics/*/data/**",
+    "request lsp/request /request/params/diagnostics/*/data/**"
+   ]
+  }
+ ]
+}

@@ -102,7 +102,7 @@ impl RequestQueue {
         state.idle_deadline = Some(now_ms() + ttl.as_millis() as i64);
         let this = self.clone();
         state.idle = Some(tokio::spawn(async move {
-            tokio::time::sleep(ttl).await;
+            mixdog_rt::time::sleep(ttl).await;
             {
                 let mut state = this.0.state.lock().unwrap();
                 state.idle = None;
@@ -265,7 +265,7 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 q.run(None, |_| async move {
                     order.lock().unwrap().push(format!("start{n}"));
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(10)).await;
                     order.lock().unwrap().push(format!("end{n}"));
                 })
                 .await
@@ -283,16 +283,16 @@ mod tests {
         let (q, counter) = queue(60, None);
         q.run(None, |_| async {}).await.unwrap();
         assert!(q.status()["idleDeadline"].is_i64());
-        tokio::time::sleep(Duration::from_secs(59)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(59)).await;
         assert_eq!(counter.0.load(Ordering::SeqCst), 0);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
         assert!(q.status()["idleDeadline"].is_null());
         // A new request cancels a pending unload.
         q.run(None, |_| async {}).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(30)).await;
         q.run(None, |_| async {}).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(40)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(40)).await;
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
     }
 

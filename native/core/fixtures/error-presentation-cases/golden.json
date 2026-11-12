@@ -6020,6 +6020,257 @@
       }
     },
     {
+      "case": "each socket failure keeps the errno name its error carries",
+      "observed": {
+        "probes": [
+          {
+            "input": {
+              "t": "E",
+              "message": "read ECONNRESET",
+              "fields": {
+                "code": "ECONNRESET"
+              }
+            },
+            "describe": {
+              "kind": "connection",
+              "summary": "Connection to the provider was lost (ECONNRESET)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "read ECONNRESET",
+              "fingerprint": "connection:"
+            },
+            "present": "Connection to the provider was lost (ECONNRESET).",
+            "safeDetails": "Error: read ECONNRESET",
+            "builtError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "read ECONNRESET",
+              "code": "ECONNRESET",
+              "props": {}
+            },
+            "providerErrorKind": {
+              "kind": "transient",
+              "code": "econnreset",
+              "status": 0,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "persistedDescribe": {
+              "kind": "connection",
+              "summary": "Connection to the provider was lost (ECONNRESET)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "read ECONNRESET",
+              "fingerprint": "connection:"
+            },
+            "summaryReDescribe": {
+              "kind": "unknown",
+              "summary": "Connection to the provider was lost (ECONNRESET)",
+              "recovery": "",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "unknown",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "Connection to the provider was lost (ECONNRESET)",
+              "fingerprint": "Connection to the provider was lost (ECONNRESET)"
+            }
+          },
+          {
+            "input": {
+              "t": "E",
+              "message": "write EPIPE",
+              "fields": {
+                "code": "EPIPE"
+              }
+            },
+            "describe": {
+              "kind": "connection",
+              "summary": "Connection to the provider was lost (EPIPE)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "write EPIPE",
+              "fingerprint": "connection:"
+            },
+            "present": "Connection to the provider was lost (EPIPE).",
+            "safeDetails": "Error: write EPIPE",
+            "builtError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "write EPIPE",
+              "code": "EPIPE",
+              "props": {}
+            },
+            "providerErrorKind": {
+              "kind": "transient",
+              "code": "epipe",
+              "status": 0,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "persistedDescribe": {
+              "kind": "connection",
+              "summary": "Connection to the provider was lost (EPIPE)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "write EPIPE",
+              "fingerprint": "connection:"
+            },
+            "summaryReDescribe": {
+              "kind": "unknown",
+              "summary": "Connection to the provider was lost (EPIPE)",
+              "recovery": "",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "unknown",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "Connection to the provider was lost (EPIPE)",
+              "fingerprint": "Connection to the provider was lost (EPIPE)"
+            }
+          },
+          {
+            "input": {
+              "t": "E",
+              "message": "connect ETIMEDOUT 203.0.113.7:443",
+              "fields": {
+                "code": "ETIMEDOUT"
+              }
+            },
+            "describe": {
+              "kind": "connection",
+              "summary": "The provider did not respond in time (ETIMEDOUT)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "connect ETIMEDOUT 203.0.113.7:443",
+              "fingerprint": "connection:"
+            },
+            "present": "The provider did not respond in time (ETIMEDOUT).",
+            "safeDetails": "Error: connect ETIMEDOUT 203.0.113.7:443",
+            "builtError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "connect ETIMEDOUT 203.0.113.7:443",
+              "code": "ETIMEDOUT",
+              "props": {}
+            },
+            "providerErrorKind": {
+              "kind": "transient",
+              "code": "etimedout",
+              "status": 0,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "persistedDescribe": {
+              "kind": "connection",
+              "summary": "The provider did not respond in time (ETIMEDOUT)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "connect ETIMEDOUT 203.0.113.7:443",
+              "fingerprint": "connection:"
+            },
+            "summaryReDescribe": {
+              "kind": "unknown",
+              "summary": "The provider did not respond in time (ETIMEDOUT)",
+              "recovery": "",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "unknown",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "The provider did not respond in time (ETIMEDOUT)",
+              "fingerprint": "The provider did not respond in time (ETIMEDOUT)"
+            }
+          },
+          {
+            "input": {
+              "t": "E",
+              "message": "connect ECONNREFUSED 127.0.0.1:443",
+              "fields": {
+                "code": "ECONNREFUSED"
+              }
+            },
+            "describe": {
+              "kind": "connection",
+              "summary": "Could not reach the provider (ECONNREFUSED)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "connect ECONNREFUSED 127.0.0.1:443",
+              "fingerprint": "connection:"
+            },
+            "present": "Could not reach the provider (ECONNREFUSED).",
+            "safeDetails": "Error: connect ECONNREFUSED 127.0.0.1:443",
+            "builtError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "connect ECONNREFUSED 127.0.0.1:443",
+              "code": "ECONNREFUSED",
+              "props": {}
+            },
+            "providerErrorKind": {
+              "kind": "transient",
+              "code": "econnrefused",
+              "status": 0,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "persistedDescribe": {
+              "kind": "connection",
+              "summary": "Could not reach the provider (ECONNREFUSED)",
+              "recovery": "Check the connection, then try again.",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "transient",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "connect ECONNREFUSED 127.0.0.1:443",
+              "fingerprint": "connection:"
+            },
+            "summaryReDescribe": {
+              "kind": "unknown",
+              "summary": "Could not reach the provider (ECONNREFUSED)",
+              "recovery": "",
+              "recoveryTemplate": "",
+              "params": null,
+              "providerKind": "unknown",
+              "resetAt": null,
+              "retryAfterMs": null,
+              "details": "Could not reach the provider (ECONNREFUSED)",
+              "fingerprint": "Could not reach the provider (ECONNREFUSED)"
+            }
+          }
+        ]
+      }
+    },
+    {
       "case": "a refused tool schema names the tool definition instead of a generic rejection",
       "observed": {
         "schema": [

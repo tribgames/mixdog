@@ -534,9 +534,9 @@ fn usage_snapshot<'a>(session: &'a Header, policy: &Policy, messages: &[AgentMes
 }
 
 /// A provider reading that still describes a prefix of the transcript.
-struct Coverage {
-    tokens: f64,
-    count: usize,
+pub(super) struct Coverage {
+    pub(super) tokens: f64,
+    pub(super) count: usize,
     baseline_at: f64,
 }
 
@@ -557,7 +557,7 @@ fn baseline_prefix_matches(session: &Header, messages: &[AgentMessage], count: u
 }
 
 /// `providerBaselineCoverage(session, messages)`.
-fn provider_coverage(session: &Header, messages: &[AgentMessage], signer: &TranscriptSigner<'_>) -> Option<Coverage> {
+pub(super) fn provider_coverage(session: &Header, messages: &[AgentMessage], signer: &TranscriptSigner<'_>) -> Option<Coverage> {
     if get(session, "lastContextTokensStaleAfterCompact") == Some(&Value::Bool(true)) {
         return None;
     }
@@ -659,15 +659,20 @@ fn js_trim(text: &str) -> &str {
     text.trim_matches(mixdog_js::is_js_space)
 }
 
+/// `section.match(/^#\s+([^\n]+)/)?.[1]`.
+pub(super) fn section_heading(section: &str) -> Option<String> {
+    HEADING.captures(section).and_then(|c| c.get(1)).map(str::to_owned)
+}
+
 /// `stripSystemReminder(text)`.
-fn strip_system_reminder(text: &str) -> String {
+pub(super) fn strip_system_reminder(text: &str) -> String {
     let opened = REMINDER_OPEN.replace_all_with(text, |_| String::new());
     let closed = REMINDER_CLOSE.replace_all_with(&opened, |_| String::new());
     js_trim(&closed).to_owned()
 }
 
 /// `splitMarkdownSections(text)`.
-fn split_sections(text: &str) -> Vec<String> {
+pub(super) fn split_sections(text: &str) -> Vec<String> {
     let mut sections = Vec::new();
     let mut current: Vec<&str> = Vec::new();
     let mut lines = Vec::new();
@@ -696,7 +701,7 @@ fn split_sections(text: &str) -> Vec<String> {
 }
 
 /// `reminderSectionBucket(section)`.
-fn section_bucket(section: &str) -> &'static str {
+pub(super) fn section_bucket(section: &str) -> &'static str {
     let heading = HEADING.captures(section).and_then(|c| c.get(1)).map(|h| js_trim(h).to_lowercase()).unwrap_or_default();
     if heading.contains("core memory") {
         "memory"

@@ -26,13 +26,14 @@ use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalId;
 use mixdog_core_api::domain::approval::ApprovalRequest;
 use mixdog_core_api::domain::approval::ChainLink;
-use mixdog_core_api::domain::approval::DecisionRejected;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::ServerRequestId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
+use mixdog_protocol::ApprovalRemember;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::HumanGateResponse;
 use mixdog_protocol::ToolApprovalDecision;
 use serde_json::Map;
 use serde_json::Value;
@@ -266,19 +267,14 @@ impl ApprovalBook {
             request_id: request.clone(),
             detail: detail.into(),
         };
-        let mut decision: ToolApprovalDecision =
+        let decision: ToolApprovalDecision =
             serde_json::from_value(result.clone()).map_err(|_| rejected("result"))?;
+        let mut decision = normalize_decision(&open.request.ask, decision);
         // Node's session api resolved every person's answer with `decision.reason || (approved ? 'approved by user' : 'denied by user')`
         // (session-api/lifecycle.mjs:74): a refusal without words reads as the person's, never as the reason the card asked for.
         if decision.reason.as_deref().is_none_or(str::is_empty) {
             decision.reason = Some(if decision.approved { "approved by user" } else { "denied by user" }.to_owned());
         }
-        open.request
-            .check_decision(&decision)
-            .map_err(|reason| match reason {
-                DecisionRejected::RememberNotAllowed => rejected("rememberNotAllowed"),
-                DecisionRejected::UnrememberableAction => rejected("unrememberableAction"),
-            })?;
         open.resolving = true;
         Ok(Some(Accepted {
             aid,
@@ -330,6 +326,102 @@ impl ApprovalBook {
             }
         }
     }
+}
+
+const HUMAN_REQUEST_KINDS: [&str; 6] = ["approval", "outbound", "secret", "takeover", "permission", "connector"];
+const PAYLOAD_LIMIT: usize = 40_000;
+
+/// `RESPONSES_BY_KIND[kind]`: the granting response first, the refusing one last.
+fn responses_of(kind: &str) -> &'static [HumanGateResponse] {
+    use HumanGateResponse::*;
+    match kind {
+        "outbound" => &[Approve, EditAndApprove, Deny],
+        "secret" => &[ProvideSecret, Skip],
+        "takeover" => &[Done, Deny],
+        _ => &[Approve, Deny],
+    }
+}
+
+/// `GRANTING_RESPONSES`.
+fn grants(response: HumanGateResponse) -> bool {
+    matches!(
+        response,
+        HumanGateResponse::Approve | HumanGateResponse::EditAndApprove | HumanGateResponse::ProvideSecret | HumanGateResponse::Done
+    )
+}
+
+fn remember_name(scope: ApprovalRemember) -> &'static str {
+    match scope {
+        ApprovalRemember::Once => "once",
+        ApprovalRemember::Session => "session",
+        ApprovalRemember::Agent => "agent",
+        ApprovalRemember::Always => "always",
+    }
+}
+
+/// The answer a request takes from a client's decision. A human-kind request (one whose card
+/// lists `remember`) answers with Node's canonical response (`normalizeHumanResponse`, applied by
+/// the approval queue, `tool-approval-settle.mjs`): an unknown or contradicting response falls back
+/// to the card's polarity, edits survive only on an outbound card's editable fields, a scope the
+/// card did not offer (or any scope of a refusal) is `once`, and a permission or connector scope
+/// only when it was one of the choices. Any other request keeps the decision, without a scope it
+/// did not offer. A decision is never refused for what it chose: Node drops it.
+fn normalize_decision(ask: &ApprovalAsk, mut decision: ToolApprovalDecision) -> ToolApprovalDecision {
+    let payload = ask.payload.as_object();
+    let field = |key: &str| payload.and_then(|fields| fields.get(key));
+    let polarity = decision.approved;
+    let Some(offered) = field("remember").and_then(Value::as_array) else {
+        decision.remember = decision
+            .remember
+            .filter(|scope| polarity && (*scope == ApprovalRemember::Once || ask.remember.contains(scope)));
+        return decision;
+    };
+    let kind = field("kind").and_then(Value::as_str).filter(|kind| HUMAN_REQUEST_KINDS.contains(kind)).unwrap_or("approval");
+    let allowed = responses_of(kind);
+    let fallback = if polarity { allowed[0] } else { allowed[allowed.len() - 1] };
+    let asked = decision.response.filter(|response| allowed.contains(response));
+    let mut response = asked.filter(|asked| grants(*asked) == polarity).unwrap_or(fallback);
+    let mut edited = None;
+    if response == HumanGateResponse::EditAndApprove {
+        let editable = field("outbound").and_then(|outbound| outbound.get("editable")).and_then(Value::as_array);
+        let edits: std::collections::BTreeMap<String, String> = editable
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(|name| {
+                let text = decision.edited_args.as_ref()?.get(name)?;
+                Some((name.to_owned(), mixdog_js::slice_utf16(text, PAYLOAD_LIMIT)))
+            })
+            .collect();
+        if edits.is_empty() {
+            response = HumanGateResponse::Approve;
+        } else {
+            edited = Some(edits);
+        }
+    }
+    decision.response = Some(response);
+    decision.edited_args = edited;
+    let listed = |scope: ApprovalRemember| offered.iter().any(|name| name.as_str() == Some(remember_name(scope)));
+    decision.remember = Some(decision.remember.filter(|scope| polarity && listed(*scope)).unwrap_or(ApprovalRemember::Once));
+    let choices: Vec<&str> = match kind {
+        "permission" => field("permission")
+            .and_then(|permission| permission.get("scopes"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|scope| scope.get("id").and_then(Value::as_str))
+            .collect(),
+        "connector" => field("connector")
+            .and_then(|connector| connector.get("choices"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect(),
+        _ => Vec::new(),
+    };
+    decision.scope = decision.scope.filter(|scope| polarity && choices.contains(&scope.as_str()));
+    decision
 }
 
 fn ms(value: i64) -> Duration {
@@ -387,6 +479,7 @@ pub fn request_frame(request: &ApprovalRequest, params: Value) -> Bytes {
             method: request.ask.kind.method().as_str().to_owned(),
             params: Some(params),
             trace: None,
+            lone_surrogates: Vec::new(),
         })
         .expect("protocol types serialize"),
     )
@@ -409,6 +502,7 @@ pub fn resolved_frame(
             params: Some(serde_json::to_value(params).expect("protocol types serialize")),
             emitted_at_ms: None,
             feed: None,
+            lone_surrogates: Vec::new(),
         })
         .expect("protocol types serialize"),
     )
@@ -418,7 +512,6 @@ pub fn resolved_frame(
 mod tests {
     use super::*;
     use mixdog_core_api::domain::approval::ApprovalKind;
-    use mixdog_protocol::ApprovalRemember;
 
     fn ask(remember: Vec<ApprovalRemember>) -> ApprovalAsk {
         ApprovalAsk {
@@ -459,16 +552,6 @@ mod tests {
             .validate(&id, &json!({"approved": "yes"}), device(), 1)
             .unwrap_err();
         assert!(matches!(err, CoreError::InvalidServerRequestResponse { .. }));
-        let err = book
-            .validate(&id, &json!({"approved": true, "remember": "always"}), device(), 1)
-            .unwrap_err();
-        assert_eq!(
-            err,
-            CoreError::InvalidServerRequestResponse {
-                request_id: id.clone(),
-                detail: "rememberNotAllowed".into()
-            }
-        );
         assert_eq!(book.decidable(), vec![aid]);
 
         let won = book
@@ -501,6 +584,23 @@ mod tests {
         assert_eq!(reason_of(json!({"approved": false})).as_deref(), Some("denied by user"));
         assert_eq!(reason_of(json!({"approved": true, "reason": ""})).as_deref(), Some("approved by user"));
         assert_eq!(reason_of(json!({"approved": false, "reason": "not now"})).as_deref(), Some("not now"));
+    }
+
+    /// `normalizeHumanResponse`: a scope the card did not offer is answered `once`, never refused.
+    #[test]
+    fn a_scope_the_card_did_not_offer_is_answered_once() {
+        let thread = ThreadId::from("t");
+        let mut book = ApprovalBook::default();
+        let aid = ApprovalId(8);
+        let mut card = ask(vec![ApprovalRemember::Session, ApprovalRemember::Always]);
+        card.payload = json!({"kind": "approval", "remember": ["once", "session", "always"], "grantAction": "tool:shell"});
+        book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 1000), TurnId::from("r"), None);
+        let accepted = book
+            .validate(&aid.request_id(), &json!({"approved": true, "remember": "agent"}), device(), 5)
+            .unwrap()
+            .expect("the decision is taken");
+        let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
+        assert_eq!(serde_json::to_value(decision).unwrap(), json!({"approved": true, "reason": "approved by user", "response": "approve", "remember": "once"}));
     }
 
     #[test]

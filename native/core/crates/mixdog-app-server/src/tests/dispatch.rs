@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use mixdog_app_protocol::CLIENT_METHODS;
+use mixdog_app_protocol::free_text::FREE_TEXT;
+use mixdog_app_protocol::free_text::Kind;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreState;
 use mixdog_core_api::Reply;
@@ -100,6 +102,83 @@ async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
     let client = rig.ready(1, json!({}));
     client.request(1, "thread/delete", json!({ "threadId": "missing", "opId": "op-1" }));
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
+}
+
+/// A request holding a lone surrogate anywhere but a free-text field (an identifier, a key, the id) is refused as
+/// `invalidParams` naming the place, before any service runs; one holding it only in free text reaches the service with
+/// U+FFFD; the connection answers on.
+#[tokio::test(start_paused = true)]
+async fn a_lone_surrogate_outside_free_text_refuses_the_request_before_the_core() {
+    let rig = Rig::new();
+    let reached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = reached.clone();
+    rig.core.mock.directory().set_handler(Arc::new(move |_| {
+        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Reply::Value(json!({ "via": "directory" })))
+    }));
+    let client = rig.ready(1, json!({}));
+    for (id, frame, path) in [
+        (1, r#"{"id":1,"method":"thread/read","params":{"threadId":"a\ud800"}}"#, "thread/read.params/threadId"),
+        (2, r#"{"id":2,"method":"thread/list","params":{"\ud800":1}}"#, "thread/list.params/\u{fffd}"),
+        // A selector is no free text: refused whole, not read entry by entry.
+        (
+            3,
+            r#"{"id":3,"method":"projectFs/replaceText","params":{"root":"/p","options":{"query":"hi","exclude":"a\ufffd.txt,b\ud800.txt"},"replacement":"yo","opId":"op-3"}}"#,
+            "projectFs/replaceText.params/options/exclude",
+        ),
+    ] {
+        client.send_text(frame);
+        let refused = client.response(id).await;
+        assert_eq!(reason(&refused), "invalidParams", "{refused}");
+        assert_eq!(refused["error"]["data"]["path"], json!(path), "{refused}");
+    }
+    assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the core");
+    client.send_text(r#"{"id":4,"method":"thread/list","params":{}}"#);
+    assert_eq!(client.response(4).await["result"], json!({ "via": "directory" }));
+}
+
+/// Every free-text field of a request ([`FREE_TEXT`]): a lone surrogate in it is no refusal; the request reaches the core
+/// with exactly the params of the same request holding a real U+FFFD there (the mock core echoes them, compared whole).
+#[tokio::test(start_paused = true)]
+async fn every_free_text_field_of_a_request_reaches_the_core_as_u_fffd() {
+    const MARK: &str = "lone-surrogate-mark";
+    let rig = Rig::new();
+    rig.core.mock.directory().insert(ThreadId::from("x"));
+    let samples = Samples::new();
+    let origins = [Origin::Local, Origin::Ssh, Origin::Relay];
+    let clients: Vec<super::Client> = origins
+        .iter()
+        .enumerate()
+        .map(|(n, origin)| {
+            let client = rig.connect(n as u64 + 1, *origin);
+            client.initialize(super::VERSION, json!({}));
+            client.drain();
+            client
+        })
+        .collect();
+    let mut failures = Vec::new();
+    let mut id = 0;
+    for (kind, method, patterns) in FREE_TEXT {
+        if *kind != Kind::Request {
+            continue;
+        }
+        let spec = CLIENT_METHODS.iter().find(|spec| spec.method == *method).expect("a listed method is in the table");
+        let client = &clients[origins.iter().position(|origin| spec.allows(*origin)).expect("an origin may call it")];
+        for pattern in *patterns {
+            id += 1;
+            let frame = json!({ "id": id, "method": method, "params": samples.with_text(method, pattern, MARK) })
+                .to_string()
+                .replace(&format!("\"{MARK}\""), r#""a\ud800""#);
+            client.send_text(&frame);
+            let answer = client.response(id).await;
+            let expected = json!({ "method": method, "params": samples.with_text(method, pattern, "a\u{fffd}") });
+            if answer.get("result") != Some(&expected) {
+                failures.push(format!("{method} {pattern}: {answer}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(id > 100, "only {id} fields");
 }
 
 /// The preflight names its own thread, but the directory answers it (it measures a source the directory looks up); a
@@ -378,7 +457,7 @@ async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
         assert_eq!(holds.len(), 1, "one call");
         holds[0].clone()
     };
-    tokio::time::timeout(DEADLINE, hold.cancelled())
+    mixdog_rt::time::timeout(DEADLINE, hold.cancelled())
         .await
         .expect("the call's hold never ended after its response was queued");
 }

@@ -1,0 +1,374 @@
+{
+  "note": "a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values",
+  "scenarios": [
+    {
+      "name": "a streamed call and its final copy are renamed past the history together",
+      "history": [
+        [
+          "a"
+        ],
+        [
+          "a-2"
+        ]
+      ],
+      "rounds": [
+        {
+          "streamed": [
+            "a",
+            "b"
+          ],
+          "final": [
+            "a",
+            "b"
+          ],
+          "streamedOut": [
+            "a-3",
+            "b"
+          ],
+          "finalOut": [
+            "a-3",
+            "b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "history {a}, batch {a, a-2}",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "final": [
+            "a",
+            "a-2"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "a-3",
+            "a-2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "history {a}, batch {a-2, a}",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "final": [
+            "a-2",
+            "a"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "a-2",
+            "a-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no history, batch {a-2, a}",
+      "history": [],
+      "rounds": [
+        {
+          "final": [
+            "a-2",
+            "a"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "a-2",
+            "a"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no history, batch {a, a}",
+      "history": [],
+      "rounds": [
+        {
+          "final": [
+            "a",
+            "a"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "a",
+            "a-2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "history {a}, batch {a, a}",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "final": [
+            "a",
+            "a"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "a-2",
+            "a-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "streamed calls and the final batch agree and stay distinct",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "streamed": [
+            "a",
+            "a-2",
+            "a"
+          ],
+          "final": [
+            "a",
+            "a-2",
+            "a"
+          ],
+          "streamedOut": [
+            "a-2",
+            "a-2-2",
+            "a-3"
+          ],
+          "finalOut": [
+            "a-2",
+            "a-2-2",
+            "a-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the streamed call is also in the final batch with a second call of its id",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "streamed": [
+            "a"
+          ],
+          "final": [
+            "a",
+            "a"
+          ],
+          "streamedOut": [
+            "a-2"
+          ],
+          "finalOut": [
+            "a-2",
+            "a-3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "five rounds of {call_1, call_1}",
+      "history": [],
+      "rounds": [
+        {
+          "final": [
+            "call_1",
+            "call_1"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "call_1",
+            "call_1-2"
+          ]
+        },
+        {
+          "final": [
+            "call_1",
+            "call_1"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "call_1-3",
+            "call_1-4"
+          ]
+        },
+        {
+          "final": [
+            "call_1",
+            "call_1"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "call_1-5",
+            "call_1-6"
+          ]
+        },
+        {
+          "final": [
+            "call_1",
+            "call_1"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "call_1-7",
+            "call_1-8"
+          ]
+        },
+        {
+          "final": [
+            "call_1",
+            "call_1"
+          ],
+          "streamedOut": [],
+          "finalOut": [
+            "call_1-9",
+            "call_1-10"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "five streamed rounds of {call_1, call_1-2}",
+      "history": [],
+      "rounds": [
+        {
+          "streamed": [
+            "call_1",
+            "call_1-2"
+          ],
+          "final": [
+            "call_1",
+            "call_1-2"
+          ],
+          "streamedOut": [
+            "call_1",
+            "call_1-2"
+          ],
+          "finalOut": [
+            "call_1",
+            "call_1-2"
+          ]
+        },
+        {
+          "streamed": [
+            "call_1",
+            "call_1-2"
+          ],
+          "final": [
+            "call_1",
+            "call_1-2"
+          ],
+          "streamedOut": [
+            "call_1-3",
+            "call_1-2-2"
+          ],
+          "finalOut": [
+            "call_1-3",
+            "call_1-2-2"
+          ]
+        },
+        {
+          "streamed": [
+            "call_1",
+            "call_1-2"
+          ],
+          "final": [
+            "call_1",
+            "call_1-2"
+          ],
+          "streamedOut": [
+            "call_1-4",
+            "call_1-2-3"
+          ],
+          "finalOut": [
+            "call_1-4",
+            "call_1-2-3"
+          ]
+        },
+        {
+          "streamed": [
+            "call_1",
+            "call_1-2"
+          ],
+          "final": [
+            "call_1",
+            "call_1-2"
+          ],
+          "streamedOut": [
+            "call_1-5",
+            "call_1-2-4"
+          ],
+          "finalOut": [
+            "call_1-5",
+            "call_1-2-4"
+          ]
+        },
+        {
+          "streamed": [
+            "call_1",
+            "call_1-2"
+          ],
+          "final": [
+            "call_1",
+            "call_1-2"
+          ],
+          "streamedOut": [
+            "call_1-6",
+            "call_1-2-5"
+          ],
+          "finalOut": [
+            "call_1-6",
+            "call_1-2-5"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a streamed call the final batch does not repeat",
+      "history": [
+        [
+          "a"
+        ]
+      ],
+      "rounds": [
+        {
+          "streamed": [
+            "a",
+            "b"
+          ],
+          "final": [
+            "b"
+          ],
+          "streamedOut": [
+            "a-2",
+            "b"
+          ],
+          "finalOut": [
+            "b"
+          ]
+        }
+      ]
+    }
+  ]
+}

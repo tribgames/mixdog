@@ -25,6 +25,23 @@ impl ImageIdentities for TextOnly {
     }
 }
 
+/// A manual pass archives each message as its stored row (Node's `serializeExecutionArchive` over `session.messages`),
+/// never as `null`.
+#[test]
+fn a_manual_pass_archives_each_message_as_its_stored_row() {
+    use mixdog_agent::compact::execution_tail::MessageRows;
+    let rows = vec![
+        json!({ "role": "user", "content": "hi" }),
+        json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "read", "arguments": {} }] }),
+        json!({ "role": "tool", "content": "body", "toolCallId": "c1" }),
+    ];
+    let messages: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).unwrap()).collect();
+    let stored = registered(&messages, &rows);
+    for (message, row) in messages.iter().zip(&rows) {
+        assert_eq!(&stored.row(message), row);
+    }
+}
+
 fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
     tools
         .iter()
@@ -149,7 +166,7 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
 
 #[test]
 fn a_committed_header_equals_nodes_session() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
     let now = golden["now"].as_f64().expect("now");
     let sampled = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (mut differ, mut compared) = (Vec::new(), 0);
@@ -230,7 +247,7 @@ fn a_header_change_names_what_was_set_and_what_went() {
 /// (fixtures/inheritance-carry/golden.json, `record-inheritance-carry.mjs`).
 #[test]
 fn the_compactor_of_an_heir_sees_the_source_transcript_with_its_system_blocks() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/inheritance-carry/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden json");
     let wire = |message: &AgentMessage| {
         let role = match message.message.role {
             mixdog_core_api::domain::provider::Role::System => "system",

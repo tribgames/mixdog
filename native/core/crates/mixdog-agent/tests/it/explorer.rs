@@ -91,6 +91,7 @@ impl Provider {
 
 #[async_trait]
 impl ProviderAdapter for Provider {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -275,7 +276,7 @@ async fn explorer_results_equal_nodes() {
         } else {
             Duration::from_secs(60)
         };
-        let got = tokio::time::timeout(Duration::from_secs(10), explore(Provider::scripted(script), deadline))
+        let got = mixdog_rt::time::timeout(Duration::from_secs(10), explore(Provider::scripted(script), deadline))
             .await
             .unwrap_or_else(|_| panic!("{name}: the explorer did not return"));
         match case.get("text").and_then(|t| t.as_str()) {

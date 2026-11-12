@@ -46,7 +46,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/plugins-status/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/plugins-status/golden.json");
 const CONNECTED: &str = include_str!("../../../../fixtures/plugins-status/connected.json");
 
 /// The thread the real-glue replay asks as: its header names no scope, so it reads nothing live
@@ -281,7 +281,7 @@ fn stack(dir: &Path) -> Stack {
     let admin = Arc::new(PluginAdmin::new(data.clone(), Arc::new(NoGit), Arc::new(|| {})));
     let declarations = Arc::new(DeclarationCache::new());
     let hub = McpHub::new(
-        mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+        mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
         data.join("tool-results"),
         mixdog_mcp::result::OutputPolicy::default(),
     );

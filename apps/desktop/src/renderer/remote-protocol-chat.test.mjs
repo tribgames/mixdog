@@ -10,9 +10,9 @@ import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { normalizedProviderModels } from '../main/desktop-support.ts';
-import { remoteToolOutput } from '../main/remote-transcript.ts';
 import { ABORT_CASES as CASES } from './remote-protocol-chat-abort-cases.mjs';
 import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
+import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
 // What a running mixdogd answered to the phone's own requests for the refusal cases (remote-protocol-chat-refusals.record.mjs).
@@ -191,7 +191,7 @@ function adapterFor(script) {
       whenFolded: (_threadId, resume) => resume().then(() => undefined),
       whenSettled: async () => undefined,
       approvalRequestId: (cardId) => cardId,
-      remoteToolOutput,
+      transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
     }
   );
   return { api, sent };

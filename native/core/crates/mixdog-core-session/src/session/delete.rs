@@ -382,8 +382,44 @@ pub(crate) async fn serve(directory: &super::directory::DirInner, params: &serde
     let id = params.thread_id.as_str();
     Ok(mixdog_core_api::Reply::Value(match &params.if_idle {
         Some(expected) => delete_session_if_idle(directory, id, expected).await?,
-        None => serde_json::Value::Bool(delete_session(directory, id, None).await?),
+        None => serde_json::Value::Bool(client_delete(directory, id).await?),
     }))
+}
+
+/// `isHistoricalAutomaticClosure(session)` (`historical-session-closure.mjs`): a named session an automatic close
+/// (`idle-sweep`, `terminal-reap`) tombstoned.
+pub fn is_historical_automatic_closure(header: &serde_json::Map<String, serde_json::Value>) -> bool {
+    let text = |key: &str| header.get(key).and_then(serde_json::Value::as_str);
+    text("owner").is_some_and(|owner| !owner.is_empty())
+        && (header.get("closed") == Some(&serde_json::Value::Bool(true)) || text("status") == Some("closed"))
+        && matches!(text("closedReason"), Some("idle-sweep" | "terminal-reap"))
+}
+
+/// The client's `deleteSession(id)` (`session-switch/session-delete.mjs:56-79`, a session that is not the client's
+/// current one): a closed record is not deletable (`availableRecord`, unless an automatic close tombstoned it); the
+/// session is detached durably first (`mgr.closeSession(id, reason, { tombstone: false })`), so a delete whose removal
+/// then fails leaves it detached; then it is deleted.
+async fn client_delete(directory: &super::directory::DirInner, id: &str) -> Result<bool, CoreError> {
+    let trimmed = mixdog_js::js_trim(id);
+    if !is_session_id(trimmed) {
+        return Ok(false);
+    }
+    let thread = ThreadId::from(trimmed);
+    let Some(header) = directory.stored_header(&thread).await else {
+        return Ok(false);
+    };
+    if header.get("closed") == Some(&serde_json::Value::Bool(true)) && !is_historical_automatic_closure(&header) {
+        return Ok(false);
+    }
+    let Some(outer) = directory.outer() else {
+        return Ok(false);
+    };
+    let threads = super::thread_state::SessionThreads::new(Arc::new(outer));
+    match super::close::write_detach(&threads, &thread, DELETE_REASON, false, directory.deps().clock.now_ms()).await {
+        Ok(true) => {}
+        Ok(false) | Err(_) => return Ok(false),
+    }
+    delete_session(directory, trimmed, None).await
 }
 
 /// `deleteSession(id)`: false when nothing was deleted.

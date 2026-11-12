@@ -36,6 +36,26 @@ fn hold_like_node(file: &std::path::Path) {
     mixdog_testkit::write(lock_path(file), format!("{} {} other-token\n", std::process::id(), 1));
 }
 
+/// `withFileLockSync` has one deadline from the call: a request behind a holder of this process times out at it, not
+/// after the holder lets go (the line has no deadline of its own for the async lock).
+#[test]
+fn a_request_waiting_in_the_line_times_out_at_its_one_deadline() {
+    const ANSWER_DEADLINE: Duration = Duration::from_secs(20);
+    let dir = tempfile::tempdir().unwrap();
+    let lock = lock_path(&dir.path().join("f.json"));
+    let (held_tx, held_rx) = std::sync::mpsc::channel();
+    let holder = hold_lock(&lock, &LockOpts::default(), move |outcome| held_tx.send(outcome).unwrap());
+    held_rx.recv_timeout(ANSWER_DEADLINE).expect("the holder to take the lock").unwrap();
+    let (late_tx, late_rx) = std::sync::mpsc::channel();
+    let _late = hold_lock_one_deadline(&lock, &within(Duration::from_millis(100)), move |outcome| late_tx.send(outcome).unwrap());
+    let outcome = late_rx.recv_timeout(ANSWER_DEADLINE).expect("the request behind the holder to be answered while the holder still holds");
+    assert!(matches!(outcome, Err(LockError::Timeout { .. })), "{outcome:?}");
+    drop(holder);
+    let (again_tx, again_rx) = std::sync::mpsc::channel();
+    let _again = hold_lock_one_deadline(&lock, &within(Duration::from_secs(5)), move |outcome| again_tx.send(outcome).unwrap());
+    again_rx.recv_timeout(ANSWER_DEADLINE).expect("the line to pass on after an abandoned ticket").unwrap();
+}
+
 #[test]
 fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
     let dir = tempfile::tempdir().unwrap();

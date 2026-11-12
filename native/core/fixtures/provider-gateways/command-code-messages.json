@@ -25,44 +25,6 @@
         "status": 200,
         "body": "{\"data\":[{\"id\":\"claude-sonnet-4-6\",\"supported_endpoints\":[\"/v1/messages\"]},{\"id\":\"gpt-5.5\",\"supported_endpoints\":[\"/v1/chat/completions\",\"/v1/responses\"]},{\"id\":\"deepseek/deepseek-v4-flash\"}]}"
       }
-    },
-    {
-      "method": "GET",
-      "origin": "https://raw.githubusercontent.com",
-      "path": "/BerriAI/litellm/main/model_prices_and_context_window.json",
-      "headers": {
-        "host": "raw.githubusercontent.com",
-        "connection": "keep-alive",
-        "accept": "*/*",
-        "accept-language": "*",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node",
-        "accept-encoding": "gzip, deflate"
-      },
-      "body": "",
-      "answer": {
-        "status": 200,
-        "body": "{\"data\":[{\"id\":\"claude-sonnet-4-6\",\"supported_endpoints\":[\"/v1/messages\"]},{\"id\":\"gpt-5.5\",\"supported_endpoints\":[\"/v1/chat/completions\",\"/v1/responses\"]},{\"id\":\"deepseek/deepseek-v4-flash\"}]}"
-      }
-    },
-    {
-      "method": "GET",
-      "origin": "https://models.dev",
-      "path": "/api.json",
-      "headers": {
-        "host": "models.dev",
-        "connection": "keep-alive",
-        "accept": "*/*",
-        "accept-language": "*",
-        "sec-fetch-mode": "cors",
-        "user-agent": "node",
-        "accept-encoding": "gzip, deflate"
-      },
-      "body": "",
-      "answer": {
-        "status": 200,
-        "body": "{\"data\":[{\"id\":\"claude-sonnet-4-6\",\"supported_endpoints\":[\"/v1/messages\"]},{\"id\":\"gpt-5.5\",\"supported_endpoints\":[\"/v1/chat/completions\",\"/v1/responses\"]},{\"id\":\"deepseek/deepseek-v4-flash\"}]}"
-      }
     }
   ],
   "sends": [
@@ -70,6 +32,7 @@
       "model": "claude-sonnet-4-6",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {

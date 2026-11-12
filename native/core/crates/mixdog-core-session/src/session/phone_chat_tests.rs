@@ -93,7 +93,7 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = timer_fired.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(16)).await;
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     let wake = tokio::sync::Notify::new();
@@ -143,7 +143,7 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
         eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
     )
     .await;
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let case = all["cases"].as_array().unwrap().iter().find(|case| case["name"] == "another device cancels: the prompt travels through the state").unwrap();
     // The only restore Node's state held and published, whole. Two parts are the rig's, not the core's: the clock (Node's recorded
     // 1700000000450 is its fake clock; the id `restore-<clock>-<first submission id>` and `at` carry it, here the value the test set
@@ -383,7 +383,8 @@ const ASK_CALLBACKS: [&str; 21] = [
 /// Node's pushed user row and the message Node's runtime was asked to run (`asked`: the `runtime.ask` content and its options), as the
 /// record Rust stores for the prompt, whole. The options are a closed table: `id` and `submissionIds` are the submission id the record
 /// keeps as `clientSubmissionId`, `submittedAt` is the submit time (`at`), `transcriptMeta` is the message's `meta.transcript` (every key of
-/// it is kept, but `at`, Node's submit time against Rust's clock, and the random `attemptId`); the rest is Node-only. Rust's record adds
+/// it is kept, but `at`, Node's submit time against Rust's clock, the random `attemptId`, and `completionVerb`, which Node's persisted
+/// prompt drops); the rest is Node-only. Rust's record adds
 /// what Node keeps elsewhere: the row's text (`displayText`, only when it differs from the prompt), the row's id (`clientSubmissionId`)
 /// and the item's own id (`checkpointId`, which Node's `stampCheckpoint` stamps on the history message too).
 fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
@@ -405,6 +406,11 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     assert_eq!(transcript["attemptId"], json!("<uuid>"));
     transcript["at"] = json!(clock);
     transcript["attemptId"] = json!("<random>");
+    // The turn's verb stays with the turn: Node's persisted prompt leaves it out (`persistedUserTranscriptMetadata`,
+    // transcript-metadata.mjs:92), and the `applied-skills` replay compares Rust's record with that persisted row whole.
+    if let Some(meta) = transcript.as_object_mut() {
+        meta.remove("completionVerb");
+    }
     // Node keeps the shown text only as the row's `text`; Rust's record also holds it when it differs from the prompt.
     if asked["content"] != row["text"] {
         transcript["displayText"] = row["text"].clone();
@@ -605,7 +611,7 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
 /// are built from Node's rows and entries and compared to Rust's as they are, so a field Rust adds fails.
 #[tokio::test(start_paused = true)]
 async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "submit").collect::<Vec<_>>();
     assert_eq!(cases.len(), 11);
     for case in cases {
@@ -613,13 +619,17 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let rig = Rig::new();
         let (directory, handle) = running_on_records(&rig).await;
         let frames = || rig.feeds.frames(handle.id.as_str());
+        // The load's own frame (its agent scope) comes before anything the case does.
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (!frames().is_empty()).then_some(())).await;
+        let loaded = frames().len();
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published and
-            // the phone's frame that carries them has closed.
+            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published after
+            // the load's and the phone's frame that carries them has closed.
             let done = || {
                 let all = frames();
-                (all.iter().filter(|(_, method, _)| method != "thread/frame").count() == 4 && all.last().is_some_and(|(_, method, _)| method == "thread/frame")).then_some(())
+                let after = &all[loaded.min(all.len())..];
+                (after.iter().filter(|(_, method, _)| method != "thread/frame").count() == 4 && after.last().is_some_and(|(_, method, _)| method == "thread/frame")).then_some(())
             };
             eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], done).await;
         }
@@ -800,7 +810,7 @@ fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
 /// end), an id that is no row as `ItemNotFound` (Node's `null`), a running turn as `PreconditionFailed` (Node's `null` while busy).
 #[tokio::test(start_paused = true)]
 async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "rewind").collect::<Vec<_>>();
     assert_eq!(cases.len(), 4);
     for case in cases {
@@ -924,7 +934,7 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
 #[test]
 fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() {
     use super::seams::Transcript;
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "image-shape" || case["kind"] == "queue-shape").collect();
     assert!(cases.len() >= 34, "the recorded shapes");
     for case in cases {
@@ -949,7 +959,7 @@ fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() 
 /// call would show two (the reviewer's probe) or repeated snapshots here.
 #[test]
 fn the_recorded_publishing_is_coalesced_as_nodes_store_does() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap();
     let probe = cases.iter().find(|case| case["kind"] == "flush").expect("the flush probe is recorded");
     assert_eq!(probe["flushes"], json!(2));

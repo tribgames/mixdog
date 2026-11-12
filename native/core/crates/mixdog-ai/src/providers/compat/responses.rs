@@ -185,6 +185,7 @@ impl CompatResponsesCodec {
             profile.tools = ToolLowering::ServerSearch;
         }
         if self.profile.responses != ResponsesShape::Muse
+            && self.profile.chat.effort != EffortDialect::OpenRouter
             && let Some(effort) = self.wire_effort(request, info)
         {
             let requested = mixdog_js::js_trim(request.options.effort.as_deref().unwrap_or_default()).to_lowercase();
@@ -266,7 +267,18 @@ impl CompatResponsesCodec {
     }
 
     /// A forced `tool_choice`, placed where the key order says it goes.
-    fn adjust(&self, request: &ModelRequest, body: JsonObject) -> JsonObject {
+    fn adjust(&self, request: &ModelRequest, mut body: JsonObject) -> JsonObject {
+        // OpenRouter's Responses wire takes the same reasoning control and provider routing as its Chat wire
+        // (`openRouterResponsesParams`), after everything the builder places.
+        if self.profile.chat.effort == EffortDialect::OpenRouter {
+            body.shift_remove("reasoning");
+            if let Some(reasoning) = super::chat::openrouter_reasoning(request) {
+                body.insert("reasoning".into(), reasoning);
+            }
+            if let Some(provider) = super::chat::openrouter_provider(request) {
+                body.insert("provider".into(), provider);
+            }
+        }
         if !body.contains_key("tools") || self.profile.responses == ResponsesShape::Muse {
             return body;
         }

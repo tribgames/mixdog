@@ -63,30 +63,35 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 # A replay's settled signal counts the run's forwarding tasks as part of its turn (mixdog-ai transport/replay_bytes.rs): development
 # builds only.
 replay-bytes = ["mixdog-ai/replay-bytes"]
+# Test-only: what the replays in `crates/mixdog-core-replays` reach inside this library (`run_host::fixture_fs`,
+# `replay_access`). Refused in a release build (build.rs).
+test-support = ["mixdog-rt/test-support"]
 
 [dev-dependencies]
-mixdog-core = { path = ".", features = ["count-work"] }
+mixdog-core = { path = ".", features = ["count-work", "replay-bytes", "test-support"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
 zstd = { workspace = true }
 # The loopback TLS server of the wire parity check (`mixdog_ai::transport::loopback`) and the client that trusts only its certificate.
-mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 reqwest = { workspace = true }
 rustls = { workspace = true, features = ["ring", "std"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
-mixdog-trace = { workspace = true }
+mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
@@ -104,4 +109,14 @@ mixdog-protocol = { workspace = true }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-services = { workspace = true, features = ["assigned-pg-port"] }
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }

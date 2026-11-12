@@ -1,0 +1,1446 @@
+{
+  "set": "provider-compat-chat-stream-tool-calls",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "prefix-repeating-fragment-verbatim",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:34",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "c1",
+                      "function": {
+                        "arguments": "{\"a\":\"",
+                        "name": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"a\":\""
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "c1",
+                      "type": "function",
+                      "function": {
+                        "name": "f",
+                        "arguments": "{\"a\":\"{\"a\":\"\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "f",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+                "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [
+          {
+            "id": "c1",
+            "name": "f",
+            "arguments": {
+              "__invalidToolArgs": true,
+              "__rawArguments": "{\"a\":\"{\"a\":\"\"}",
+              "__parseError": "Expected ',' or '}' after property value in JSON at position 8 (line 1 column 9)"
+            }
+          }
+        ],
+        "arguments": "{\"a\":\"{\"a\":\"\"}"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"a\":\"",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "{\"a\":\""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "tool_calls"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.parseToolCalls",
+          "args": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "tool_calls": [
+                  {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                      "name": "f",
+                      "arguments": "{\"a\":\"{\"a\":\"\"}"
+                    }
+                  }
+                ]
+              }
+            },
+            "gateway"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fragmented-dispatches-once",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:47",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "c1",
+                      "function": {
+                        "arguments": "",
+                        "name": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"x\""
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": ":1}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "c1",
+                      "type": "function",
+                      "function": {
+                        "name": "f",
+                        "arguments": "{\"x\":1}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [
+          {
+            "id": "c1",
+            "name": "f",
+            "arguments": {
+              "x": 1
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "{\"x\""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": ":1}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "tool_calls"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "finish-length-never-dispatches",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:63",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "c1",
+                      "function": {
+                        "arguments": "{\"x\":1}",
+                        "name": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "length"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "c1",
+                      "type": "function",
+                      "function": {
+                        "name": "f",
+                        "arguments": "{\"x\":1}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "length"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "length",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=length",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "length",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "c1",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"x\":1}",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "length"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null,
+                        "tool_calls": [
+                          {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {
+                              "name": "f",
+                              "arguments": "{\"x\":1}"
+                            }
+                          }
+                        ]
+                      },
+                      "finish_reason": "length"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "c1",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "length",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "finish-content_filter-never-dispatches",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:63",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "c1",
+                      "function": {
+                        "arguments": "{\"x\":1}",
+                        "name": "f"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "content_filter"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "c1",
+                      "type": "function",
+                      "function": {
+                        "name": "f",
+                        "arguments": "{\"x\":1}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "content_filter"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "content_filter",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=content_filter",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "content_filter",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "c1",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"x\":1}",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "content_filter"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null,
+                        "tool_calls": [
+                          {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {
+                              "name": "f",
+                              "arguments": "{\"x\":1}"
+                            }
+                          }
+                        ]
+                      },
+                      "finish_reason": "content_filter"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "c1",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "content_filter",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leaked-call-finish-stop",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:82",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ],
+        "knownToolNames": [
+          "f"
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_leaked_ff49be67d5edff28",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [
+          {
+            "id": "call_leaked_ff49be67d5edff28",
+            "name": "f",
+            "arguments": {
+              "x": 1
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "f"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leaked-call-finish-length",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:82",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "length"
+              }
+            ]
+          }
+        ],
+        "knownToolNames": [
+          "f"
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null
+                },
+                "finish_reason": "length"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_leaked_ba86038c6963776a",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "length",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=length",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "length",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "call_leaked_ba86038c6963776a",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "length"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "f"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null
+                      },
+                      "finish_reason": "length"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_leaked_ba86038c6963776a",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "length",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leaked-call-finish-content_filter",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:82",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "content_filter"
+              }
+            ]
+          }
+        ],
+        "knownToolNames": [
+          "f"
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null
+                },
+                "finish_reason": "content_filter"
+              }
+            ],
+            "usage": {
+              "$exact": "undefined"
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_leaked_5bf044fcbc0dd7bc",
+              "name": "f",
+              "arguments": {
+                "x": 1
+              }
+            }
+          ],
+          "stopReason": "content_filter",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "dispatched": [],
+        "normalized": {
+          "$exact": "error",
+          "name": "ProviderIncompleteError",
+          "message": "gateway response incomplete: finish_reason=content_filter",
+          "code": "PROVIDER_INCOMPLETE",
+          "props": {
+            "name": "ProviderIncompleteError",
+            "providerIncomplete": true,
+            "finishReason": "content_filter",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "call_leaked_5bf044fcbc0dd7bc",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "model": "m",
+            "responseId": null,
+            "rawUsage": null
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "content_filter"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "f"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "id": null,
+                  "model": null,
+                  "choices": [
+                    {
+                      "message": {
+                        "content": null
+                      },
+                      "finish_reason": "content_filter"
+                    }
+                  ],
+                  "usage": {
+                    "$exact": "undefined"
+                  }
+                },
+                "model": "",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_leaked_5bf044fcbc0dd7bc",
+                    "name": "f",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                ],
+                "stopReason": "content_filter",
+                "reasoningContent": null,
+                "reasoningSource": null,
+                "reasoningDetails": null,
+                "rawUsage": null,
+                "generationMs": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "leaked-call-finish-network_error",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-stream-tool-calls.test.mjs:82",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "network_error"
+              }
+            ]
+          }
+        ],
+        "knownToolNames": [
+          "f"
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamInterruptedError",
+          "message": "gateway SSE stream truncated: finish_reason=network_error",
+          "code": "TRUNCATED_STREAM",
+          "props": {
+            "name": "StreamInterruptedError",
+            "truncatedStream": true,
+            "streamInterrupted": true,
+            "finishReason": "network_error",
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "call_leaked_2a211ccb1522379d",
+                "name": "f",
+                "arguments": {
+                  "x": 1
+                }
+              }
+            ],
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 1,
+              "toolCallsDispatched": 1,
+              "dispatchAmbiguous": true,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": true,
+              "visibleOutput": false,
+              "observedOutput": true,
+              "sideEffectDispatched": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "partialToolCall": true,
+            "emittedToolCall": true,
+            "toolCallEmitted": true,
+            "unsafeToRetry": true
+          }
+        },
+        "dispatched": []
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "network_error"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "f"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

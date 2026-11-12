@@ -1167,6 +1167,14 @@
         "threadId": {
           "type": "string"
         },
+        "toolCalls": {
+          "description": "On `completed`: the tool calls the response streamed, in stream order, each `{ id, name, arguments }` (Node's `onAssistantToolCallObserved`, which a headless exec shows as the call's `item.started` before the request's completion). Absent when the response called no tool.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "turnId": {
           "type": "string"
         },
@@ -1808,13 +1816,13 @@
         {
           "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
           "properties": {
-            "account_id": {
+            "accountId": {
               "type": "string"
             },
             "provider": {
               "type": "string"
             },
-            "session_account_id": {
+            "sessionAccountId": {
               "type": [
                 "string",
                 "null"
@@ -1828,14 +1836,14 @@
             }
           },
           "required": [
-            "account_id",
+            "accountId",
             "provider",
             "type"
           ],
           "type": "object"
         },
         {
-          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`); credential-shaped text in the message is redacted.",
           "properties": {
             "message": {
               "type": "string"
@@ -1854,11 +1862,8 @@
           "type": "object"
         },
         {
-          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`). The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.",
           "properties": {
-            "account_id": {
-              "type": "string"
-            },
             "at": {
               "format": "int64",
               "type": "integer"
@@ -1874,9 +1879,45 @@
             }
           },
           "required": [
-            "account_id",
             "at",
             "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool of the request the PC's adapter left out for its input schema (`ToolExclusionReport`, Node `onToolExcluded`); credential-shaped text in each string is redacted.",
+          "properties": {
+            "index": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pointer": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolExcluded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "message",
+            "name",
+            "pointer",
+            "reason",
             "type"
           ],
           "type": "object"
@@ -1916,13 +1957,13 @@
         {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
-            "pricing_model": {
+            "pricingModel": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "request_ms": {
+            "requestMs": {
               "format": "uint64",
               "minimum": 0.0,
               "type": [

@@ -1,0 +1,240 @@
+{
+  "note": null,
+  "cases": [
+    {
+      "text": "Error: [shell-run-failed] [exit code: 1]\n\ncommand timed out while parsing an aborted field",
+      "tool": "shell",
+      "category": "command-exit"
+    },
+    {
+      "text": "Error: [shell-run-failed] [signal: SIGKILL]\n\n(no output)",
+      "tool": "shell",
+      "category": "process/signal"
+    },
+    {
+      "text": "Error: [shell-run-failed] [timeout: 500ms signal: SIGTERM cause: timeout]",
+      "tool": "shell",
+      "category": "timeout/abort"
+    },
+    {
+      "text": "Error: [shell-run-failed] [signal: SIGTERM cause: cancellation]",
+      "tool": "shell",
+      "category": "timeout/abort"
+    },
+    {
+      "text": "Error: [shell-run-failed] [signal: SIGKILL cause: output-limit]",
+      "tool": "shell",
+      "category": "runtime/failure"
+    },
+    {
+      "text": "Session \"sess_cancelled\" closed: aborted during call",
+      "tool": "shell",
+      "category": "expected-cancellation"
+    },
+    {
+      "text": "call aborted",
+      "tool": "read",
+      "category": "timeout/abort"
+    },
+    {
+      "text": "⚠️ destructive command warning\nError: [shell-run-failed] [signal: SIGKILL]",
+      "tool": "shell",
+      "category": "process/signal"
+    },
+    {
+      "text": "Error: [tool-input-validation] apply_patch received a compacted-history placeholder",
+      "tool": "apply_patch",
+      "category": "expected-preflight"
+    },
+    {
+      "text": "Error: apply_patch sequence stopped\ncontext not found; expected first old line: \"before\"",
+      "tool": "apply_patch",
+      "category": "patch/context"
+    },
+    {
+      "text": "Error: native patch failed — atomic write C:\\locked.txt: Access is denied. (os error 5)",
+      "tool": "apply_patch",
+      "category": "path/permission"
+    },
+    {
+      "text": "Error: unknown memory action: add",
+      "tool": "memory",
+      "category": "schema/args"
+    },
+    {
+      "text": "Error: path does not exist: C:/missing (ENOENT)",
+      "tool": "glob",
+      "category": "navigation/miss"
+    },
+    {
+      "text": "Error: no such path C:/missing/.",
+      "tool": "find",
+      "category": "navigation/miss"
+    },
+    {
+      "text": "Error: ENOENT: no such file or directory, stat C:/missing",
+      "tool": "read",
+      "category": "navigation/miss"
+    },
+    {
+      "text": "Error: path does not exist: C:/missing",
+      "tool": "grep",
+      "category": "navigation/miss"
+    },
+    {
+      "text": "Error: file not found in graph: src/missing.ts",
+      "tool": "code_graph",
+      "category": "navigation/miss"
+    },
+    {
+      "text": "Error: EACCES: permission denied, stat C:/private",
+      "tool": "read",
+      "category": "path/permission"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/1 (a.mjs); no files were written.\napply_patch: V4A parse failed — missing *** End Patch",
+      "tool": "apply_patch",
+      "category": "patch/parse"
+    },
+    {
+      "text": "Error: apply_patch: parse failed — hunk header mismatch; prefer V4A envelope for multi-hunk edits",
+      "tool": "apply_patch",
+      "category": "patch/parse"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 2/13 (SourceControlDock.tsx); no files were written.\nV4A hunk SourceControlDock.tsx: context not found: (no anchor); expected first old line: \"const [stashes\"; nearest line 216: \"const [stashes\"; first divergent line: old[4] expected \"}\" vs file line 220 actual \"  );\"",
+      "tool": "apply_patch",
+      "category": "patch/stale-context"
+    },
+    {
+      "text": "Error: native patch failed — a/scripts/x.mjs: hunk rejected in a/scripts/x.mjs",
+      "tool": "apply_patch",
+      "category": "patch/stale-context"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/1 (x.mjs); no files were written.\nV4A hunk x.mjs: context not found: (no anchor); expected first old line: \"const a = 1;\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\n  1 | const b = 2;",
+      "tool": "apply_patch",
+      "category": "patch/context"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/1 (x.mjs); no files were written.\nV4A hunk anchor not found: function build > const rows; use an existing @@ anchor from the current file or add exact context lines; no stubs.",
+      "tool": "apply_patch",
+      "category": "patch/context"
+    },
+    {
+      "text": "Error: patch contained no file sections",
+      "tool": "apply_patch",
+      "category": "patch/parse"
+    },
+    {
+      "text": "Error: apply_patch: patch contained no file sections",
+      "tool": "apply_patch",
+      "category": "patch/parse"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/1 (x.mjs); no files were written.\napply_patch: V4A parse failed — V4A patch contained no file sections",
+      "tool": "apply_patch",
+      "category": "patch/parse"
+    },
+    {
+      "text": "Error: apply_patch: V4A parse failed — V4A hunk x.mjs: context not found: (no anchor); expected first old line: \"const a = 1;\"; nearest line 8: \"const a = 1;\"; first divergent line: old[2] expected \"x\" vs file line 9 actual \"y\"",
+      "tool": "apply_patch",
+      "category": "patch/stale-context"
+    },
+    {
+      "text": "Error: apply_patch: V4A parse failed — apply_patch: multiple operations target src/x.mjs",
+      "tool": "apply_patch",
+      "category": "patch/duplicate-target"
+    },
+    {
+      "text": "Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target src/x.mjs",
+      "tool": "apply_patch",
+      "category": "patch/duplicate-target"
+    },
+    {
+      "text": "Error: apply_patch: 1 target(s) fall outside the write root C:/Project/mixdog: C:/tmp/x.mjs",
+      "tool": "apply_patch",
+      "category": "path/outside-root"
+    },
+    {
+      "text": "Error: native patch failed — refusing hunkless delete: x.mjs is non-empty",
+      "tool": "apply_patch",
+      "category": "patch/verification"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/2 (x.mjs); no files were written.\napply_patch: only one V4A rename (*** Move to:) per patch is supported; split into separate patches.",
+      "tool": "apply_patch",
+      "category": "patch/verification"
+    },
+    {
+      "text": "Error: apply_patch preflight rejected section 1/1 (x.mjs); no files were written.\nV4A update target unreadable: x.mjs (ENOENT).",
+      "tool": "apply_patch",
+      "category": "path/enoent"
+    },
+    {
+      "text": "Error: apply_patch: patch too large (9000000 bytes > 4194304 byte cap); split into smaller patches",
+      "tool": "apply_patch",
+      "category": "patch/limit"
+    },
+    {
+      "text": "Error: advisory lock timeout: C:\\Project\\mixdog\\src\\.UtilityDock.tsx.mixdog-lock held by pid 53232",
+      "tool": "apply_patch",
+      "category": "resource/lock"
+    },
+    {
+      "text": "Error: apply_patch: a block failed in sequential group 1/2; every edit listed below was already applied to disk (writes committed) and left in place:",
+      "tool": "apply_patch",
+      "category": "patch/partial-apply"
+    },
+    {
+      "text": "Error: apply_patch sequence stopped at section 2/3 (a.mjs); 1 earlier section(s) were applied to disk (committed) and left in place; 1 later section(s) were skipped (not attempted).\n--- applied (committed to disk) ---\nApplied 1 File\n--- failed section: a.mjs ---\nV4A hunk a.mjs: context not found: (no anchor); expected first old line: \"x\"",
+      "tool": "apply_patch",
+      "category": "patch/partial-apply"
+    },
+    {
+      "text": "Error: apply_patch: \"format\" must be \"unified\" or \"v4a\"",
+      "tool": "apply_patch",
+      "category": "schema/args"
+    },
+    {
+      "text": "Error: apply_patch: Add File target already exists: src/existing.mjs; read it and use Update File instead",
+      "tool": "apply_patch",
+      "category": "expected-preflight"
+    },
+    {
+      "text": "Error: native patch failed — a/src/missing.mjs: stat C:/Project/src/missing.mjs for delete: file not found (os error 2)",
+      "tool": "apply_patch",
+      "category": "path/enoent"
+    },
+    {
+      "text": "Error: apply_patch sequence stopped at section 2/2 (a.mjs); 1 earlier section(s) were applied, but rollback was incomplete; 0 later section(s) were skipped (not attempted).\n--- applied before rollback ---\nApplied 1 File\n--- failed section: a.mjs ---\nadvisory lock timeout: C:\\Project\\mixdog\\src\\.a.mjs.mixdog-lock held by pid 91\n--- rollback incomplete ---\napply_patch: rollback restore failed for a.mjs",
+      "tool": "apply_patch",
+      "category": "patch/partial-apply"
+    },
+    {
+      "text": "Error: apply_patch sequence stopped at section 3/4 (b.mjs); 2 earlier section(s) were applied to disk (committed) and left in place; 1 later section(s) were skipped (not attempted).\n--- failed section: b.mjs ---\nnative patch failed — atomic write C:\\locked.txt: Access is denied. (os error 5)",
+      "tool": "apply_patch",
+      "category": "patch/partial-apply"
+    },
+    {
+      "text": "Error: advisory lock timeout: C:\\Project\\mixdog\\src\\.a.mjs.mixdog-lock held by pid 91",
+      "tool": "apply_patch",
+      "category": "resource/lock"
+    },
+    {
+      "text": "Error: [shell-run-failed] [exit code: 1]\n\nerror: patch failed: src/a.mjs:12\nhunk rejected; context not found",
+      "tool": "shell",
+      "category": "command-exit"
+    },
+    {
+      "text": "Error: [exit code: 1]\n\n1 test failed; hunk rejected in a/x.mjs",
+      "tool": "shell",
+      "category": "command-exit"
+    },
+    {
+      "text": "Error: [shell-run-failed] [exit code: 1]\n[auto-rewrite: deprecated wmic process query -> PowerShell; timeout capped at 30000ms]\n(no output)",
+      "tool": "shell",
+      "category": "command-exit"
+    }
+  ]
+}

@@ -32,6 +32,9 @@
       "model": "minimax-m3",
       "tools": [],
       "history": [],
+      "opts": {
+        "sessionId": "sess-go"
+      },
       "sessionId": "sess-go",
       "requests": [
         {

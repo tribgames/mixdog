@@ -206,6 +206,12 @@ impl ItemDriver for SessionDriver {
                 None => add(sink, plan::retire_key(data, &rel), ItemKind::OrphanCheckpoint, Contract::Retire, vec![s])?,
             }
         }
+        for name in [source::AGENT_WORKERS, source::LEAD_WORKERS] {
+            let Some(bytes) = durable::read_optional(&roots.data.join(name))? else { continue };
+            for id in source::worker_row_session_ids(&bytes) {
+                sessions.entry(id).or_default();
+            }
+        }
         for (id, sources) in &sessions {
             sink.add_item(plan::item(
                 &format!("session/{id}"),

@@ -150,7 +150,7 @@ async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_r
             if sink.push(PixelFormat::Bgrx, w as u32, h as u32, (w * 4) as u32, Bytes::copy_from_slice(&data)).is_err() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(33)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
     });    if std::env::var("INTEROP_SKIP_KEY").is_ok() {
         SKIP_FIRST_KEYFRAME.store(true, Ordering::Relaxed);

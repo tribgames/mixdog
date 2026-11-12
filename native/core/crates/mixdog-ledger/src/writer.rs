@@ -63,14 +63,17 @@ const BUILD_BUDGET: i64 = 500;
 const MAX_LATE: usize = 65_536;
 const QUEUE_NAME: &str = "usage-writer";
 
+/// A queued write, with its number in [`UsageWriter::marks`].
 enum Command {
     Record {
         rows: Vec<UsageRecord>,
         reply: ReplyTx<Vec<Appended>>,
+        mark: u64,
     },
     Quota {
         samples: Vec<QuotaReading>,
         reply: ReplyTx<Result<usize>>,
+        mark: u64,
     },
     /// `total_changes()` and `data_version`: moves when any connection commits.
     Stamp {
@@ -96,6 +99,8 @@ enum Command {
 
 struct Inner {
     commands: mpsc::SyncSender<Command>,
+    /// Every queued record and quota command numbered, reported once committed or failed.
+    marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 pub struct UsageWriter {
@@ -112,9 +117,10 @@ fn stamp(conn: &Connection) -> Result<String> {
 /// outcomes of its own records. Returns the records that were new, in commit order.
 fn commit_records(
     conn: &mut Connection,
-    group: Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>)>,
+    marks: &mixdog_rt::WriteMarks,
+    group: Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)>,
 ) -> Vec<UsageRecord> {
-    let all: Vec<UsageRecord> = group.iter().flat_map(|(rows, _)| rows.clone()).collect();
+    let all: Vec<UsageRecord> = group.iter().flat_map(|(rows, _, _)| rows.clone()).collect();
     let outcomes = append_rows(conn, &all);
     let inserted = all
         .iter()
@@ -123,8 +129,16 @@ fn commit_records(
         .map(|(row, _)| row.clone())
         .collect();
     let mut outcomes = outcomes.into_iter();
-    for (rows, reply) in group {
-        reply.send(outcomes.by_ref().take(rows.len()).collect());
+    for (rows, reply, mark) in group {
+        let own: Vec<Appended> = outcomes.by_ref().take(rows.len()).collect();
+        match own.iter().find_map(|outcome| match outcome {
+            Appended::Failed(error) => Some(error.to_string()),
+            _ => None,
+        }) {
+            Some(error) => marks.failed(mark, error),
+            None => marks.written(mark),
+        }
+        reply.send(own);
     }
     inserted
 }
@@ -150,6 +164,7 @@ struct Context {
     inner: Weak<Inner>,
     changed: Option<Arc<dyn UsageChanged>>,
     build_budget: i64,
+    marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 /// The day-sum build, as the writer thread sees it.
@@ -314,18 +329,18 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
         };
         build.blocked = false;
         match command {
-            Command::Record { rows, reply } => {
+            Command::Record { rows, reply, mark } => {
                 let mut total = rows.len();
-                let mut group = vec![(rows, reply)];
+                let mut group = vec![(rows, reply, mark)];
                 // Records queued behind it share the transaction, up to its row cap; a command
                 // of another kind ends the group so order is kept.
                 loop {
                     match commands.try_recv() {
-                        Ok(Command::Record { rows, reply })
+                        Ok(Command::Record { rows, reply, mark })
                             if total + rows.len() <= MAX_APPEND_ROWS =>
                         {
                             total += rows.len();
-                            group.push((rows, reply));
+                            group.push((rows, reply, mark));
                         }
                         Ok(other) => {
                             held = Some(other);
@@ -334,15 +349,24 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                         Err(_) => break,
                     }
                 }
-                let inserted = commit_records(&mut conn, group);
+                let inserted = commit_records(&mut conn, &context.marks, group);
                 build.note_committed(&conn, &inserted);
                 if context.changed.is_some() && !inserted.is_empty() {
                     stale = true;
                     moved = true;
                 }
             }
-            Command::Quota { samples, reply } => {
-                reply.send(record_quota_samples(&mut conn, &samples));
+            Command::Quota {
+                samples,
+                reply,
+                mark,
+            } => {
+                let recorded = record_quota_samples(&mut conn, &samples);
+                match &recorded {
+                    Ok(_) => context.marks.written(mark),
+                    Err(error) => context.marks.failed(mark, error),
+                }
+                reply.send(recorded);
             }
             Command::Stamp { reply } => reply.send(stamp(&conn)),
             Command::Repair {
@@ -428,13 +452,18 @@ impl UsageWriter {
         )?;
         prepare(&mut conn)?;
         let (commands, receiver) = mpsc::sync_channel(QUEUE);
-        let inner = Arc::new(Inner { commands });
+        let marks = Arc::new(mixdog_rt::WriteMarks::new("the usage ledger"));
+        let inner = Arc::new(Inner {
+            commands,
+            marks: marks.clone(),
+        });
         let context = Context {
             path: path.to_path_buf(),
             maintenance,
             inner: Arc::downgrade(&inner),
             changed,
             build_budget,
+            marks,
         };
         thread.spawn_thread("mixdog-usage-writer", move |_| run(conn, receiver, context))?;
         Ok(Arc::new(Self { inner }))
@@ -453,6 +482,22 @@ impl UsageWriter {
         Ok(rx)
     }
 
+    /// [`enqueue`](Self::enqueue) of a write, numbered in [`marks`](Self::marks); a write the queue refused is withdrawn.
+    fn enqueue_write<T>(&self, make: impl FnOnce(ReplyTx<T>, u64) -> Command) -> Result<ReplyRx<T>> {
+        let mark = self.inner.marks.accept();
+        let queued = self.enqueue(|reply| make(reply, mark));
+        if queued.is_err() {
+            self.inner.marks.withdrawn(mark);
+        }
+        queued
+    }
+
+    /// The queued writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every
+    /// record and quota reading queued before it committed; one that failed is its error.
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.inner.marks
+    }
+
     /// Queues one record (`recordQueued`): it is enqueued by this call, in call order, and the
     /// future resolves once the record is durable, or with the error that failed it. A
     /// duplicate id is not an error.
@@ -460,9 +505,10 @@ impl UsageWriter {
         &self,
         row: UsageRecord,
     ) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
-        let queued = self.enqueue(|reply| Command::Record {
+        let queued = self.enqueue_write(|reply, mark| Command::Record {
             rows: vec![row],
             reply,
+            mark,
         });
         async move {
             match queued?.await?.pop() {
@@ -477,7 +523,11 @@ impl UsageWriter {
         &self,
         samples: Vec<QuotaReading>,
     ) -> impl Future<Output = Result<usize>> + Send + 'static + use<> {
-        let queued = self.enqueue(|reply| Command::Quota { samples, reply });
+        let queued = self.enqueue_write(|reply, mark| Command::Quota {
+            samples,
+            reply,
+            mark,
+        });
         async move { queued?.await? }
     }
 

@@ -5,7 +5,13 @@
     "notRun": "no live runtime: only the stored records and indexes",
     "runs": "store-summary-visibility.mjs, store-summary-index.mjs, store-summary-reader.mjs, store/listing.mjs, store-transcript-projection.mjs projectStoredTranscript, manager/turn-checkpoint.mjs recorder, all over session files in a temp data dir"
   },
-  "exclusions": {},
+  "exclusions": {
+    "case 2: closed Lead and agent checkpoint-marker policy (results)": "the projected transcript of a closed record is produced by the session transcript read, not by mixdog-store; owner: mixdog-core-session",
+    "case 4: ordinarySummaries, ordinarySummariesAsync": "the reader projection of the list row (a subset of its fields, with the file stat) is built by the thread list, not by mixdog-store; owner: mixdog-core-session thread_list.rs",
+    "case 4: storedSessions, storedSessionsIncludingAgentOnly, storedSessionExists, metadata, exact": "the session documents and transcript reads of Node session files; Rust holds sessions as logs and reads them in mixdog-core-session; owner: mixdog-core-session",
+    "case 4: storedWorkers, workerLinks": "the agent worker index (agent-workers.json) is not held by mixdog-store; owner: mixdog-core-session agent_registry pool_docs.rs and mixdog-core-agents pool_list.rs",
+    "cases 0 and 1: agent descendants and agent parent links (rows, descendants, ofNullRows, parents)": "no counterpart in mixdog-store; owner: mixdog-core-session agent_registry (mod.rs descendants)"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -17,11 +23,11 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -41,7 +47,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "1bb353adea9b8ed7b5b0af560de2f20f5926d575ca697ac9030a1de27f62b0e9"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -73,7 +79,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-summary-visibility-cases.mjs",
-  "recorderSha256": "3a079acad3bae2a86b8a5b891b498a9cf74197cb87127bc68e54bc356b4e3c97",
+  "recorderSha256": "eb3d761d160ea38ad1bd950c445c7b292d4d9833890a026b37c0209993cb7204",
   "replay": {
     "compare": "mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages",
     "entry": "Drive these public items on o1: mixdog-store/src/summary.rs:78 is_root_lead_session; mixdog-store/src/summary.rs:88 session_visibility; mixdog-store/src/sqlite/lead.rs:65 is_lead_visible_row; mixdog-store/src/sqlite/lead.rs:120 lead_page_of.",

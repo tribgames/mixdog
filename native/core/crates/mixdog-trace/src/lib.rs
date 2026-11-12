@@ -26,6 +26,8 @@ pub use record::build_row;
 pub use record::compact_meta_record;
 pub use record::truthy;
 pub use record::usage_record;
+#[cfg(feature = "flush-probe")]
+pub use spool::flush_probe;
 pub use spool::Warning;
 pub use tool::*;
 pub use watchdog::*;
@@ -137,6 +139,12 @@ impl AgentTrace {
             due |= self.append_tool_failure(&abort.failure, now_ms);
         }
         due
+    }
+
+    /// `traceCacheBreak(record)`'s row (see `cache_break_payload` for the fields of `record`). True when the trace spool
+    /// is due for `flush`.
+    pub fn cache_break(&self, record: &Map<String, Value>, now_ms: i64) -> bool {
+        self.append(&cache_break_trace_record(record), now_ms)
     }
 
     /// `_appendToolFailureRow(row)`: the row is written as given. True when due for `flush`.

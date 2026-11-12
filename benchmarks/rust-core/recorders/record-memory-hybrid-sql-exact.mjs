@@ -33,11 +33,13 @@ try {
     seq += 1;
     const { rows: out } = await db.query(
       `INSERT INTO entries(ts,role,content,source_ref,session_id,project_id,is_root,element,summary,category,status,last_seen_at)
-       VALUES ($1,'assistant',$2,$3,'s','p',1,$4,$5,'fact','active',$1) RETURNING id`,
+       VALUES ($1,'assistant',$2,$3,'s','p',1,$4,$5,'fact','active',$1)
+       RETURNING id, (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT AS scored_at`,
       [seq * 1000, content, `exact:${seq}`, element, summary],
     );
     const id = Number(out[0].id);
-    rows.push({ label, id, ts: seq * 1000, content, element, summary, source_ref: `exact:${seq}` });
+    // The score trigger (entry-triggers.mjs:15) scores the row at the cluster's NOW() of this statement, read here.
+    rows.push({ label, id, ts: seq * 1000, content, element, summary, source_ref: `exact:${seq}`, scoredAtMs: Number(out[0].scored_at) });
     return id;
   };
   const probe = async (query, literal) => {
@@ -95,9 +97,9 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'openDatabase/closeDatabase (memory.mjs) on a private bundled PostgreSQL cluster, stopPgForShutdown (pg/supervisor.mjs), recallPlan (recall-hybrid/plan.mjs), buildHybridQuery (recall-hybrid/hybrid-sql.mjs), buildExactTerms (recall-scoring.mjs)', notRun: 'embeddings: no vectors are inserted, so only the lexical/exact legs return rows (the dense leg has no candidates)' },
-    replay: 'the public call is the `memory/recall` request (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240 -> search_relevant_hybrid, recall/hybrid.rs:743), whose exact leg is built at recall/hybrid.rs:228 (exact_cte, private: not called directly). A replay inserts the same `entries` rows in order into a PG (needs MIXDOG_PG_RUNTIME), sends a recall with each recorded query text and compares the returned rows (the recorded `returned` rows carry the exact_rank column: compare the rows whose exact_rank is non-null, with their id and exact_rank, and the exact terms). ORDER: the last SELECT of Node\'s statement has no ORDER BY (finalStatementHasOrderBy false), so the recorded order is this cluster\'s plan order; the tie rule for a replay is: compare as sets keyed by id, and compare exact_rank values (which come from the ORDER BY inside the exact leg: rarity desc, hits desc, MAX(ts) desc). The sql text is Node\'s and is not compared',
+    replay: 'mixdog-services memory/recall/hybrid.rs search_relevant_hybrid (the `memory/recall` request, Recall::recall) on a private cluster (MIXDOG_PG_RUNTIME) holding the recorded rows, inserted in order before each probe as here, each scored by the schema\'s compute_entry_score at its recorded scoredAtMs (the trigger\'s expression at the clock it read). Compared per probe: the exact terms, the candidate statement the search sends at its send point (recall/store.rs read_query_pg: text byte for byte and every parameter), and the rows PostgreSQL answered it with, whole and in the returned order',
     exclusions: 'none',
-    normalised: { 'private directory': 'temp, not recorded', 'ids': 'serial ids 1..N from a fresh cluster, in insertion order' },
+    normalised: { 'private directory': 'temp, not recorded', 'ids': 'serial ids 1..N from a fresh cluster, in insertion order', scoredAtMs: 'the cluster clock the score trigger read at each insert (NOW()): wall-clock time, recorded' },
   },
 });
 process.exit(0);

@@ -54,6 +54,7 @@ use crate::transport::http::HttpSend;
 
 mod fast_replay;
 mod floor_fallback;
+mod stream_replay;
 mod warm;
 
 // ---------------------------------------------------------------------------
@@ -771,12 +772,14 @@ fn a_cut_tool_stream_dispatches_the_complete_calls_as_node_does() {
             _ => None,
         })
         .collect();
+    // The recording holds the thrown error whole (`lib/exact.mjs`): its own fields are under `props`.
+    let thrown = &node["error"]["props"];
     assert_eq!(json!(calls), node["dispatchedToolCalls"]);
-    assert_eq!(json!(calls), node["error"]["partialToolCalls"]);
+    assert_eq!(json!(calls), thrown["partialToolCalls"]);
     let err = decoder.finish().expect_err("a cut stream");
-    assert_eq!((node["error"]["code"].as_str(), node["error"]["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
+    assert_eq!((node["error"]["code"].as_str(), thrown["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
     assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
-    assert_eq!(Some(err.exposure.tool_input_cut), node["error"]["pendingToolUse"].as_bool());
+    assert_eq!(Some(err.exposure.tool_input_cut), thrown["pendingToolUse"].as_bool());
     assert_eq!(err.exposure.tool_dispatched, !calls.is_empty());
 }
 
@@ -1077,7 +1080,7 @@ async fn an_error_keeps_the_events_decoded_before_it_whatever_the_chunking() {
     assert!(err.exposure.tool_dispatched, "the error reports the dispatch");
     // An error frame carries no partial usage in Node (`_anthropicSseError`, anthropic-sse.mjs:138; only a cut stream
     // gets the turn's partial fields): as Node's recorded in-stream error after output shows.
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/claude-floors/golden.json")).expect("fixture");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture");
     let after_output = golden["fallback"]
         .as_array()
         .expect("fallback")

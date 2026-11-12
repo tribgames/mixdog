@@ -1,0 +1,1496 @@
+diff --git a/src/runtime/agent/orchestrator/session/loop/tool-exec.mjs b/src/runtime/agent/orchestrator/session/loop/tool-exec.mjs
+index d5d6924..264eeb0 100644
+--- a/src/runtime/agent/orchestrator/session/loop/tool-exec.mjs
++++ b/src/runtime/agent/orchestrator/session/loop/tool-exec.mjs
+@@ -7,7 +7,7 @@
+ //   tool-exec/read-only-deadline.mjs — bounded read-only I/O with partial-output grace
+ import { isMcpTool, resolveMcpToolAccount } from '../../mcp/client.mjs';
+ import { connectorPolicyAgentOf } from '../../mcp/agent-connectors.mjs';
+-import { prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
++import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
+ import { refreshDeferredMcpToolCatalog } from '../../runtime-core/tool-catalog.mjs';
+ import { bridgeTargetUnavailable } from '../../runtime-core/tool-bridge.mjs';
+ import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
+@@ -52,6 +52,9 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
+   if (name === 'shell') {
+     const guarded = guardShellCall(callArgs, {
+       shellType: requestedShellType(callArgs),
++      cwd,
++      // Rejecting a command the tools cover only helps a session that has those tools.
++      offers: (toolName) => isOnDeferredToolSurface(sessionRef, toolName),
+       agent: sessionRef?.agent || null,
+       sessionId: callerSessionId,
+       telemetry: executeOpts.resultTelemetry,
+diff --git a/src/runtime/agent/orchestrator/tools/builtin.mjs b/src/runtime/agent/orchestrator/tools/builtin.mjs
+index 31ebc06..6fca1a0 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin.mjs
+@@ -32,6 +32,7 @@ import { extractIpynbText, extractPdfText } from './builtin/read-special-files.m
+ import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
+ import { formatToolStartProgress } from './progress-message.mjs';
+ import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
++import { executeMachineTool } from './builtin/machine-tool.mjs';
+ import { prepareGrepArgs, validateBuiltinArgs } from './builtin/arg-guard.mjs';
+ import {
+   parseLineLimitArg,
+@@ -171,6 +172,7 @@ const _readToolHelpers = {
+   renderReadLine,
+   resolveAgainstCwd,
+   smartReadTruncate,
++  countLogicalLinesBytesSync,
+   streamReadRange,
+   streamSmartReadSummary,
+   sliceReadBodyByLines,
+@@ -476,6 +478,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
+         return executeFuzzyFindTool(args, workDir, options);
+       case 'list':
+         return executeListTool(args, workDir, options);
++      case 'machine':
++        return executeMachineTool(args ?? {});
+       case 'tree':
+         return executeTreeTool(args, workDir, options);
+       case 'find_files':
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs b/src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs
+index a6006b4..e101463 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs
+@@ -644,9 +644,19 @@ function normalizePublicReadTargets(a) {
+       typeof record !== 'object' ||
+       Array.isArray(record) ||
+       !isNonEmptyString(record.file_path) ||
+-      Object.keys(record).some((key) => !['file_path', 'offset', 'limit'].includes(key))
++      Object.keys(record).some((key) => !['file_path', 'offset', 'limit', 'tail'].includes(key))
+     ) {
+-      return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?}`;
++      return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?, tail?}`;
++    }
++    // tail names the whole window (the last N lines), so a limit has nothing left to say.
++    const tail = windowValue(record.tail, a.tail);
++    if (tail !== undefined) {
++      if (windowValue(record.offset, a.offset) !== undefined) {
++        return `Error: read target ${index + 1} tail cannot be combined with offset (tail is counted from the end of the file)`;
++      }
++      if (!validLimit(tail)) return `Error: read target ${index + 1} tail must be an integer from 1 to ${MAX_INT}`;
++      entries.push({ path: record.file_path, offset: 0, limit: tail, tail });
++      continue;
+     }
+     const offset = windowValue(record.offset, defaultOffset);
+     const limit = limitValue(record.limit, defaultLimit);
+@@ -670,6 +680,7 @@ function normalizePublicReadTargets(a) {
+   }
+   // Canonical public windows are one-based. Legacy executor windows are
+   // zero-based; convert once here before any legacy shape handling.
++  delete a.tail;
+   if (batch) {
+     a.path = entries;
+     delete a.offset;
+@@ -678,6 +689,7 @@ function normalizePublicReadTargets(a) {
+     a.path = entries[0].path;
+     a.offset = entries[0].offset;
+     a.limit = entries[0].limit;
++    if (entries[0].tail !== undefined) a.tail = entries[0].tail;
+   }
+   delete a.file_path;
+   return null;
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs
+index be9a843..ac548e2 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs
+@@ -5,19 +5,23 @@
+ //      to background + task wait);
+ //   2. a plain leading `cd <dir>` moves into the `cwd` argument;
+ //   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the
+-//      read / grep / list tools — a note now, a rejection when the mode flips;
++//      read / grep / list tools as a note; a command the built-in tools cover
++//      whole (every statement a read / search / listing / plain git) is
++//      rejected instead, naming the tool call that replaces it (tool-cover.mjs),
++//      when the session offers those tools;
+ //   4. a command mentioning `git … worktree add` is rejected (worktrees go
+ //      through the git tool; a textual check, so mentions as data are too).
+ import { shellSplitPipelineSegments, shellSplitSegments, shellTokenize } from '../shell-analysis.mjs';
+ import { resolveShellFor } from '../shell-runtime.mjs';
+ import { formatShellToolFailure } from './result-format.mjs';
++import { commandName, coveringToolCalls, TEXT_FILTERS } from './tool-cover.mjs';
+ import { addsUnmanagedWorktree } from './worktree-add-guard.mjs';
+ 
+-/** `warn` runs the read with a note; `reject` returns the block without running. */
+-const SHELL_FILE_READ_MODE = 'warn';
+ export const SHELL_FILE_READ_NOTE = 'Note: use the read / grep / list tools for files instead of the shell.';
+-const SHELL_FILE_READ_BLOCK =
+-  'Blocked: use read / grep / list for files instead of the shell (read takes offset/limit for a window of a large file).';
++const coveredBlock = (calls) =>
++  `Blocked: the built-in tools cover this command, so it was not run. Call instead: ${calls
++    .map((call) => `${call.tool} ${JSON.stringify(call.args)}`)
++    .join('; ')}`;
+ 
+ const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+ 
+@@ -108,42 +112,9 @@ const POSIX_READERS = {
+ // token is a plain value; both are read off the operand count.
+ const OPERAND_FLAGS = new Set(['-path', '-literalpath', '-pattern', '-e', '--regexp', '-f', '--file']);
+ const VALUE_FLAGS = new Set(['-encoding', '-filter', '-include', '-exclude', '-g', '--glob', '-t', '--type']);
+-// A later pipeline stage that only shapes text; anything else is a program
+-// the first stage feeds.
+-const TEXT_FILTERS = new Set([
+-  'select-object',
+-  'select',
+-  'select-string',
+-  'sls',
+-  'where-object',
+-  'sort-object',
+-  'sort',
+-  'measure-object',
+-  'format-table',
+-  'format-list',
+-  'ft',
+-  'fl',
+-  'out-string',
+-  'out-host',
+-  'head',
+-  'tail',
+-  'grep',
+-  'egrep',
+-  'rg',
+-  'wc',
+-  'uniq',
+-  'cut',
+-  'findstr',
+-]);
+ const FIND_WRITERS = new Set(['-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprintf', '-fls']);
+ const BENIGN_REDIRECT_TARGET = /^(?:&\d|\$null|\/dev\/null|nul)$/i;
+ 
+-const commandName = (token) =>
+-  String(token ?? '')
+-    .toLowerCase()
+-    .replace(/^.*[\\/]/, '')
+-    .replace(/\.exe$/, '');
+-
+ // The path/pattern operands of a stage, or null when it writes a file.
+ function stageOperands(args) {
+   const operands = [];
+@@ -226,14 +197,16 @@ function recordFileRead(telemetry, entry) {
+ }
+ 
+ /**
+- * Apply the four guards to a shell call.
++ * Apply the four guards to a shell call. `offers(toolName)` says whether the
++ * calling session has that tool; without it a covered command only gets the
++ * note, because a session (a foreign adapter's shell) may lack the tools.
+  * @returns {{ failure: string } | { args: object, notes: string[] }} the
+  *   rejection, or the call to run (a leading `cd` moved into `cwd`) with the
+  *   lines to add to its result.
+  */
+ export function guardShellCall(
+   args,
+-  { shellType, fileReadMode = SHELL_FILE_READ_MODE, agent = null, sessionId = null, telemetry = null } = {}
++  { shellType, cwd = null, offers = null, agent = null, sessionId = null, telemetry = null } = {}
+ ) {
+   if (!isPlainObject(args) || typeof args.command !== 'string') return { args, notes: [] };
+   const notes = [];
+@@ -248,10 +221,19 @@ export function guardShellCall(
+     if (sleepFailure) return { failure: sleepFailure };
+   }
+   if (addsUnmanagedWorktree(guarded.command)) return { failure: formatShellToolFailure(SHELL_WORKTREE_ADD_BLOCK) };
++  // A replacement call resolves its paths against the session directory, so a command run elsewhere is never covered.
++  const covering =
++    typeof offers === 'function' && guarded.cwd == null
++      ? coveringToolCalls(guarded.command, shellType, { cwd: cwd ?? process.cwd() })
++      : null;
++  if (covering?.every((call) => offers(call.tool))) {
++    const first = shellTokenize(shellSplitSegments(guarded.command)[0])?.[0];
++    recordFileRead(telemetry, { mode: 'reject', tool: covering[0].tool, command: commandName(first), agent, sessionId });
++    return { failure: formatShellToolFailure(coveredBlock(covering)) };
++  }
+   const read = detectShellFileRead(guarded.command, shellType);
+   if (read) {
+-    recordFileRead(telemetry, { mode: fileReadMode, tool: read.tool, command: read.command, agent, sessionId });
+-    if (fileReadMode === 'reject') return { failure: formatShellToolFailure(SHELL_FILE_READ_BLOCK) };
++    recordFileRead(telemetry, { mode: 'warn', tool: read.tool, command: read.command, agent, sessionId });
+     notes.push(SHELL_FILE_READ_NOTE);
+   }
+   return { args: guarded, notes };
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs
+index 12b09ea..0fe8259 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs
+@@ -37,6 +37,10 @@ const sub = join(session, 'sub');
+ mkdirSync(sub, { recursive: true });
+ const dataFile = join(sub, 'data.txt');
+ writeFileSync(dataFile, 'file-body-marker\n');
++// Fixtures the covered forms name: the cover only judges files it can inspect.
++writeFileSync(join(session, 'a.log'), Array.from({ length: 12 }, (_, i) => `line ${i + 1} boom`).join('\n') + '\n');
++writeFileSync(join(session, 'a.txt'), 'alpha\nfoo bar\nomega\n');
++writeFileSync(join(session, 'b.txt'), 'beta\n');
+ 
+ const PRINT_CWD = 'node -e "console.log(process.cwd())"';
+ const textOf = (output) => (typeof output === 'string' ? output : output.result);
+@@ -487,20 +491,203 @@ test('piped program output, writes and reads that feed a program are not flagged
+   }
+ });
+ 
+-test('reject mode blocks a flagged read without a note and still records it', () => {
++const offersAll = () => true;
++const BLOCK = /^Error: \[shell-tool-failed\] Blocked: the built-in tools cover this command, so it was not run\. Call instead: /;
++
++// [command, the exact call the rejection names]
++const REJECTED = {
++  [POWERSHELL]: [
++    ['Get-Content a.log -Tail 3', 'read {"file_path":"a.log","tail":3}'],
++    ['Get-Content -Path a.log -TotalCount 5', 'read {"file_path":"a.log","limit":5}'],
++    ['cat a.txt', 'read {"file_path":"a.txt"}'],
++    ['gc a.log | Select-Object -Last 4', 'read {"file_path":"a.log","tail":4}'],
++    ['gc a.log | Select-Object -First 4', 'read {"file_path":"a.log","limit":4}'],
++    ['Get-Content a.log | Select-String boom', 'grep {"pattern":"(?i)boom","path":"a.log","context":0,"limit":0}'],
++    [
++      'Select-String -Path sub\\data.txt -Pattern marker',
++      'grep {"pattern":"(?i)marker","path":"sub\\\\data.txt","context":0,"limit":0}',
++    ],
++  ],
++  [POSIX]: [
++    ['tail -n 3 a.log', 'read {"file_path":"a.log","tail":3}'],
++    ['tail -20 a.log', 'read {"file_path":"a.log","tail":20}'],
++    ['tail -n +5 a.log', 'read {"file_path":"a.log","offset":5}'],
++    ['head -n 5 a.txt', 'read {"file_path":"a.txt","limit":5}'],
++    ['cat a.txt | head -3', 'read {"file_path":"a.txt","limit":3}'],
++    ['grep -in "foo bar" a.txt', 'grep {"pattern":"(?i)foo bar","path":"a.txt","context":0,"limit":0}'],
++    ['rg foo a.txt', 'grep {"pattern":"foo","path":"a.txt","context":0,"limit":0}'],
++    ['ls sub', 'list {"path":"sub"}'],
++  ],
++};
++
++// Each of these keeps running (with the note when its first statement is a read).
++const STILL_RUNS = {
++  [POWERSHELL]: [
++    'Get-Content a.log | node x.js',
++    'Get-Content a.log -Tail 3; npm run build',
++    'Get-Content a.log | ForEach-Object { $_ }',
++    'git log | Select-Object -First 5',
++    'git status | node x.js',
++    'git status > out.txt',
++    'git commit -m "a $(x)"',
++    'echo "Get-Content a.log -Tail 3"',
++    'Write-Host "git status"',
++    'Get-Content $env:LOG -Tail 3',
++    'Get-Content a.log -Wait',
++    'sls foo src\\*.mjs',
++    'sls foo src\\*.mjs',
++    'Get-Process | Select-String node',
++    'Get-Content a.log -Tail 3 & sleep 1',
++    // The review's findings: each loses something the replacement does not do.
++    'Get-Content a.log -Encoding Unicode',
++    'Get-Content a.log -Raw',
++    'Get-Content a.txt,b.txt',
++    "Get-Content @'\na.txt\n'@",
++    'Get-Content a.log -Tail 0',
++    'Get-ChildItem sub -Recurse | Measure-Object -Property Length -Sum',
++    'Get-ChildItem sub -Recurse',
++    'Get-ChildItem sub -Force',
++    'Get-ChildItem sub -Directory',
++    'Get-ChildItem sub -Recurse -Force',
++    'Get-ChildItem sub',
++    'ls sub',
++    'Get-Content a.log | Sort-Object -Unique',
++    'Get-Content a.log | Measure-Object -Line',
++    'git worktree prune',
++    'git -C repo worktree prune',
++    'git stash',
++    'git -c alias.st=status st',
++    'git add -p',
++    'git diff --quiet',
++    'git diff --exit-code',
++    'git status 2>&1',
++    'git status || git log',
++    'git config --get user.name',
++  ],
++  [POSIX]: [
++    'cat a.txt | python3 x.py',
++    'cat a.txt && make',
++    'tail -n 3 a.log; npm test',
++    'tail -f a.log',
++    'git log | grep fix',
++    'git log | wc -l',
++    'git status > out.txt',
++    'git diff $(git merge-base a b)',
++    "echo 'cat a.txt'",
++    'echo "git status"',
++    'grep -v foo a.txt',
++    'grep foo a.txt | xargs rm',
++    'cat "$FILE"',
++    'cat a.txt &',
++    'find . -name "*.tmp" -delete',
++    // The review's findings.
++    'cat a.txt | sort -o b.txt',
++    'cat a.txt | wc -l',
++    'cat /dev/zero',
++    'cat /dev/stdin',
++    'cat a.txt b.txt',
++    'cat nofile.txt',
++    'cat sub',
++    'cat ~/a.txt',
++    'cat a*.txt',
++    'cat -n a.txt',
++    'ls -la sub',
++    'ls -a sub',
++    'ls',
++    'grep -c foo a.txt',
++    'grep -l foo a.txt',
++    'grep -rn foo sub',
++    'grep -C 201 foo a.txt',
++    'grep -C 5 foo a.txt',
++    'grep foo a.txt b.txt',
++    'grep "fo+" a.txt',
++    'grep "a|b" a.txt',
++    'rg -g "*.txt" foo .',
++    'head -n 0 a.txt',
++    'head -n 501 a.txt',
++    'tail -n 100001 a.log',
++    'tail -n +0 a.log',
++    'tail -f a.log',
++    'less a.txt',
++    'find . -name x',
++    'find . -name x -type f',
++    'git stash',
++    'git -c alias.st=status st',
++    'git add -p',
++    'git diff --quiet',
++    'git diff --exit-code',
++    'git worktree prune',
++    'git status 2>&1',
++    'git log || git status',
++    'git --no-pager log',
++    // No git command is covered: the git tool answers in its own form.
++    'git status',
++    'git -C ../other diff --stat',
++    'git log --oneline -3 && git status',
++    // One statement only: a join keeps conditions separate calls do not.
++    'grep NOMATCH a.txt && tail -n 3 a.log',
++    'tail -n 3 a.log; ls sub',
++    // A redirect changes what comes back.
++    'cat a.txt > /dev/null',
++    'tail -n 3 a.log 2>/dev/null',
++  ],
++};
++
++test('a command the tools cover whole is rejected with the exact call that replaces it', () => {
+   for (const shellType of [POWERSHELL, POSIX]) {
+-    for (const [command, tool] of FLAGGED[shellType]) {
++    for (const [command, call] of REJECTED[shellType]) {
+       const telemetry = {};
+-      const out = guard(command, shellType, { fileReadMode: 'reject', telemetry });
+-      assert.match(out.failure ?? '', /^Error: \[shell-tool-failed\] Blocked: use read \/ grep \/ list/, command);
++      const out = guard(command, shellType, { cwd: session, offers: offersAll, telemetry, agent: 'a', sessionId: 's' });
++      assert.match(out.failure ?? '', BLOCK, `${shellType}: ${command}`);
++      assert.ok(out.failure.endsWith(call), `${shellType}: ${command}\n${out.failure}`);
+       assert.equal(out.args, undefined);
++      assert.equal(telemetry.shellMisuse.length, 1);
+       assert.equal(telemetry.shellMisuse[0].mode, 'reject');
+-      assert.equal(telemetry.shellMisuse[0].tool, tool);
++      assert.equal(telemetry.shellMisuse[0].kind, 'file-read');
+     }
+-    for (const command of NOT_FLAGGED[shellType]) {
+-      assert.equal(guard(command, shellType, { fileReadMode: 'reject' }).failure, undefined, command);
++  }
++});
++
++test('a command with a statement the tools do not cover runs, with the note when it starts with a read', () => {
++  for (const shellType of [POWERSHELL, POSIX]) {
++    for (const command of STILL_RUNS[shellType]) {
++      const telemetry = {};
++      const out = guard(command, shellType, { cwd: session, offers: offersAll, telemetry });
++      assert.equal(out.failure, undefined, `${shellType}: ${command}`);
++      assert.equal(out.args.command, command);
++      for (const entry of telemetry.shellMisuse ?? []) assert.equal(entry.mode, 'warn', command);
+     }
+   }
++  const warned = guard('Get-Content a.log -Tail 3; npm run build', POWERSHELL, { cwd: session, offers: offersAll });
++  assert.deepEqual(warned.notes, [SHELL_FILE_READ_NOTE]);
++});
++
++test('a covered command is not rejected where the session lacks the tool that replaces it', () => {
++  const noGrep = (tool) => tool !== 'grep';
++  const at = { cwd: session, offers: noGrep };
++  assert.equal(guard('rg foo a.txt', POSIX, at).failure, undefined);
++  assert.match(guard('tail -n 3 a.log', POSIX, at).failure, BLOCK);
++  // No session information (a direct caller, a foreign adapter's shell): note only.
++  assert.equal(guard('tail -n 3 a.log', POSIX, { cwd: session }).failure, undefined);
++  assert.deepEqual(guard('tail -n 3 a.log', POSIX, { cwd: session }).notes, [SHELL_FILE_READ_NOTE]);
++});
++
++test('a command that runs in another directory is never covered, since the tools resolve paths in the session directory', () => {
++  const out = guard('tail -n 3 a.log', POSIX, { cwd: session, offers: offersAll, args: { cwd: sub } });
++  assert.equal(out.failure, undefined);
++  assert.equal(guard('cd sub; tail -n 3 data.txt', POSIX, { cwd: session, offers: offersAll }).failure, undefined);
++});
++
++test('the tool-exec path rejects only for a session that offers the tools', async () => {
++  const command = resolveShellFor('default').shellType === POWERSHELL ? 'Get-Content a.log -Tail 3' : 'tail -n 3 a.log';
++  const tools = (...names) => names.map((name) => ({ name }));
++  const full = { id: 'cover-full', cwd: session, tools: tools('read', 'grep', 'git', 'list', 'glob') };
++  const out = await executeTool('shell', { command }, session, full.id, full, {});
++  assert.match(textOf(out), /Blocked: the built-in tools cover this command/);
++  assert.match(textOf(out), /read \{"file_path":"a\.log","tail":3\}/);
++  const bare = { id: 'cover-bare', cwd: session, tools: tools('shell') };
++  const ran = await executeTool('shell', { command }, session, bare.id, bare, {});
++  assert.doesNotMatch(textOf(ran), /Blocked: the built-in tools cover this command/);
+ });
+ 
+ // ── through the tool ────────────────────────────────────────────────────────
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs
+new file mode 100644
+index 0000000..26403b3
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs
+@@ -0,0 +1,430 @@
++// Which shell commands the built-in tools cover whole. A statement is covered
++// only when its command, every flag and every operand are on the allow-list
++// below, each entry of which has a replacement call that returns the same
++// information; everything else (an unknown flag or filter, a filter that
++// computes or writes, a wildcard, a variable, several paths, a device, a path
++// the tool would read differently, a value outside the replacement's schema)
++// is not covered and keeps running in the shell. The replacement text is the
++// parsed form itself, checked against the replacing tool's input schema.
++//
++// Covered forms (P = one plain path to an existing regular text file; N = 1..500):
++//   read:   cat P                      → read {file_path}        (file ≤ 16 KiB and ≤ 500 lines, UTF-8 without BOM)
++//           head [-n] N P / head P     → read {file_path, limit}
++//           tail [-n] N P / tail P     → read {file_path, tail}
++//           tail -n +K P               → read {file_path, offset} (same size bound as cat)
++//           Get-Content|gc|cat|type [-Path|-LiteralPath] P [-TotalCount|-First|-Head N | -Tail|-Last N]
++//           <a read above, no window> | head [-n] N | tail [-n] N | Select-Object -First N | -Last N
++//   search: grep|rg [-i] [-n] PATTERN P, Select-String [-Pattern] PATTERN [-Path] P [-CaseSensitive],
++//           and `<plain read of P> | grep PATTERN` / `| Select-String PATTERN`  → grep {pattern, path, context:0, limit:0}
++//           (PATTERN: letters, digits, space and . : = @ % / - only, so grep, .NET and Rust regex agree;
++//           P within cat's size bound, so every match is returned)
++//   list:   ls D (D a directory of ≤ 100 entries, none a pruned dependency folder)  → list {path}
++// Not covered, by decision:
++//   git — the git tool answers a status in its short form, caps a log and a diff, and reports an exit code
++//         as text, so no git command is the same information there;
++//   any redirect — `> /dev/null`, `2>$null` and `2>&1` change what the command returns;
++//   more than one statement — after `&&` the second runs only if the first succeeded (a search that finds
++//         nothing fails), which separate tool calls do not keep.
++import { isUtf8 } from 'node:buffer';
++import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
++import { resolve } from 'node:path';
++import { shellSplitPipelineSegments, shellSplitSegments, shellTokenize } from '../shell-analysis.mjs';
++import { BUILTIN_TOOLS } from '../builtin-tools.mjs';
++import { hasUnsafeWin32Component, isBlockedDevicePath, isUncPath, isWindowsDevicePath } from '../device-paths.mjs';
++import { NOISE_DIR_NAMES } from '../glob-walk.mjs';
++import { normalizeInputPath } from '../path-utils.mjs';
++
++// A later pipeline stage that only shapes text. Used by the guard's note for
++// reads that are not covered; coverage itself accepts a far narrower set.
++export const TEXT_FILTERS = new Set([
++  'select-object',
++  'select',
++  'select-string',
++  'sls',
++  'where-object',
++  'sort-object',
++  'sort',
++  'measure-object',
++  'format-table',
++  'format-list',
++  'ft',
++  'fl',
++  'out-string',
++  'out-host',
++  'head',
++  'tail',
++  'grep',
++  'egrep',
++  'rg',
++  'wc',
++  'uniq',
++  'cut',
++  'findstr',
++]);
++
++export const commandName = (token) =>
++  String(token ?? '')
++    .toLowerCase()
++    .replace(/^.*[\\/]/, '')
++    .replace(/\.exe$/, '');
++
++// The read tool's default window; a covered window never exceeds it, so the
++// replacement is never paged where the command was not.
++const WINDOW_MAX = 500;
++const WHOLE_FILE_BYTES = 16 * 1024;
++const PEEK_BYTES = 8 * 1024;
++const LIST_MAX = 100;
++const SIMPLE_PATTERN = /^\w[\w .:=@%/-]*$/;
++
++// Shell-significant or wildcard characters a covered path may not contain.
++const UNSAFE_PATH = /[*?[\]{}$`,;|&<>()]/;
++// The read tool takes `path:12` and `path#L12` as a line coordinate.
++const LINE_COORDINATE = /#L\d|:\d+(?:-\d+)?(?::|$)/i;
++
++// Shell syntax the tools cannot reproduce: background/substitution/grouping/
++// redirection/variables, a comment, or an unterminated quote. Single quotes
++// hide everything; double quotes still expand `$` and backticks.
++function hasShellSyntax(text, shellType) {
++  let quote = null;
++  for (let i = 0; i < text.length; i++) {
++    const ch = text[i];
++    if (quote) {
++      if (ch === quote) quote = null;
++      else if (quote === '"' && (ch === '$' || ch === '`')) return true;
++      continue;
++    }
++    if (ch === '\\' && shellType !== 'powershell') {
++      i++;
++      continue;
++    }
++    if (ch === "'" || ch === '"') quote = ch;
++    else if ('&<>(){}$`'.includes(ch) || (ch === '#' && (i === 0 || /\s/.test(text[i - 1])))) return true;
++  }
++  return quote !== null;
++}
++
++// `||` outside quotes: the second statement's running depends on the first's failure.
++function hasOrOperator(text) {
++  let quote = null;
++  for (let i = 0; i < text.length; i++) {
++    const ch = text[i];
++    if (quote) {
++      if (ch === quote) quote = null;
++    } else if (ch === "'" || ch === '"') quote = ch;
++    else if (ch === '|' && text[i + 1] === '|') return true;
++  }
++  return false;
++}
++
++const isFlag = (token) => token.startsWith('-') && token.length > 1 && !/^-\d+$/.test(token);
++const windowCount = (value) => (/^\d+$/.test(String(value)) && Number(value) >= 1 && Number(value) <= WINDOW_MAX ? Number(value) : null);
++
++// ── files ────────────────────────────────────────────────────────────────────
++
++// One literal path the read/grep/list tools would open as the very same file or
++// directory, or null. `kind` is 'file' or 'dir'.
++function plainPath(token, base, kind) {
++  if (typeof token !== 'string' || token === '' || isFlag(token) || token === '--') return null;
++  if (/^[~@]/.test(token) || UNSAFE_PATH.test(token)) return null;
++  if (normalizeInputPath(token) !== token) return null;
++  if (LINE_COORDINATE.test(token.replace(/^[A-Za-z]:/, ''))) return null;
++  const full = resolve(base, token);
++  for (const candidate of [token, full]) {
++    if (
++      isUncPath(candidate) ||
++      isWindowsDevicePath(candidate) ||
++      hasUnsafeWin32Component(candidate) ||
++      isBlockedDevicePath(candidate)
++    ) {
++      return null;
++    }
++  }
++  try {
++    const stat = statSync(full);
++    return (kind === 'file' ? stat.isFile() : stat.isDirectory()) ? { path: token, full, size: stat.size } : null;
++  } catch {
++    return null;
++  }
++}
++
++function headBytes(full) {
++  const fd = openSync(full, 'r');
++  try {
++    const buffer = Buffer.alloc(PEEK_BYTES);
++    return buffer.subarray(0, readSync(fd, buffer, 0, PEEK_BYTES, 0));
++  } finally {
++    closeSync(fd);
++  }
++}
++
++const hasUtf8Bom = (bytes) => bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
++// Text the tools and the shell show alike: no NUL (binary / UTF-16) and no BOM.
++const isPlainText = (bytes) => !bytes.includes(0) && !hasUtf8Bom(bytes);
++
++// A file the read tool returns in one window with nothing dropped.
++function isWholeFile(file) {
++  if (file.size > WHOLE_FILE_BYTES) return false;
++  const bytes = readFileSync(file.full);
++  if (!isPlainText(bytes) || !isUtf8(bytes)) return false;
++  // A last line without its newline is a line too.
++  const newlines = bytes.reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), 0);
++  const unterminated = bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a ? 1 : 0;
++  return newlines + unterminated <= WINDOW_MAX;
++}
++
++// ── schemas ──────────────────────────────────────────────────────────────────
++
++function conforms(value, schema) {
++  if (schema.anyOf) return schema.anyOf.some((option) => conforms(value, option));
++  if (schema.enum && !schema.enum.includes(value)) return false;
++  switch (schema.type) {
++    case 'string':
++      return (
++        typeof value === 'string' &&
++        value.length >= (schema.minLength ?? 0) &&
++        (!schema.pattern || new RegExp(schema.pattern).test(value))
++      );
++    case 'integer':
++      return (
++        Number.isInteger(value) &&
++        value >= (schema.minimum ?? -Infinity) &&
++        value <= (schema.maximum ?? Infinity)
++      );
++    case 'boolean':
++      return typeof value === 'boolean';
++    case 'array':
++      return (
++        Array.isArray(value) &&
++        value.length >= (schema.minItems ?? 0) &&
++        value.length <= (schema.maxItems ?? Infinity) &&
++        value.every((item) => conforms(item, schema.items ?? {}))
++      );
++    case 'object': {
++      if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
++      if ((schema.required ?? []).some((key) => !(key in value))) return false;
++      return Object.entries(value).every(([key, item]) =>
++        schema.properties?.[key] ? conforms(item, schema.properties[key]) : schema.additionalProperties !== false
++      );
++    }
++    default:
++      return true;
++  }
++}
++
++const callIsValid = (call) => {
++  const tool = BUILTIN_TOOLS.find((candidate) => candidate.name === call.tool);
++  return Boolean(tool) && conforms(call.args, tool.inputSchema);
++};
++
++// ── read ─────────────────────────────────────────────────────────────────────
++
++// `head` / `tail` flags: { first, last, skip, operands } or null for anything else.
++function countWindow(name, args) {
++  const out = { first: null, last: null, skip: null, operands: [] };
++  let counted = false;
++  const take = (text) => {
++    if (counted) return false;
++    counted = true;
++    if (text.startsWith('+')) {
++      if (name !== 'tail' || !/^\+[1-9]\d*$/.test(text)) return false;
++      out.skip = Number(text.slice(1));
++      return true;
++    }
++    const count = windowCount(text);
++    if (count === null) return false;
++    out[name === 'head' ? 'first' : 'last'] = count;
++    return true;
++  };
++  for (let i = 0; i < args.length; i++) {
++    const token = args[i];
++    const attached = /^-n?(\d+)$/.exec(token) ?? /^-n(\+\d+)$/.exec(token);
++    if (attached) {
++      if (!take(attached[1])) return null;
++    } else if (token === '-n') {
++      if (args[i + 1] === undefined || !/^\+?\d+$/.test(args[i + 1]) || !take(args[++i])) return null;
++    } else if (isFlag(token)) return null;
++    else out.operands.push(token);
++  }
++  if (!counted) out[name === 'head' ? 'first' : 'last'] = 10;
++  return out;
++}
++
++// What a read statement asks for: { kind: 'read', file, first, last, skip }.
++function readSpec(name, args, powershell) {
++  if (!powershell) {
++    if (name === 'cat') {
++      return args.length === 1 ? { kind: 'read', file: args[0], first: null, last: null, skip: null } : null;
++    }
++    const window = countWindow(name, args);
++    return window?.operands.length === 1 ? { kind: 'read', file: window.operands[0], ...window } : null;
++  }
++  const spec = { kind: 'read', file: null, first: null, last: null, skip: null };
++  const setFile = (value) => {
++    if (spec.file !== null || value === undefined) return false;
++    spec.file = value;
++    return true;
++  };
++  const setCount = (key, value) => {
++    if (spec[key] !== null || windowCount(value) === null) return false;
++    spec[key] = windowCount(value);
++    return true;
++  };
++  for (let i = 0; i < args.length; i++) {
++    const flag = args[i].toLowerCase();
++    if (flag === '-path' || flag === '-literalpath') {
++      if (!setFile(args[++i])) return null;
++    } else if (flag === '-totalcount' || flag === '-first' || flag === '-head') {
++      if (!setCount('first', args[++i])) return null;
++    } else if (flag === '-tail' || flag === '-last') {
++      if (!setCount('last', args[++i])) return null;
++    } else if (isFlag(args[i]) || !setFile(args[i])) return null;
++  }
++  return spec.file !== null && !(spec.first !== null && spec.last !== null) ? spec : null;
++}
++
++// ── search ───────────────────────────────────────────────────────────────────
++
++// `grep|rg [-i] [-n] PATTERN FILE` and `Select-String` spellings: { kind: 'search', file, pattern, ignoreCase }.
++function searchSpec(name, args, powershell) {
++  let pattern = null;
++  let file = null;
++  let ignoreCase = powershell;
++  const positional = [];
++  for (let i = 0; i < args.length; i++) {
++    const token = args[i];
++    const flag = token.toLowerCase();
++    if (powershell) {
++      if (flag === '-pattern') {
++        if (pattern !== null || args[i + 1] === undefined) return null;
++        pattern = args[++i];
++      } else if (flag === '-path' || flag === '-literalpath') {
++        if (file !== null || args[i + 1] === undefined) return null;
++        file = args[++i];
++      } else if (flag === '-casesensitive') ignoreCase = false;
++      else if (isFlag(token)) return null;
++      else positional.push(token);
++    } else if (/^-[in]+$/.test(token)) ignoreCase ||= token.includes('i');
++    else if (isFlag(token)) return null;
++    else positional.push(token);
++  }
++  if (pattern === null) pattern = positional.shift();
++  if (file === null) file = positional.shift();
++  if (positional.length > 0 || pattern === undefined || file === undefined) return null;
++  return { kind: 'search', file, pattern, ignoreCase };
++}
++
++// A pipeline stage after a read of one file: a window or a search of the same file.
++function filterSpec(spec, stage, powershell) {
++  if (spec.kind !== 'read' || spec.first !== null || spec.last !== null || spec.skip !== null) return null;
++  const tokens = shellTokenize(stage);
++  if (!tokens?.length) return null;
++  const name = commandName(tokens[0]);
++  const rest = tokens.slice(1);
++  if (!powershell && (name === 'head' || name === 'tail')) {
++    const window = countWindow(name, rest);
++    if (!window || window.operands.length > 0 || window.skip !== null) return null;
++    return { ...spec, first: window.first, last: window.last };
++  }
++  if (powershell && (name === 'select-object' || name === 'select')) {
++    const flag = rest[0]?.toLowerCase();
++    const count = windowCount(rest[1]);
++    if (rest.length !== 2 || count === null || (flag !== '-first' && flag !== '-last')) return null;
++    return { ...spec, first: flag === '-first' ? count : null, last: flag === '-last' ? count : null };
++  }
++  const searches = powershell ? ['select-string', 'sls'] : ['grep'];
++  if (searches.includes(name) && rest.length === 1 && !isFlag(rest[0])) {
++    return { kind: 'search', file: spec.file, pattern: rest[0], ignoreCase: powershell };
++  }
++  return null;
++}
++
++// The call for a parsed read or search, or null when the files or the pattern are not exactly covered.
++function callFor(spec, base) {
++  const file = plainPath(spec.file, base, 'file');
++  if (!file || !isPlainText(headBytes(file.full))) return null;
++  if (spec.kind === 'search') {
++    // Every match of a file this small fits one unpaged answer.
++    if (!SIMPLE_PATTERN.test(spec.pattern) || !isWholeFile(file)) return null;
++    return {
++      tool: 'grep',
++      args: { pattern: spec.ignoreCase ? `(?i)${spec.pattern}` : spec.pattern, path: spec.file, context: 0, limit: 0 },
++    };
++  }
++  if (spec.first !== null) return { tool: 'read', args: { file_path: spec.file, limit: spec.first } };
++  if (spec.last !== null) return { tool: 'read', args: { file_path: spec.file, tail: spec.last } };
++  if (!isWholeFile(file)) return null;
++  return {
++    tool: 'read',
++    args: spec.skip === null ? { file_path: spec.file } : { file_path: spec.file, offset: spec.skip },
++  };
++}
++
++// ── list ─────────────────────────────────────────────────────────────────────
++
++// `ls D`: the list tool shows the same entries when D has no dotfile-independent difference
++// (a pruned dependency folder) and fits one page.
++function listCall(args, base) {
++  if (args.length !== 1) return null;
++  const dir = plainPath(args[0], base, 'dir');
++  if (!dir) return null;
++  const names = readdirSync(dir.full).filter((entry) => !entry.startsWith('.'));
++  if (names.length > LIST_MAX || names.some((entry) => NOISE_DIR_NAMES.has(entry))) return null;
++  return { tool: 'list', args: { path: args[0] } };
++}
++
++// ── statements and commands ──────────────────────────────────────────────────
++
++const READERS = {
++  powershell: new Set(['get-content', 'gc', 'cat', 'type']),
++  posix: new Set(['cat', 'head', 'tail']),
++};
++const SEARCHERS = {
++  powershell: new Set(['select-string', 'sls']),
++  posix: new Set(['grep', 'rg']),
++};
++
++// The tool call replacing one statement, or null when it is not covered.
++function coverStatement(statement, shellType, base) {
++  const powershell = shellType === 'powershell';
++  const stages = shellSplitPipelineSegments(statement);
++  if (stages.length === 0) return null;
++  const firstTokens = shellTokenize(stages[0]);
++  if (!firstTokens?.length) return null;
++  const text = statement.trim();
++  const plainStages = stages;
++  if (plainStages.length === 0 || plainStages.some((stage) => hasShellSyntax(stage, shellType))) return null;
++  // The tokenizer reads `\*` as an escaped star, but in PowerShell it is a path separator and a wildcard.
++  if (powershell && /\\[*?]/.test(text)) return null;
++  const tokens = shellTokenize(plainStages[0]);
++  const name = commandName(tokens[0]);
++  const args = tokens.slice(1);
++  if (name === 'ls' && !powershell) return plainStages.length === 1 ? listCall(args, base) : null;
++  let spec = null;
++  if (READERS[powershell ? 'powershell' : 'posix'].has(name)) spec = readSpec(name, args, powershell);
++  else if (SEARCHERS[powershell ? 'powershell' : 'posix'].has(name)) spec = searchSpec(name, args, powershell);
++  if (!spec || plainStages.length > 2) return null;
++  if (plainStages.length === 2) spec = filterSpec(spec, plainStages[1], powershell);
++  return spec ? callFor(spec, base) : null;
++}
++
++/**
++ * The tool call that replaces `command` (a one-element list), or null when the
++ * command is more than one statement or its statement is not on the
++ * allow-list. Relative paths are judged against `cwd`.
++ */
++export function coveringToolCalls(command, shellType, { cwd = process.cwd() } = {}) {
++  const text = String(command ?? '');
++  if (hasOrOperator(text)) return null;
++  const statements = shellSplitSegments(text);
++  if (statements.length !== 1) return null;
++  // The splitters drop a dangling operator (`cat f &&`, `cat f |`), which the
++  // shell refuses as a syntax error: the one statement must be the whole text.
++  if (statements[0].trim() !== text.trim() || /[|&]\s*$/.test(text)) return null;
++  try {
++    const call = coverStatement(statements[0], shellType, cwd);
++    return call && callIsValid(call) ? [call] : null;
++  } catch {
++    // A file that cannot be inspected is not one the tools are known to read the same way.
++    return null;
++  }
++}
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs
+new file mode 100644
+index 0000000..f1cb2ee
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs
+@@ -0,0 +1,179 @@
++// Every form the shell guard covers is run twice on a fixture tree — as the
++// shell command and as the replacement call it names — and the information
++// each returns (the same lines, rows or entries) must be the same.
++import '../../../../../../../scripts/lib/isolated-test-env.mjs';
++import assert from 'node:assert/strict';
++import { spawnSync } from 'node:child_process';
++import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test, { after } from 'node:test';
++
++const { coveringToolCalls } = await import('./tool-cover.mjs');
++const { executeBuiltinTool } = await import('../../builtin.mjs');
++const { resolveShellFor } = await import('../shell-runtime.mjs');
++
++const root = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-tool-cover-')));
++after(() => rmSync(root, { recursive: true, force: true }));
++const numbered = (count, suffix = '') => Array.from({ length: count }, (_, i) => `row ${i + 1}${suffix}`).join('\n') + '\n';
++mkdirSync(join(root, 'sub'));
++mkdirSync(join(root, 'dir', 'inner'), { recursive: true });
++writeFileSync(join(root, 'small.txt'), 'alpha\nFoo bar\nomega foo\n');
++writeFileSync(join(root, 'sub', 'nested.txt'), 'nested foo\n');
++writeFileSync(join(root, 'dir', 'one.txt'), '1\n');
++writeFileSync(join(root, 'dir', 'inner', 'deep.txt'), 'd\n');
++writeFileSync(join(root, 'dir', 'two.log'), '2\n');
++writeFileSync(join(root, 'long.log'), numbered(40, ' foo'));
++writeFileSync(join(root, 'nofinal.txt'), 'first\nsecond\nlast');
++writeFileSync(join(root, 'crlf.txt'), 'a1\r\nb2 foo\r\nc3\r\n');
++// More matching lines than the grep tool's default page of 250.
++writeFileSync(join(root, 'many.txt'), numbered(300, ' foo'));
++spawnSync('git', ['init', '-q'], { cwd: root });
++
++const lines = (text) => String(text).replace(/\r|\x1b\[[0-9;]*m/g, '').split('\n').filter((line) => line !== '');
++// Strip each tool's framing so only the information is compared.
++const FRAMING = {
++  read: (text) => lines(text).filter((line) => !/^\[lines \d+-\d+(?: of \d+.*)?\]$/.test(line)),
++  grep: (text) => lines(text).map((line) => line.replace(/^\d+:/, '')),
++  list: (text) => lines(text).map((line) => line.split('\t')[0]).sort(),
++};
++const shellRows = {
++  read: lines,
++  grep: (text) => lines(text).map((line) => line.replace(/^.*?:\d+:|^\d+:/, '')),
++  list: (text) => lines(text).sort(),
++};
++
++const SHELLS = { posix: resolveShellFor('bash'), powershell: resolveShellFor('powershell') };
++const runShell = (shellType, command) => {
++  const { shell, shellArgs } = SHELLS[shellType];
++  const run = spawnSync(shell, [...shellArgs, command], { cwd: root, encoding: 'utf8' });
++  assert.equal(run.status, 0, `${command}: ${run.stderr}`);
++  return run.stdout;
++};
++
++// [shell, command, the tool it is replaced by]
++const FORMS = [
++  ['posix', 'cat small.txt', 'read'],
++  ['posix', 'cat nofinal.txt', 'read'],
++  ['posix', 'cat crlf.txt', 'read'],
++  ['posix', 'head -n 5 long.log', 'read'],
++  ['posix', 'head -3 long.log', 'read'],
++  ['posix', 'head long.log', 'read'],
++  ['posix', 'tail -n 4 long.log', 'read'],
++  ['posix', 'tail -4 long.log', 'read'],
++  ['posix', 'tail long.log', 'read'],
++  ['posix', 'tail -n 2 nofinal.txt', 'read'],
++  ['posix', 'tail -n 400 crlf.txt', 'read'],
++  ['posix', 'tail -n +2 small.txt', 'read'],
++  ['posix', 'cat long.log | head -n 6', 'read'],
++  ['posix', 'cat long.log | tail -n 6', 'read'],
++  ['posix', 'grep foo small.txt', 'grep'],
++  ['posix', 'grep -i foo small.txt', 'grep'],
++  ['posix', 'grep -n foo long.log', 'grep'],
++  ['posix', 'grep "Foo bar" small.txt', 'grep'],
++  ['posix', 'rg foo crlf.txt', 'grep'],
++  ['posix', 'cat crlf.txt | grep foo', 'grep'],
++  ['posix', 'ls dir', 'list'],
++  ['posix', 'ls dir/inner', 'list'],
++  ['powershell', 'Get-Content small.txt', 'read'],
++  ['powershell', 'gc nofinal.txt', 'read'],
++  ['powershell', 'type crlf.txt', 'read'],
++  ['powershell', 'Get-Content -Path long.log -TotalCount 5', 'read'],
++  ['powershell', 'Get-Content long.log -First 3', 'read'],
++  ['powershell', 'Get-Content long.log -Head 3', 'read'],
++  ['powershell', 'Get-Content -LiteralPath long.log -Tail 4', 'read'],
++  ['powershell', 'Get-Content long.log -Last 4', 'read'],
++  ['powershell', 'cat long.log | Select-Object -First 6', 'read'],
++  ['powershell', 'gc long.log | Select-Object -Last 6', 'read'],
++  ['powershell', 'Select-String foo small.txt', 'grep'],
++  ['powershell', 'Select-String -Pattern foo -Path long.log', 'grep'],
++  ['powershell', 'Select-String -CaseSensitive foo small.txt', 'grep'],
++  ['powershell', 'gc crlf.txt | Select-String foo', 'grep'],
++  ['posix', 'grep foo many.txt', 'grep'],
++  ['powershell', 'Select-String foo many.txt', 'grep'],
++];
++
++for (const [shellType, command, tool] of FORMS) {
++  test(`${shellType}: ${command} returns what ${tool} returns`, { skip: SHELLS[shellType] ? false : `no ${shellType} shell` }, async () => {
++    const calls = coveringToolCalls(command, shellType, { cwd: root });
++    assert.ok(calls, 'covered');
++    assert.equal(calls.length, 1);
++    assert.equal(calls[0].tool, tool);
++    const replaced = String(await executeBuiltinTool(calls[0].tool, calls[0].args, root));
++    const expected = shellRows[tool](runShell(shellType, command));
++    const got = FRAMING[tool](replaced);
++    assert.deepEqual(got, expected, `${command} → ${JSON.stringify(calls[0])}`);
++  });
++}
++
++test('only one statement is ever covered: a join keeps conditions separate tool calls do not', () => {
++  for (const command of [
++    // The search finds nothing and fails, so the shell never runs the second statement.
++    'grep NOMATCH small.txt && head -n 2 long.log',
++    'head -n 2 long.log && ls dir',
++    'head -n 2 long.log; ls dir',
++    'head -n 2 long.log\nls dir',
++    'head -n 2 long.log || ls dir',
++    'head -n 2 long.log; sort long.log',
++  ]) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++  }
++});
++
++test('a dangling operator is a syntax error in the shell, so the command is not covered', () => {
++  for (const command of ['cat small.txt &&', 'cat small.txt |', 'cat small.txt ||', 'cat small.txt &', 'cat small.txt | head -n 2 |']) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++  }
++  assert.equal(coveringToolCalls('Get-Content small.txt |', 'powershell', { cwd: root }), null);
++});
++
++test('a whole file is covered up to the read window, counting a last line without its newline', () => {
++  writeFileSync(join(root, 'edge500.txt'), numbered(500));
++  writeFileSync(join(root, 'edge501.txt'), `${numbered(500)}last`);
++  assert.deepEqual(coveringToolCalls('cat edge500.txt', 'posix', { cwd: root }), [{ tool: 'read', args: { file_path: 'edge500.txt' } }]);
++  assert.equal(coveringToolCalls('cat edge501.txt', 'posix', { cwd: root }), null);
++});
++
++test('a redirect changes what the command returns, so it is not covered', () => {
++  for (const command of ['cat small.txt > /dev/null', 'cat small.txt 2>/dev/null', 'head -n 2 long.log 2>&1', 'cat small.txt > out.txt']) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++  }
++  for (const command of ['Get-Content small.txt 2>$null', 'Get-Content small.txt > $null', 'gc small.txt *> out.txt']) {
++    assert.equal(coveringToolCalls(command, 'powershell', { cwd: root }), null, command);
++  }
++});
++
++test('no git command is covered: the git tool answers in its own form', () => {
++  for (const command of ['git status', 'git status --short', 'git log --oneline -5', 'git diff --stat', 'git ls-files', 'git diff --quiet']) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++    assert.equal(coveringToolCalls(command, 'powershell', { cwd: root }), null, command);
++  }
++});
++
++test('values outside the replacement schema are not covered', () => {
++  for (const command of ['head -n 0 long.log', 'head -n 501 long.log', 'tail -n 100000 long.log', 'grep foo long.log -C 201']) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++  }
++});
++
++test('paths the tools would read differently are not covered', () => {
++  const outside = join(tmpdir(), 'mixdog-tool-cover-missing.txt');
++  for (const command of [
++    'cat /dev/zero',
++    'cat /dev/stdin',
++    `cat ${outside}`,
++    'cat small.txt:2',
++    'cat "small.txt#L2"',
++    'cat ~/small.txt',
++    'cat sm*.txt',
++    'cat dir',
++    'ls long.log',
++  ]) {
++    assert.equal(coveringToolCalls(command, 'posix', { cwd: root }), null, command);
++  }
++  writeFileSync(join(root, 'big.txt'), numbered(600));
++  assert.equal(coveringToolCalls('cat big.txt', 'posix', { cwd: root }), null, 'a file the read tool pages');
++  assert.ok(coveringToolCalls('head -n 5 big.txt', 'posix', { cwd: root }));
++  writeFileSync(join(root, 'bin.dat'), Buffer.from([0, 1, 2, 3]));
++  assert.equal(coveringToolCalls('head -n 2 bin.dat', 'posix', { cwd: root }), null, 'binary');
++});
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs b/src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs
+index 0ca38a2..8117792 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs
+@@ -105,7 +105,7 @@ export const BUILTIN_TOOLS = [
+       compressible: false,
+     },
+     description:
+-      "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
++      "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+     inputSchema: {
+       type: 'object',
+       properties: {
+@@ -125,6 +125,12 @@ export const BUILTIN_TOOLS = [
+                       file_path: { type: 'string' },
+                       offset: { type: 'integer', minimum: 1 },
+                       limit: { type: 'integer', minimum: 1, maximum: PUBLIC_READ_WINDOW_MAX },
++                      tail: {
++                        type: 'integer',
++                        minimum: 1,
++                        maximum: PUBLIC_READ_WINDOW_MAX,
++                        description: 'Last N lines, not with offset.',
++                      },
+                     },
+                     required: ['file_path'],
+                     additionalProperties: false,
+@@ -147,6 +153,12 @@ export const BUILTIN_TOOLS = [
+           description:
+             'Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.',
+         },
++        tail: {
++          type: 'integer',
++          minimum: 1,
++          maximum: PUBLIC_READ_WINDOW_MAX,
++          description: 'Last N lines of the file, not with offset.',
++        },
+         pages: {
+           type: 'string',
+           description:
+@@ -450,6 +462,28 @@ export const BUILTIN_TOOLS = [
+       additionalProperties: false,
+     },
+   },
++  {
++    name: 'machine',
++    title: 'Machine Status',
++    annotations: {
++      title: 'Machine Status',
++      readOnlyHint: true,
++      destructiveHint: false,
++      idempotentHint: false,
++      openWorldHint: false,
++      compressible: true,
++    },
++    description:
++      'One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        process: { type: 'string', description: 'Also list processes whose name contains this text.' },
++        top: { type: 'integer', minimum: 1, maximum: 20, description: 'Rows per top list; default 5.' },
++      },
++      additionalProperties: false,
++    },
++  },
+ ];
+ 
+ // What a delegated agent's session sees of the tools whose text differs from
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs b/src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs
+new file mode 100644
+index 0000000..c8f0b47
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs
+@@ -0,0 +1,159 @@
++/**
++ * machine-tool.mjs — one-call machine status: CPU load (total + top
++ * processes), memory (available/total + top processes), free space per drive
++ * and, on request, the processes matching a name. One short sample, hard
++ * 1.8 s deadline: whatever is not ready by then is reported as unavailable
++ * instead of holding the call.
++ */
++import { execFile } from 'node:child_process';
++import { statfs } from 'node:fs/promises';
++import os from 'node:os';
++
++export const MACHINE_DEADLINE_MS = 1800;
++const CPU_SAMPLE_MS = 250;
++const TOP_DEFAULT = 5;
++const TOP_MAX = 20;
++const MATCH_MAX = 25;
++const PROCESS_NAME_MAX = 128;
++
++const GB = 1024 ** 3;
++const gb = (bytes) => `${(bytes / GB).toFixed(bytes >= 100 * GB ? 0 : 1)} GB`;
++const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
++
++const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
++const withDeadline = (promise, ms) => Promise.race([promise, delay(ms).then(() => null)]);
++
++function run(file, args, timeout) {
++  return new Promise((resolve) => {
++    execFile(file, args, { windowsHide: true, timeout, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) =>
++      resolve(err ? null : String(stdout))
++    );
++  });
++}
++
++const cpuTimes = () =>
++  os.cpus().reduce(
++    (sum, { times }) => ({
++      idle: sum.idle + times.idle,
++      total: sum.total + times.user + times.nice + times.sys + times.idle + times.irq,
++    }),
++    { idle: 0, total: 0 }
++  );
++
++async function sampleTotalCpu() {
++  const a = cpuTimes();
++  await delay(CPU_SAMPLE_MS);
++  const b = cpuTimes();
++  const total = b.total - a.total;
++  return total > 0 ? Math.round((100 * (total - (b.idle - a.idle))) / total) : 0;
++}
++
++// Windows: two Get-Process reads 250 ms apart inside ONE PowerShell, so the
++// per-process CPU is a rate, not a lifetime average. Rows: pid, name, cpu s
++// before, cpu s after, working set bytes; first row is the elapsed ms.
++const WINDOWS_PROCESS_SCRIPT = [
++  '$sw=[Diagnostics.Stopwatch]::StartNew()',
++  '$a=@{};Get-Process|%{$a[$_.Id]=[double]$_.CPU}',
++  `Start-Sleep -Milliseconds ${CPU_SAMPLE_MS}`,
++  'Get-Process|%{"$($_.Id)`t$($_.ProcessName)`t$($a[$_.Id])`t$([double]$_.CPU)`t$($_.WorkingSet64)"}',
++  '$sw.ElapsedMilliseconds',
++].join(';');
++
++async function windowsProcesses(timeout) {
++  const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_PROCESS_SCRIPT], timeout);
++  if (!out) return null;
++  const rows = out.trim().split(/\r?\n/);
++  const elapsedSec = (Number(rows.pop()) || CPU_SAMPLE_MS) / 1000;
++  const cores = os.cpus().length || 1;
++  return rows.map((row) => {
++    const [pid, name, before, after, memory] = row.split('\t');
++    const used = Number(before) >= 0 && Number(after) >= 0 ? Number(after) - Number(before) : 0;
++    return { pid: Number(pid), name, cpu: (100 * used) / elapsedSec / cores, memory: Number(memory) || 0 };
++  });
++}
++
++// POSIX: one ps read; %cpu there is the kernel's own average, not a sample.
++async function posixProcesses(timeout) {
++  const out = await run('ps', ['-A', '-o', 'pid=,pcpu=,rss=,comm='], timeout);
++  if (!out) return null;
++  return out
++    .split('\n')
++    .map((line) => /^\s*(\d+)\s+([\d.]+)\s+(\d+)\s+(.+?)\s*$/.exec(line))
++    .filter(Boolean)
++    .map(([, pid, cpu, rss, name]) => ({
++      pid: Number(pid),
++      name: name.replace(/^.*\//, ''),
++      cpu: Number(cpu) / (os.cpus().length || 1),
++      memory: Number(rss) * 1024,
++    }));
++}
++
++async function windowsDrives() {
++  const letters = Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:\\`);
++  const rows = await Promise.all(
++    letters.map((root) =>
++      statfs(root).then(
++        (s) => ({ root, free: s.bavail * s.bsize, total: s.blocks * s.bsize }),
++        () => null
++      )
++    )
++  );
++  return rows.filter((row) => row && row.total > 0);
++}
++
++async function posixDrives(timeout) {
++  const out = await run('df', ['-Pk'], timeout);
++  if (!out) return null;
++  return out
++    .split('\n')
++    .slice(1)
++    .map((line) => line.trim().split(/\s+/))
++    .filter((cols) => cols.length >= 6 && cols[0].startsWith('/') && Number(cols[1]) > 0)
++    .map((cols) => ({ root: cols.slice(5).join(' '), free: Number(cols[3]) * 1024, total: Number(cols[1]) * 1024 }));
++}
++
++const list = (rows, line) => (rows.length ? rows.map(line).join('\n') : '  none');
++const procLine = (p) => `  ${p.name} (pid ${p.pid})  cpu ${p.cpu.toFixed(1)}%  mem ${mb(p.memory)}`;
++
++/** The machine status text for `args` ({ top?, process? }). */
++export async function executeMachineTool(args = {}) {
++  const top = Math.min(Math.max(Math.trunc(Number(args.top)) || TOP_DEFAULT, 1), TOP_MAX);
++  if (typeof args.process === 'string' && args.process.length > PROCESS_NAME_MAX) {
++    return `Error: machine process must be at most ${PROCESS_NAME_MAX} characters (got ${args.process.length})`;
++  }
++  // Control characters would break the one-line echo below.
++  const shownName = typeof args.process === 'string' ? args.process.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim() : '';
++  const filter = shownName.toLowerCase();
++  const win = process.platform === 'win32';
++  const [cpu, processes, drives] = await Promise.all([
++    sampleTotalCpu(),
++    withDeadline(win ? windowsProcesses(MACHINE_DEADLINE_MS - 200) : posixProcesses(MACHINE_DEADLINE_MS - 200), MACHINE_DEADLINE_MS),
++    withDeadline(win ? windowsDrives() : posixDrives(MACHINE_DEADLINE_MS - 200), MACHINE_DEADLINE_MS),
++  ]);
++  const totalMem = os.totalmem();
++  const freeMem = os.freemem();
++  const lines = [
++    `cpu: ${cpu}% busy of ${os.cpus().length} cores (${CPU_SAMPLE_MS} ms sample)`,
++    `memory: ${gb(freeMem)} available of ${gb(totalMem)} (${Math.round((100 * (totalMem - freeMem)) / totalMem)}% used)`,
++  ];
++  if (processes) {
++    lines.push(
++      `top by cpu:\n${list([...processes].sort((a, b) => b.cpu - a.cpu).slice(0, top), procLine)}`,
++      `top by memory:\n${list([...processes].sort((a, b) => b.memory - a.memory).slice(0, top), procLine)}`
++    );
++  } else {
++    lines.push('processes: unavailable (no answer within the deadline)');
++  }
++  lines.push(
++    drives
++      ? `drives (free of total):\n${list(drives, (d) => `  ${d.root}  ${gb(d.free)} of ${gb(d.total)}`)}`
++      : 'drives: unavailable (no answer within the deadline)'
++  );
++  if (filter && processes) {
++    const matches = processes.filter((p) => p.name.toLowerCase().includes(filter));
++    const shown = matches.sort((a, b) => b.cpu - a.cpu).slice(0, MATCH_MAX);
++    const more = matches.length > shown.length ? `\n  … ${matches.length - shown.length} more` : '';
++    lines.push(`processes matching "${shownName}" (${matches.length}):\n${list(shown, procLine)}${more}`);
++  }
++  return lines.join('\n');
++}
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs b/src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs
+new file mode 100644
+index 0000000..ffbcec5
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs
+@@ -0,0 +1,34 @@
++import '../../../../../../scripts/lib/isolated-test-env.mjs';
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { executeBuiltinTool } from '../builtin.mjs';
++
++// The 1.8 s bound is the tool's own deadline (a slow part is reported as
++// unavailable); a wall-clock assertion here measured the machine, not the tool.
++test('machine reports CPU, memory, drives and top processes', async () => {
++  const out = String(await executeBuiltinTool('machine', { top: 3 }, process.cwd()));
++  assert.match(out, /^cpu: \d+% busy of \d+ cores/m);
++  assert.match(out, /^memory: [\d.]+ GB available of [\d.]+ GB \(\d+% used\)$/m);
++  assert.match(out, /^top by cpu:\n(?:  .+\n){1,3}top by memory:\n(?:  .+\n?){1,3}|^processes: unavailable/m);
++  assert.match(out, /^drives \(free of total\):\n  \S.* [\d.]+ GB of [\d.]+ GB/m);
++  assert.doesNotMatch(out, /matching/);
++});
++
++test('machine refuses an overlong process name and never echoes control characters', async () => {
++  const long = String(await executeBuiltinTool('machine', { process: 'x'.repeat(100000) }, process.cwd()));
++  assert.match(long, /^Error: machine process must be at most 128 characters/);
++  assert.ok(long.length < 200, `${long.length} bytes`);
++  const out = String(await executeBuiltinTool('machine', { process: 'no\nsuch\u001b[31m-name' }, process.cwd()));
++  assert.doesNotMatch(out, /[\u001b\r]|no\nsuch/);
++  if (!/^processes: unavailable/m.test(out)) assert.match(out, /^processes matching "no such \[31m-name" \(0\):/m);
++});
++
++test('machine lists the processes matching a name and bounds the lists', async () => {
++  const out = String(await executeBuiltinTool('machine', { process: 'node', top: 1 }, process.cwd()));
++  // On a machine too loaded to list processes in time the answer says so instead of waiting.
++  if (/^processes: unavailable/m.test(out)) return;
++  assert.match(out, /^processes matching "node" \(\d+\):\n  node(?:\.exe)? \(pid \d+\)/m);
++  assert.equal((out.split('top by cpu:\n')[1].split('top by memory:')[0].match(/^ {2}\S/gm) ?? []).length, 1);
++  const none = String(await executeBuiltinTool('machine', { process: 'no-such-process-name' }, process.cwd()));
++  if (!/^processes: unavailable/m.test(none)) assert.match(none, /^processes matching "no-such-process-name" \(0\):\n  none$/m);
++});
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/read-args.mjs b/src/runtime/agent/orchestrator/tools/builtin/read-args.mjs
+index d078a9c..6e71935 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/read-args.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/read-args.mjs
+@@ -1,6 +1,46 @@
+ import { existsSync } from 'node:fs';
++import { stat } from 'node:fs/promises';
+ import { normalizeInputPath, resolveAgainstCwd } from './path-utils.mjs';
+ 
++// The from-the-end reader of a file past the in-memory cap serves at most this many lines.
++const TAIL_MODE_LINES_MAX = 2000;
++
++// Turn one `tail: N` record into the window it names. Up to the in-memory cap
++// the line count is cheap and the record becomes an ordinary offset/limit
++// window (same header, footer and caps). Past it the record becomes a
++// from-the-end read, which never reads the middle of the file.
++async function resolveTailRecord(record, workDir, { resolveAgainstCwd: resolve, READ_MAX_SIZE_BYTES, countLogicalLinesBytesSync }) {
++  const tail = Math.trunc(Number(record.tail));
++  delete record.tail;
++  const fullPath = resolve(normalizeInputPath(record.path), workDir);
++  const st = await stat(fullPath).catch(() => null);
++  if (!st?.isFile()) {
++    // Missing or not a file: the ordinary window reports it.
++    record.offset = 0;
++    record.limit = tail;
++    return;
++  }
++  if (st.size > READ_MAX_SIZE_BYTES) {
++    record.mode = 'tail';
++    record.n = Math.min(tail, TAIL_MODE_LINES_MAX);
++    delete record.offset;
++    delete record.limit;
++    return;
++  }
++  const total = await countLogicalLinesBytesSync(fullPath, st.size, st);
++  record.offset = Math.max(0, total - tail);
++  record.limit = tail;
++}
++
++/** Resolve every `tail` of a read call (the call itself or its batch entries) in place. */
++export async function resolveReadTails(args, workDir, helpers) {
++  if (args.tail != null && typeof args.path === 'string') await resolveTailRecord(args, workDir, helpers);
++  if (!Array.isArray(args.path)) return;
++  for (const entry of args.path) {
++    if (entry && typeof entry === 'object' && entry.tail != null) await resolveTailRecord(entry, workDir, helpers);
++  }
++}
++
+ function parseReadLineNumberArg(value) {
+   const n = Number(value);
+   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs b/src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs
+new file mode 100644
+index 0000000..71db680
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs
+@@ -0,0 +1,88 @@
++// read `tail`: the last N lines through the same window pipeline as offset/limit.
++import '../../../../../../scripts/lib/isolated-test-env.mjs';
++import assert from 'node:assert/strict';
++import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { executeBuiltinTool } from '../builtin.mjs';
++import { readRowsForDisplay } from '../../../../shared/read-row-numbers.mjs';
++
++const read = async (args, root) => readRowsForDisplay(String(await executeBuiltinTool('read', args, root)));
++const rows = (count, prefix = 'row') => Array.from({ length: count }, (_, i) => `${prefix}${i + 1}`).join('\n') + '\n';
++
++function fixture(t) {
++  const root = mkdtempSync(join(tmpdir(), 'mixdog-read-tail-'));
++  t.after(() => rmSync(root, { recursive: true, force: true }));
++  writeFileSync(join(root, 'a.log'), rows(10));
++  writeFileSync(join(root, 'b.log'), rows(6, 'b'));
++  return root;
++}
++
++test('tail returns the last N lines with their real line numbers', async (t) => {
++  const root = fixture(t);
++  const out = await read({ file_path: 'a.log', tail: 3 }, root);
++  assert.match(out, /8→row8\n9→row9\n10→row10/);
++  assert.doesNotMatch(out, /row7/);
++  assert.match(out, /\[lines 8-10 of 10\]/);
++  const whole = await read({ file_path: 'a.log', tail: 50 }, root);
++  assert.match(whole, /1→row1\n/);
++  assert.match(whole, /10→row10/);
++});
++
++test('tail counts lines of a CRLF file, a file without a final newline, an empty file, and N past the end', async (t) => {
++  const root = fixture(t);
++  writeFileSync(join(root, 'crlf.txt'), 'a\r\nb\r\nc\r\n');
++  writeFileSync(join(root, 'nonl.txt'), 'a\nb\nc');
++  writeFileSync(join(root, 'empty.txt'), '');
++  const crlf = await read({ file_path: 'crlf.txt', tail: 2 }, root);
++  assert.match(crlf, /2→b\n3→c/);
++  assert.doesNotMatch(crlf, /1→a|\r/);
++  const nonl = await read({ file_path: 'nonl.txt', tail: 2 }, root);
++  assert.match(nonl, /2→b\n3→c/);
++  assert.doesNotMatch(nonl, /1→a/);
++  for (const file of ['crlf.txt', 'nonl.txt']) {
++    const whole = await read({ file_path: file, tail: 1000 }, root);
++    assert.match(whole, /1→a\n2→b\n3→c/, file);
++    assert.match(whole, /\[lines 1-3 of 3\]/, file);
++  }
++  const empty = String(await executeBuiltinTool('read', { file_path: 'empty.txt', tail: 3 }, root));
++  assert.match(empty, /empty contents: empty\.txt/);
++});
++
++test('tail works per target and as a batch default', async (t) => {
++  const root = fixture(t);
++  const out = await read({ file_path: ['a.log', { file_path: 'b.log', tail: 2 }], tail: 1 }, root);
++  assert.match(out, /10→row10/);
++  assert.doesNotMatch(out, /9→row9/);
++  assert.match(out, /5→b5\n6→b6/);
++  assert.doesNotMatch(out, /4→b4/);
++});
++
++test('tail together with offset is an argument error, per call and per target', async (t) => {
++  const root = fixture(t);
++  for (const args of [
++    { file_path: 'a.log', tail: 3, offset: 2 },
++    { file_path: ['a.log', { file_path: 'b.log', tail: 2, offset: 1 }] },
++    { file_path: ['a.log', 'b.log'], tail: 2, offset: 2 },
++    { file_path: 'a.log', tail: 0 },
++    { file_path: 'a.log', tail: 100001 },
++  ]) {
++    assert.match(String(await executeBuiltinTool('read', args, root)), /^Error: .*tail/, JSON.stringify(args));
++  }
++});
++
++test('tail of a file past the in-memory cap reads from the end, not the whole file', async (t) => {
++  const root = fixture(t);
++  const lines = 1_800_000;
++  const path = join(root, 'huge.log');
++  writeFileSync(path, rows(lines, 'entry'));
++  const started = Date.now();
++  const out = await read({ file_path: 'huge.log', tail: 3 }, root);
++  assert.ok(Date.now() - started < 2000, 'a from-the-end read stays fast');
++  assert.match(out, new RegExp(`entry${lines - 2}\\n.*entry${lines - 1}\\n.*entry${lines}`));
++  assert.doesNotMatch(out, /entry1\n/);
++  const batch = await read({ file_path: ['huge.log', { file_path: 'a.log', tail: 1 }], tail: 2 }, root);
++  assert.match(batch, new RegExp(`entry${lines - 1}\\n.*entry${lines}`));
++  assert.match(batch, /10→row10/);
++});
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs b/src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs
+index 285be13..0ebe395 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs
+@@ -8,6 +8,7 @@
+  */
+ import { executeSingleReadTool } from './read-single-tool.mjs';
+ import { readPathStringGuardError } from './read-open.mjs';
++import { resolveReadTails } from './read-args.mjs';
+ import { coerceReadFamilyPathArg, urlAsPathMessage } from './path-utils.mjs';
+ import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
+ import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
+@@ -143,6 +144,7 @@ async function executeReadToolBody(args, workDir, readStateScope, executeChildBu
+       executeReadTool(surveyArgs, workDir, readStateScope, executeChildBuiltinTool, surveyOptions, helpers)
+   );
+   if (survey !== null) return survey;
++  await resolveReadTails(args, workDir, helpers);
+   const batch = normalizeObjectBatchArgs(args, workDir, helpers);
+   if (batch.error) return batch.error;
+   args = batch.args;

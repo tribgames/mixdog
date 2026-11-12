@@ -6,6 +6,8 @@
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
 import { announcedEvent } from '../../shared/core-announcements';
+import type { DesktopSettingKey } from '../../shared/contract';
+import { desktopSettingPath } from '../../shared/desktop-settings';
 import { readSettingsChange } from '../../shared/settings-changed';
 import { notificationWriteMode } from '../../shared/notification-state';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
@@ -35,11 +37,15 @@ type Mapper = OperationMapper;
 const configWrite = (
   path: string,
   value: unknown,
-  mode?: 'initializeIfMissing' | 'mergePatch' | 'mergePatchBots' | 'setConversation'
+  mode?: 'initializeIfMissing' | 'mergePatch' | 'mergePatchBots' | 'setConversation',
+  announce?: 'desktop'
 ): OperationRoute => ({
   method: 'config/value/write',
-  params: defined({ path, value, mode }),
+  params: defined({ path, value, mode, announce }),
 });
+
+/** A settings write the window's handler announced as `desktop` after Node's store saved it: the core announces it once saved. */
+const desktopWrite = (path: string, value: unknown): OperationRoute => configWrite(path, value, undefined, 'desktop');
 
 const hostState = (key: 'browserTabs' | 'browserImport' | 'visualize'): Mapper => (args) => ({
   method: 'host/state/set',
@@ -97,15 +103,21 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
 
   // desktop settings are keys of the Config actor (desktop-services.md §3)
   writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
-  updateActivityRailPins: ([pins, initializeIfMissing]) =>
-    configWrite('desktop.activityRailPins', pins, initializeIfMissing === true ? 'initializeIfMissing' : undefined),
-  updateSetting: ([key, enabled]) => configWrite(`desktop.${String(key)}`, enabled === true),
-  updateNotificationVolume: ([volume]) => configWrite('desktop.notificationVolume', Number(volume)),
+  updateActivityRailPins: ([pins, initializeIfMissing]) => {
+    // Node's operation refused any flag that is not a boolean before it wrote (desktop-operations.ts `updateActivityRailPins`).
+    if (initializeIfMissing !== undefined && typeof initializeIfMissing !== 'boolean') {
+      throw new TypeError('initializeIfMissing must be a boolean.');
+    }
+    return configWrite('desktop.activityRailPins', pins, initializeIfMissing === true ? 'initializeIfMissing' : undefined);
+  },
+  // `autoClear` and `autoCompact` live in the agent config, every other key under `desktop` (settings-store.ts `update`).
+  updateSetting: ([key, enabled]) => desktopWrite(desktopSettingPath(key as DesktopSettingKey), enabled === true),
+  updateNotificationVolume: ([volume]) => desktopWrite('desktop.notificationVolume', Number(volume)),
   updateBrowserPermissions: ([policy]) =>
-    configWrite('desktop.browserPermissions', normalizeBrowserPermissionPolicy(policy)),
+    desktopWrite('desktop.browserPermissions', normalizeBrowserPermissionPolicy(policy)),
   updateSessionRetention: ([key, days]) => {
     if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
-    return configWrite(`desktop.${key}`, days);
+    return desktopWrite(`desktop.${key}`, days);
   },
   updateZoom: ([factor]) => configWrite('desktop.zoom', Number(factor)),
   sendTestNotification: positional('notify/test', ['target']),

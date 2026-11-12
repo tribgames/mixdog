@@ -20,6 +20,7 @@ mod lowering;
 mod models;
 pub mod oauth;
 mod policy;
+pub mod prefix_trace;
 mod reminders;
 mod threads;
 

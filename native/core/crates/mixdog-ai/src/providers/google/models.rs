@@ -488,6 +488,29 @@ pub fn resolve_wire(roster: &[ModelRecord], model: &str, effort: Option<&str>) -
     }
 }
 
+/// `DEFAULT_ANTIGRAVITY_MODEL`: the first curated model, the one a send without a model goes to.
+pub const DEFAULT_ANTIGRAVITY_MODEL: &str = crate::catalog::ANTIGRAVITY_FALLBACK[0].0;
+
+/// The `family` the curated fallback rows carry (`ANTIGRAVITY_MODELS`, `provider-model-identities.mjs`); the
+/// Claude and gpt-oss rows have none.
+const FALLBACK_FAMILIES: [(&str, &str); 3] = [("gemini-3.8-flash", "gemini-flash"), ("gemini-3.1-pro", "gemini-pro"), ("gemini-4-argon", "gemini-pro")];
+
+/// `antigravityModelFamily(model)`: the catalog `family` of a picker id or one of its wire ids, from the listing the
+/// roster holds, else from the curated rows (`antigravityCatalogModels`: the last live list, else the fallback).
+pub fn antigravity_family(roster: &[ModelRecord], model: &str) -> Option<String> {
+    let wires_of = |record: &ModelRecord| match &record.wire {
+        Some(WireIds::One(wire)) => vec![wire.clone()],
+        Some(WireIds::Tiers(tiers)) => tiers.iter().map(|(_, wire)| wire.clone()).collect(),
+        None => Vec::new(),
+    };
+    if roster.is_empty() {
+        let (id, _) = crate::catalog::ANTIGRAVITY_FALLBACK.iter().find(|(id, wires)| *id == model || wires.contains(&model))?;
+        return FALLBACK_FAMILIES.iter().find(|(known, _)| known == id).map(|(_, family)| (*family).to_owned());
+    }
+    let record = roster.iter().find(|r| r.id == model).or_else(|| roster.iter().find(|r| wires_of(r).iter().any(|wire| wire == model)))?;
+    record.raw.as_ref()?.get("family")?.as_str().filter(|family| !family.is_empty()).map(str::to_owned)
+}
+
 struct AntigravityRow {
     display: String,
     record: ModelRecord,

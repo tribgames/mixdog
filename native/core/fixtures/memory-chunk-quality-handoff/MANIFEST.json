@@ -8,15 +8,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 501753,
+      "bytes": 502235,
       "path": "golden.json",
-      "sha256": "4d24007301063fbdb2cd010d526f7c1665e1965eb4c4bac0bfd64e9bd1ac2c1e"
+      "sha256": "4c37e9a7c979b734da7134e00a615e1572b0a6d9deac3c20109b645e04f83663"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -54,11 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs",
-  "recorderSha256": "8038aaf90ed52048c385ec0342c15a95288d77fb310088f6cb4213815fafa3c9",
+  "recorderSha256": "e7bbc7a7368a04f69aff04402cdf1e5e98ea399657c62e5bbf288c2ae348bb9a",
   "replay": "mixdog-services memory/cycles/quality.rs (pub): chunk_source_text (:66), cycle1_source_budget (:87), build_cycle1_chunk_prompt (:94), partition_cycle1_rows (:99), parse_cycle1_line_format (:129), validate_cycle1_grouping (:204), make_chunk_quality (:267), assess_chunk_quality (:282), split_cycle1_row (:313), generate_cycle1_chunks (:467); memory/recall/compact.rs compact_handoff_rows (:130), chunk_quality_usable (:104); memory/recall/format.rs render_entry_lines (:220). A replay compares each case's prompts, parse/validation results, the scripted-classifier calls (request, prompt) in order, the whole generator result, the assessments and the projected/rendered rows",
   "set": "memory-chunk-quality-handoff",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 501753,
+  "totalBytes": 502235,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

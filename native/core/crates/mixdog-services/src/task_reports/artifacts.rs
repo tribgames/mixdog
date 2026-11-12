@@ -180,10 +180,10 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/session-activity/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
     fn golden() -> Value {
-        serde_json::from_str::<Value>(GOLDEN).unwrap()["handoff"].clone()
+        serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"].clone()
     }
 
     #[test]

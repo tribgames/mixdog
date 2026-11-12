@@ -86,6 +86,9 @@ pub(crate) fn mark_of(note: &super::frames::Note) -> Option<Mark> {
     let params = || serde_json::from_slice::<serde_json::Value>(&note.params).unwrap_or_default();
     let mark = match note.method {
         "thread/snapshot" | "thread/frame" => return None,
+        // The request and batch telemetry and the stage relay change nothing the session's store holds (no client folds them;
+        // the spinner's mode the stage moves comes with `thread/runtime/updated`).
+        "thread/stage/updated" | "thread/modelRequest/updated" | "thread/toolBatch/updated" => return None,
         // `pushItem` (`transcript-store.mjs:58-79`): a structure change; a user row also flushes immediately (`:75`). A
         // streaming assistant row is the live tail, not a row yet (the fold's `item/started` of an `agentMessage`).
         "item/started" => match params()["item"]["type"].as_str() {

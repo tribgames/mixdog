@@ -14,6 +14,7 @@ import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-chat-host.ts';
 import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
+import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const recorded = read('../../../../native/core/fixtures/phone-chat/host.json');
@@ -76,7 +77,7 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     whenFolded: (_threadId, resume) => resume().then(() => undefined),
     whenSettled: async () => undefined,
     approvalRequestId: (cardId) => cardId,
-    remoteToolOutput: () => null,
+    transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
     foldRows,
   };
   const api = createChatHostApi(client, shared, createChatApi(client, shared, {}), { remoteSession: () => remoteSession });

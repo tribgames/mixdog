@@ -133,6 +133,38 @@ where
     result
 }
 
+/// Runs `work` inside the stores' transaction on one pooled connection, with their statement text (`BEGIN`, then
+/// `COMMIT`, or `ROLLBACK` when `work` fails: core-memory-store.mjs:154-185). A connection whose transaction did not
+/// end (a failed `COMMIT` or `ROLLBACK`, or a call dropped part-way) is closed, never pooled.
+pub async fn transaction<T>(db: &Db, work: impl AsyncFnOnce(&Object) -> Result<T>) -> Result<T> {
+    struct Open(Option<Object>);
+    impl Drop for Open {
+        fn drop(&mut self) {
+            if let Some(client) = self.0.take() {
+                drop(Object::take(client));
+            }
+        }
+    }
+    let mut open = Open(Some(db.client().await?));
+    let client = open.0.as_ref().expect("the connection");
+    client.batch_execute("BEGIN").await?;
+    match work(client).await {
+        Ok(value) => {
+            client.batch_execute("COMMIT").await?;
+            // Ended: the connection goes back to the pool.
+            drop(open.0.take());
+            Ok(value)
+        }
+        // The failure is the call's, never the rollback's (Node ignores a failed `ROLLBACK`).
+        Err(error) => {
+            if client.batch_execute("ROLLBACK").await.is_ok() {
+                drop(open.0.take());
+            }
+            Err(error)
+        }
+    }
+}
+
 /// Creates the database and the cluster-wide extension once per call; both
 /// statements are idempotent and serialised by cluster advisory locks.
 async fn bootstrap(cluster: &PgCluster) -> Result<()> {
@@ -229,7 +261,7 @@ impl Db {
             return outcome.map(drop);
         }
         let deadline = since().unwrap_or_else(tokio::time::Instant::now) + limit;
-        match tokio::time::timeout_at(deadline, opening).await {
+        match mixdog_rt::time::timeout_at(deadline, opening).await {
             Ok(outcome) => outcome.map(drop),
             Err(_) => Err(MemoryError::Runtime(format!("the memory database did not open within {} s of its opening", limit.as_secs()))),
         }
@@ -305,7 +337,7 @@ mod tests {
             }
         });
         let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1).unwrap();
-        let outcome = tokio::time::timeout(BUDGET.connect * 3, pool.get()).await;
+        let outcome = mixdog_rt::time::timeout(BUDGET.connect * 3, pool.get()).await;
         assert!(
             matches!(outcome, Ok(Err(_))),
             "the budget ends the checkout, the test timeout does not"

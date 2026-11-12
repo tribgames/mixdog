@@ -385,6 +385,210 @@
           ]
         }
       ]
+    },
+    {
+      "name": "the embedding worker's install (beyond the test file): cold, damaged, healthy, failing hub",
+      "sessions": [
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "worker",
+              "model": "org/model",
+              "dtype": null,
+              "result": [
+                "org/model/tokenizer.json",
+                "org/model/tokenizer_config.json",
+                "org/model/onnx/model.onnx"
+              ],
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/tokenizer.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                },
+                {
+                  "path": "org/model/onnx/model.onnx_data",
+                  "bytesHex": "77656967687473"
+                },
+                {
+                  "path": "org/model/tokenizer.json",
+                  "bytesHex": "7b226d6f64656c223a7b7d7d"
+                },
+                {
+                  "path": "org/model/tokenizer_config.json",
+                  "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [
+            {
+              "path": "org/model/tokenizer.json",
+              "bytesHex": "7b226d6f64656c223a7b7d7d"
+            },
+            {
+              "path": "org/model/tokenizer_config.json",
+              "bytesHex": "00000000000000000000000000000000"
+            },
+            {
+              "path": "org/model/onnx/model.onnx",
+              "bytesHex": "6772617068"
+            },
+            {
+              "path": "org/model/onnx/model.onnx_data",
+              "bytesHex": ""
+            }
+          ],
+          "steps": [
+            {
+              "call": "worker",
+              "model": "org/model",
+              "dtype": null,
+              "result": [
+                "org/model/tokenizer.json",
+                "org/model/tokenizer_config.json",
+                "org/model/onnx/model.onnx"
+              ],
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                },
+                {
+                  "path": "org/model/onnx/model.onnx_data",
+                  "bytesHex": "77656967687473"
+                },
+                {
+                  "path": "org/model/tokenizer.json",
+                  "bytesHex": "7b226d6f64656c223a7b7d7d"
+                },
+                {
+                  "path": "org/model/tokenizer_config.json",
+                  "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [
+            {
+              "path": "org/model/tokenizer.json",
+              "bytesHex": "7b226d6f64656c223a7b7d7d"
+            },
+            {
+              "path": "org/model/tokenizer_config.json",
+              "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+            },
+            {
+              "path": "org/model/onnx/model.onnx",
+              "bytesHex": "6772617068"
+            },
+            {
+              "path": "org/model/onnx/model.onnx_data",
+              "bytesHex": "77656967687473"
+            }
+          ],
+          "steps": [
+            {
+              "call": "worker",
+              "model": "org/model",
+              "dtype": null,
+              "result": [
+                "org/model/tokenizer.json",
+                "org/model/tokenizer_config.json",
+                "org/model/onnx/model.onnx"
+              ],
+              "requests": [],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                },
+                {
+                  "path": "org/model/onnx/model.onnx_data",
+                  "bytesHex": "77656967687473"
+                },
+                {
+                  "path": "org/model/tokenizer.json",
+                  "bytesHex": "7b226d6f64656c223a7b7d7d"
+                },
+                {
+                  "path": "org/model/tokenizer_config.json",
+                  "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "worker",
+              "model": "org/model",
+              "dtype": null,
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "embedding model download failed: org/model/tokenizer.json HTTP 503",
+                "props": {}
+              },
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/tokenizer.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": []
+            }
+          ]
+        }
+      ]
     }
   ]
 }

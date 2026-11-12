@@ -236,7 +236,7 @@ impl SecretSlots {
         let inner = Arc::downgrade(&self.inner);
         let id = id.to_owned();
         Timer(tokio::spawn(async move {
-            tokio::time::sleep_until(deadline).await;
+            mixdog_rt::time::sleep_until(deadline).await;
             if let Some(inner) = inner.upgrade() {
                 inner.expire(which, &id, generation);
             }

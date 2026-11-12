@@ -20,6 +20,7 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 use serde_json::Value;
 
+use super::computer_recovery::format_tool_error;
 use crate::orch::util::JsStr;
 use crate::orch::util::cancelled;
 use crate::orch::util::denied;
@@ -44,13 +45,14 @@ pub fn request(args: &Value) -> Result<ComputerRequest, String> {
     Ok(ComputerRequest { action, input })
 }
 
-fn map_error(error: ComputerError) -> ToolError {
+fn map_error(error: ComputerError, args: &Value) -> ToolError {
     match error {
         ComputerError::Unavailable { reason } => unavailable("computer", reason),
         ComputerError::InvalidInput { reason } => invalid("input", reason),
         ComputerError::Denied => denied("computer: PC access is not approved"),
         ComputerError::Cancelled => cancelled(),
-        ComputerError::Failed { message, .. } => action_failed("computer", message),
+        // A failure of the host reads as Node's `formatComputerToolError`: `Error: …` and what to do next.
+        ComputerError::Failed { message, .. } => action_failed("computer", format_tool_error(&message, args)),
     }
 }
 
@@ -86,7 +88,7 @@ impl Tool for ComputerTool {
         let request = request(&args).map_err(|m| invalid("action", m))?;
         // The calling session's own helper state, as Node sends the session id with the request.
         let backend = self.sessions.backend(ctx.thread_id.as_str());
-        let parts = backend.run(request, ctx.cancel.clone()).await.map_err(map_error)?;
+        let parts = backend.run(request, ctx.cancel.clone()).await.map_err(|error| map_error(error, &args))?;
         Ok(ToolOutput { parts, ..ToolOutput::default() })
     }
 }
@@ -116,5 +118,24 @@ mod tests {
         assert_ne!(nested, spec.input_schema);
         let alternatives = nested["properties"]["input"]["anyOf"].as_array().expect("per-action alternatives");
         assert!(!alternatives.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// A failure of the host reaches the model as Node's `formatComputerToolError` words it: `Error:`, the host's text, and what to
+    /// do next for a failure that has a recovery; a failure without one is the text alone.
+    #[test]
+    fn a_host_failure_reads_with_its_recovery() {
+        let args = json!({ "action": "act", "input": { "app": "Notepad" } });
+        let failed = |message: &str| ComputerError::Failed { code: "computer_failed".into(), message: message.into() };
+        let stale = map_error(failed("stale_frame: unknown frame_id frame-1"), &args);
+        assert_eq!(stale.message_for_model, "Error: stale_frame: unknown frame_id frame-1\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id.");
+        assert_eq!(map_error(failed("something broke"), &args).message_for_model, "Error: something broke");
+        assert_eq!(map_error(ComputerError::Cancelled, &args).message_for_model, "cancelled");
     }
 }

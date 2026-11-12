@@ -54,6 +54,8 @@ interface WindowSettingsIpcOptions {
   /** The person's human-only confirmation to turn on "Allow all actions"
    *  (developer-risk-confirm.ts). Without it that call is refused. */
   confirmAllowAllActions?: () => Promise<boolean>;
+  /** The host's settings writes announce the `desktop` change themselves (a core connection), so the handlers send none. */
+  writesAnnounceThemselves?: boolean;
 }
 
 /** This PC's daemon as the owner of a server window's provider quota. */
@@ -207,7 +209,13 @@ export function registerWindowSettingsIpc({
   raiseOnSignIn = false,
   pcHost,
   confirmAllowAllActions,
+  writesAnnounceThemselves = false,
 }: WindowSettingsIpcOptions): void {
+  // Node raised `settings-changed` for the desktop after its write, ahead of the `agent` change its watch found a moment later. A
+  // core connection's write carries that announcement itself (`config/value/write` with `announce`), in that order.
+  const announceWrite = () => {
+    if (!writesAnnounceThemselves) void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+  };
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
     setDesktopTitleBarZoom(window, factor);
@@ -230,7 +238,7 @@ export function registerWindowSettingsIpc({
     return update.then((saved) => {
       onDesktopSettingsChanged?.(saved);
       // Paired browsers and any other local renderer re-read what was written.
-      void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+      announceWrite();
       return saved;
     });
   });
@@ -240,7 +248,7 @@ export function registerWindowSettingsIpc({
       ? await settingsStore.updateNotificationVolume(volume)
       : await invokeDesktopOperation<DesktopSettings>('updateNotificationVolume', [volume]);
     onDesktopSettingsChanged?.(saved);
-    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    announceWrite();
     return saved;
   });
   handle(DESKTOP_IPC.setBrowserPermissions, async (_event, value) => {
@@ -249,7 +257,7 @@ export function registerWindowSettingsIpc({
       ? await settingsStore.updateBrowserPermissions(policy)
       : await invokeDesktopOperation<DesktopSettings>('updateBrowserPermissions', [policy]);
     onDesktopSettingsChanged?.(saved);
-    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    announceWrite();
     return saved;
   });
   handle(DESKTOP_IPC.setSessionRetention, async (_event, key, days) => {
@@ -258,7 +266,7 @@ export function registerWindowSettingsIpc({
       ? await settingsStore.updateSessionRetention(setting.key, setting.days)
       : await invokeDesktopOperation<DesktopSettings>('updateSessionRetention', [setting.key, setting.days]);
     onDesktopSettingsChanged?.(saved);
-    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    announceWrite();
     return saved;
   });
   handle(DESKTOP_IPC.previewNotificationSound, () => previewNotificationSound?.() ?? 'unsupported');

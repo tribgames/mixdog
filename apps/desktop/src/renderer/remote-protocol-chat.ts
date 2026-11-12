@@ -82,11 +82,16 @@ export interface ChatShared {
   whenSettled(id: string): Promise<void>;
   /** The pending server request whose card shows `cardId`; an id no card shows is passed on as it is. */
   approvalRequestId(cardId: string): string;
-  /** `remoteToolOutput` (main/remote-transcript.ts) over a folded state. */
-  remoteToolOutput(
-    state: unknown,
-    itemId: string
-  ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
+  /** The phone's transcript window (main/remote-phone-transcript.ts `createPhoneTranscript`, kept out of this bundle's imports as
+   *  main code): the states the phone is shown pass through its `view`. */
+  transcript: {
+    page(threadId: string, state: unknown, limit: number): Promise<void>;
+    output(
+      threadId: string,
+      state: unknown,
+      itemId: string
+    ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
+  };
 }
 
 export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
@@ -175,7 +180,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     readTranscriptItem: async (sessionId: string, itemId: string) => {
       const state = shared.sessionStateOf(sessionId);
       if (!state) throw new Error(READ_NOT_VIEWED);
-      const output = shared.remoteToolOutput(state, itemId);
+      const output = shared.transcript.output(sessionId, state, itemId);
       if (!output) throw new Error(READ_NOT_HELD);
       return output;
     },
@@ -198,6 +203,12 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       return null as unknown as SessionSnapshot;
     },
     prefetchSession: async (sessionId: string, transcriptItemLimit?: number, _readTraceId?: string): Promise<boolean> => {
+      // A thread the phone follows pages its own window (Node: requestPhoneTranscriptPage); one it does not is resumed.
+      const state = shared.sessionStateOf(sessionId);
+      if (state && typeof transcriptItemLimit === 'number') {
+        await shared.transcript.page(sessionId, state, transcriptItemLimit);
+        return true;
+      }
       const [resume] = shared.routeService('prefetchSession', [sessionId, transcriptItemLimit]).requests;
       await client.resumeThread(sessionId, resume?.params.window);
       return true;
@@ -609,7 +620,15 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
       });
       return asked ? String(asked.id) : cardId;
     },
-    remoteToolOutput,
+    // This page folds the thread itself (`sessionStateOf`), whole within its `thread/resume` window: a page grows that window, and a
+    // tool row's whole output is read from the fold.
+    transcript: {
+      page: async (threadId, _state, limit) => {
+        const [resume] = routeService('prefetchSession', [threadId, limit]).requests;
+        await client.resumeThread(threadId, resume?.params.window);
+      },
+      output: (_threadId, state, itemId) => remoteToolOutput(state, itemId),
+    },
     // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
     foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),
   };

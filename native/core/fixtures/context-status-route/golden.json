@@ -54,16 +54,16 @@
       "rawContextWindow": 128000,
       "effectiveContextWindowPercent": 100,
       "autoCompactTokenLimit": null,
-      "requestReserveTokens": 6866,
-      "reserveTokens": 6866,
+      "requestReserveTokens": 6893,
+      "reserveTokens": 6893,
       "triggerTokens": 128000,
       "bufferRatio": 0,
       "handoffTimeoutMs": 300000,
-      "lastCheckedAt": 1794206055756,
-      "lastBeforeTokens": 11623,
-      "lastAfterTokens": 11623,
-      "lastPressureTokens": 11623,
-      "currentEstimatedTokens": 11623,
+      "lastCheckedAt": 1794206055294,
+      "lastBeforeTokens": 11650,
+      "lastAfterTokens": 11650,
+      "lastPressureTokens": 11650,
+      "currentEstimatedTokens": 11650,
       "lastApiRequestTokens": null,
       "lastStage": "pre_send_check",
       "lastChanged": false,
@@ -77,9 +77,9 @@
       "singleShotConsumed": false,
       "recentChecks": [
         {
-          "at": 1794206055756,
+          "at": 1794206055294,
           "stage": "pre_send_check",
-          "pressure": 11623,
+          "pressure": 11650,
           "est": 4757,
           "trigger": 128000,
           "baseline": null,
@@ -811,6 +811,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
@@ -1199,11 +1203,11 @@
       "set_goal_tasks",
       "update_goal"
     ],
-    "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+    "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
     "bp3EnvSplit": true,
     "sessionStartMetaInjected": true,
     "mcpPid": 40320,
-    "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+    "mcpScopeId": "00000000-0000-4000-8000-000000000001",
     "scopeKey": null,
     "lane": "cli",
     "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -1233,13 +1237,13 @@
       "explore",
       "react"
     ],
-    "createdAt": 1794206055593,
-    "updatedAt": 1794206055665,
+    "createdAt": 1794206055109,
+    "updatedAt": 1794206055211,
     "lastHeartbeatAt": null,
     "totalInputTokens": 0,
     "totalOutputTokens": 0,
     "totalToolCalls": 0,
-    "lastUsedAt": 1794206055593,
+    "lastUsedAt": 1794206055109,
     "tokensCumulative": 0,
     "taskType": null,
     "agentTag": null,
@@ -2188,6 +2192,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
@@ -5024,7 +5032,7 @@
       "tidy",
       "visualize"
     ],
-    "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+    "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
     "usageMetricsTurnId": 1,
     "turnHop": 0,
     "turnBotChain": [],
@@ -5034,10 +5042,10 @@
       "auditAsked": false
     },
     "title": "Seed the transcript.…",
-    "titleUpdatedAt": 1794206055706,
+    "titleUpdatedAt": 1794206055256,
     "deferredMcpToolNames": [],
     "deferredLateToolCatalog": [],
-    "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+    "turnCoverage": "00000000-0000-4000-8000-000000000003",
     "messages": [
       {
         "role": "system",
@@ -5054,7 +5062,7 @@
       },
       {
         "role": "system",
-        "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+        "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
         "cacheTier": "env"
       },
       {
@@ -5062,21 +5070,21 @@
         "content": "Seed the transcript. HARNESS-CAP-SEED",
         "meta": {
           "transcript": {
-            "messageId": "msg_88c1246b18514516874546214465d830",
-            "attemptId": "c25d9b30-9dc0-4beb-bfcc-c31d4dceb263",
-            "at": 1794206055504,
+            "messageId": "msg_00000000000000000000000000000001",
+            "attemptId": "00000000-0000-4000-8000-000000000004",
+            "at": 1794206055000,
             "modelId": "harness-model",
             "model": "harness-model",
             "provider": "custom-harness",
             "agent": "Default",
-            "checkpointId": "it_796b76dd_1",
+            "checkpointId": "it_00000001_1",
             "completion": {
               "status": "failed",
-              "attemptId": "c25d9b30-9dc0-4beb-bfcc-c31d4dceb263",
-              "at": 1794206055504,
+              "attemptId": "00000000-0000-4000-8000-000000000004",
+              "at": 1794206055000,
               "verb": "Mapped",
               "elapsedMs": 15327,
-              "checkpointId": "it_796b76dd_1",
+              "checkpointId": "it_00000001_1",
               "modelId": "harness-model",
               "model": "harness-model",
               "provider": "custom-harness",
@@ -5107,16 +5115,16 @@
       "rawContextWindow": 128000,
       "effectiveContextWindowPercent": 100,
       "autoCompactTokenLimit": null,
-      "requestReserveTokens": 6866,
-      "reserveTokens": 6866,
+      "requestReserveTokens": 6893,
+      "reserveTokens": 6893,
       "triggerTokens": 128000,
       "bufferRatio": 0,
       "handoffTimeoutMs": 300000,
-      "lastCheckedAt": 1794206055756,
-      "lastBeforeTokens": 11623,
-      "lastAfterTokens": 11623,
-      "lastPressureTokens": 11623,
-      "currentEstimatedTokens": 11623,
+      "lastCheckedAt": 1794206055294,
+      "lastBeforeTokens": 11650,
+      "lastAfterTokens": 11650,
+      "lastPressureTokens": 11650,
+      "currentEstimatedTokens": 11650,
       "lastApiRequestTokens": null,
       "lastStage": "pre_send_check",
       "lastChanged": false,
@@ -5130,9 +5138,9 @@
       "singleShotConsumed": false,
       "recentChecks": [
         {
-          "at": 1794206055756,
+          "at": 1794206055294,
           "stage": "pre_send_check",
-          "pressure": 11623,
+          "pressure": 11650,
           "est": 4757,
           "trigger": 128000,
           "baseline": null,
@@ -5183,16 +5191,16 @@
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
         "autoCompactTokenLimit": null,
-        "requestReserveTokens": 6866,
-        "reserveTokens": 6866,
+        "requestReserveTokens": 6893,
+        "reserveTokens": 6893,
         "triggerTokens": 128000,
         "bufferRatio": 0,
         "handoffTimeoutMs": 300000,
-        "lastCheckedAt": 1794206055756,
-        "lastBeforeTokens": 11623,
-        "lastAfterTokens": 11623,
-        "lastPressureTokens": 11623,
-        "currentEstimatedTokens": 11623,
+        "lastCheckedAt": 1794206055294,
+        "lastBeforeTokens": 11650,
+        "lastAfterTokens": 11650,
+        "lastPressureTokens": 11650,
+        "currentEstimatedTokens": 11650,
         "lastApiRequestTokens": null,
         "lastStage": "pre_send_check",
         "lastChanged": false,
@@ -5206,9 +5214,9 @@
         "singleShotConsumed": false,
         "recentChecks": [
           {
-            "at": 1794206055756,
+            "at": 1794206055294,
             "stage": "pre_send_check",
-            "pressure": 11623,
+            "pressure": 11650,
             "est": 4757,
             "trigger": 128000,
             "baseline": null,
@@ -5940,6 +5948,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -6328,11 +6340,11 @@
         "set_goal_tasks",
         "update_goal"
       ],
-      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
       "bp3EnvSplit": true,
       "sessionStartMetaInjected": true,
       "mcpPid": 40320,
-      "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+      "mcpScopeId": "00000000-0000-4000-8000-000000000001",
       "scopeKey": null,
       "lane": "cli",
       "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -6362,13 +6374,13 @@
         "explore",
         "react"
       ],
-      "createdAt": 1794206055593,
+      "createdAt": 1794206055109,
       "updatedAt": 1800000000000,
       "lastHeartbeatAt": null,
       "totalInputTokens": 0,
       "totalOutputTokens": 0,
       "totalToolCalls": 0,
-      "lastUsedAt": 1794206055593,
+      "lastUsedAt": 1794206055109,
       "tokensCumulative": 0,
       "taskType": null,
       "agentTag": null,
@@ -7317,6 +7329,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -10153,7 +10169,7 @@
         "tidy",
         "visualize"
       ],
-      "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+      "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
       "usageMetricsTurnId": 1,
       "turnHop": 0,
       "turnBotChain": [],
@@ -10163,10 +10179,10 @@
         "auditAsked": false
       },
       "title": "Seed the transcript.…",
-      "titleUpdatedAt": 1794206055706,
+      "titleUpdatedAt": 1794206055256,
       "deferredMcpToolNames": [],
       "deferredLateToolCatalog": [],
-      "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+      "turnCoverage": "00000000-0000-4000-8000-000000000003",
       "messages": [
         {
           "role": "system",
@@ -10183,7 +10199,7 @@
         },
         {
           "role": "system",
-          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
@@ -10212,15 +10228,15 @@
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
         "autoCompactTokenLimit": null,
-        "requestReserveTokens": 6866,
-        "reserveTokens": 6866,
+        "requestReserveTokens": 6893,
+        "reserveTokens": 6893,
         "triggerTokens": 128000,
         "handoffTimeoutMs": 300000,
-        "lastCheckedAt": 1794206055756,
-        "lastBeforeTokens": 11623,
-        "lastAfterTokens": 11623,
-        "lastPressureTokens": 11623,
-        "currentEstimatedTokens": 11623,
+        "lastCheckedAt": 1794206055294,
+        "lastBeforeTokens": 11650,
+        "lastAfterTokens": 11650,
+        "lastPressureTokens": 11650,
+        "currentEstimatedTokens": 11650,
         "lastApiRequestTokens": null,
         "lastStage": "pre_send_check",
         "lastChanged": false,
@@ -10234,9 +10250,9 @@
         "singleShotConsumed": false,
         "recentChecks": [
           {
-            "at": 1794206055756,
+            "at": 1794206055294,
             "stage": "pre_send_check",
-            "pressure": 11623,
+            "pressure": 11650,
             "est": 4757,
             "trigger": 128000,
             "baseline": null,
@@ -10971,6 +10987,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -11359,11 +11379,11 @@
         "set_goal_tasks",
         "update_goal"
       ],
-      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
       "bp3EnvSplit": true,
       "sessionStartMetaInjected": true,
       "mcpPid": 40320,
-      "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+      "mcpScopeId": "00000000-0000-4000-8000-000000000001",
       "scopeKey": null,
       "lane": "cli",
       "cwd": "C:\\moved-folder",
@@ -11393,13 +11413,13 @@
         "explore",
         "react"
       ],
-      "createdAt": 1794206055593,
+      "createdAt": 1794206055109,
       "updatedAt": 1800000000000,
       "lastHeartbeatAt": null,
       "totalInputTokens": 0,
       "totalOutputTokens": 0,
       "totalToolCalls": 0,
-      "lastUsedAt": 1794206055593,
+      "lastUsedAt": 1794206055109,
       "tokensCumulative": 0,
       "taskType": null,
       "agentTag": null,
@@ -12348,6 +12368,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -15184,7 +15208,7 @@
         "tidy",
         "visualize"
       ],
-      "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+      "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
       "usageMetricsTurnId": 1,
       "turnHop": 0,
       "turnBotChain": [],
@@ -15194,10 +15218,10 @@
         "auditAsked": false
       },
       "title": "Seed the transcript.…",
-      "titleUpdatedAt": 1794206055706,
+      "titleUpdatedAt": 1794206055256,
       "deferredMcpToolNames": [],
       "deferredLateToolCatalog": [],
-      "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+      "turnCoverage": "00000000-0000-4000-8000-000000000003",
       "messages": [
         {
           "role": "system",
@@ -15214,7 +15238,7 @@
         },
         {
           "role": "system",
-          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
@@ -15243,15 +15267,15 @@
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
         "autoCompactTokenLimit": null,
-        "requestReserveTokens": 6866,
-        "reserveTokens": 6866,
+        "requestReserveTokens": 6893,
+        "reserveTokens": 6893,
         "triggerTokens": 128000,
         "handoffTimeoutMs": 300000,
-        "lastCheckedAt": 1794206055756,
-        "lastBeforeTokens": 11623,
-        "lastAfterTokens": 11623,
-        "lastPressureTokens": 11623,
-        "currentEstimatedTokens": 11623,
+        "lastCheckedAt": 1794206055294,
+        "lastBeforeTokens": 11650,
+        "lastAfterTokens": 11650,
+        "lastPressureTokens": 11650,
+        "currentEstimatedTokens": 11650,
         "lastApiRequestTokens": null,
         "lastStage": "pre_send_check",
         "lastChanged": false,
@@ -15265,9 +15289,9 @@
         "singleShotConsumed": false,
         "recentChecks": [
           {
-            "at": 1794206055756,
+            "at": 1794206055294,
             "stage": "pre_send_check",
-            "pressure": 11623,
+            "pressure": 11650,
             "est": 4757,
             "trigger": 128000,
             "baseline": null,
@@ -16002,6 +16026,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -16390,11 +16418,11 @@
         "set_goal_tasks",
         "update_goal"
       ],
-      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+      "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
       "bp3EnvSplit": true,
       "sessionStartMetaInjected": true,
       "mcpPid": 40320,
-      "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+      "mcpScopeId": "00000000-0000-4000-8000-000000000001",
       "scopeKey": null,
       "lane": "cli",
       "cwd": "C:\\moved-folder",
@@ -16424,13 +16452,13 @@
         "explore",
         "react"
       ],
-      "createdAt": 1794206055593,
+      "createdAt": 1794206055109,
       "updatedAt": 1800000000000,
       "lastHeartbeatAt": null,
       "totalInputTokens": 0,
       "totalOutputTokens": 0,
       "totalToolCalls": 0,
-      "lastUsedAt": 1794206055593,
+      "lastUsedAt": 1794206055109,
       "tokensCumulative": 0,
       "taskType": null,
       "agentTag": null,
@@ -17379,6 +17407,10 @@
               "effort": {
                 "type": "string",
                 "description": "Reasoning effort for an explicit model."
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Fast mode for an explicit model; needs model."
               }
             },
             "required": [
@@ -20215,7 +20247,7 @@
         "tidy",
         "visualize"
       ],
-      "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+      "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
       "usageMetricsTurnId": 1,
       "turnHop": 0,
       "turnBotChain": [],
@@ -20225,10 +20257,10 @@
         "auditAsked": false
       },
       "title": "Seed the transcript.…",
-      "titleUpdatedAt": 1794206055706,
+      "titleUpdatedAt": 1794206055256,
       "deferredMcpToolNames": [],
       "deferredLateToolCatalog": [],
-      "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+      "turnCoverage": "00000000-0000-4000-8000-000000000003",
       "messages": [
         {
           "role": "system",
@@ -20245,7 +20277,7 @@
         },
         {
           "role": "system",
-          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
@@ -20278,16 +20310,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -20301,9 +20333,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -21337,11 +21369,11 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
-          "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+          "mcpScopeId": "00000000-0000-4000-8000-000000000001",
           "scopeKey": null,
           "lane": "cli",
           "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -21371,13 +21403,13 @@
             "explore",
             "react"
           ],
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -22326,6 +22358,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -25162,7 +25198,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -25172,10 +25208,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -25192,7 +25228,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -25232,16 +25268,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -25255,9 +25291,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -26291,7 +26327,7 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
@@ -26325,13 +26361,13 @@
             "explore",
             "react"
           ],
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -27280,6 +27316,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -30116,7 +30156,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -30126,10 +30166,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -30146,7 +30186,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -30186,16 +30226,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -30209,9 +30249,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -31245,11 +31285,11 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
-          "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+          "mcpScopeId": "00000000-0000-4000-8000-000000000001",
           "scopeKey": null,
           "lane": "cli",
           "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -31279,13 +31319,13 @@
             "explore",
             "react"
           ],
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -32234,6 +32274,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -35070,7 +35114,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -35080,10 +35124,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -35100,7 +35144,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -35140,16 +35184,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -35163,9 +35207,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -36199,11 +36243,11 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
-          "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+          "mcpScopeId": "00000000-0000-4000-8000-000000000001",
           "scopeKey": null,
           "lane": "cli",
           "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -36233,13 +36277,13 @@
             "explore",
             "react"
           ],
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -37188,6 +37232,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -40024,7 +40072,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -40034,10 +40082,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -40054,7 +40102,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -40094,16 +40142,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -40117,9 +40165,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -41153,11 +41201,11 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
-          "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+          "mcpScopeId": "00000000-0000-4000-8000-000000000001",
           "scopeKey": null,
           "lane": "cli",
           "cwd": {},
@@ -41187,13 +41235,13 @@
             "explore",
             "react"
           ],
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -42142,6 +42190,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -44978,7 +45030,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -44988,10 +45040,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -45008,7 +45060,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: [object Object]\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: [object Object]\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -45048,16 +45100,16 @@
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
             "autoCompactTokenLimit": null,
-            "requestReserveTokens": 6866,
-            "reserveTokens": 6866,
+            "requestReserveTokens": 6893,
+            "reserveTokens": 6893,
             "triggerTokens": 128000,
             "bufferRatio": 0,
             "handoffTimeoutMs": 300000,
-            "lastCheckedAt": 1794206055756,
-            "lastBeforeTokens": 11623,
-            "lastAfterTokens": 11623,
-            "lastPressureTokens": 11623,
-            "currentEstimatedTokens": 11623,
+            "lastCheckedAt": 1794206055294,
+            "lastBeforeTokens": 11650,
+            "lastAfterTokens": 11650,
+            "lastPressureTokens": 11650,
+            "currentEstimatedTokens": 11650,
             "lastApiRequestTokens": null,
             "lastStage": "pre_send_check",
             "lastChanged": false,
@@ -45071,9 +45123,9 @@
             "singleShotConsumed": false,
             "recentChecks": [
               {
-                "at": 1794206055756,
+                "at": 1794206055294,
                 "stage": "pre_send_check",
-                "pressure": 11623,
+                "pressure": 11650,
                 "est": 4757,
                 "trigger": 128000,
                 "baseline": null,
@@ -46107,11 +46159,11 @@
             "set_goal_tasks",
             "update_goal"
           ],
-          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "bp3EnvSplit": true,
           "sessionStartMetaInjected": true,
           "mcpPid": 40320,
-          "mcpScopeId": "ea54d2db-639c-4c30-ab2c-f10ca25d4791",
+          "mcpScopeId": "00000000-0000-4000-8000-000000000001",
           "scopeKey": null,
           "lane": "cli",
           "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws",
@@ -46128,13 +46180,13 @@
           },
           "orchestrationMode": "balanced",
           "disallowedTools": 5,
-          "createdAt": 1794206055593,
+          "createdAt": 1794206055109,
           "updatedAt": 1800000000000,
           "lastHeartbeatAt": null,
           "totalInputTokens": 0,
           "totalOutputTokens": 0,
           "totalToolCalls": 0,
-          "lastUsedAt": 1794206055593,
+          "lastUsedAt": 1794206055109,
           "tokensCumulative": 0,
           "taskType": null,
           "agentTag": null,
@@ -47083,6 +47135,10 @@
                   "effort": {
                     "type": "string",
                     "description": "Reasoning effort for an explicit model."
+                  },
+                  "fast": {
+                    "type": "boolean",
+                    "description": "Fast mode for an explicit model; needs model."
                   }
                 },
                 "required": [
@@ -49919,7 +49975,7 @@
             "tidy",
             "visualize"
           ],
-          "transcriptEpoch": "339bdbdf-d19e-4c76-a2b2-5051f566f2b0",
+          "transcriptEpoch": "00000000-0000-4000-8000-000000000002",
           "usageMetricsTurnId": 1,
           "turnHop": 0,
           "turnBotChain": [],
@@ -49929,10 +49985,10 @@
             "auditAsked": false
           },
           "title": "Seed the transcript.…",
-          "titleUpdatedAt": 1794206055706,
+          "titleUpdatedAt": 1794206055256,
           "deferredMcpToolNames": [],
           "deferredLateToolCatalog": [],
-          "turnCoverage": "901777da-60de-4225-8ba2-2e4a49fbf33a",
+          "turnCoverage": "00000000-0000-4000-8000-000000000003",
           "messages": [
             {
               "role": "system",
@@ -49949,7 +50005,7 @@
             },
             {
               "role": "system",
-              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.78c2354ccf15d99e — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+              "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws\nModel: Harness-Model-Other\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\home\\.mixdog\\data\\scratch\\s.0000000000000001 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
               "cacheTier": "env"
             }
           ],
@@ -50805,17 +50861,17 @@
         "effectiveContextWindow": 128000,
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
-        "usedTokens": 11623,
+        "usedTokens": 11650,
         "usedSource": "estimated",
         "measurement": {
           "tokens": null,
           "source": "pending",
           "updatedAt": null
         },
-        "currentEstimatedTokens": 11623,
+        "currentEstimatedTokens": 11650,
         "lastApiRequestTokens": 0,
         "lastApiRequestStale": false,
-        "freeTokens": 116377,
+        "freeTokens": 116350,
         "compaction": {
           "boundaryTokens": 128000,
           "auto": true,
@@ -50826,16 +50882,16 @@
           "rawContextWindow": 128000,
           "effectiveContextWindowPercent": 100,
           "autoCompactTokenLimit": null,
-          "requestReserveTokens": 6866,
+          "requestReserveTokens": 6893,
           "reserveTokens": 0,
           "triggerTokens": 128000,
           "bufferRatio": 0,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1794206055756,
-          "lastBeforeTokens": 11623,
-          "lastAfterTokens": 11623,
-          "lastPressureTokens": 11623,
-          "currentEstimatedTokens": 11623,
+          "lastCheckedAt": 1794206055294,
+          "lastBeforeTokens": 11650,
+          "lastAfterTokens": 11650,
+          "lastPressureTokens": 11650,
+          "currentEstimatedTokens": 11650,
           "lastApiRequestTokens": 0,
           "lastStage": "pre_send_check",
           "lastChanged": false,
@@ -50849,16 +50905,16 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1794206055756,
+              "at": 1794206055294,
               "stage": "pre_send_check",
-              "pressure": 11623,
+              "pressure": 11650,
               "est": 4757,
               "trigger": 128000,
               "baseline": null,
               "baselineAt": null
             }
           ],
-          "pressureTokens": 11623,
+          "pressureTokens": 11650,
           "lastApiRequestStale": false
         },
         "messages": {
@@ -50934,7 +50990,7 @@
           "toolResultTokens": 0
         },
         "request": {
-          "toolSchemaTokens": 6866,
+          "toolSchemaTokens": 6893,
           "toolSchemaBreakdown": {
             "code": {
               "count": 6,
@@ -50950,7 +51006,7 @@
             },
             "agents": {
               "count": 1,
-              "tokens": 638
+              "tokens": 660
             },
             "web": {
               "count": 1,
@@ -50970,7 +51026,7 @@
             }
           },
           "requestOverheadTokens": 0,
-          "reserveTokens": 6866
+          "reserveTokens": 6893
         },
         "usage": {
           "reasoningUsage": null,
@@ -51032,17 +51088,17 @@
         "effectiveContextWindow": 128000,
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
-        "usedTokens": 11623,
+        "usedTokens": 11650,
         "usedSource": "estimated",
         "measurement": {
           "tokens": null,
           "source": "pending",
           "updatedAt": null
         },
-        "currentEstimatedTokens": 11623,
+        "currentEstimatedTokens": 11650,
         "lastApiRequestTokens": 0,
         "lastApiRequestStale": false,
-        "freeTokens": 116377,
+        "freeTokens": 116350,
         "compaction": {
           "boundaryTokens": 128000,
           "auto": true,
@@ -51053,16 +51109,16 @@
           "rawContextWindow": 128000,
           "effectiveContextWindowPercent": 100,
           "autoCompactTokenLimit": null,
-          "requestReserveTokens": 6866,
+          "requestReserveTokens": 6893,
           "reserveTokens": 0,
           "triggerTokens": 128000,
           "bufferRatio": 0,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1794206055756,
-          "lastBeforeTokens": 11623,
-          "lastAfterTokens": 11623,
-          "lastPressureTokens": 11623,
-          "currentEstimatedTokens": 11623,
+          "lastCheckedAt": 1794206055294,
+          "lastBeforeTokens": 11650,
+          "lastAfterTokens": 11650,
+          "lastPressureTokens": 11650,
+          "currentEstimatedTokens": 11650,
           "lastApiRequestTokens": 0,
           "lastStage": "pre_send_check",
           "lastChanged": false,
@@ -51076,16 +51132,16 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1794206055756,
+              "at": 1794206055294,
               "stage": "pre_send_check",
-              "pressure": 11623,
+              "pressure": 11650,
               "est": 4757,
               "trigger": 128000,
               "baseline": null,
               "baselineAt": null
             }
           ],
-          "pressureTokens": 11623,
+          "pressureTokens": 11650,
           "lastApiRequestStale": false
         },
         "messages": {
@@ -51161,7 +51217,7 @@
           "toolResultTokens": 0
         },
         "request": {
-          "toolSchemaTokens": 6866,
+          "toolSchemaTokens": 6893,
           "toolSchemaBreakdown": {
             "code": {
               "count": 6,
@@ -51177,7 +51233,7 @@
             },
             "agents": {
               "count": 1,
-              "tokens": 638
+              "tokens": 660
             },
             "web": {
               "count": 1,
@@ -51197,7 +51253,7 @@
             }
           },
           "requestOverheadTokens": 0,
-          "reserveTokens": 6866
+          "reserveTokens": 6893
         },
         "usage": {
           "reasoningUsage": null,

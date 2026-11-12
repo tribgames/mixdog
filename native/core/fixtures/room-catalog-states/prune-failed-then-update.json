@@ -7,7 +7,7 @@
     "update-rounds",
     "restart-and-list"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-then-update-hebgYc\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -19,8 +19,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwb4zdpb11bb72a7",
-    "roomId": "mwb4zdpb11bb72a7"
+    "sessionId": "sess_room_mq3i4vkg00000040",
+    "roomId": "mq3i4vkg00000040"
   },
   "steps": [
     {
@@ -35,8 +35,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwb4zdpb11bb72a7",
-            "roomId": "mwb4zdpb11bb72a7"
+            "sessionId": "sess_room_mq3i4vkg00000040",
+            "roomId": "mq3i4vkg00000040"
           }
         }
       ]
@@ -89,7 +89,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwb4zdpb11bb72a7",
+            "id": "mq3i4vkg00000040",
             "name": "Room One",
             "members": [
               "alpha",
@@ -109,20 +109,20 @@
           "origin": "room-call-background-listing",
           "sessions": [
             {
-              "id": "sess_room_mwb4zdpb11bb72a7",
+              "id": "sess_room_mq3i4vkg00000040",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794342142147,
-              "activityAt": 1794342142147,
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-then-update-hebgYc\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794342142047,
+              "createdAt": 1780819750000,
               "agentRoom": {
-                "id": "mwb4zdpb11bb72a7",
+                "id": "mq3i4vkg00000040",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -162,20 +162,20 @@
           "origin": "room-call-background-listing",
           "sessions": [
             {
-              "id": "sess_room_mwb4zdpb11bb72a7",
+              "id": "sess_room_mq3i4vkg00000040",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794342142147,
-              "activityAt": 1794342142147,
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-then-update-hebgYc\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794342142047,
+              "createdAt": 1780819750000,
               "agentRoom": {
-                "id": "mwb4zdpb11bb72a7",
+                "id": "mq3i4vkg00000040",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -196,20 +196,20 @@
           "kind": "answered",
           "value": [
             {
-              "id": "sess_room_mwb4zdpb11bb72a7",
+              "id": "sess_room_mq3i4vkg00000040",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794342142147,
-              "activityAt": 1794342142147,
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-then-update-hebgYc\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794342142047,
+              "createdAt": 1780819750000,
               "agentRoom": {
-                "id": "mwb4zdpb11bb72a7",
+                "id": "mq3i4vkg00000040",
                 "name": "Room One",
                 "members": [
                   "alpha",

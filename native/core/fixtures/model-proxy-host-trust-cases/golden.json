@@ -437,6 +437,217 @@
       }
     },
     {
+      "case": "the size of a payload is the length of the string the server claimed",
+      "observed": {
+        "payloads": {
+          "ascii": {
+            "text": "{\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\",\"messages\":[{\"role\":\"user\",\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}],\"options\":{},\"callbacks\":[]}",
+            "length": 2121,
+            "served": {
+              "reachedProvider": true,
+              "resolveArgs": [
+                "r1",
+                true,
+                "{\"content\":\"ok\"}",
+                null
+              ]
+            },
+            "refusedOneBelow": {
+              "reachedProvider": false,
+              "resolveArgs": [
+                "r1",
+                false,
+                null,
+                "{\"name\":\"Error\",\"message\":\"The model call is larger than this PC accepts from a server.\",\"props\":{\"code\":\"MODEL_PROXY_REQUEST_TOO_LARGE\",\"status\":413}}"
+              ]
+            }
+          },
+          "escapes": {
+            "text": "{\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\",\"messages\":[{\"role\":\"user\",\"content\":\"tab\\t quote\\\" back\\\\ newline\\n control\\u0001 \\u001f solidus/ bell\\u0007 é ü ß\"}],\"options\":{},\"callbacks\":[]}",
+            "length": 198,
+            "served": {
+              "reachedProvider": true,
+              "resolveArgs": [
+                "r1",
+                true,
+                "{\"content\":\"ok\"}",
+                null
+              ]
+            },
+            "refusedOneBelow": {
+              "reachedProvider": false,
+              "resolveArgs": [
+                "r1",
+                false,
+                null,
+                "{\"name\":\"Error\",\"message\":\"The model call is larger than this PC accepts from a server.\",\"props\":{\"code\":\"MODEL_PROXY_REQUEST_TOO_LARGE\",\"status\":413}}"
+              ]
+            }
+          },
+          "nonBmp": {
+            "text": "{\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\",\"messages\":[{\"role\":\"user\",\"content\":\"😀 𝄞 😀𠀀 mixed é😀\"}],\"options\":{},\"callbacks\":[]}",
+            "length": 141,
+            "served": {
+              "reachedProvider": true,
+              "resolveArgs": [
+                "r1",
+                true,
+                "{\"content\":\"ok\"}",
+                null
+              ]
+            },
+            "refusedOneBelow": {
+              "reachedProvider": false,
+              "resolveArgs": [
+                "r1",
+                false,
+                null,
+                "{\"name\":\"Error\",\"message\":\"The model call is larger than this PC accepts from a server.\",\"props\":{\"code\":\"MODEL_PROXY_REQUEST_TOO_LARGE\",\"status\":413}}"
+              ]
+            }
+          },
+          "numberForms": {
+            "text": "{\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\",\"messages\":[{\"role\":\"user\",\"content\":\"n\"}],\"options\":{\"temperature\":0.7,\"a\":0,\"b\":0,\"c\":1.5,\"d\":1e-7,\"e\":123456789012,\"f\":0.30000000000000004,\"g\":5e-324,\"h\":9007199254740994,\"i\":-1.25e-10,\"j\":100,\"k\":100000000000000000000},\"callbacks\":[]}",
+            "length": 289,
+            "served": {
+              "reachedProvider": true,
+              "resolveArgs": [
+                "r1",
+                true,
+                "{\"content\":\"ok\"}",
+                null
+              ]
+            },
+            "refusedOneBelow": {
+              "reachedProvider": false,
+              "resolveArgs": [
+                "r1",
+                false,
+                null,
+                "{\"name\":\"Error\",\"message\":\"The model call is larger than this PC accepts from a server.\",\"props\":{\"code\":\"MODEL_PROXY_REQUEST_TOO_LARGE\",\"status\":413}}"
+              ]
+            }
+          },
+          "exponentWithPlus": {
+            "text": "{\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\",\"messages\":[{\"role\":\"user\",\"content\":\"n\"}],\"options\":{\"big\":1e+21,\"huge\":1.7976931348623157e+308},\"callbacks\":[]}",
+            "length": 164,
+            "served": {
+              "reachedProvider": true,
+              "resolveArgs": [
+                "r1",
+                true,
+                "{\"content\":\"ok\"}",
+                null
+              ]
+            },
+            "refusedOneBelow": {
+              "reachedProvider": false,
+              "resolveArgs": [
+                "r1",
+                false,
+                null,
+                "{\"name\":\"Error\",\"message\":\"The model call is larger than this PC accepts from a server.\",\"props\":{\"code\":\"MODEL_PROXY_REQUEST_TOO_LARGE\",\"status\":413}}"
+              ]
+            }
+          }
+        },
+        "wire": [
+          {
+            "direction": "pc->daemon",
+            "operation": "modelProxyResolve",
+            "text": "[\"mp_00000000000040008000000000000002\",false,null,\"{\\\"name\\\":\\\"AbortError\\\",\\\"message\\\":\\\"The desktop app is closing.\\\",\\\"props\\\":{}}\"]"
+          },
+          {
+            "direction": "daemon->pc",
+            "operation": "modelProxyResolve",
+            "text": "false"
+          }
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "advances": [],
+          "pending": []
+        }
+      }
+    },
+    {
       "case": "a burst of sends all run, with no rate or concurrency refusal",
       "observed": {
         "sends": 30,
@@ -683,16 +894,6 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000004\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000005\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000006\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000007\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000008\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000009\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000010\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000011\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000012\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000013\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000014\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000015\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000016\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000017\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000018\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000019\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000020\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000021\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000022\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000023\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000024\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000025\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000026\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000027\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000028\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000029\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000030\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000031\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000032\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"},{\"id\":\"mp_00000000000040008000000000000033\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
-          },
-          {
-            "direction": "pc->daemon",
-            "operation": "modelProxyResolve",
-            "text": "[\"mp_00000000000040008000000000000002\",false,null,\"{\\\"name\\\":\\\"AbortError\\\",\\\"message\\\":\\\"The desktop app is closing.\\\",\\\"props\\\":{}}\"]"
-          },
-          {
-            "direction": "daemon->pc",
-            "operation": "modelProxyResolve",
-            "text": "false"
           },
           {
             "direction": "pc->daemon",
@@ -15587,24 +15788,67 @@
     {
       "case": "callbacks reach the server only allowlisted and projected; account ids stay on this PC",
       "observed": {
+        "providerName": "antigravity-oauth",
+        "accounts": [
+          "00000000-0000-4000-8000-0000000000a1",
+          "00000000-0000-4000-8000-0000000000a2"
+        ],
+        "tools": [
+          {
+            "name": "mcp__x__key-sk-DUMMY-abcdefghijklmnopqrstuv",
+            "description": "a tool.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "bogus-type"
+                }
+              }
+            }
+          },
+          {
+            "name": "read",
+            "description": "read tool.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "file_path"
+              ]
+            }
+          }
+        ],
+        "networkAttempts": [
+          false,
+          false
+        ],
         "result": {
           "content": "ok",
-          "secretHookKnown": false
+          "secretHookKnown": false,
+          "providerMetadata": {
+            "accountRouting": {
+              "provider": "antigravity-oauth",
+              "accountId": "00000000-0000-4000-8000-0000000000a2",
+              "sessionAccountId": "00000000-0000-4000-8000-0000000000a2"
+            }
+          }
         },
         "stages": [
           [
-            "account-changed",
+            "reconnecting",
             {
-              "provider": "openai",
-              "at": 7
+              "message": "Quota exhausted — switching to the next account"
             }
           ],
           [
-            "reconnecting",
+            "account-changed",
             {
-              "attempt": 2,
-              "max": 3,
-              "message": "retry with key [redacted]"
+              "provider": "antigravity-oauth",
+              "at": 1800000000000
             }
           ]
         ],
@@ -15613,11 +15857,18 @@
         ],
         "excluded": [
           {
-            "name": "bad_tool",
-            "index": 3,
-            "pointer": "/properties/x/type",
-            "reason": "invalid type",
-            "message": "gemini tool \"bad_tool\" excluded; key [redacted]"
+            "name": "mcp__x__key-[redacted]",
+            "index": 0,
+            "pointer": "/properties/a/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"mcp__x__key-[redacted]\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+          },
+          {
+            "name": "mcp__x__key-[redacted]",
+            "index": 0,
+            "pointer": "/properties/a/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"mcp__x__key-[redacted]\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
           }
         ],
         "secretHookCalled": false,
@@ -15636,7 +15887,7 @@
           {
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
-            "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000034\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+            "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000034\",\"provider\":\"antigravity-oauth\",\"method\":\"send\",\"model\":\"gemini-3.8-flash\"}],\"cancelled\":[]}"
           },
           {
             "direction": "pc->daemon",
@@ -15655,12 +15906,26 @@
           {
             "direction": "daemon->pc",
             "operation": "modelProxyClaim",
-            "text": "{\"payload\":\"{\\\"provider\\\":\\\"openai\\\",\\\"method\\\":\\\"send\\\",\\\"model\\\":\\\"gpt\\\",\\\"messages\\\":[],\\\"tools\\\":null,\\\"toolsFinalized\\\":false,\\\"nativePrefixCount\\\":0,\\\"options\\\":{},\\\"callbacks\\\":[\\\"onStageChange\\\",\\\"onStreamDelta\\\",\\\"onToolExcluded\\\",\\\"onSecretHook\\\"]}\"}"
+            "text": "{\"payload\":\"{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"method\\\":\\\"send\\\",\\\"model\\\":\\\"gemini-3.8-flash\\\",\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hi\\\"}],\\\"tools\\\":[{\\\"name\\\":\\\"mcp__x__key-sk-DUMMY-abcdefghijklmnopqrstuv\\\",\\\"description\\\":\\\"a tool.\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"a\\\":{\\\"type\\\":\\\"bogus-type\\\"}}}},{\\\"name\\\":\\\"read\\\",\\\"description\\\":\\\"read tool.\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"file_path\\\":{\\\"type\\\":\\\"string\\\"}},\\\"required\\\":[\\\"file_path\\\"]}}],\\\"toolsFinalized\\\":false,\\\"nativePrefixCount\\\":0,\\\"options\\\":{},\\\"callbacks\\\":[\\\"onStageChange\\\",\\\"onStreamDelta\\\",\\\"onToolExcluded\\\",\\\"onSecretHook\\\"]}\"}"
           },
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"account-changed\\\",{\\\"provider\\\":\\\"openai\\\",\\\"at\\\":7}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"mcp__x__key-[redacted]\\\",\\\"index\\\":0,\\\"pointer\\\":\\\"/properties/a/type\\\",\\\"reason\\\":\\\"not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\",\\\"message\\\":\\\"[gemini] tool \\\\\\\"mcp__x__key-[redacted]\\\\\\\" (tools[0]) excluded: invalid input schema at \\\\\\\"/properties/a/type\\\\\\\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\"}]}]\"]"
+          },
+          {
+            "direction": "daemon->pc",
+            "operation": "modelProxyEvent",
+            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "pc->daemon",
+            "operation": "modelProxyEvent",
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"reconnecting\\\",{\\\"message\\\":\\\"Quota exhausted — switching to the next account\\\"}]}]\"]"
           },
           {
             "direction": "daemon->pc",
@@ -15670,27 +15935,17 @@
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"reconnecting\\\",{\\\"attempt\\\":2,\\\"max\\\":3,\\\"message\\\":\\\"retry with key [redacted]\\\"}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"mcp__x__key-[redacted]\\\",\\\"index\\\":0,\\\"pointer\\\":\\\"/properties/a/type\\\",\\\"reason\\\":\\\"not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\",\\\"message\\\":\\\"[gemini] tool \\\\\\\"mcp__x__key-[redacted]\\\\\\\" (tools[0]) excluded: invalid input schema at \\\\\\\"/properties/a/type\\\\\\\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values\\\"}]},{\\\"name\\\":\\\"onStreamDelta\\\",\\\"args\\\":[\\\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"]}]\"]"
           },
           {
             "direction": "daemon->pc",
             "operation": "modelProxyEvent",
-            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
+            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null},{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
           },
           {
             "direction": "pc->daemon",
             "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStreamDelta\\\",\\\"args\\\":[\\\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"]}]\"]"
-          },
-          {
-            "direction": "daemon->pc",
-            "operation": "modelProxyEvent",
-            "text": "{\"cancelled\":false,\"results\":\"[{\\\"ok\\\":true,\\\"value\\\":null}]\"}"
-          },
-          {
-            "direction": "pc->daemon",
-            "operation": "modelProxyEvent",
-            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onToolExcluded\\\",\\\"args\\\":[{\\\"name\\\":\\\"bad_tool\\\",\\\"index\\\":3,\\\"pointer\\\":\\\"/properties/x/type\\\",\\\"reason\\\":\\\"invalid type\\\",\\\"message\\\":\\\"gemini tool \\\\\\\"bad_tool\\\\\\\" excluded; key [redacted]\\\"}]}]\"]"
+            "text": "[\"mp_00000000000040008000000000000034\",\"[{\\\"name\\\":\\\"onStageChange\\\",\\\"args\\\":[\\\"account-changed\\\",{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"at\\\":1800000000000}]}]\"]"
           },
           {
             "direction": "daemon->pc",
@@ -15700,20 +15955,56 @@
           {
             "direction": "pc->daemon",
             "operation": "modelProxyResolve",
-            "text": "[\"mp_00000000000040008000000000000034\",true,\"{\\\"content\\\":\\\"ok\\\",\\\"secretHookKnown\\\":false}\",null]"
+            "text": "[\"mp_00000000000040008000000000000034\",true,\"{\\\"content\\\":\\\"ok\\\",\\\"secretHookKnown\\\":false,\\\"providerMetadata\\\":{\\\"accountRouting\\\":{\\\"provider\\\":\\\"antigravity-oauth\\\",\\\"accountId\\\":\\\"00000000-0000-4000-8000-0000000000a2\\\",\\\"sessionAccountId\\\":\\\"00000000-0000-4000-8000-0000000000a2\\\"}}}\",null]"
           },
           {
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
-          },
-          {
-            "direction": "host handled event",
-            "operation": "model-proxy-request"
           }
         ],
         "timers": {
           "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
             {
               "api": "setTimeout",
               "ms": 10000,
@@ -15754,7 +16045,17 @@
             },
             {
               "api": "setTimeout",
-              "ms": 20000,
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
               "atMs": 0
             },
             {
@@ -15770,6 +16071,26 @@
             {
               "api": "setTimeout",
               "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
               "atMs": 0
             },
             {

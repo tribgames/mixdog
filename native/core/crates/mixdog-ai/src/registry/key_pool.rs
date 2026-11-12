@@ -385,6 +385,9 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.pool.primary.wire_routing()
     }
+    fn release_send(&self, group: &str) {
+        self.pool.primary.release_send(group);
+    }
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.pool.primary.settle_send(group, end).await;
     }
@@ -405,6 +408,9 @@ impl ProviderAdapter for KeyPoolAdapter {
     }
     fn native_documents(&self) -> Option<bool> {
         self.pool.primary.native_documents()
+    }
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.pool.primary.input_excludes_cache()
     }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         self.pool.primary.first_response_budget(model, parameters)

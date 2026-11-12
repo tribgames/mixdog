@@ -1,9 +1,9 @@
 {
-  "cases": 32,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "cases": 33,
+  "command": "node --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-env.mjs --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
-    "notRun": "no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock",
+    "notRun": "no provider request: a live PC provider is an instance of the class Node's registry builds for its name (realInstance: what it advertises is the class's own) with a scripted `send`; the registry module, and the providers of the cases that script a whole provider, are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock",
     "runs": "apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers",
     "scripted": {
       "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
@@ -16,19 +16,19 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 414694,
+      "bytes": 546633,
       "path": "golden.json",
-      "sha256": "8c2ed3ab9d62dde901bb884af9ad8e54fa5abf94bf692fc2e1ca86b74c5be76d"
+      "sha256": "48fe5da0b3c9122d85309fcc237b88c50bc4736719d7f75c12853e68c8b25124"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -47,8 +47,16 @@
       "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/replay-notes.mjs",
+      "sha256": "35ded3d5842627d1b4bffa1a767e590a2e9848f249c9b790ccde68ae9fc7f79a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-notes/model-proxy-host-cases.json",
+      "sha256": "00ed8795b2c78b752cea48ccb9ed59d2b878ec75ec7b43df0ccafb19ebacfc6f"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "162d94935f08f5744da888553b7893584d1f8da76f2a2eb0d58ea6a4715e238f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -82,19 +90,230 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs",
-  "recorderSha256": "ae9b4d2320c5765d2508f42176a14f4c2e1937da0d649b9c8bb9fc9dade3539f",
+  "recorderSha256": "fb4bcb58dbfddd6715ea550ab9dbf6ce30f6ec583331ff4cc95491c325cf8bad",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case's observed fields whole",
+    "declaredExclusions": [
+      {
+        "case": "*",
+        "keys": [
+          "wire",
+          "timers",
+          "operations",
+          "snapshot",
+          "heartbeatMs",
+          "leaseMs",
+          "failedHeartbeats",
+          "steps",
+          "runningInsideLease",
+          "requestId",
+          "claimed"
+        ],
+        "reason": "Node's claim/event/resolve host (modelProxyClaim/Event/Resolve, its heartbeat, lease and snapshot event) is replaced by the typed modelProxy/run request and its modelProxy/run/event notifications: mixdog-app-protocol/src/inventory.rs:848-858 marks the operations Deleted; the envelope, timers and lease bookkeeping of the replaced protocol; the protections they carried are replayed on the typed path: a run ends with its connection's cancel token (case 7), the frame bound refuses an oversized call before any provider runs (case 19), a provider-config read is bounded by its one-second budget (cases 21/22)",
+        "side": "rust"
+      },
+      {
+        "case": "the PC runs the call with its own provider and streams every callback back in order",
+        "keys": [
+          "result.content"
+        ],
+        "reason": "\"Hello again\" is the stand-in's literal return (model-proxy-host.test.mjs:172), not what its callbacks streamed after the reset; a typed provider's content is its stream, compared as the text after the discard",
+        "side": "node"
+      },
+      {
+        "case": "the PC serves only the named provider and the allowed methods",
+        "keys": [
+          "forget"
+        ],
+        "reason": "forgetCredentials is no ProxyCall variant (mixdog-app-protocol/src/v2/model_proxy.rs ProxyCall): refused as invalid params before anything runs",
+        "side": "rust"
+      },
+      {
+        "case": "the PC reports its model-specific first-response budget through the catalog and provider config",
+        "keys": [
+          "cachedFlash"
+        ],
+        "reason": "a budget that is not a number has no typed form (ProxyBudget is two u64)",
+        "side": "rust"
+      },
+      {
+        "case": "only the requested provider's credential is read, on demand",
+        "keys": [
+          "result.content",
+          "keyReads",
+          "anthropicKeyInLastInit"
+        ],
+        "reason": "replayed on the real registry (model_proxy_host_config_replay_tests.rs only_the_requested_providers_key_is_read_when_the_request_is_made): a send to openai through the adapter PcProviderConfig serves, with a vault that logs its reads and a transport that keeps the request headers; result.content is the key Node's scripted send returned (openai:<key>), compared with the bearer the adapter sent; keyReads with the vault's reads; anthropicKeyInLastInit with the absence of any anthropic read",
+        "side": "rust"
+      },
+      {
+        "case": "server send options are reduced to the allowlist",
+        "keys": [
+          "options"
+        ],
+        "reason": "baseURL, requestHeaders, extraBody, codexInstallationId, _providerSeam are not ProxyOptions fields and are dropped as the call is read",
+        "side": "rust"
+      },
+      {
+        "case": "a proxied side request gets its own transport scope on the PC, disposed when the request ends",
+        "keys": [
+          "mainScope",
+          "log"
+        ],
+        "reason": "typed field ProxyOptions.forkedTransportScope (mixdog-app-protocol v2/model_proxy.rs), set by request_out when the sender names a transport scope (model_proxy.rs options_out); the PC allocates <session>#proxy:<uuid> and releases it through ProviderAdapter::release_transport_scope when the run ends (ProxyRunner::run, ProxyCall::Send); the recording's uuids are a scripted counter, so a scope is compared with its uuid replaced by <uuid> and its form asserted; closed (the global close hook) and released (the provider's releaseTransportScope) are one release; replayed by a_forked_side_request_gets_its_own_transport_scope_released_when_it_ends",
+        "side": "rust"
+      },
+      {
+        "case": "a proxied side request gets its own transport scope on the PC, disposed when the request ends",
+        "keys": [
+          "log"
+        ],
+        "reason": "Node's rejection of a cancelled side request is the abort reason of the server's own signal (\"user stop\"), not this PC's; the PC's part, the run ending as a cancellation with its scope released, is compared",
+        "side": "node"
+      },
+      {
+        "case": "a call payload over the request cap is refused before any provider runs",
+        "keys": [
+          "maxRequestBytes"
+        ],
+        "reason": "Node's 200-byte cap was the test host's option; the typed bound is Limits::max_inbound_frame_bytes, checked by decode_inbound_text",
+        "side": "rust"
+      },
+      {
+        "case": "provider config deadline aborts a stalled request (claimed=false)",
+        "keys": [
+          "waitMs"
+        ],
+        "reason": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
+        "side": "rust"
+      },
+      {
+        "case": "provider config deadline aborts a stalled request (claimed=true)",
+        "keys": [
+          "waitMs"
+        ],
+        "reason": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
+        "side": "rust"
+      },
+      {
+        "case": "forced and short-budget reads do not join an older request or let it overwrite the fresh cache",
+        "keys": [
+          "log"
+        ],
+        "reason": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+        "keys": [
+          "developer"
+        ],
+        "reason": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole",
+        "side": "node"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+        "keys": [
+          "developer"
+        ],
+        "reason": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole",
+        "side": "node"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs",
+        "side": "rust"
+      },
+      {
+        "case": "a text-only adapter's image trait is advertised, so a remote read sends it OCR text",
+        "keys": [
+          "localTraits"
+        ],
+        "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "implemented by the adapters as Node's classes state it (compat adapter: the profile's first-byte window and retries over its retry ladder, compat/profile.rs ChatDialect::first_byte; antigravity: the model class's window over the antigravity ladder, google/adapter.rs first_response_budget; both through providers/first_byte.rs, stall-policy.mjs firstBytePolicyBudget, over the windows and ladder the environment sets (FirstByteSettings::from_env, replayed per environment, with Vertex AI Flex, by google/first_response_budget_tests.rs against the first-response-budgets set)) and compared whole in cases 24 and 24b (transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); the agent watchdog's first-response floor (factory.rs:1086) reads the same figures",
+        "side": "rust"
+      },
+      {
+        "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+        "keys": [
+          "perProvider"
+        ],
+        "reason": "implemented by the adapters as Node's classes state it (compat adapter: the profile's first-byte window and retries over its retry ladder, compat/profile.rs ChatDialect::first_byte; antigravity: the model class's window over the antigravity ladder, google/adapter.rs first_response_budget; both through providers/first_byte.rs, stall-policy.mjs firstBytePolicyBudget, over the windows and ladder the environment sets (FirstByteSettings::from_env, replayed per environment, with Vertex AI Flex, by google/first_response_budget_tests.rs against the first-response-budgets set)) and compared whole in cases 24 and 24b (transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); the agent watchdog's first-response floor (factory.rs:1086) reads the same figures",
+        "side": "rust"
+      }
+    ],
     "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references; mixdog-core/src/run_host/model_proxy_pc.rs:80 PcQuotaProbe; mixdog-core/src/run_host/model_proxy_pc.rs:250 PcProviderConfig.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930"
-    ],
+    "fieldMap": {
+      "callbacks (one helper: typed_of_callbacks)": {
+        "[reset, chars]": "ProxyEvent::AttemptDiscarded; chars equals the text of the discarded attempt",
+        "[stage, streaming]": "ProxyEvent::OutputStarted",
+        "[text, t]": "ProxyEvent::TextDelta { text: t }"
+      },
+      "failure (one helper: node_failure / typed_failure)": {
+        "code": "failure.code (unset when Node set none)",
+        "message": "failure.message",
+        "name": "AbortError -> failure.delivery ambiguous and kind transient (cancelled); any other name -> not cancelled",
+        "props.liveTextEmitted": "failure.textEmitted",
+        "props.name": "equal to name",
+        "props.partialContent": "the run's textDelta events before the failure",
+        "props.retryAfter (s)": "failure.retryAfterMs (ms)",
+        "props.status": "failure.status"
+      },
+      "provider calls": {
+        "messages / model / tools / options.sessionId / options.temperature": "the ModelRequest the provider's attempt receives",
+        "options.signal": "the run's cancel token",
+        "options.toolExecutionSessionId: ''": "no typed field: no tool executes on the PC"
+      },
+      "result": {
+        "content": "the textDelta events after the last AttemptDiscarded",
+        "settledCalls / hostRunning* / running*": "the run's answer (sent or failed) and the run leaving ModelProxyService.runs (close returns)",
+        "usage.inputTokens / outputTokens": "ProxyEvent::Usage",
+        "wireReroute": "ProxyEvent::WireRerouted { route }"
+      }
+    },
+    "missingOnO1": [],
     "normalised": {
       "secretShapedInputs": "the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike",
       "transportScope": "the PC scope is <session>#proxy:<uuid>; the uuid is a counter (scripted crypto.randomUUID), recorded as it came"
     },
+    "open": [],
     "protocolMethods": [],
+    "replayTests": "mixdog-core/src/run_host/model_proxy_host_run_replay_tests.rs drives `modelProxy/run` / `modelProxy/cancel` on ModelProxyService (mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs, registered by compose_flip.rs) over ProxyRunner, with this PC's PcQuotaProbe, PcWireRouter and PcProviderConfig; mixdog-core/src/run_host/model_proxy_host_config_replay_tests.rs replays the providerConfig cases through PcProviderConfig over the product registry and DefaultProviderBuilder; mixdog-core/src/run_host/model_proxy_host_server_replay_tests.rs replays the server's read (Node loadModelProxyProviderConfig) through HostProxyProviders (mixdog-core/src/run_host/proxy_providers.rs).",
     "rustTargets": [
       {
         "line": 76,
@@ -115,6 +334,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-cases",
-  "totalBytes": 414694,
+  "totalBytes": 546633,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

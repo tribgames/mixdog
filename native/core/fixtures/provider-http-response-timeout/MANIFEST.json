@@ -1,0 +1,223 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-provider-http-response-timeout.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::openai::adapter tests: per case, the window the adapter gives its HTTP request (the setting read from the context when the adapter is built) and the text of the rejection, compared with `result.armedForMs` and `result.error.message`.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs openHttpSseResponse (fetchFn stood in), with stall-policy.mjs PROVIDER_HTTP_RESPONSE_TIMEOUT_MS read at module load",
+  "exclusions": [
+    "the fetch of the request is a stand-in that never answers and rejects with its signal's reason when the signal aborts (undici's behaviour for an aborted fetch): the timer, its window and its error are Node's; nothing goes over a socket, so no request is recorded",
+    "after the first attempt's timer fires the stand-in aborts the call's total signal, so Node's retry of a transient failure is not followed (the retry path is not the subject); `result` is the first attempt",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 26243,
+      "path": "cases.json",
+      "sha256": "8b91a2d7cc5d78e67d2624060baf35b06a4bb5ccb45b560203751e2df131f40c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "direct:unset",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:smaller",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:larger",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:below-floor",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:above-ceiling",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:invalid-text",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:invalid-zero",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:invalid-negative",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:empty",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:exponent",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:padded",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:stall-100s-larger",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:stall-20s",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "direct:stall-invalid",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:unset",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:smaller",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:larger",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:below-floor",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:above-ceiling",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:invalid-text",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:invalid-zero",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:invalid-negative",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:empty",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:exponent",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:padded",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:stall-100s-larger",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:stall-20s",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    },
+    {
+      "id": "oauth:stall-invalid",
+      "level": "pure",
+      "rust": "native/core/crates/mixdog-ai/src/providers/google/cache/policy.rs:87 http_response_ms"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-http-response-timeout.mjs",
+  "recorderSha256": "60580797c19507fc3b7948db81784faa6be13681f21fe121f5cb0da554cbb80a",
+  "replay": "Rust: OpenAiAdapter::attempt over a transport that never answers (TimingOut), its context carrying the recorded setting.",
+  "set": "provider-http-response-timeout",
+  "totalBytes": 26243,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

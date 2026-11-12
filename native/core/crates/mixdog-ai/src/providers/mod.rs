@@ -10,11 +10,14 @@ pub mod compat;
 pub mod connect;
 pub mod cursor;
 pub mod devin;
+pub mod first_byte;
 pub(crate) mod flat_schema;
 pub mod custom;
 pub mod google;
 pub mod grok;
 pub mod hosted;
+#[cfg(test)]
+pub(crate) mod case_replay;
 #[cfg(test)]
 pub(crate) mod hosted_wire_tests;
 pub(crate) mod js_value;
@@ -55,6 +58,6 @@ pub(crate) mod progress_golden {
     }
 
     pub(crate) fn golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/stream_progress.json")).expect("golden")
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/stream_progress.json")).expect("golden")
     }
 }

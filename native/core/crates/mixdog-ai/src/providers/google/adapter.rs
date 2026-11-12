@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::FirstResponseBudget;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -37,7 +38,6 @@ use super::auth::RequestAuth;
 use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
 use super::cache::layer::ExplicitCache;
-use super::cache::layer::HeldConnection;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
@@ -45,6 +45,9 @@ use super::codec::Target;
 use super::models;
 use super::redirect;
 use crate::catalog::ListingLookup;
+use crate::providers::first_byte::FirstByteSettings;
+use crate::providers::first_byte::vertex_flex_budget;
+use super::serving::Tier;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -76,6 +79,8 @@ pub struct GoogleAdapter {
     lookup: ListingLookup,
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
     preconnect: Option<Preconnect>,
+    /// The first-byte windows and Antigravity's ladder, read from the environment as Node does.
+    first_byte: FirstByteSettings,
 }
 
 impl GoogleAdapter {
@@ -106,7 +111,15 @@ impl GoogleAdapter {
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
             preconnect: None,
+            first_byte: FirstByteSettings::process(),
         }
+    }
+
+    /// The first-byte settings of this adapter, when they are not the process environment's. The retry `policy` it was built
+    /// with must come from the same settings ([`super::policy::antigravity_with`]).
+    pub fn with_first_byte(mut self, settings: FirstByteSettings) -> Self {
+        self.first_byte = settings;
+        self
     }
 
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
@@ -248,7 +261,7 @@ impl GoogleAdapter {
             .or(request.options.provider_state.as_ref())
             .and_then(|s| s.gemini.clone())
             .filter(|s| s.cache_name == name)?;
-        Some(Cached { name, state, changed: answer.state, held: answer.held })
+        Some(Cached { name, state, changed: answer.state })
     }
 
     /// One authorized send, with the single credential-recovery resend of a 401.
@@ -359,12 +372,11 @@ struct Cached {
     state: GeminiCacheState,
     /// `Some` when attaching changed the session's provider state.
     changed: Option<ProviderState>,
-    /// The connection of the create this request made, held until the request is sent.
-    held: HeldConnection,
 }
 
 #[async_trait]
 impl ProviderAdapter for GoogleAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -396,6 +408,23 @@ impl ProviderAdapter for GoogleAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         Some(self)
+    }
+
+    /// `antigravityFirstResponseBudget(antigravityFirstBytePolicy(model || DEFAULT_ANTIGRAVITY_MODEL))`: the gateway
+    /// queues or thinks server-side, so a Pro-class model waits `MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (300 s, clamped
+    /// to the provider ceiling) and a Flash-class one the shared 60 s, each on a doubling window with one first-byte retry;
+    /// a model without a Gemini family keeps the shared window on the ordinary ladder. The Gemini API states none; Vertex AI
+    /// states one for a Flex route only (`VertexAIProvider.firstResponseBudget`).
+    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<FirstResponseBudget> {
+        match self.codec.target() {
+            Target::Gemini { .. } => None,
+            Target::Vertex { .. } => (Tier::requested(parameters) == Tier::Flex).then(vertex_flex_budget),
+            Target::Antigravity { .. } => {
+                let model = if model.is_empty() { models::DEFAULT_ANTIGRAVITY_MODEL } else { model };
+                let family = models::antigravity_family(&self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner), model);
+                Some(self.first_byte.antigravity_budget(&self.first_byte.antigravity_policy(family.as_deref())))
+            }
+        }
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
@@ -495,18 +524,16 @@ impl GoogleAdapter {
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
-        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));        let mut response = {
+        let mut response = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
             self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
         };
-        drop(created);
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
         // here and in the session, and the request runs once without it: a 400/404
         // whose error names the cached content (`isGeminiCachedContentError`,
         // gemini.mjs:222-231). Any other refusal is the request's error.
         if let Some(attached) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
-            // Read and replayed on the same turn of Node's event loop: the replay finds the refusal's socket busy.
-            let (refused, held) = response.read_all_held().await?;
+            let refused = response.read_all().await?;
             if !names_cached_content(&refused.body, &attached.name) {
                 return Err(self.codec.classify_for(&refused, request, false));
             }
@@ -517,7 +544,6 @@ impl GoogleAdapter {
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
             response = self.dispatch(&self.codec.wire(request, &inner, None)?).await?;
-            drop(held);
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).

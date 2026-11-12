@@ -16,8 +16,6 @@
 use std::sync::Arc;
 
 use mixdog_app_protocol::v2::thread::ThreadIdParams;
-use mixdog_app_protocol::v2::thread::ThreadStartedParams;
-use mixdog_app_protocol::v2::thread::ThreadSummaryUpdatedParams;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::state::SectionFeedState;
 use mixdog_store::sqlite::RowEdge;
@@ -31,8 +29,6 @@ use super::TaskWorkspace;
 use super::thread_list::ThreadListService;
 use super::transcript::summary_of_list_row;
 
-const STARTED: &str = "thread/started";
-const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DELETED: &str = "thread/deleted";
 
 /// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
@@ -261,28 +257,29 @@ impl ThreadEdgePublisher {
     async fn publish_change(&self, edge: RowEdge, was: Option<LeadRow>, now: Option<LeadRow>, workspace: &str) {
         let id = ThreadId::from(edge.id.clone());
         match (was, now) {
-            (None, Some(now)) => self.send(&id, &now, workspace, |thread| (STARTED, ThreadStartedParams { thread })).await,
+            (None, Some(now)) => self.send(&id, &now, workspace, true).await,
             (Some(was), Some(now)) => {
                 let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row, workspace), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row, workspace));
                 if was != shown {
-                    self.send(&id, &now, workspace, |thread| (SUMMARY_UPDATED, ThreadSummaryUpdatedParams { thread })).await;
+                    self.send(&id, &now, workspace, false).await;
                 }
             }
             // A delete is announced by the delete (`purge.rs`); a row that stopped being listed otherwise is gone from the roster.
-            (Some(_), None) if !edge.after.deleted => self.deleted.publish(&id),
-            (Some(_), None) | (None, None) => {}
+            (Some(_), None) => {
+                self.list.forget(&id);
+                if !edge.after.deleted {
+                    self.deleted.publish(&id);
+                }
+            }
+            (None, None) => {}
         }
     }
 
-    /// The row `thread/list` shows for the written row, under `method`; none when the rooms leave it out.
-    async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, workspace: &str, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
+    /// The row `thread/list` shows for the written row, as `thread/started` when `started`, else as `thread/summary/updated`;
+    /// none when the rooms leave it out, and none again when the feed was sent this very row last.
+    async fn send(&self, id: &ThreadId, now: &LeadRow, workspace: &str, started: bool) {
         match self.list.summary_of(id, now, workspace).await {
-            Ok(Some(thread)) => {
-                // A row that newly became listed always goes out (it may come back after a deletion); a changed row only when it
-                // differs from the one last announced (a room rename's listing may have carried it already).
-                let (method, params) = params(thread.clone());
-                self.list.announce(thread, method == STARTED, |_| self.app.notify(method, &params));
-            }
+            Ok(Some(thread)) => self.list.announce(&self.app, thread, started),
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = id.as_str(), "the row of a written session could not be read"),
         }
@@ -321,7 +318,7 @@ impl LiveRows {
             // The writes before this change publish first: a row's `thread/started` precedes any update of it.
             edges.settled().await;
             match list.summary(&id).await {
-                Ok(Some(row)) => list.announce(row, false, |thread| app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread })),
+                Ok(Some(row)) => list.announce(&app, row, false),
                 Ok(None) => {}
                 Err(error) => tracing::warn!(?error, thread = id.as_str(), "the live row of a session could not be read"),
             }

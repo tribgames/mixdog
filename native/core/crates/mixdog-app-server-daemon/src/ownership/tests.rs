@@ -15,6 +15,188 @@ use crate::verdict::GateStep;
 use crate::verdict::tests::FakeTable;
 use crate::verdict::tests::TempData;
 
+/// The lock between processes, replayed from `fixtures/owner-lock/golden.json` (Node's real `acquireDaemonOwnerLock` in real
+/// child processes, recorded by benchmarks/rust-core/recorders/record-owner-lock.mjs). The contenders are this test binary run
+/// again on `contender_child_process`; each ends when the test kills it, when its stdin closes (the parent is gone) or by itself.
+#[allow(clippy::disallowed_types, reason = "the contenders are real child processes")]
+mod across_processes {
+    use std::io::BufRead as _;
+    use std::io::BufReader;
+    use std::io::Read as _;
+    use std::path::Path;
+    use std::process::Child;
+    use std::process::Command;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use serde_json::Value;
+    use serde_json::json;
+
+    use super::*;
+
+    const CHILD_DIR: &str = "MIXDOG_OWNER_LOCK_CONTENDER_DATA_DIR";
+
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/owner-lock/golden.json")).unwrap()
+    }
+
+    /// The other process: tries the lock, says whether it got it and keeps whatever it got until stdin closes. Without
+    /// `CHILD_DIR` (every normal run) it does nothing.
+    #[test]
+    fn contender_child_process() {
+        let Some(dir) = std::env::var_os(CHILD_DIR) else { return };
+        let owned = acquire(Path::new(&dir));
+        println!("VERDICT {}", json!({ "held": owned.is_ok() }));
+        std::io::stdin().read_to_end(&mut Vec::new()).unwrap();
+    }
+
+    /// Failure deadline of every wait on a contender: nothing in a passing run waits for it.
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    struct Contender {
+        child: Child,
+        /// Each line the contender printed; `None` once its stdout closed, which is how its exit is seen.
+        lines: mpsc::Receiver<Option<String>>,
+    }
+
+    impl Contender {
+        fn start(data: &Path) -> Self {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "ownership::tests::across_processes::contender_child_process", "--nocapture"])
+                .env(CHILD_DIR, data)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
+            let mut child = command.spawn().unwrap();
+            let out = BufReader::new(child.stdout.take().unwrap());
+            let (send, lines) = mpsc::channel();
+            std::thread::spawn(move || {
+                for line in out.lines().map_while(Result::ok) {
+                    if send.send(Some(line)).is_err() {
+                        return;
+                    }
+                }
+                let _ = send.send(None);
+            });
+            Self { child, lines }
+        }
+
+        /// What the contender answered: `{"held": bool}`.
+        fn verdict(&mut self) -> Value {
+            loop {
+                let line = self
+                    .lines
+                    .recv_timeout(DEADLINE)
+                    .unwrap_or_else(|_| panic!("a contender gave no VERDICT line within {DEADLINE:?}"))
+                    .expect("a contender ended before it answered");
+                if let Some(answer) = line.strip_prefix("VERDICT ") {
+                    return serde_json::from_str(answer).unwrap();
+                }
+            }
+        }
+
+        /// SIGKILL (`TerminateProcess` on Windows), the way the recording ended its holders.
+        fn kill(mut self) {
+            self.child.kill().unwrap();
+            while let Some(_line) = self
+                .lines
+                .recv_timeout(DEADLINE)
+                .unwrap_or_else(|_| panic!("a killed contender's stdout did not close within {DEADLINE:?}"))
+            {}
+            self.child.wait().unwrap();
+        }
+    }
+
+    impl Drop for Contender {
+        fn drop(&mut self) {
+            // Reaped only once the kernel was told to end it: a wait on a contender that could not be killed has no
+            // end, and this runs while a failed deadline unwinds.
+            if self.child.kill().is_ok() {
+                let _ = self.child.wait();
+            }
+        }
+    }
+
+    fn held(owned: &Result<CoreOwnership, AcquireError>) -> Value {
+        json!({ "held": owned.is_ok() })
+    }
+
+    fn held_count(contenders: &mut [Contender]) -> usize {
+        contenders.iter_mut().map(|c| c.verdict()["held"] == true).filter(|held| *held).count()
+    }
+
+    #[test]
+    fn a_held_lock_refuses_every_other_process_and_a_killed_holder_frees_it_at_once() {
+        let golden = &golden()["refuseAndKill"];
+        let temp = TempData::new();
+        let mut holder = Contender::start(&temp.data());
+        assert_eq!(holder.verdict(), golden["holder"]);
+        assert_eq!(held(&acquire(&temp.data())), golden["thisProcess"]);
+        let mut second = Contender::start(&temp.data());
+        assert_eq!(second.verdict(), golden["secondContender"]);
+        holder.kill();
+        // No stale period and no probe: the kernel released the lock with the process.
+        assert_eq!(held(&acquire(&temp.data())), golden["afterKill"]);
+    }
+
+    #[test]
+    fn the_holder_reading_its_own_lock_file_keeps_the_lock() {
+        let golden = &golden()["holderReads"];
+        let temp = TempData::new();
+        let owned = acquire(&temp.data());
+        assert_eq!(held(&owned), golden["holder"]);
+        let owned = owned.unwrap();
+        // A hosted Read tool opens, reads and closes any file of the data dir. (Windows refuses the read of a locked range.)
+        std::fs::read(temp.data().join(LOCK_FILE)).expect("a held lock file can be read, as Node's can");
+        drop(std::fs::OpenOptions::new().read(true).write(true).open(temp.data().join(LOCK_FILE)).unwrap());
+        assert_eq!(Contender::start(&temp.data()).verdict(), golden["contender"]);
+        assert_eq!(owned.revalidate().is_ok(), golden["intact"]);
+    }
+
+    #[test]
+    fn simultaneous_acquisitions_leave_exactly_one_holder() {
+        let golden = &golden()["simultaneous"];
+        let temp = TempData::new();
+        let mut racers: Vec<Contender> = (0..golden["racers"].as_u64().unwrap()).map(|_| Contender::start(&temp.data())).collect();
+        assert_eq!(held_count(&mut racers), golden["held"]);
+    }
+
+    #[test]
+    fn racing_acquisitions_on_an_existing_lock_file_leave_exactly_one_holder() {
+        let golden = &golden()["racingExisting"];
+        let temp = TempData::new();
+        std::fs::create_dir_all(temp.data()).unwrap();
+        std::fs::write(temp.data().join(LOCK_FILE), "").unwrap();
+        let mut racers: Vec<Contender> = (0..golden["racers"].as_u64().unwrap()).map(|_| Contender::start(&temp.data())).collect();
+        assert_eq!(held_count(&mut racers), golden["held"]);
+    }
+
+    #[test]
+    fn data_dirs_whose_lock_files_hold_equal_bytes_are_locked_independently() {
+        let golden = &golden()["equalBytes"];
+        for seed in ["empty", "copied"] {
+            let (first, second) = (TempData::new(), TempData::new());
+            if seed == "empty" {
+                for temp in [&first, &second] {
+                    std::fs::create_dir_all(temp.data()).unwrap();
+                    std::fs::write(temp.data().join(LOCK_FILE), "").unwrap();
+                }
+            }
+            let mut holder = Contender::start(&first.data());
+            assert_eq!(holder.verdict(), golden[seed]["holder"], "{seed}");
+            if seed == "copied" {
+                std::fs::create_dir_all(second.data()).unwrap();
+                std::fs::copy(first.data().join(LOCK_FILE), second.data().join(LOCK_FILE)).unwrap();
+            }
+            assert_eq!(held(&acquire(&second.data())), golden[seed]["otherDir"], "{seed}: the other data dir's holder does not block this one");
+        }
+    }
+}
+
 #[test]
 fn one_core_per_data_dir() {
     let temp = TempData::new();

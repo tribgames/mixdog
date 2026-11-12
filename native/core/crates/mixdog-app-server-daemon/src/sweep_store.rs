@@ -39,13 +39,7 @@ pub trait GuardedSessions: Send + Sync {
     async fn automatic_closure(&self, id: &str) -> Result<bool, String>;
 }
 
-/// `isHistoricalAutomaticClosure(session)` (`historical-session-closure.mjs`).
-pub fn is_historical_automatic_closure(header: &serde_json::Map<String, serde_json::Value>) -> bool {
-    let text = |key: &str| header.get(key).and_then(serde_json::Value::as_str);
-    text("owner").is_some_and(|owner| !owner.is_empty())
-        && (header.get("closed") == Some(&serde_json::Value::Bool(true)) || text("status") == Some("closed"))
-        && matches!(text("closedReason"), Some("idle-sweep" | "terminal-reap"))
-}
+pub use mixdog_core_session::session::delete::is_historical_automatic_closure;
 
 #[async_trait]
 impl GuardedSessions for SessionDirectory {
@@ -346,7 +340,7 @@ mod tests {
             }
         }
 
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/idle-sweep/golden.json")).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/idle-sweep/golden.json")).unwrap();
         let ids = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect::<Vec<_>>();
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
         for (name, scenario) in golden["scenarios"].as_object().unwrap() {

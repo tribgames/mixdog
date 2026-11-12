@@ -34,16 +34,22 @@ use super::read_batch::*;
 use super::read_legacy;
 use super::read_paths;
 use super::read_state::*;
+use super::search::GLOB_ACCUM_CAP;
 use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+/// A notebook text output longer than this (UTF-16 units) is named by a `jq` hint instead (`IPYNB_OUTPUT_MAX_CHARS`).
+const IPYNB_OUTPUT_MAX_CHARS: usize = 10_000;
+const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access";
 /// Node's inline-view cap, the refusal when there is no resizer (`MAX_IMAGE_BYTES`).
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
 const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
 const GUARD_DEFAULT_LIMIT: u64 = 500;
 const MAX_WINDOW: i64 = 100_000;
+/// The most lines a from-the-end read of a file past the in-memory cap serves (`TAIL_MODE_LINES_MAX`).
+const TAIL_MODE_LINES_MAX: u64 = 2000;
 const PUBLIC_BATCH_LIMIT: usize = 10;
 /// A file over this many bytes is streamed, not buffered (`READ_STREAM_RANGE_MIN_BYTES`).
 const READ_STREAM_RANGE_MIN_BYTES: u64 = 128 * 1024;
@@ -116,6 +122,8 @@ struct Body {
     parts: Vec<ToolPart>,
     /// An image read's result (Node's structured `{ content }`), which a batch keeps as blocks.
     rich: bool,
+    /// An answer Node's caller takes for a failed call (the notebook extractor's `Error:` strings).
+    error: bool,
     observed: Option<Observed>,
 }
 
@@ -224,22 +232,34 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
     }
     let mut entries = Vec::new();
     for (index, target) in targets.iter().enumerate() {
-        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?}}", index + 1));
-        let (path, offset, limit) = match target {
-            JsonValue::String(s) => (s.as_str(), None, None),
+        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?, tail?}}", index + 1));
+        let (path, offset, limit, tail) = match target {
+            JsonValue::String(s) => (s.as_str(), None, None, None),
             JsonValue::Object(o) => {
-                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit")) {
+                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit" | "tail")) {
                     return Err(shape());
                 }
                 match o.get("file_path").and_then(JsonValue::as_str) {
-                    Some(p) => (p, o.get("offset"), o.get("limit")),
+                    Some(p) => (p, o.get("offset"), o.get("limit"), o.get("tail")),
                     None => return Err(shape()),
                 }
             }
             _ => return Err(shape()),
         };
-        if path.trim().is_empty() {
+        // Node's isNonEmptyString: a blank path is a path, and the read reports it.
+        if path.is_empty() {
             return Err(shape());
+        }
+        // `tail` names the whole window (the last N lines), so a limit has nothing left to say.
+        if let Some(tail) = tail.or_else(|| args.get("tail")) {
+            if offset.or_else(|| args.get("offset")).is_some() {
+                return Err(bad("offset", "tail", format!("read target {} tail cannot be combined with offset (tail is counted from the end of the file)", index + 1)));
+            }
+            let Some(n) = as_int(tail).filter(|n| (1..=MAX_WINDOW).contains(n)) else {
+                return Err(bad("tail", "range", format!("read target {} tail must be an integer from 1 to {MAX_WINDOW}", index + 1)));
+            };
+            entries.push(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), ..BEntry::default() });
+            continue;
         }
         let offset = window_value(offset, default_offset.expect("validated"), false);
         let limit = window_value(limit, default_limit.expect("validated"), true);
@@ -262,6 +282,12 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         }
     }
     entries.retain(|e| kept.contains(&e.path));
+    // `executeModeRead`: the single form keeps its `mode` and `n`; its window (always present here) then drops a
+    // head/tail/summary glance, while count and hex still answer by their own tools.
+    if !batch && let Some(e) = entries.first_mut() {
+        e.mode = arg_str(args, "mode").map(str::to_owned);
+        e.n = args.get("n").filter(|v| !v.is_null()).cloned();
+    }
     Ok(Public { single: !batch, entries, skipped, pages: arg_str(args, "pages").map(str::to_owned) })
 }
 
@@ -282,6 +308,15 @@ impl Tool for ReadTool {
             return self.call_legacy(ctx, args).await;
         }
         let mut public = parse_public(&args)?;
+        // A tail is read off the path as the caller wrote it, before a `path:line` coordinate is taken off it.
+        for e in &mut public.entries {
+            let raw = e.path.clone();
+            if !public.single {
+                self.resolve_tail(ctx, e, &raw).await;
+            } else if !(has_glob_magic(&raw) && !exists(ctx, &raw).await) {
+                self.resolve_tail(ctx, e, &raw).await;
+            }
+        }
         for e in &mut public.entries {
             e.path = strip_line_coordinate(ctx, &e.path).await?;
         }
@@ -316,7 +351,7 @@ fn text_output(text: String) -> ToolOutcome {
 }
 
 /// `normalizeInputPath`: trimmed, control characters dropped, `~` expanded, NFC.
-fn normalize_input_path(p: &str) -> String {
+pub(crate) fn normalize_input_path(p: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     let mut out: String = mixdog_js::js_trim(p).chars().filter(|c| !matches!(*c, '\u{0}'..='\u{1f}' | '\u{7f}')).collect();
     if (out == "~" || out.starts_with("~/") || out.starts_with("~\\"))
@@ -360,15 +395,20 @@ impl ReadTool {
         }
         match map.get("path").cloned() {
             Some(JsonValue::String(raw)) => {
-                let be = BEntry {
+                let mut be = BEntry {
                     path: raw,
                     mode: map.get("mode").and_then(JsonValue::as_str).map(str::to_owned),
                     n: map.get("n").filter(|v| !v.is_null()).cloned(),
                     offset: map.get("offset").and_then(JsonValue::as_f64),
                     limit: map.get("limit").and_then(JsonValue::as_f64),
                     full: map.get("full").and_then(JsonValue::as_bool),
+                    tail: map.get("tail").and_then(js_tail),
                     ..BEntry::default()
                 };
+                if be.tail.is_some() && !(has_glob_magic(&be.path) && !exists(ctx, &be.path).await) {
+                    let raw = be.path.clone();
+                    self.resolve_tail(ctx, &mut be, &raw).await;
+                }
                 self.run_top(ctx, be, 0, map.get("pages").and_then(JsonValue::as_str)).await
             }
             Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items).await,
@@ -415,15 +455,18 @@ impl ReadTool {
                 }
                 path = stripped;
             }
-            entries.push(BEntry {
+            let mut entry = BEntry {
                 path,
                 mode,
                 n: pick("n").cloned(),
                 offset,
                 limit,
                 full: pick("full").and_then(JsonValue::as_bool),
+                tail: if object { item.get("tail").and_then(js_tail) } else { None },
                 ..BEntry::default()
-            });
+            };
+            self.resolve_tail(ctx, &mut entry, raw_path).await;
+            entries.push(entry);
         }
         let results = self.pipeline(ctx, entries, object, READ_MAX_OUTPUT_BYTES, true, 0).await?;
         if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
@@ -433,6 +476,35 @@ impl ReadTool {
             return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
         }
         text_output(rows_for_model(&render_text(&results)))
+    }
+
+    /// `resolveTailRecord`: a `tail: N` entry becomes the window it names, read off `raw` (the path as the caller wrote it).
+    /// Up to the in-memory cap the file's lines are counted and the entry is an ordinary window; past it the entry is a
+    /// from-the-end glance, which never reads the middle of the file. A path that is no file keeps the first window, which
+    /// the ordinary read reports.
+    async fn resolve_tail(&self, ctx: &ToolContext, be: &mut BEntry, raw: &str) {
+        let Some(tail) = be.tail.take() else { return };
+        let named = normalize_input_path(raw);
+        let found = match resolve_path(&ctx.cwd, &named) {
+            Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs.clone()).await {
+                Ok(st) if matches!(st.kind, EntryKind::File) => Some((abs, st.len)),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        let total = match &found {
+            Some((_, size)) if *size > MAX_FILE_BYTES => {
+                be.mode = Some("tail".to_owned());
+                be.n = Some(JsonValue::from(tail.min(TAIL_MODE_LINES_MAX)));
+                be.offset = None;
+                be.limit = None;
+                return;
+            }
+            Some((abs, size)) => count_logical_lines(ctx, abs, &named, *size).await.ok(),
+            None => None,
+        };
+        be.offset = Some(total.map_or(0, |total| total.saturating_sub(tail)) as f64);
+        be.limit = Some(tail as f64);
     }
 
     /// `isWSL`, once: the environment, else the kernel's `/proc/version`.
@@ -772,6 +844,30 @@ async fn read_range(ctx: &ToolContext, abs: &AbsPath, shown: &str, offset: u64, 
     }
 }
 
+/// The lines `countLogicalLinesBytesSync` counts: the newlines, and a last line without one.
+async fn count_logical_lines(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64) -> Result<u64, ToolError> {
+    const CHUNK: u64 = 1024 * 1024;
+    let (mut at, mut lines, mut last) = (0_u64, 0_u64, None);
+    while at < size {
+        let chunk = read_range(ctx, abs, shown, at, CHUNK.min(size - at)).await?;
+        let Some(&end) = chunk.last() else { break };
+        lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
+        last = Some(end);
+        at += chunk.len() as u64;
+    }
+    Ok(lines + u64::from(last.is_some_and(|b| b != b'\n')))
+}
+
+/// `Math.trunc(Number(tail))` of a legacy `path` call's `tail`: a number, or the text of one.
+fn js_tail(v: &JsonValue) -> Option<u64> {
+    let n = match v {
+        JsonValue::Number(n) => n.as_f64()?,
+        JsonValue::String(s) => mixdog_js::string_to_number(s),
+        _ => return None,
+    };
+    n.is_finite().then(|| n.trunc().max(0.0) as u64)
+}
+
 async fn exists(ctx: &ToolContext, raw: &str) -> bool {
     let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
     ctx.files.stat(ctx.io.interactive, abs).await.is_ok()
@@ -835,7 +931,7 @@ impl ReadTool {
         let body = self.read_one(ctx, e, pages, mode).await?;
         // An image read's empty, corrupt and over-cap answers are Node's `isError` results; in a
         // batch the same body marks only its own entry (`[error]`).
-        if body.rich && body.failed() {
+        if body.error || (body.rich && body.failed()) {
             let reason = body.first_text().to_owned();
             return Err(fail(ToolErrorCode::Failed { reason: reason.clone() }, reason));
         }
@@ -900,7 +996,9 @@ impl ReadTool {
                 Some(Survey::Many(results, capped)) => {
                     return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
                 }
-                Some(Survey::One(one)) => {
+                Some(Survey::One(mut one)) => {
+                    let raw = one.path.clone();
+                    self.resolve_tail(ctx, &mut one, &raw).await;
                     let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false, suppress: false };
                     return self.run_plan(ctx, &one, base, pages, mode).await;
                 }
@@ -913,7 +1011,8 @@ impl ReadTool {
 
     async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&str>, mode: Mode) -> ToolOutcome {
         match self.plan(ctx, be).await? {
-            Plan::Text(text) => text_output(text),
+            // A refused path (none, a URL) is an `Error:` answer, a failed call to Node's caller (classifyResultKind).
+            Plan::Text(text) => Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text)),
             Plan::Glance { path, mode, n, offset } => {
                 let mut seen = None;
                 let text = self.glance_text(ctx, &path, &mode, n.as_ref(), offset, &mut seen).await?;
@@ -933,11 +1032,11 @@ impl ReadTool {
     async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
         let (root, pattern) = split_glob(&be.path);
         let root = resolve_path(&ctx.cwd, &root)?;
-        let (mut files, _) = glob_files(ctx, &root, &[pattern], false).await?;
+        let (mut files, _, _, _) = glob_files(ctx, &root, &[pattern], false, Some(GLOB_ACCUM_CAP)).await?;
         if files.is_empty() {
             return Ok(None);
         }
-        files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        files.sort_by(|a, b| b.1.unwrap_or(0).cmp(&a.1.unwrap_or(0)).then_with(|| a.0.cmp(&b.0)));
         let capped = files.len() > GLOB_SURVEY_FILES;
         files.truncate(GLOB_SURVEY_FILES);
         let limit = match be.limit {
@@ -957,7 +1056,10 @@ impl ReadTool {
             })
             .collect();
         if entries.len() == 1 {
-            return Ok(Some(Survey::One(entries.remove(0))));
+            // Node re-enters the read with the call's own arguments, so a lone match keeps the call's tail.
+            let mut one = entries.remove(0);
+            one.tail = be.tail;
+            return Ok(Some(Survey::One(one)));
         }
         Ok(Some(Survey::Many(self.pipeline(ctx, entries, false, cap, record, base).await?, capped)))
     }
@@ -1217,7 +1319,8 @@ impl ReadTool {
             Err(err) => return Err(fs_failure(&err, &shown)),
         };
         match stat.kind {
-            EntryKind::Dir => return Ok(Body::text(self.directory_error(ctx, &abs, raw).await)),
+            // Not a navigation miss to Node's caller (classifyResultKind): a failed call; in a batch its own `[error]`.
+            EntryKind::Dir => return Ok(Body { error: true, ..Body::text(self.directory_error(ctx, &abs, raw).await) }),
             EntryKind::Special => {
                 return Ok(Body::text(format!(
                     "Error: cannot read special file (FIFO / character / block device / socket): {shown}"
@@ -1225,9 +1328,13 @@ impl ReadTool {
             }
             _ => {}
         }
+        // A notebook goes to Node's extractor ahead of every cache (`readMediaFile`).
+        if is_notebook(&stat, raw) {
+            return self.notebook(ctx, e, &abs, stat.len, matches!(mode, Mode::Child { .. })).await;
+        }
         let key_path = fwd(abs.as_path());
         let version = FileVersion::of(&stat);
-        let scope = self.state.as_ref().map(|_| scope_of(ctx));
+        let scope =self.state.as_ref().map(|_| scope_of(ctx));
         let cacheable = stat.len <= CACHEABLE_BYTES;
         // A file this session has just edited, and read before the edit, is not sent again.
         if let (Some(state), Some(v), false, true) = (&self.state, version, mode.suppress(), cacheable) {
@@ -1491,6 +1598,126 @@ impl ReadTool {
         }
     }
 
+    /// `extractIpynbText`: a read with a window is refused (cells are not line-addressable); one without renders the
+    /// cells, markdown as written and code fenced with its text outputs, the text capped at the read's output budget.
+    /// An image output is embedded after its cell when it can be resized, and stays a placeholder otherwise or in a
+    /// batch (`text_only`). Every `Error:` answer is a failed call.
+    async fn notebook(&self, ctx: &ToolContext, e: &Entry, abs: &AbsPath, size: u64, text_only: bool) -> Result<Body, ToolError> {
+        let failed = |text: String| Ok(Body { error: true, ..Body::text(text) });
+        if e.ranged {
+            return failed(IPYNB_RANGE_REFUSAL.to_owned());
+        }
+        if size > MAX_FILE_BYTES {
+            return failed(format!("Error: notebook too large (size: {size}B, cap: {MAX_FILE_BYTES}B) — use a cell range to narrow"));
+        }
+        let text = match ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await {
+            Ok(read) => String::from_utf8_lossy(&read.bytes).into_owned(),
+            Err(err) => return Err(fs_failure(&err, &display_path(abs.as_path(), &ctx.cwd))),
+        };
+        if let Some(message) = mixdog_js::v8_json_parse_error(&text) {
+            return failed(format!("Error: ipynb parse failed — {message}"));
+        }
+        let notebook: JsonValue = serde_json::from_str(&text).unwrap_or(JsonValue::Null);
+        let full_path = abs.as_path().to_string_lossy().into_owned();
+        let property_of_null = |key: &str| format!("Error: ipynb parse failed — Cannot read properties of null (reading '{key}')");
+        if notebook.is_null() {
+            return failed(property_of_null("cells"));
+        }
+        let cells = notebook.get("cells").and_then(JsonValue::as_array).cloned().unwrap_or_default();
+        // Blocks in notebook order: runs of rendered cells as one text, each embedded image after its cell.
+        let mut blocks: Vec<ToolPart> = Vec::new();
+        let mut texts: Vec<String> = Vec::new();
+        let mut text_len = 0usize;
+        let flush = |texts: &mut Vec<String>, blocks: &mut Vec<ToolPart>| {
+            if !texts.is_empty() {
+                blocks.push(ToolPart::Text(texts.join("\n\n")));
+                texts.clear();
+            }
+        };
+        for (index, cell) in cells.iter().enumerate() {
+            if cell.is_null() {
+                return failed(property_of_null("cell_type"));
+            }
+            match cell.get("cell_type").and_then(JsonValue::as_str) {
+                Some("markdown") => {
+                    let source = notebook_text(cell.get("source")).unwrap_or_default();
+                    text_len += mixdog_js::utf16_len(&source);
+                    texts.push(source);
+                }
+                Some("code") => {
+                    let mut block = notebook_text(cell.get("source")).unwrap_or_default();
+                    let mut images: Vec<(&'static str, String)> = Vec::new();
+                    for out in cell.get("outputs").and_then(JsonValue::as_array).map(Vec::as_slice).unwrap_or_default() {
+                        if out.is_null() {
+                            return failed(property_of_null("data"));
+                        }
+                        let data = out.get("data").filter(|d| js_truthy(d));
+                        let field = |key: &str| data.and_then(|d| d.get(key)).filter(|v| js_truthy(v));
+                        if let Some(raw) = field("text/plain").or_else(|| out.get("text").filter(|v| js_truthy(v))) {
+                            let text = notebook_text(Some(raw)).unwrap_or_default();
+                            let length = mixdog_js::utf16_len(&text);
+                            if raw.is_string() || raw.is_array() {
+                                if length > IPYNB_OUTPUT_MAX_CHARS {
+                                    block.push_str(&format!(
+                                        "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
+                                    ));
+                                    continue;
+                                }
+                            }
+                            block.push_str(&format!("\n# Output:\n{text}"));
+                        } else if let Some((mime, raw)) = field("image/png").map(|v| ("image/png", v)).or_else(|| field("image/jpeg").map(|v| ("image/jpeg", v))) {
+                            images.push((mime, notebook_text(Some(raw)).unwrap_or_default()));
+                            block.push_str(&format!("\n# Output: [image output — cell {index}]"));
+                        }
+                    }
+                    let fenced = format!("```python\n{block}\n```");
+                    text_len += mixdog_js::utf16_len(&fenced);
+                    texts.push(fenced);
+                    if !text_only && !images.is_empty() {
+                        flush(&mut texts, &mut blocks);
+                        for (mime, b64) in images {
+                            blocks.extend(self.notebook_image(ctx, &format!("{full_path} [cell {index}]"), &b64, mime).await);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        flush(&mut texts, &mut blocks);
+        if text_len > READ_MAX_OUTPUT_BYTES {
+            blocks = cap_notebook_text(blocks, READ_MAX_OUTPUT_BYTES);
+        }
+        if blocks.is_empty() {
+            return Ok(Body::text("(empty notebook)"));
+        }
+        if !blocks.iter().any(|b| matches!(b, ToolPart::Image { .. })) {
+            let joined = blocks.iter().map(|b| if let ToolPart::Text(t) = b { t.as_str() } else { "" }).collect::<Vec<_>>().join("\n\n");
+            return Ok(Body::text(if joined.is_empty() { "(empty notebook)".to_owned() } else { joined }));
+        }
+        Ok(Body { parts: blocks, rich: true, ..Body::default() })
+    }
+
+    /// `imageBlocksFromBuffer` (after Node's `Buffer.from(b64, 'base64')`) for a notebook image: its resize note and the resized image, or nothing when it
+    /// cannot be resized (the cell keeps its placeholder).
+    async fn notebook_image(&self, ctx: &ToolContext, source: &str, b64: &str, mime: &'static str) -> Vec<ToolPart> {
+        let bytes = node_base64(b64);
+        let Some(images) = &self.images else { return Vec::new() };
+        if bytes.is_empty() {
+            return Vec::new();
+        }
+        let format = mime.split('/').nth(1).unwrap_or("png");
+        match guarded(ctx, "read", images.resize(&ctx.thread_id, &bytes, format)).await {
+            Ok(Ok(Some(image))) => match base64::engine::general_purpose::STANDARD.decode(&image.data_base64) {
+                Ok(data) => vec![
+                    ToolPart::Text(image_metadata(&image, source)),
+                    ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data) },
+                ],
+                Err(_) => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    }
+
     /// `readImageAsContent`: the resized image behind its metadata line; without a resizer, the
     /// original under the inline-view cap.
     async fn image_body(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
@@ -1652,6 +1879,9 @@ impl ReadTool {
                 include_hidden: false,
                 respect_ignore: true,
                 include_dirs: false,
+                prune: Vec::new(),
+                descent: Default::default(),
+                server: None,
             },
         );
         let mut hits = Vec::new();
@@ -1750,6 +1980,75 @@ fn image_metadata(image: &ResizedImage, source: &str) -> String {
     }
     format!("[Image: {}]", parts.join(", "))
 }
+/// `joinedNotebookText(value) || ''` as a template inserts it: an array joined with nothing (each element as
+/// `String` gives it, null as empty), anything else as `String(value)`; a falsy result is none.
+fn notebook_text(value: Option<&JsonValue>) -> Option<String> {
+    let value = value.filter(|v| js_truthy(v))?;
+    let text = match value {
+        JsonValue::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                JsonValue::Null => String::new(),
+                JsonValue::String(s) => s.clone(),
+                other => mixdog_js::value_to_string(other),
+            })
+            .collect(),
+        JsonValue::String(s) => s.clone(),
+        other => mixdog_js::value_to_string(other),
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+/// JavaScript truthiness of a parsed JSON value.
+fn js_truthy(value: &JsonValue) -> bool {
+    match value {
+        JsonValue::Null => false,
+        JsonValue::Bool(flag) => *flag,
+        JsonValue::Number(n) => n.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        JsonValue::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+/// `capNotebookText`: text blocks kept until `max` UTF-16 units, the one that crosses it cut, then the cut marked;
+/// image blocks pass uncounted.
+fn cap_notebook_text(blocks: Vec<ToolPart>, max: usize) -> Vec<ToolPart> {
+    let mut running = 0usize;
+    let mut truncated = false;
+    let mut capped = Vec::new();
+    for block in blocks {
+        let ToolPart::Text(text) = &block else {
+            capped.push(block);
+            continue;
+        };
+        if running >= max {
+            truncated = true;
+            continue;
+        }
+        let length = mixdog_js::utf16_len(text);
+        if running + length > max {
+            capped.push(ToolPart::Text(mixdog_js::slice_utf16(text, max - running)));
+            running = max;
+            truncated = true;
+        } else {
+            running += length;
+            capped.push(block);
+        }
+    }
+    if truncated {
+        capped.push(ToolPart::Text(format!(
+            "\n\n{}",
+            cap_marker(&format_cap_size(max), "notebook cells cut", None, "grep the notebook for the cell text you need")
+        )));
+    }
+    capped
+}
+
+/// A regular file named `.ipynb` (any case, as Node lowercases `extname`).
+fn is_notebook(stat: &mixdog_core_api::domain::fs::FileStat, raw: &str) -> bool {
+    stat.kind == EntryKind::File && Path::new(raw.trim()).extension().is_some_and(|x| x.eq_ignore_ascii_case("ipynb"))
+}
+
 /// The extension-pool method a file needs: PDF and OOXML by magic bytes, or by
 /// the declared extension when the container itself is damaged.
 fn document_method(bytes: &[u8], raw: &str) -> Option<&'static str> {
@@ -2116,4 +2415,34 @@ fn split_glob(raw: &str) -> (String, String) {
     let base = parts[..first].join("/");
     let pattern = parts[first..].join("/");
     (if base.is_empty() { ".".to_owned() } else { base }, pattern)
+}
+
+/// Node's `Buffer.from(text, 'base64')`: the standard and URL-safe alphabets, every other character (line breaks
+/// included) skipped, decoding ended by the first `=`; a trailing lone sextet carries no byte. Node reads the string's
+/// UTF-16 code units through their low byte (nbytes `Base64Decode` over `uint16_t`), so `Ł` (U+0141) counts as `A` and
+/// `丽` (U+4E3D) as `=`; an astral character is a surrogate pair, whose high half (0xD8xx-0xDBxx) has a low byte of its
+/// own, `=` for U+1F600's 0xD83D.
+fn node_base64(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for unit in text.encode_utf16() {
+        let b = unit as u8;
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            _ => continue,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
 }
