@@ -56,9 +56,15 @@ pub(crate) struct ApprovalActor {
     open: Mutex<HashMap<ServerRequestId, Open>>,
     /// The `approval.resolved` records, in the order they were persisted.
     resolved: Mutex<Vec<(ServerRequestId, ApprovalResolution)>>,
+    /// What `decide` refuses with, synchronously, instead of deciding.
+    refusal: Mutex<Option<CoreError>>,
 }
 
 impl ApprovalActor {
+    pub(crate) fn refuse_with(&self, error: CoreError) {
+        *lock(&self.refusal) = Some(error);
+    }
+
     pub(crate) fn new(thread: &str, sink: Arc<dyn ServerRequestSink>) -> Self {
         Self {
             thread: ThreadId::from(thread),
@@ -67,6 +73,7 @@ impl ApprovalActor {
             next_order: AtomicU64::new(1),
             open: Mutex::default(),
             resolved: Mutex::default(),
+            refusal: Mutex::default(),
         }
     }
 
@@ -104,6 +111,9 @@ impl ApprovalActor {
 
     /// P §8.4 steps 2–5: still pending, decodes, allowed; the first that passes wins.
     pub(crate) fn decide(&self, decision: Decision) -> Result<(), CoreError> {
+        if let Some(error) = lock(&self.refusal).clone() {
+            return Err(error);
+        }
         let resolution = {
             let mut open = lock(&self.open);
             // Every later Decide for a resolved request is a no-op.
