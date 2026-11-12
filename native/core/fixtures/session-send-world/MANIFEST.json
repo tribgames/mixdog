@@ -53,7 +53,7 @@
   },
   "provenance": {
     "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
-    "recorderSha256": "594abd098b3a30b30bdefd3b7421e390d875abce04f6fbeabed525b7f00ce0a3",
+    "recorderSha256": "e62c6e65114bc37358d43ef466b22d9df16748d21167dae6c462f8bce8c8651f",
     "nodeVersion": "v22.20.0",
     "inputs": [
       {
