@@ -201,9 +201,13 @@ pub enum RecoveredRow {
 /// tool phase when the last row is a call batch.
 pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<RecoveredRow>, String> {
     let known = rows.iter().map(crate::message_row::message_of).collect::<Result<Vec<_>, _>>()?;
-    let last = known.last();
+    // The turn as the process left it: a kill that cut an earlier recovery leaves the cancelled results it had saved at the tail,
+    // and Node recovers from the checkpoint it kept until the recovery was saved, so they are derived again (they come back
+    // as the same stored rows) instead of being read as results the turn itself produced.
+    let origin = known.len() - known.iter().rev().take_while(|m| m.role() == Role::Tool && m.text() == INTERRUPTED_TOOL_RESULT).count();
+    let last = known[..origin].last();
     let finalized = finalize_interrupted_turn(Interrupted {
-        transcript: known.clone(),
+        transcript: known[..origin].to_vec(),
         current_user_text: String::new(),
         response_started: last.is_some_and(|message| message.role() != Role::User),
         partial_assistant: String::new(),
