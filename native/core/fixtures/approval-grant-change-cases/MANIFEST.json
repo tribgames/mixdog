@@ -1,5 +1,5 @@
 {
-  "cases": 4,
+  "cases": 6,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-approval-grant-change-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "No wire in the Node test.",
@@ -10,15 +10,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1950,
+      "bytes": 4629,
       "path": "golden.json",
-      "sha256": "44491f0f538c8699793f688db946f6c76fbaa887d2e10671aefa6391b702d488"
+      "sha256": "ae1b1bf5ddc520b7e5c15b0f2c97e413b9889a3e871b6bc6fc45dbe25061f9e6"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/approval-grant-scenarios.mjs",
-      "sha256": "29e3f8cd4556e2985d86faca766364b1f5523c012738b7889facc2e63608e9a8"
+      "sha256": "b217b18b4954404adffc96e97ddd142e2fd52d2ba782462c2caf01e48af348be"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
@@ -72,20 +72,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-approval-grant-change-cases.mjs",
-  "recorderSha256": "48d5f5c26089760bd982d6716cbc64879fce00daec9cbc3695a4a3ca35c7b4ac",
+  "recorderSha256": "9151b66432b580b82abb5ae66663de12425c64b0dd1308db639ec919d6e90605",
   "replay": {
     "compare": "the desktop's approval answer (apps/desktop/src/main/approval-grant-change.ts through ipc-sessions.ts and remote-methods.ts): replay each case and compare the answer and the operations issued whole",
-    "entry": "Drive these public items on o1: thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs.",
+    "entry": "Drive these public items on o1: thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs, the audience by mixdog-app-server settings_change_feed.rs, the refused save by mixdog-agent tests policy_gate.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {},
     "protocolMethods": [
-      "thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs"
+      "thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs, the audience by mixdog-app-server settings_change_feed.rs, the refused save by mixdog-agent tests policy_gate.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs"
     ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "approval-grant-change-cases",
-  "totalBytes": 1950,
+  "totalBytes": 4629,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

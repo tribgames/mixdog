@@ -17,6 +17,7 @@ mod queues;
 mod routing;
 mod sample;
 mod session_transport;
+mod settings_change_feed;
 mod storm;
 mod subscriptions;
 

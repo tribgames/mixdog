@@ -81,6 +81,119 @@
         "refusedAnswer": false,
         "refusedOps": []
       }
+    },
+    {
+      "case": "the announcement reaches this PC's window and every paired phone, the answering one included",
+      "observed": {
+        "thisPc": {
+          "answered": true,
+          "window": [
+            {
+              "scope": "permissions"
+            }
+          ],
+          "relay": [
+            {
+              "payload": {
+                "event": "settings-changed",
+                "payload": {
+                  "scope": "permissions"
+                }
+              },
+              "droppable": false,
+              "to": [
+                "phone-1",
+                "phone-2"
+              ]
+            }
+          ]
+        },
+        "phone1": {
+          "answered": true,
+          "window": [
+            {
+              "scope": "permissions"
+            }
+          ],
+          "relay": [
+            {
+              "payload": {
+                "event": "settings-changed",
+                "payload": {
+                  "scope": "permissions"
+                }
+              },
+              "droppable": false,
+              "to": [
+                "phone-1",
+                "phone-2"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "an approval whose grant cannot be saved is accepted, announced and runs the call once",
+      "observed": {
+        "saved": {
+          "answered": true,
+          "outcome": null,
+          "notices": [],
+          "stored": "auto",
+          "window": [
+            {
+              "scope": "permissions"
+            }
+          ],
+          "relay": [
+            {
+              "payload": {
+                "event": "settings-changed",
+                "payload": {
+                  "scope": "permissions"
+                }
+              },
+              "droppable": false,
+              "to": [
+                "phone-1",
+                "phone-2"
+              ]
+            }
+          ]
+        },
+        "refused": {
+          "answered": true,
+          "outcome": null,
+          "notices": [
+            [
+              "Allowed this once. The setting could not be saved.",
+              "warn"
+            ]
+          ],
+          "stored": "needs_approval",
+          "window": [
+            {
+              "scope": "permissions"
+            }
+          ],
+          "relay": [
+            {
+              "payload": {
+                "event": "settings-changed",
+                "payload": {
+                  "scope": "permissions"
+                }
+              },
+              "droppable": false,
+              "to": [
+                "phone-1",
+                "phone-2"
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }
