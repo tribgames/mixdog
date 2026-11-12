@@ -74,11 +74,28 @@ function scenario(name, failures, run) {
   return { name, failures, run };
 }
 
+// The one write every scenario makes, and the first back-offs of a round (RETRY_DELAYS_MS of the queue).
+const INPUT = { session: 'sess_row', row: { status: 'running' } };
+const BACKOFFS = [50, 250, 1000];
+
 async function play({ name, failures, run }) {
   const file = join(root, `${name}.json`);
   let left = failures;
   let building = false;
   const attempts = [];
+  // What a replay does, in order, and the state after each clock move: `flush` starts a flush, `recover` lets the store
+  // answer from now on, `advance` moves the clock by `by` ms and records what has been attempted, written and settled by then.
+  const steps = [];
+  const flushes = new Map(); // id -> { at, ok, error }
+  const snap = (by) =>
+    steps.push({
+      op: 'advance',
+      by,
+      at: elapsed(),
+      attempts: attempts.length,
+      indexed: existsSync(file) ? Object.keys(JSON.parse(readFileSync(file, 'utf8')).rows) : [],
+      settled: [...flushes].filter(([, state]) => state.ok !== null).map(([id, state]) => ({ id, ...state })),
+    });
   const queue = createIndexWriteQueue({
     file,
     readDoc: () => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { rows: {} }),
@@ -97,69 +114,90 @@ async function play({ name, failures, run }) {
   });
   const ctx = {
     queue,
-    settle: async (promise) => {
+    settle: async (id, promise) => {
       const state = { at: null, ok: null, error: null };
+      flushes.set(id, state);
+      steps.push({ op: 'flush', id, at: elapsed() });
       promise.then(
         () => Object.assign(state, { at: elapsed(), ok: true }),
         (error) => Object.assign(state, { at: elapsed(), ok: false, error: error.message }),
       );
+      await quiesce(() => state.ok !== null);
+      snap(0);
       for (let guard = 0; state.ok === null; guard += 1) {
         if (guard > 40) throw new Error(`${name}: the flush did not settle`);
-        await quiesce(() => state.ok !== null);
-        if (state.ok !== null) break;
         const next = Math.min(...[...armed.values()].map((timer) => timer.at));
         if (!Number.isFinite(next)) throw new Error(`${name}: the flush neither settled nor armed a timer`);
-        mock.timers.tick(next - elapsed());
+        const by = next - elapsed();
+        mock.timers.tick(by);
         for (const [handle, timer] of armed) if (timer.at <= elapsed()) armed.delete(handle);
+        await quiesce(() => state.ok !== null);
+        snap(by);
       }
-      return state;
+      return { at: state.at, ok: state.ok, error: state.error };
     },
     set recover(value) {
       left = value;
+      steps.push({ op: 'recover', failures: value });
     },
     afterFailure: () => Math.max(...delays),
     advance: async (ms) => {
       mock.timers.tick(ms);
       for (const [handle, timer] of armed) if (timer.at <= elapsed()) armed.delete(handle);
       await quiesce();
+      snap(ms);
     },
     file: () => (existsSync(file) ? Object.keys(JSON.parse(readFileSync(file, 'utf8')).rows) : []),
   };
   startClock();
   building = true;
-  const wrote = queue.write((rows) => rows.set('sess_row', { status: 'running' }));
+  const wrote = queue.write((rows) => rows.set(INPUT.session, structuredClone(INPUT.row)));
   building = false;
   if (!wrote) throw new Error(`${name}: the queue refused the write`);
   const outcome = await run(ctx);
   await quiesce();
-  const result = { name, failures: failures === FOREVER ? 'always' : failures, attempts: [...attempts], delays: [...delays], ...outcome, failureReports: queueReports.length, indexed: ctx.file(), unpersisted: queue.hasUnpersisted() };
+  const result = { name, failures: failures === FOREVER ? 'always' : failures, input: INPUT, attempts: [...attempts], delays: [...delays], ...outcome, failureReports: queueReports.length, indexed: ctx.file(), unpersisted: queue.hasUnpersisted(), steps: [...steps] };
   // Not recorded: the queue recovers and settles, so no later scenario's drain sees it.
   left = 0;
-  await ctx.settle(queue.flush());
+  await ctx.settle('cleanup', queue.flush());
   stopClock();
   queueReports.length = 0;
   return result;
 }
 
+// A flush that arrives 10 ms into back-off `during` of the round the retry timer started (the first round failed after four
+// attempts), which then fails (`recovers` false) or succeeds at the attempt after that back-off.
+const joinsTimerRound = (during, recovers) =>
+  scenario(`a_flush_in_backoff_${during}_of_the_timer_round_${recovers ? 'recovers' : 'fails'}`, recovers ? 4 + during + 1 : FOREVER, async (c) => {
+    const first = await c.settle('flush', c.queue.flush());
+    const retryAfter = c.afterFailure();
+    await c.advance(retryAfter);
+    for (let i = 0; i < during; i += 1) await c.advance(BACKOFFS[i]);
+    await c.advance(10);
+    const joinedAt = elapsed();
+    return { flush: first, retryAfter, joinedAt, joined: await c.settle('joined', c.queue.flush()) };
+  });
+
 const scenarios = [
-  scenario('recovers_on_the_second_attempt', 1, async (c) => ({ flush: await c.settle(c.queue.flush()) })),
-  scenario('recovers_on_the_last_attempt', 3, async (c) => ({ flush: await c.settle(c.queue.flush()) })),
-  scenario('fails_after_four_attempts', FOREVER, async (c) => ({ flush: await c.settle(c.queue.flush()) })),
+  scenario('recovers_on_the_second_attempt', 1, async (c) => ({ flush: await c.settle('flush', c.queue.flush()) })),
+  scenario('recovers_on_the_last_attempt', 3, async (c) => ({ flush: await c.settle('flush', c.queue.flush()) })),
+  scenario('fails_after_four_attempts', FOREVER, async (c) => ({ flush: await c.settle('flush', c.queue.flush()) })),
   scenario('a_later_flush_retries_the_kept_batch', 4, async (c) => {
-    const first = await c.settle(c.queue.flush());
-    return { flush: first, later: await c.settle(c.queue.flush()) };
+    const first = await c.settle('flush', c.queue.flush());
+    return { flush: first, later: await c.settle('later', c.queue.flush()) };
   }),
   scenario('the_retry_timer_retries_the_kept_batch', 4, async (c) => {
-    const first = await c.settle(c.queue.flush());
+    const first = await c.settle('flush', c.queue.flush());
     const retryAfter = c.afterFailure();
     await c.advance(retryAfter);
     return { flush: first, retryAfter, retriedAt: c.queue.hasUnpersisted() ? null : elapsed() };
   }),
   scenario('the_stop_drain_with_a_batch_still_failing', FOREVER, async (c) => {
-    const drain = await c.settle(flushAllIndexWrites());
+    const drain = await c.settle('flush', flushAllIndexWrites());
     c.recover = 0;
-    return { flush: drain, laterDrain: await c.settle(flushAllIndexWrites()) };
+    return { flush: drain, laterDrain: await c.settle('laterDrain', flushAllIndexWrites()) };
   }),
+  ...[0, 1, 2].flatMap((during) => [joinsTimerRound(during, false), joinsTimerRound(during, true)]),
 ];
 
 const played = [];
