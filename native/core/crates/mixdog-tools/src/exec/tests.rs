@@ -391,13 +391,74 @@ async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_
 async fn a_jobs_log_record_shows_it_running_until_it_ends() {
     let rig = rig();
     let (out, err) = (rig.dir.path().join("task-r.stdout.log"), rig.dir.path().join("task-r.stderr.log"));
-    let (lanes, cancel) = (rig.runtime.config.lanes, CancellationToken::new());
-    let writer = super::spill::LogWriter::new(lanes.pty, &out, &err);
+    let writer = super::spill::LogWriter::new(rig.runtime.config.lanes.pty, &out, &err);
     writer.open().await;
     writer.close(super::spill::LOG_STALL).await;
     let record = || std::fs::read_to_string(rig.dir.path().join("task-r.owner.json")).unwrap();
     assert!(out.exists() && err.exists() && record().contains(r#""state":"running""#), "{}", record());
-    super::spill::mark_finished(lanes.durability, &cancel, &out).await;
+    writer.mark_finished(super::spill::LOG_STALL).await;
+    assert!(record().contains(r#""state":"finished""#), "{}", record());
+}
+
+/// A job's first drain is held before it creates the logs (a stalled disk) while the job ends: the close gives the
+/// writer up and the end is marked with no record to mark yet. The held creation, when it runs, records the job as
+/// ended: a record left saying running after the job's end would keep its logs from every sweep. Real io-pty threads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_creation_held_past_the_jobs_end_records_the_job_as_ended() {
+    let minute = std::time::Duration::from_secs(60);
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("d.stdout.log"), dir.path().join("d.stderr.log")];
+    let owner = dir.path().join("d.owner.json");
+    let gate = super::spill::write_gate::arm(dir.path());
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    mixdog_rt::time::timeout(minute, writer.open()).await.expect("the drain starts");
+    let reached = gate.clone();
+    tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
+    mixdog_rt::time::timeout(minute, writer.close(std::time::Duration::ZERO)).await.expect("closing returns while the creation is held");
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the mark ends while the creation is held");
+    assert!(!owner.exists(), "the held creation has written no record, and the mark creates none");
+    gate.open();
+    mixdog_rt::time::timeout(minute, writer.idle()).await.expect("the held creation ends");
+    let record = std::fs::read_to_string(&owner).unwrap();
+    assert!(record.contains(r#""state":"finished""#), "{record}");
+}
+
+/// The end of a job is marked on its logs' own lane and within a deadline: with the only io-pty thread held, the mark
+/// waits in io-pty's queue, the marking returns at its deadline with the record unchanged, and the mark is written
+/// once a thread is free.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn marking_a_jobs_end_waits_on_the_logs_lane_and_returns_at_its_deadline() {
+    use mixdog_rt::LaneToken;
+    let minute = std::time::Duration::from_secs(60);
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.pty_max_live = 1;
+    let (executors, tokens) = mixdog_rt::exec::boot(config).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("m.stdout.log"), dir.path().join("m.stderr.log")];
+    let record = || std::fs::read_to_string(dir.path().join("m.owner.json")).unwrap();
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    mixdog_rt::time::timeout(minute, writer.open()).await.expect("the drain starts");
+    let closed = mixdog_rt::time::timeout(minute, writer.close(minute)).await.expect("the logs are created");
+    assert_eq!(closed, super::spill::LogsClosed::Complete);
+    let (started, held_started) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let holder = tokens
+        .pty_io
+        .submit(&CancellationToken::new(), move |_| {
+            started.send(()).unwrap();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(60));
+        })
+        .expect("io-pty takes the holder");
+    held_started.recv_timeout(minute).expect("the only io-pty thread is held");
+    let pty_queue = || executors.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::PtyIo).unwrap().queue_depth;
+    mixdog_rt::time::timeout(minute, writer.mark_finished(std::time::Duration::ZERO)).await.expect("marking returns at its deadline");
+    assert_eq!(pty_queue(), 1, "the mark waits in io-pty's queue");
+    assert!(record().contains(r#""state":"running""#), "{}", record());
+    drop(release);
+    mixdog_rt::time::timeout(minute, holder).await.expect("the holder ends").unwrap();
+    // A second mark queues behind the first: when it has run, so has the first.
+    mixdog_rt::time::timeout(minute, writer.mark_finished(minute)).await.expect("the marks run once a thread is free");
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
 
