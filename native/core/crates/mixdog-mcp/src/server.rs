@@ -156,6 +156,10 @@ pub struct McpServer {
     generation: AtomicU64,
     connecting: AtomicBool,
     shutdown: CancellationToken,
+    /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
+    /// call path of a server the core never reaches over the network.
+    #[cfg(feature = "test-support")]
+    stand_in: Option<TransportConfig>,
 }
 
 struct ConnectingGuard<'a>(&'a AtomicBool);
@@ -328,7 +332,16 @@ impl McpServer {
             generation: AtomicU64::new(0),
             connecting: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
+            #[cfg(feature = "test-support")]
+            stand_in: None,
         })
+    }
+
+    /// [`McpServer::new`] for a server that is `config` to every check but is served over `served_by`'s transport.
+    #[cfg(feature = "test-support")]
+    pub fn standing_in(config: McpServerConfig, served_by: TransportConfig, io: McpIo, spiller: Spiller, policy: OutputPolicy) -> Arc<Self> {
+        let server = Self::new(config, io, spiller, policy, None);
+        Arc::new(Self { stand_in: Some(served_by), ..Arc::try_unwrap(server).unwrap_or_else(|_| unreachable!("a new server has one owner")) })
     }
 
     pub fn name(&self) -> &str {
@@ -418,7 +431,11 @@ impl McpServer {
     }
 
     async fn open_transport(&self) -> Result<(Arc<dyn Transport>, IncomingRx), TransportError> {
-        match &self.config.transport {
+        #[cfg(feature = "test-support")]
+        let transport = self.stand_in.as_ref().unwrap_or(&self.config.transport);
+        #[cfg(not(feature = "test-support"))]
+        let transport = &self.config.transport;
+        match transport {
             TransportConfig::Stdio { command, args, env, cwd } => {
                 let (transport, rx) = StdioTransport::spawn(
                     self.io.spawn,
