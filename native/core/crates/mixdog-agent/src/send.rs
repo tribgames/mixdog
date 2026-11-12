@@ -126,6 +126,11 @@ impl Drop for SendGroup {
     }
 }
 
+/// A failure of the WebSocket itself: a close, or the acquire's own timeout (`EWSACQUIRETIMEOUT`).
+fn is_ws_failure(error: &ProviderError) -> bool {
+    matches!(error.transport, Some(TransportFault::WsClose { .. })) || error.code.as_deref() == Some("EWSACQUIRETIMEOUT")
+}
+
 /// The facts that end a stream after it started.
 fn is_stream_cut(error: &ProviderError) -> bool {
     matches!(
@@ -318,6 +323,7 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
+                    self.first_ws_failure = None;
                     self.image_strip_active = false;
                     self.image_strip_used = false;
                     if let Some(group) = self.send_group.take() {
@@ -588,6 +594,9 @@ impl Run {
             shown_chars,
             reasoning_shown,
         } = fail;
+        if is_ws_failure(&error) && self.first_ws_failure.is_none() {
+            self.first_ws_failure = Some(error.clone());
+        }
         // Parsed tool calls survive a cut stream: continuing is not replaying.
         // The calls resolve and run exactly once, and the next request carries
         // them forward. A half-streamed call is never one of them.
@@ -641,6 +650,7 @@ impl Run {
 
         let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
+        let mut exhausted = false;
         let provider = Arc::clone(&self.provider);
         let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
         let committed = loop {
@@ -659,6 +669,7 @@ impl Run {
                 }
                 Verdict::Fallback { model } => break Some((decision.next, None, Some(model))),
                 Verdict::Exhausted => {
+                    exhausted = true;
                     spent.push(decision.next);
                     match escalate(class, &decide_on) {
                         Some(next) => class = next,
@@ -690,7 +701,12 @@ impl Run {
             for state in spent {
                 self.retry.store(state);
             }
-            return self.surface(error).await;
+            // A spent WebSocket budget surfaces the outage's first failure (`exhausted()`, `firstAttemptError`).
+            let surfaced = match self.first_ws_failure.take() {
+                Some(first) if exhausted && is_ws_failure(&error) => first,
+                _ => error,
+            };
+            return self.surface(surfaced).await;
         };
         if retractable && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
             for state in spent {
@@ -712,6 +728,7 @@ impl Run {
         if let Some(model) = fallback {
             self.model = model.clone();
             self.retry = RetryStates::new(&model);
+            self.first_ws_failure = None;
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
@@ -824,6 +841,7 @@ impl Run {
         self.config.text_only = switch.text_only;
         self.model = switch.model.clone();
         self.retry = RetryStates::new(&self.model);
+        self.first_ws_failure = None;
         self.context_overflow_retry_used = false;
         self.baseline = None;
         self.emit(RunEvent::Stage(Stage::Notice {
