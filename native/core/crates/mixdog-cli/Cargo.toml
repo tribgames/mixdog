@@ -48,7 +48,6 @@ mixdog-scm = { workspace = true, optional = true }
 mixdog-secrets = { workspace = true, optional = true }
 mixdog-spawn = { workspace = true, optional = true }
 mixdog-tools = { workspace = true, optional = true }
-mixdog-services = { workspace = true, optional = true }
 mixdog-workspace = { workspace = true, optional = true }
 mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }
@@ -136,4 +135,3 @@ mixdog-services = { workspace = true, features = ["test-support"] }
 [target.'cfg(windows)'.dev-dependencies]
 # The CLI replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
->>>>>>> 2bea2584d
