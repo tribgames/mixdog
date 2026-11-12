@@ -12,8 +12,9 @@ use crate::state::CoreState;
 use crate::state::ProjectRow;
 
 /// One `projects` row per Project a session was opened in (`desktopSession.classification` "project", its `projectPath`), named
-/// as `add` names it (the folder) and last used when its newest session was; returns how many. The aliases, hidden marks and
-/// renames of the lost rows, and a Project no session was opened in, cannot be known and stay lost.
+/// as `add` names it (the folder) and last used when its newest session was; returns how many. A folder that no longer exists is
+/// no Project, as `add` refuses it. The aliases, hidden marks and renames of the lost rows, and a Project no session was opened
+/// in, cannot be known and stay lost.
 pub async fn rebuild_projects(state: &CoreState, index: &SqliteStore) -> Result<usize, DbError> {
     let mut newest: BTreeMap<String, Option<i64>> = BTreeMap::new();
     for listed in index.list_sessions(false, None, None).await? {
@@ -22,6 +23,10 @@ pub async fn rebuild_projects(state: &CoreState, index: &SqliteStore) -> Result<
             continue;
         }
         let Some(path) = desktop.get("projectPath").and_then(Value::as_str) else { continue };
+        // The registry registers a folder that exists (`Catalog::add`'s `canonical_directory`): a deleted or moved one is no Project.
+        if !mixdog_fsio::is_dir(&mixdog_fsio::Unlaned, path) {
+            continue;
+        }
         let used = ["lastUsedAt", "updatedAt"]
             .iter()
             .filter_map(|key| listed.row.get(*key).and_then(Value::as_f64))

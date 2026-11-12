@@ -61,7 +61,7 @@ fn asides(dir: &Path) -> Vec<(String, Vec<u8>)> {
         .unwrap()
         .filter_map(|e| e.unwrap().file_name().into_string().ok())
         .filter_map(|name| name.strip_prefix("core.sqlite").map(str::to_owned))
-        .filter(|suffix| suffix.starts_with(".corrupt-") && !suffix.ends_with("-wal") && !suffix.ends_with("-shm"))
+        .filter(|suffix| suffix.starts_with(".corrupt-") && !["-wal", "-shm", "-journal"].iter().any(|side| suffix.ends_with(side)))
         .map(|suffix| {
             let bytes = std::fs::read(dir.join(format!("core.sqlite{suffix}"))).unwrap();
             (suffix, bytes)
@@ -144,6 +144,74 @@ async fn a_database_of_another_identity_is_set_aside_but_one_a_newer_build_wrote
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_newer_schema_whose_version_is_only_in_the_wal_is_refused_and_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    good_file(&path).await;
+    // Another reader keeps the WAL open, so the new version is in the WAL and not in the main file's header.
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    holder.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+    holder.pragma_update(None, "user_version", 99).unwrap();
+    let wal = dir.path().join("core.sqlite-wal");
+    let (main_before, wal_before) = (std::fs::read(&path).unwrap(), std::fs::read(&wal).unwrap());
+    assert_eq!(i32::from_be_bytes(main_before[60..64].try_into().unwrap()), 2, "the header still says the old version");
+    assert!(!wal_before.is_empty());
+
+    assert!(matches!(open_aside(&path), Err(DbError::Rebuild(_))), "SQLite answers 99: a newer build's file is refused, not set aside");
+    assert_eq!((std::fs::read(&path).unwrap(), std::fs::read(&wal).unwrap()), (main_before, wal_before), "and left as it was");
+    assert!(asides(dir.path()).is_empty());
+    drop(holder);
+}
+
+/// What `core.sqlite` and its sidecars hold before the set-aside (a database no one can open, with leftovers of its WAL).
+const SIDECARS: [(&str, &[u8]); 3] = [("-wal", b"wal frames"), ("-shm", b"shared index"), ("-journal", b"rollback journal")];
+
+#[test]
+fn a_set_aside_interrupted_at_any_step_is_finished_by_the_next_start_or_leaves_the_original_whole() {
+    let damaged = b"this is not a database, and it is long enough to be read as one. ".repeat(4);
+    for step in 0..=5 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.sqlite");
+        let at = |suffix: &str| dir.path().join(format!("core.sqlite{suffix}"));
+        std::fs::write(&path, &damaged).unwrap();
+        for (suffix, bytes) in SIDECARS {
+            std::fs::write(at(suffix), bytes).unwrap();
+        }
+
+        crate::state::SET_ASIDE_FAULT.with(|f| f.set(Some(step)));
+        let interrupted = crate::state::set_aside_file(&path);
+        crate::state::SET_ASIDE_FAULT.with(|f| f.set(None));
+        assert!(interrupted.is_err(), "step {step}: the fault stops the set-aside");
+        let marked = at(".set-aside").exists();
+        assert_eq!(marked, step > 0, "step {step}: the marker is there from its write on");
+        assert!(path.exists() || marked, "step {step}: the name is never free without a marker to finish the move");
+        if step == 0 {
+            assert_eq!(std::fs::read(&path).unwrap(), damaged);
+            assert!(SIDECARS.iter().all(|(suffix, bytes)| std::fs::read(at(suffix)).unwrap() == *bytes), "nothing moved");
+        }
+
+        let (state, _, aside) = open_aside(&path).unwrap_or_else(|e| panic!("step {step}: the next start must open: {e}"));
+        let (kept, _) = aside.file.unwrap_or_else(|| panic!("step {step}: the next start reports what it kept"));
+        let kept_at = |suffix: &str| std::fs::read(format!("{}{suffix}", kept.display()));
+        assert_eq!(kept_at("").unwrap(), damaged, "step {step}: the kept copy holds the database");
+        if step > 0 {
+            for (suffix, bytes) in SIDECARS {
+                assert_eq!(kept_at(suffix).unwrap(), bytes, "step {step}: and its {suffix}");
+                assert_ne!(std::fs::read(at(suffix)).ok().as_deref(), Some(bytes), "step {step}: the new database meets no old {suffix}");
+            }
+        }
+        assert!(!at(".set-aside").exists(), "step {step}: the marker is gone");
+        assert_eq!(asides(dir.path()).len(), 1, "step {step}: one kept copy");
+        assert!(tokio_free_block(state.projects()).is_empty(), "step {step}: the database is new");
+        state.close();
+    }
+}
+
+fn tokio_free_block<T>(future: impl std::future::Future<Output = Result<T, DbError>>) -> T {
+    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(future).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_state_gets_its_projects_back_from_the_sessions_recorded_folders() {
     use mixdog_rt::LaneToken;
 
@@ -161,7 +229,12 @@ async fn a_new_state_gets_its_projects_back_from_the_sessions_recorded_folders()
         })
         .expect("lane");
     let index = rx.recv().expect("job ran").unwrap();
-    for (id, class, path, used) in [("s1", "project", "/work/alpha", 100), ("s2", "project", "/work/alpha", 300), ("s3", "project", "/work/beta", 50), ("s4", "task", "/work/none", 900)] {
+    let folders = tempfile::tempdir().unwrap();
+    let [alpha, beta, gone] = ["alpha", "beta", "deleted"].map(|n| folders.path().join(n).to_string_lossy().into_owned());
+    for folder in [&alpha, &beta] {
+        std::fs::create_dir(folder).unwrap();
+    }
+    for (id, class, path, used) in [("s1", "project", &alpha, 100), ("s2", "project", &alpha, 300), ("s3", "project", &beta, 50), ("s4", "task", &alpha, 900), ("s5", "project", &gone, 700)] {
         let header = json!({"id": id, "title": "t", "updatedAt": used, "lastUsedAt": used, "desktopSession": {"classification": class, "projectPath": path}});
         let head = CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
         index.upsert(head, DirtyMark::Set).await.unwrap();
@@ -173,8 +246,8 @@ async fn a_new_state_gets_its_projects_back_from_the_sessions_recorded_folders()
         state.projects().await.unwrap().into_iter().map(|p| (p.path, p.name, p.last_used_at, p.alias.is_none() && !p.hidden)).collect();
     assert_eq!(
         rows,
-        [("/work/alpha".to_owned(), Some("alpha".to_owned()), Some(300), true), ("/work/beta".to_owned(), Some("beta".to_owned()), Some(50), true)],
-        "one row per Project, last used when its newest session was; a task session is no Project"
+        [(alpha, Some("alpha".to_owned()), Some(300), true), (beta, Some("beta".to_owned()), Some(50), true)],
+        "one row per Project, last used when its newest session was; a task session and a deleted folder are no Project"
     );
     state.close();
     index.close();
