@@ -30,10 +30,16 @@ fn step() -> StepInput {
 /// fails the test instead of hanging it.
 async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
     let mut changes = tick.subscribe();
-    while !done() {
-        changes.changed().await.expect("tick lives");
-    }
+    let waited = async {
+        while !done() {
+            changes.changed().await.expect("tick lives");
+        }
+    };
+    mixdog_rt::time::timeout(UNTIL_LIMIT, waited).await.expect("the awaited state did not come before the limit (the product published no tick that made it true)");
 }
+
+/// How long [`until`] waits: longer than the slowest step it covers (a real model's download and load on a loaded machine).
+const UNTIL_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Lets queued background work run so a trigger that must NOT fire has had its chance.
 async fn settle() {
