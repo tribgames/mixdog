@@ -26,7 +26,7 @@ export function coreEnvironment(packaged: boolean, resourcesPath: string, userDa
   return packaged ? { ...base, MIXDOG_ROOT: packagedMixdogRoot(resourcesPath), MIXDOG_DESKTOP_USER_DATA: userData } : base;
 }
 
-async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcPort: number | null; blocked: unknown }> {
+async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcPort: number | null; blocked: unknown; pid: number | null }> {
   let text: string;
   try {
     text = await readFile(join(runtimeRoot, 'daemon.json'), 'utf8');
@@ -36,11 +36,14 @@ async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcP
     }
     throw error;
   }
-  const core = (JSON.parse(text) as { core?: { state?: unknown; rpc?: { port?: unknown }; blocked?: unknown } }).core;
+  const discovery = JSON.parse(text) as { pid?: unknown; core?: { state?: unknown; rpc?: { port?: unknown }; blocked?: unknown } };
+  const core = discovery.core;
   return {
     state: String(core?.state ?? 'unknown'),
     rpcPort: Number.isInteger(core?.rpc?.port) ? (core?.rpc?.port as number) : null,
     blocked: core?.blocked ?? null,
+    // Whose file this is: a core this app started and saw end is not waited for when the file still names it.
+    pid: Number.isInteger(discovery.pid) ? (discovery.pid as number) : null,
   };
 }
 

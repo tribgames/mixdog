@@ -45,8 +45,28 @@ function notReadyError(last) {
 }
 
 /**
+ * The core this launcher started has ended without serving, when nothing else can still bring one up: it ended
+ * abnormally (a clean exit is a contender that lost the claim to another core, which is waited for), and discovery
+ * names no core or names the ended one. Null while that is not known.
+ */
+function endedBeforeServing(capture, last) {
+  const record = capture?.snapshot?.();
+  if (!record?.exitedAt) return null;
+  if (record.exitCode === 0 && !record.exitSignal) return null;
+  if (last && last.pid !== record.pid) return null;
+  const summary = capture.summary?.() ?? {};
+  const reason = summary.exitReason || (record.exitSignal ? `killed by ${record.exitSignal}` : `exited with code ${record.exitCode ?? '?'}`);
+  const said = summary.stderrErrorLine || summary.stderrLastLine;
+  return Object.assign(new Error(`core is not ready: the core ended before serving (${reason})${said ? `: ${said}` : ''}`), {
+    coreDiscovery: last ?? null,
+    coreExit: { code: record.exitCode ?? null, signal: record.exitSignal ?? null, stderrPath: summary.stderrPath ?? null },
+  });
+}
+
+/**
  * Resolves the serving core's discovery. A `blocked` core is the user's decision, so it fails at once instead of
- * waiting; `booting`, `migrating` and `draining` end by themselves, so they are waited out.
+ * waiting; `booting`, `migrating` and `draining` end by themselves, so they are waited out. A core this call started
+ * that ends abnormally before serving fails at once too, with its exit and what it last said.
  */
 export async function ensureCore({
   readDiscovery,
@@ -72,6 +92,8 @@ export async function ensureCore({
       return last;
     }
     if (last?.state === 'blocked') throw notReadyError(last);
+    const ended = endedBeforeServing(capture, last);
+    if (ended) throw ended;
     if (!last && !launched) {
       launched = true;
       log('starting core');
