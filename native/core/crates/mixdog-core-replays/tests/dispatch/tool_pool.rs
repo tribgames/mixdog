@@ -51,7 +51,10 @@ use tokio_util::sync::CancellationToken;
 use mixdog_core::run_host::tool_pool::callers::ThreadCallers;
 use mixdog_core::run_host::tool_pool::model_surface::SurfaceInputs;
 use mixdog_core::run_host::tool_pool::model_surface::model_internal_tools;
+use mixdog_core::run_host::tool_pool::session_output::ListPage;
 use mixdog_core::run_host::tool_pool::session_port::AiTitleSetting;
+use mixdog_core::run_host::tool_pool::session_port::LiveWork;
+use mixdog_core::run_host::tool_pool::session_port::ThreadCatalog;
 use mixdog_core::run_host::tool_pool::session_port::BotIds;
 use mixdog_core::run_host::tool_pool::session_port::DirectorySessionPort;
 use mixdog_core::run_host::tool_pool::session_port::ProjectList;
@@ -380,6 +383,17 @@ impl ThreadRequests for Requests {
         self.calls.lock().expect("calls").push((thread.as_str().to_owned(), "compact-after-turn".to_owned(), Value::Null));
         Ok(())
     }
+    async fn submit(&self, thread: &ThreadId, _: &Value, id: &str, _: u32, _: &[String], _: Option<&str>) -> Result<bool, CoreError> {
+        self.calls.lock().expect("calls").push((thread.as_str().to_owned(), "submit".to_owned(), json!(id)));
+        Ok(true)
+    }
+    async fn start(&self, params: Value) -> Result<Value, CoreError> {
+        self.calls.lock().expect("calls").push((String::new(), "thread/start".to_owned(), params));
+        Ok(self.reply.lock().expect("reply").clone())
+    }
+    fn turn_state(&self, _: &ThreadId) -> (u32, Vec<String>) {
+        (0, Vec::new())
+    }
 }
 
 struct Bots(Vec<&'static str>);
@@ -388,6 +402,24 @@ struct Bots(Vec<&'static str>);
 impl BotIds for Bots {
     async fn ids(&self) -> Result<Vec<String>, String> {
         Ok(self.0.iter().map(|s| (*s).to_owned()).collect())
+    }
+    async fn name(&self, id: &str) -> String {
+        format!("Agent {id}")
+    }
+}
+
+struct NoCatalog;
+
+#[async_trait]
+impl ThreadCatalog for NoCatalog {
+    async fn page(&self, _: Option<&str>, _: usize) -> Result<ListPage, CoreError> {
+        Ok(ListPage { sessions: Vec::new(), next_cursor: None })
+    }
+    async fn row(&self, _: &str) -> Result<Option<Value>, CoreError> {
+        Ok(None)
+    }
+    fn live(&self) -> LiveWork {
+        LiveWork::default()
     }
 }
 
@@ -463,6 +495,8 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         projects: Arc::new(NoProjects),
         bots: Arc::new(Bots(vec!["ann"])),
         suggestions: suggested.clone(),
+        catalog: Arc::new(NoCatalog),
+        clock: Arc::new(Now),
         io: mixdog_rt::testing::tokens().interactive_io,
     }));
     Port { port, callers, threads, requests, suggested }
@@ -622,66 +656,33 @@ async fn compact_and_fork_answer_as_the_node_session_tool_does() {
     assert_eq!(got, refused["error"].as_str().expect("message"));
     assert!(compacts(&p).is_empty());
 
-    // fork: every recorded call shape.
+    // fork: every recorded call shape. A fork asked to compact is one `thread/fork` that carries the conversation compacted
+    // (Node's `inheritToNewSession({ compact })`), whose real compaction `fork_compact_node_tests.rs` replays.
+    let named = case("fork with compact true compacts the copy with the real compaction");
+    let p = port(&[("sess_main", json!({})), ("new-1", json!({}))], heirs());
+    let got = answer(&session_tool(&p), &ctx(), json!({ "action": "fork", "compact": true })).await.expect("fork with compact");
+    let want = named["out"].as_str().expect("text").replace("sess_fork_compact_src", "sess_main").replace("<heir>", "new-1");
+    assert_eq!(got, want);
+    let calls = p.requests.calls.lock().expect("calls").clone();
+    assert_eq!(calls.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), ["thread/fork"]);
+    assert_eq!(calls[0].2["compact"], json!(true));
     for (name, args) in [
-        ("fork asks the lifecycle with compact true", json!({ "action": "fork", "compact": true })),
         ("fork asks the lifecycle with compact false", json!({ "action": "fork", "compact": false })),
         ("fork asks the lifecycle with compact undefined", json!({ "action": "fork" })),
     ] {
         let recorded = case(name);
-        let compact = recorded["calls"][0][1]["compact"] == json!(true);
         let p = port(&[("sess_main", json!({})), ("new-1", json!({}))], heirs());
         let got = answer(&session_tool(&p), &ctx(), args).await.expect(name);
         assert_eq!(got, want_text(&recorded["out"], "sess-1", "sess_main"), "{name}");
-        let methods: Vec<String> = p.requests.calls.lock().expect("calls").iter().map(|c| c.1.clone()).collect();
-        let wanted: &[&str] = if compact { &["thread/fork", "thread/compact/start"] } else { &["thread/fork"] };
-        assert_eq!(methods, wanted, "{name}");
+        let calls = p.requests.calls.lock().expect("calls").clone();
+        assert_eq!(calls.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), ["thread/fork"], "{name}");
+        assert_eq!(calls[0].2["compact"], json!(false), "{name}");
     }
 }
-
-/// A fork asked to compact that cannot (nothing was reduced) leaves no copy behind, as Node's refusal leaves no heir.
-#[tokio::test]
-async fn a_fork_whose_compaction_is_skipped_is_removed_and_refused() {
-    struct Skipping(Requests);
-    #[async_trait]
-    impl ThreadRequests for Skipping {
-        async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
-            let reply = self.0.request(thread, method, params).await?;
-            Ok(if method == "thread/compact/start" { json!({ "skipped": true, "reason": "no reduction" }) } else { reply })
-        }
-        fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
-            self.0.interrupt(thread)
-        }
-        fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
-            self.0.compact_after_turn(thread)
-        }
-        async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
-            self.0.transcript(thread).await
-        }
-    }
-    let inner = Arc::new(Skipping(Requests { reply: Mutex::new(json!({ "thread": { "id": "sess_copy" } })), ..Requests::default() }));
-    let p = port(&[("sess_a", json!({})), ("sess_copy", json!({}))], Requests::default());
-    let port = DirectorySessionPort::new(SessionPortParts {
-        callers: p.callers.clone(),
-        threads: p.threads.clone(),
-        requests: inner.clone(),
-        titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(p.threads.clone(), Arc::new(Messages), Arc::new(Now))),
-        ai_titles: Arc::new(Titles(true)),
-        projects: Arc::new(NoProjects),
-        bots: Arc::new(Bots(vec![])),
-        suggestions: p.suggested.clone(),
-        io: mixdog_rt::testing::tokens().interactive_io,
-    });
-    let error = port.fork(&thread("sess_a"), true).await.expect_err("refused");
-    assert!(matches!(&error, PortError::Failed { message, .. } if message == "session: fork with compact failed (no reduction)"), "{error:?}");
-    let methods: Vec<String> = inner.0.calls.lock().expect("calls").iter().map(|c| c.1.clone()).collect();
-    assert_eq!(methods, ["thread/fork", "thread/compact/start", "thread/delete"]);
-}
-
 #[tokio::test]
 async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     let requests = Requests { reply: Mutex::new(json!(true)), interrupted: true, ..Requests::default() };
-    let p = port(&[("sess_a", json!({}))], requests);
+    let p = port(&[("sess_a", json!({})), ("sess_x", json!({}))], requests);
     p.port.sidebar(&thread("sess_a"), SidebarFlag::Favorite, true).await.expect("favorite");
     p.port.sidebar(&thread("sess_a"), SidebarFlag::Archived, true).await.expect("archive");
     p.port.sidebar(&thread("sess_a"), SidebarFlag::Archived, false).await.expect("restore");
@@ -699,6 +700,10 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
     assert!(matches!(p.port.control(control("zap")).await, Err(PortError::Unavailable { .. })));
+    // A session there is none of is "not available" (a cancel or delete never answers for one that does not exist).
+    let gone = |action: &str| mixdog_tools::orch::session::ControlCall { args: json!({ "session_id": "sess_gone" }), ..control(action) };
+    assert!(matches!(p.port.control(gone("cancel")).await, Err(PortError::NotFound { message, .. }) if message == "session sess_gone is not available"));
+    assert!(matches!(p.port.control(gone("delete")).await, Err(PortError::NotFound { message, .. }) if message == "session sess_gone is not available"));
 }
 
 #[tokio::test]
@@ -894,9 +899,230 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
         (json!({ "action": "read", "session_id": "sess_other", "limit": 0 }), "session: limit must be an integer from 1 to 100"),
         (json!({ "action": "read", "session_id": "sess_other", "offset": -1 }), "session: offset must be a nonnegative safe integer"),
         (json!({ "action": "read", "session_id": "sess_other", "text_offset": 3 }), "session: text_offset requires offset, limit:1 and item_id from read"),
-        (json!({ "action": "read", "session_id": "sess_gone" }), "session: sess_gone is unavailable"),
+        (json!({ "action": "read", "session_id": "sess_gone" }), "session sess_gone is not available"),
     ] {
         let message = read(args).await.expect_err("refused");
         assert!(message.contains(want), "{message}");
+    }
+}
+
+// --- `session action=list|send|create` (`fixtures/session-control-cases`) ---------------------------------------------------
+
+/// The catalog a case scripts: the pages in the order they are asked for, the rows read by id, the live sessions.
+struct ScriptedCatalog {
+    pages: Mutex<std::collections::VecDeque<Value>>,
+    rows: HashMap<String, Value>,
+    live: LiveWork,
+    log: Arc<Mutex<Vec<Value>>>,
+}
+
+#[async_trait]
+impl ThreadCatalog for ScriptedCatalog {
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError> {
+        // The call Node's service made of its catalog, `includeAgentOnly` being its own.
+        self.log.lock().expect("log").push(json!(["listSessions", { "page": { "limit": limit, "cursor": cursor }, "includeAgentOnly": false }]));
+        let page = self.pages.lock().expect("pages").pop_front().unwrap_or_else(|| json!({ "sessions": [], "nextCursor": null }));
+        Ok(ListPage { sessions: page["sessions"].as_array().cloned().unwrap_or_default(), next_cursor: page["nextCursor"].as_str().map(str::to_owned) })
+    }
+    async fn row(&self, id: &str) -> Result<Option<Value>, CoreError> {
+        Ok(self.rows.get(id).cloned())
+    }
+    fn live(&self) -> LiveWork {
+        self.live.clone()
+    }
+}
+
+/// The thread requests a case's send and create make: what Node's runtime was handed (`runtime.submitAsync`) and the session
+/// a create started.
+struct ScriptedRequests {
+    log: Arc<Mutex<Vec<Value>>>,
+    caller: String,
+    turn: (u32, Vec<String>),
+}
+
+#[async_trait]
+impl ThreadRequests for ScriptedRequests {
+    async fn request(&self, _: &ThreadId, method: &'static str, _: Value) -> Result<Value, CoreError> {
+        panic!("a thread request {method} that no recorded case makes");
+    }
+    fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
+        panic!("an interrupt that no recorded case makes");
+    }
+    fn compact_after_turn(&self, _: &ThreadId) -> Result<(), CoreError> {
+        panic!("a compaction that no recorded case makes");
+    }
+    async fn transcript(&self, _: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        panic!("a transcript read that no recorded case makes");
+    }
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError> {
+        let mut meta = json!({ "sender": "lead" });
+        if let Some(agent) = from_agent {
+            meta["fromAgent"] = json!(agent);
+        }
+        if hop > 0 {
+            meta["hop"] = json!(hop);
+        }
+        if !chain.is_empty() {
+            meta["botChain"] = json!(chain);
+        }
+        // Node names the submission of a bot's send and of a create; a plain sender's it does not name.
+        let mut options = serde_json::Map::new();
+        if id.starts_with("atask_") {
+            options.insert("id".into(), json!(id));
+        }
+        options.insert("mode".into(), json!("prompt"));
+        options.insert("transcriptMeta".into(), meta);
+        self.log.lock().expect("log").push(json!(["runtime.submitAsync", thread.as_str(), content, options]));
+        Ok(true)
+    }
+    async fn start(&self, params: Value) -> Result<Value, CoreError> {
+        self.log.lock().expect("log").push(json!(["start", params]));
+        Ok(json!({ "thread": { "id": "sess_created" } }))
+    }
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
+        if thread.as_str() == self.caller { self.turn.clone() } else { (0, Vec::new()) }
+    }
+}
+
+struct ListedBots(Vec<String>);
+
+#[async_trait]
+impl BotIds for ListedBots {
+    async fn ids(&self) -> Result<Vec<String>, String> {
+        Ok(self.0.clone())
+    }
+    async fn name(&self, id: &str) -> String {
+        format!("Agent {id}")
+    }
+}
+
+struct ListedProjects(Vec<mixdog_tools::orch::session::ProjectRow>);
+
+#[async_trait]
+impl ProjectList for ListedProjects {
+    async fn list(&self) -> Vec<mixdog_tools::orch::session::ProjectRow> {
+        self.0.clone()
+    }
+}
+
+struct At(i64);
+
+impl mixdog_agent::env::Clock for At {
+    fn now_ms(&self) -> i64 {
+        self.0
+    }
+}
+
+/// `session action=list|send|create` over the port, case by case from Node's recording: the same arguments in the same world
+/// (its `input`), and the answer or refusal of the tool and the requests below it compared whole. A created session's id, a
+/// create's request id and the caller's folder are the recorder's placeholders.
+#[tokio::test]
+async fn list_send_and_create_answer_as_the_node_session_tool_does() {
+    let g = golden(mixdog_testkit::fixture!("../../fixtures/session-control-cases/golden.json"));
+    let now = g["clock"]["dateNow"].as_i64().expect("the recorded clock");
+    let dir = tempfile::tempdir().expect("a folder");
+    let work = mixdog_testkit::canonical(dir.path()).to_string_lossy().trim_start_matches(r"\\?\").to_owned();
+    mixdog_testkit::create_dir_all(std::path::Path::new(&work).join("site"));
+    let escaped = serde_json::to_string(&work).expect("json");
+    let escaped = &escaped[1..escaped.len() - 1];
+    // A folder inside an answer that is itself JSON text is escaped twice.
+    let quoted = serde_json::to_string(escaped).expect("json");
+    let quoted = quoted[1..quoted.len() - 1].to_owned();
+    let request = fancy_regex::Regex::new("atask_[0-9a-f-]{36}").expect("a pattern");
+    let names = |value: &Value| -> Value {
+        let text = serde_json::to_string(value).expect("json").replace(&quoted, "<WORK>").replace(escaped, "<WORK>").replace("sess_created", "<created>");
+        serde_json::from_str(&request.replace_all(&text, "<request>")).expect("json")
+    };
+    for case in g["cases"].as_array().expect("cases") {
+        let name = case["case"].as_str().expect("name");
+        let (args, options) = (case["input"]["args"].clone(), &case["input"]["options"]);
+        let list = |key: &str| -> Vec<String> { options[key].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default() };
+        let archived = list("archived");
+        let mark = |row: &Value| -> Value {
+            let mut row = row.clone();
+            if archived.iter().any(|id| row["id"] == json!(id)) {
+                row["archived"] = json!(true);
+            }
+            row
+        };
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let pages = options["pages"].as_array().map(|pages| pages.iter().map(|page| json!({ "sessions": page["sessions"].as_array().map(|rows| rows.iter().map(&mark).collect::<Vec<_>>()), "nextCursor": page["nextCursor"] })).collect()).unwrap_or_default();
+        let rows: HashMap<String, Value> = options["rows"].as_object().map(|rows| rows.iter().map(|(id, row)| (id.clone(), mark(row))).collect()).unwrap_or_default();
+        let live = LiveWork { own: options["live"]["own"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default(), agents: options["live"]["agents"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default() };
+        let caller_record = options.get("callerSession").cloned().unwrap_or_else(|| json!({ "id": "caller", "sourceType": "lead" }));
+        let caller_id = caller_record["id"].as_str().expect("caller id").to_owned();
+        let threads = Arc::new(Threads::default());
+        {
+            let mut held = threads.0.lock().expect("threads");
+            let mut add = |id: &str, header: &Value| {
+                held.insert(id.to_owned(), header.as_object().cloned().unwrap_or_default());
+            };
+            for id in options["sessions"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect::<Vec<_>>()).unwrap_or_else(|| vec!["target".to_owned()]) {
+                add(&id, &json!({}));
+            }
+            for (id, row) in options["rows"].as_object().into_iter().flatten() {
+                add(id, row);
+            }
+            add("sess_created", &json!({}));
+            add(&caller_id, &caller_record);
+        }
+        let marks = HeartbeatSessions::new();
+        if options["heartbeat"] == json!(true) {
+            marks.mark(&caller_id);
+        }
+        let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, UnattendedRunRegistry::new(Arc::new(NoStamps))));
+        let turn = (caller_record["turnHop"].as_u64().unwrap_or(0) as u32, caller_record["turnBotChain"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_default());
+        let port = Arc::new(DirectorySessionPort::new(SessionPortParts {
+            callers: callers.clone(),
+            threads: threads.clone(),
+            requests: Arc::new(ScriptedRequests { log: log.clone(), caller: caller_id.clone(), turn }),
+            titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(threads.clone(), Arc::new(Messages), Arc::new(Now))),
+            ai_titles: Arc::new(Titles(true)),
+            projects: Arc::new(ListedProjects(options["projects"].as_array().map(|rows| rows.iter().map(|row| mixdog_tools::orch::session::ProjectRow { name: row["name"].as_str().expect("name").to_owned(), path: row["path"].as_str().expect("path").to_owned() }).collect()).unwrap_or_default())),
+            bots: Arc::new(ListedBots(options["bots"].as_array().map(|ids| ids.iter().map(|id| id.as_str().expect("id").to_owned()).collect()).unwrap_or_else(|| vec!["ann".to_owned()]))),
+            suggestions: Arc::new(Suggested::default()),
+            catalog: Arc::new(ScriptedCatalog { pages: Mutex::new(pages), rows, live, log: log.clone() }),
+            clock: Arc::new(At(now)),
+            io: mixdog_rt::testing::tokens().interactive_io,
+        }));
+        let tool = mixdog_tools::orch::session::SessionTool::new(port, callers);
+        // A call that names a caller other than the session record is a delegated worker's.
+        let context = match options.get("calling").and_then(Value::as_str) {
+            Some(other) => ToolContext { thread_id: ThreadId::from(other), surface: SurfaceKind::Agent, cwd: AbsPath::new(&work).expect("absolute"), ..ctx() },
+            None => ToolContext { thread_id: ThreadId::from(caller_id.as_str()), cwd: AbsPath::new(&work).expect("absolute"), ..ctx() },
+        };
+        let mut observed = match answer(&tool, &context, args).await {
+            Ok(text) => json!({ "answer": text }),
+            Err(error) => json!({ "error": error }),
+        };
+        // The session a create started is what Node's service was asked to create: its folder, its place and its origin.
+        let calls: Vec<Value> = log
+            .lock()
+            .expect("log")
+            .iter()
+            .map(|call| {
+                if call[0] != "start" {
+                    return call.clone();
+                }
+                let header = threads.header_of("sess_created");
+                let cwd = call[1]["projectPath"].clone();
+                let place = header.get("desktopSession").cloned().unwrap_or_else(|| json!({ "classification": "project", "projectPath": cwd }));
+                json!(["service.createSession", { "cwd": cwd, "desktopSession": place, "sessionProfile": { "taskOrigin": header["taskOrigin"] } }])
+            })
+            .collect();
+        observed["calls"] = json!(calls);
+        observed["delivered"] = json!([]);
+        // Node's own route of a task (the Lead route of its config) is the route service's here.
+        let mut want = case["observed"].clone();
+        for call in want["calls"].as_array_mut().expect("calls") {
+            if call[0] == "service.createSession" {
+                call[1].as_object_mut().expect("input").retain(|key, _| key != "provider" && key != "model");
+            }
+        }
+        assert_eq!(names(&observed), want, "{name}");
+        if let Some(created) = threads.0.lock().expect("threads").get("sess_created").filter(|header| header.contains_key("taskOrigin")) {
+            // The task session is tagged with where it came from, `sourceName` filing it in the Agents list.
+            assert_eq!(created["sourceName"], json!(format!("agent:{}@home", created["taskOrigin"]["agentId"].as_str().expect("agent"))), "{name}");
+        }
     }
 }

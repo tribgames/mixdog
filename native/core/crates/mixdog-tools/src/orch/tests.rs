@@ -48,7 +48,10 @@ impl SessionPort for Stub {
         false
     }
     async fn resolve_target(&self, target: &str) -> Result<String, PortError> {
-        Ok(target.to_owned())
+        Ok(if target == "ann" { "sess_home_ann".to_owned() } else { target.to_owned() })
+    }
+    async fn unknown_bot(&self, _: &str) -> Result<Option<String>, PortError> {
+        Ok(None)
     }
     async fn resolve_attachments(&self, _: &ThreadId, _: &Value, _: &AbsPath, _: &str) -> Result<Vec<Value>, PortError> {
         Ok(Vec::new())
@@ -149,6 +152,20 @@ async fn session_actions_read_as_the_node_tool_does() {
         };
         assert_eq!(ok, want["ok"].as_bool().unwrap(), "{name}");
         assert_eq!(got, want_text, "{name}");
+    }
+}
+
+/// `BOT_TARGET_ACTIONS` of Node's `bot-target.mjs` is read, send and status: a bot id names its home chat for those three
+/// only; `list`, `bots`, `cancel` and `delete` take the id as given (`list` and `bots` do not look at it, `cancel` and
+/// `delete` look for a session of that id).
+#[tokio::test]
+async fn a_bot_id_names_its_home_chat_for_read_send_and_status_only() {
+    let tool = SessionTool::new(Arc::new(Stub), Arc::new(Facts));
+    for (action, resolved) in [("read", true), ("send", true), ("status", true), ("list", false), ("bots", false), ("cancel", false), ("delete", false)] {
+        let out = tool.call(&ctx(), json!({"action": action, "session_id": "ann"})).await.expect(action);
+        let ToolPart::Text(text) = &out.parts[0] else { panic!("text") };
+        let answered: Value = serde_json::from_str(text).expect("json");
+        assert_eq!(answered["sessionId"], if resolved { "sess_home_ann" } else { "ann" }, "{action}");
     }
 }
 
