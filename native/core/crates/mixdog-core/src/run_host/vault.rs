@@ -42,8 +42,12 @@ impl KeychainVault {
 
 #[async_trait]
 impl SecretVault for KeychainVault {
+    /// Every keychain read of the composed process comes here (the key store, the setup and admin views, the usage
+    /// session key): what it yields is a credential before anything can carry it, the keychain entry its source.
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
-        self.store.get(account).await.map_err(vault_error)
+        let value = self.store.get(account).await.map_err(vault_error)?;
+        mixdog_ai::oauth::carried::keep(&mixdog_ai::registry::keys::keychain_source(account), &value.as_deref().into_iter().collect::<Vec<_>>());
+        Ok(value)
     }
 
     async fn set(&self, account: &str, value: &str) -> Result<(), VaultError> {
