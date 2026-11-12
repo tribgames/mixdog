@@ -7,7 +7,7 @@
 //! `storageSize` of a listed row are the file stat Node's reader added; the store's header carries them the same way.
 
 use mixdog_testkit::Exact;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use crate::message_state::MessageRow;
 use crate::summary::{CatalogHead, MessageStats, catalog_row, session_visibility, workspace_summary};
@@ -79,13 +79,10 @@ fn summary_rows_expose_the_workspace_while_grouping_stays_on_the_project() {
     let recorded = case(&WORKSPACE, "summary rows expose the workspace while grouping stays on the project");
     let summary = summary_of(&plain(recorded.get("session")), &[]);
     same(&summary, recorded.get("summary"), "the summary row");
-    // the index's normalised row is the row itself, and the project group is the desktop session's project
+    // the index's normalised row is the row itself (its desktop session carries the project grouping)
     let indexed = recorded.get("normalizedIndex").get("rows").as_array();
     assert_eq!(indexed.len(), 1);
     same(&summary, &indexed[0], "the indexed row");
-    assert_eq!(summary["desktopSession"]["projectPath"], json!("C:/repo"));
-    assert_eq!(summary["workspace"]["projectPath"], json!("C:/repo"));
-    assert_eq!(summary["workspace"]["cwd"], summary["cwd"]);
 }
 
 #[test]
