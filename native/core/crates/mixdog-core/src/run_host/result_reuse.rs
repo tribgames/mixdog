@@ -602,7 +602,8 @@ impl Inner {
     }
 }
 
-type SessionCache = Arc<Mutex<Inner>>;
+/// The caches of the sessions by session id: Node's `_bySession` / `_scopedBySession`, looked up by id at every use.
+type Sessions = Arc<Mutex<std::collections::HashMap<String, Inner>>>;
 
 /// One run's view of its session's cache.
 pub struct ToolResultReuse {
@@ -612,7 +613,7 @@ pub struct ToolResultReuse {
     /// Cursor's native file protocol needs source content, not a receipt that it was seen.
     needs_read_body: bool,
     clock: Arc<dyn Clock>,
-    inner: SessionCache,
+    sessions: Sessions,
     /// The session's read snapshots, which a compaction resets together with the cached results.
     snapshots: Option<Arc<ReadState>>,
 }
@@ -620,20 +621,26 @@ pub struct ToolResultReuse {
 impl ToolResultReuse {
     /// A cache of its own. `cwd` is the session's working directory; `needs_read_body` is true on a Cursor route.
     pub fn new(io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
-        Self::over(Arc::new(Mutex::new(Inner::new())), None, io, session_id, cwd, needs_read_body, clock)
+        Self::over(Sessions::default(), None, io, session_id, cwd, needs_read_body, clock)
     }
 
-    fn over(inner: SessionCache, snapshots: Option<Arc<ReadState>>, io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
-        Self { io, session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), needs_read_body, clock, inner, snapshots }
+    fn over(sessions: Sessions, snapshots: Option<Arc<ReadState>>, io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
+        Self { io, session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), needs_read_body, clock, sessions, snapshots }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    /// `_bySession.get(sessionId)`: the session's cache as it is now, None when the id holds none (a lookup never creates one).
+    fn with<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> Option<R> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&self.session_id).map(f)
+    }
+
+    /// `_getOrCreate(sessionId)`: a store makes the id's cache again after a clear, for whoever reads next under the id.
+    fn with_create<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
+        f(self.sessions.lock().unwrap_or_else(|e| e.into_inner()).entry(self.session_id.clone()).or_insert_with(Inner::new))
     }
 
     /// Compaction removed prior tool results from the context: start a fresh read epoch.
     pub fn reset_after_compaction(&self) {
-        self.lock().read = Bounded::new();
+        self.with(|inner| inner.read = Bounded::new());
         if let Some(snapshots) = &self.snapshots {
             snapshots.forget_snapshots(&self.session_id);
         }
@@ -663,47 +670,52 @@ impl ToolResultReuse {
             Some(JsonValue::Array(_)) => array_key(&call.arguments, &self.cwd)?.0,
             _ => scalar_key(&call.arguments, &self.cwd)?.0,
         };
-        let held: Vec<String> = {
-            let inner = self.lock();
-            let at = inner.read.position(&key)?;
-            inner.read.entries[at].meta.stats.iter().map(|(abs, _)| abs.clone()).collect()
-        };
+        let held: Vec<String> = self
+            .with(|inner| {
+                let at = inner.read.position(&key)?;
+                Some(inner.read.entries[at].meta.stats.iter().map(|(abs, _)| abs.clone()).collect())
+            })
+            .flatten()?;
         // The stats are taken off the state lock, in a lane job; the entry is judged against them.
         let current = stats_of(&self.io, held).await;
-        let mut inner = self.lock();
-        let entry = inner.read.remove(&key)?;
-        let fresh = entry.meta.stats.len() == current.len()
-            && entry.meta.stats.iter().zip(&current).all(|((_, stored), now)| stored.is_some() && stored == now && cacheable(now));
-        if !fresh {
-            return None;
-        }
-        let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default() };
-        inner.read.entries.push(entry);
-        if self.needs_read_body
-            && call.name == "read"
-            && ["[file unchanged:", "[cross-turn-dedup]", "[intra-turn-dedup]"].iter().any(|p| reused.content.starts_with(p))
-        {
-            return None;
-        }
-        Some(reused)
+        self.with(|inner| {
+            let entry = inner.read.remove(&key)?;
+            let fresh = entry.meta.stats.len() == current.len()
+                && entry.meta.stats.iter().zip(&current).all(|((_, stored), now)| stored.is_some() && stored == now && cacheable(now));
+            if !fresh {
+                return None;
+            }
+            let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default() };
+            inner.read.entries.push(entry);
+            if self.needs_read_body
+                && call.name == "read"
+                && ["[file unchanged:", "[cross-turn-dedup]", "[intra-turn-dedup]"].iter().any(|p| reused.content.starts_with(p))
+            {
+                return None;
+            }
+            Some(reused)
+        })
+        .flatten()
     }
 
     fn lookup_scoped(&self, tool: &str, call: &ToolCall, touch: bool) -> Option<Reused> {
         let now = self.clock.now_ms();
-        let mut inner = self.lock();
         let key = scoped_key(tool, &canonical_scoped(tool, &call.arguments)?, &self.cwd);
-        let index = inner.scoped.position(&key)?;
-        if now - inner.scoped.entries[index].ts >= SCOPED_TTL_MS {
-            inner.scoped.entries.remove(index);
-            return None;
-        }
-        let entry = &inner.scoped.entries[index];
-        let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default() };
-        if touch {
-            let entry = inner.scoped.entries.remove(index);
-            inner.scoped.entries.push(entry);
-        }
-        Some(reused)
+        self.with(|inner| {
+            let index = inner.scoped.position(&key)?;
+            if now - inner.scoped.entries[index].ts >= SCOPED_TTL_MS {
+                inner.scoped.entries.remove(index);
+                return None;
+            }
+            let entry = &inner.scoped.entries[index];
+            let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default() };
+            if touch {
+                let entry = inner.scoped.entries.remove(index);
+                inner.scoped.entries.push(entry);
+            }
+            Some(reused)
+        })
+        .flatten()
     }
 
     async fn store_read(&self, call: &ToolCall, content: &str, tool_use_id: &str) {
@@ -726,12 +738,14 @@ impl ToolResultReuse {
         if !stats.iter().all(|(_, s)| cacheable(s)) {
             return;
         }
-        self.lock().read.set(Entry {
-            key,
-            content: content.to_owned(),
-            ts: self.clock.now_ms(),
-            first: (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned()),
-            meta: ReadMeta { stats },
+        self.with_create(|inner| {
+            inner.read.set(Entry {
+                key,
+                content: content.to_owned(),
+                ts: self.clock.now_ms(),
+                first: (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned()),
+                meta: ReadMeta { stats },
+            })
         });
     }
 
@@ -757,8 +771,7 @@ impl ToolResultReuse {
         let Some(args) = canonical_scoped(tool, &call.arguments) else {
             return;
         };
-        let mut inner = self.lock();
-        inner.scoped.set(Entry {
+        self.with_create(|inner| inner.scoped.set(Entry {
             key: scoped_key(tool, &args, &self.cwd),
             content: content.to_owned(),
             ts: self.clock.now_ms(),
@@ -777,7 +790,7 @@ impl ToolResultReuse {
                     None => dependency_roots(tool, &args, &self.cwd),
                 },
             },
-        });
+        }));
     }
 
     fn patch_base(&self, call: &ToolCall) -> String {
@@ -820,33 +833,34 @@ impl ToolResultReuse {
         if self.session_id.is_empty() {
             return;
         }
-        let mut inner = self.lock();
         let name = strip_mcp(&call.name);
-        if name == "apply_patch" {
-            let base = self.patch_base(call);
-            let touched = touched_paths(call.arguments.get("patch").and_then(|p| p.as_str()).unwrap_or_default());
-            // A failed patch leaves the files' state unknown, so it drops everything.
-            if failed || touched.is_empty() {
-                inner.read = Bounded::new();
-                Self::clear_scoped(&mut inner);
-            } else {
-                for p in &touched {
-                    Self::invalidate_path(&mut inner, p, &base);
+        self.with(|inner| {
+            if name == "apply_patch" {
+                let base = self.patch_base(call);
+                let touched = touched_paths(call.arguments.get("patch").and_then(|p| p.as_str()).unwrap_or_default());
+                // A failed patch leaves the files' state unknown, so it drops everything.
+                if failed || touched.is_empty() {
+                    inner.read = Bounded::new();
+                    Self::clear_scoped(inner);
+                } else {
+                    for p in &touched {
+                        Self::invalidate_path(inner, p, &base);
+                    }
+                    Self::clear_scoped_paths(inner, &touched, &base);
                 }
-                Self::clear_scoped_paths(&mut inner, &touched, &base);
+            } else if name.eq_ignore_ascii_case("edit") {
+                let mut paths = Vec::new();
+                collect_paths(path_arg(&call.arguments), &mut paths);
+                if paths.is_empty() {
+                    Self::clear_scoped(inner);
+                } else {
+                    Self::clear_scoped_paths(inner, &paths, &self.cwd);
+                }
             }
-        } else if name.eq_ignore_ascii_case("edit") {
-            let mut paths = Vec::new();
-            collect_paths(path_arg(&call.arguments), &mut paths);
-            if paths.is_empty() {
-                Self::clear_scoped(&mut inner);
-            } else {
-                Self::clear_scoped_paths(&mut inner, &paths, &self.cwd);
+            if is_shell_tool(&call.name) || is_git_mutation(&call.name, &call.arguments) {
+                Self::clear_scoped(inner);
             }
-        }
-        if is_shell_tool(&call.name) || is_git_mutation(&call.name, &call.arguments) {
-            Self::clear_scoped(&mut inner);
-        }
+        });
     }
 }
 
@@ -874,15 +888,18 @@ impl ResultReuse for ToolResultReuse {
 /// session id (`read-cache.mjs` `_bySession`, `scoped-cache.mjs` `_scopedBySession`), so a turn that starts after another
 /// of the same session finds what the earlier one read. They end with the session (`clearReadDedupSession`: a close, a
 /// delete, a working-folder change), a compaction (`resetReadStateAfterCompaction`: the read cache only), the process, and, entry by
-/// entry, the 100-entry / 8 MiB bound of each cache.
+/// entry, the 100-entry / 8 MiB bound of each cache. A clear empties the id's cache; the next store under the id (a turn still
+/// running, or the reopened session) makes it again, as Node's `setReadCached` does. Like Node, an id that holds a cache keeps it
+/// until a clear or the process ends: nothing sheds an id that is never used again, only the per-id bounds limit it.
 #[derive(Default)]
 pub struct LiveReuses {
-    sessions: Mutex<std::collections::HashMap<String, SessionCache>>,
+    sessions: Sessions,
     snapshots: std::sync::OnceLock<Arc<ReadState>>,
 }
 
 impl LiveReuses {
-    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, SessionCache>> {
+    #[cfg(test)]
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Inner>> {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -898,24 +915,20 @@ impl LiveReuses {
         }));
     }
 
-    /// The cache of the run that starts: the one its session already holds, or a new one.
+    /// A run's view of its session's cache; it finds the cache by the session id at every use.
     pub fn run(&self, io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Arc<ToolResultReuse> {
-        let inner = self.lock().entry(session_id.to_owned()).or_insert_with(|| Arc::new(Mutex::new(Inner::new()))).clone();
-        Arc::new(ToolResultReuse::over(inner, self.snapshots.get().cloned(), io, session_id, cwd, needs_read_body, clock))
+        Arc::new(ToolResultReuse::over(self.sessions.clone(),self.snapshots.get().cloned(), io, session_id, cwd, needs_read_body, clock))
     }
 
-    /// `clearReadDedupSession(session_id)`: the read and scoped caches of the session are empty, for the run in
-    /// progress too. The entry leaves the map at once, so a run still going keeps only a cache no later run of the
-    /// id can reach, and the last owner (that run) frees it when it ends.
+    /// `clearReadDedupSession(session_id)`: the read and scoped caches of the id are dropped.
     pub fn clear_session(&self, session_id: &str) {
-        let Some(cache) = self.lock().remove(session_id) else { return };
-        *cache.lock().unwrap_or_else(|e| e.into_inner()) = Inner::new();
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id);
     }
 
     /// `resetReadStateAfterCompaction(session_id)`, for a compaction that ran outside a turn.
     pub fn compacted(&self, session_id: &str) {
-        if let Some(cache) = self.lock().get(session_id) {
-            cache.lock().unwrap_or_else(|e| e.into_inner()).read = Bounded::new();
+        if let Some(inner) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get_mut(session_id) {
+            inner.read = Bounded::new();
         }
         if let Some(snapshots) = self.snapshots.get() {
             snapshots.forget_snapshots(session_id);
@@ -1067,21 +1080,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_cleared_while_its_run_goes_leaves_no_entry_and_no_shared_cache() {
+    async fn a_run_still_going_after_its_session_was_cleared_fills_the_cache_the_reopened_session_finds() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "one").unwrap();
         let live = LiveReuses::default();
         let old = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
         live.clear_session("sess_1");
-        assert!(!live.lock().contains_key("sess_1"), "the entry goes with the release, the run still going");
+        assert!(live.lock().is_empty(), "a clear leaves no entry for the id");
         let read = call("read", json!({"path": "a.txt"}));
-        let fresh = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
+        assert!(old.lookup(&read, true).await.is_none(), "a lookup does not make the id's cache");
+        assert!(live.lock().is_empty());
         old.store_with_roots(&read, "one", "t1", None).await;
-        assert!(fresh.lookup(&read, true).await.is_none(), "a run after the close never sees the old run's fills");
-        drop(old);
-        drop(fresh);
+        let reopened = live.run(io(), "sess_1", dir.path(), false, Arc::new(Fixed(0)));
+        assert_eq!(reopened.lookup(&read, true).await.unwrap().content, "one", "the reopened session sees the fill of the run still going");
         live.clear_session("sess_1");
-        assert!(live.lock().is_empty(), "the run's end leaves nothing behind");
+        assert!(old.lookup(&read, true).await.is_none() && reopened.lookup(&read, true).await.is_none());
     }
 
     #[test]

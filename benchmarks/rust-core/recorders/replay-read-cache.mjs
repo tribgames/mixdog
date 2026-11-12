@@ -5,6 +5,7 @@
 // each of its calls, per request) are compared with Node's, whole and in order. The scenario that closes and resumes the session is not
 // replayed here: a closed thread is tombstoned in the core and cannot be reached through the protocol; the Rust test
 // `a_closed_and_resumed_session_reads_like_nodes` (mixdog-core, run_host/session_read_cache_replay.rs) replays it through the real run path.
+// The `direct` scenario (a turn still reading after its session closed) is replayed by `a_turn_still_reading_after_its_close_fills_the_cache_the_reopened_session_finds` there.
 //   MIXDOG_RECORDER_SCRATCH=<a scratch parent> node replay-read-cache.mjs --mixdogd <exe> [--only <n>,<n>]
 // The exit code is 1 on any difference.
 import { copyFileSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
@@ -195,7 +196,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (JSON.stringify(scenarios()) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built here are not the recorded ones');
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      if (scenario.name === CLOSE_SCENARIO) continue;
+      if (scenario.name === CLOSE_SCENARIO || scenario.phases.some((p) => p.direct)) continue;
       const { turns, steps } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
       const node = golden.results[i];
       const same = JSON.stringify(turns.map((t) => t.sends)) === JSON.stringify(node.turns.map((t) => t.sends))

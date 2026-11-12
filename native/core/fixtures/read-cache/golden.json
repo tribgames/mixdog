@@ -555,6 +555,70 @@
       ]
     },
     {
+      "name": "a turn still reading after its session was closed",
+      "phases": [
+        {
+          "direct": [
+            {
+              "look": "read",
+              "as": "running"
+            },
+            {
+              "fill": "read",
+              "content": "read by the first run",
+              "id": "early",
+              "as": "running"
+            },
+            {
+              "look": "read",
+              "as": "running"
+            },
+            {
+              "fill": "list",
+              "content": "a.txt\nb.txt",
+              "id": "early-list",
+              "as": "running"
+            },
+            {
+              "look": "list",
+              "as": "running"
+            },
+            {
+              "close": true
+            },
+            {
+              "look": "read",
+              "as": "running"
+            },
+            {
+              "look": "list",
+              "as": "running"
+            },
+            {
+              "fill": "read",
+              "content": "read by the turn still going",
+              "id": "late",
+              "as": "running"
+            },
+            {
+              "fill": "list",
+              "content": "a.txt",
+              "id": "late-list",
+              "as": "running"
+            },
+            {
+              "look": "read",
+              "as": "reopened"
+            },
+            {
+              "look": "list",
+              "as": "reopened"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "the hundred and first entry",
       "files": {
         "f000.txt": "file 0\n",
@@ -1814,6 +1878,36 @@
             "error": null,
             "providerCalls": 1
           }
+        }
+      ]
+    },
+    {
+      "name": "a turn still reading after its session was closed",
+      "session": null,
+      "turns": [],
+      "steps": [
+        {
+          "direct": [
+            null,
+            {
+              "content": "read by the first run",
+              "firstToolUseId": "early"
+            },
+            {
+              "content": "a.txt\nb.txt",
+              "firstToolUseId": "early-list"
+            },
+            null,
+            null,
+            {
+              "content": "read by the turn still going",
+              "firstToolUseId": "late"
+            },
+            {
+              "content": "a.txt",
+              "firstToolUseId": "late-list"
+            }
+          ]
         }
       ]
     },
