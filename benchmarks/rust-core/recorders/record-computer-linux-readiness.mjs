@@ -17,6 +17,7 @@ import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { openSet } from './lib/case-set.mjs';
 import { RecorderError } from './lib/recorder-error.mjs';
 
@@ -36,6 +37,27 @@ const NOT_INSTALLED = { installed: false, enabled: false };
 const ALL_TOOLS = ['gdbus', 'wl-copy', 'wl-paste', 'tesseract'];
 const HOME = '/home/u';
 const W = 'hwnd:0x1';
+// What the virtual desktop host's screenshot is: a real 2x2 PNG (zlib-compressed scanlines, CRCs), so the image the tool returns is compared byte for byte.
+const SCREENSHOT = { mimeType: 'image/png', data: pngOf(2, 2, [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]]) };
+
+function pngOf(width, height, pixels) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (bytes) => { let c = 0xffffffff; for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, body) => {
+    const out = Buffer.alloc(12 + body.length);
+    out.writeUInt32BE(body.length, 0);
+    out.write(type, 4, 'latin1');
+    body.copy(out, 8);
+    out.writeUInt32BE(crc(out.subarray(4, 8 + body.length)), 8 + body.length);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const rows = Buffer.concat(Array.from({ length: height }, (_, y) => Buffer.from([0, ...pixels.slice(y * width, (y + 1) * width).flat()])));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+}
 
 // The host commands of the pure `requiredCapabilities` case.
 const step = (action, extra = {}) => ({ action, ...extra });
@@ -145,6 +167,7 @@ function worldOf(env, { uinput = false, windowCalls = false, helper = NOT_INSTAL
     windowVersion: windowCalls === true ? MIN_WINDOW_HELPER_VERSION : windowCalls || null,
     a11y,
     gsettings: { enabled: helper.enabled ? `['${GNOME_EXTENSION_UUID}']\n` : '@as []\n', disabled: `${userExtensionsOff}\n` },
+    image: SCREENSHOT,
   };
 }
 
@@ -205,8 +228,11 @@ async function onMachine(world, platform, body) {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
   Date.now = () => CLOCK_ORIGIN + machine.clock;
   globalThis.fetch = async (_url, options) => {
-    machine.dispatched.push(JSON.parse(options.body));
-    return Response.json({ ok: true, value: { text: 'ok' } });
+    const command = JSON.parse(options.body);
+    machine.dispatched.push(command);
+    // The desktop host's screenshot rides on a capture that is not accessibility-only and on a sequence that observes its window afterwards.
+    const observes = command.action === 'capture' ? command.mode !== 'ax' : command.action === 'sequence' && (command.window_id || command.app) && command.capture_after_mode !== 'ax';
+    return Response.json({ ok: true, value: { text: 'ok', ...(observes ? { image: machine.world.image } : {}) } });
   };
   try {
     return await body();
@@ -310,7 +336,8 @@ await set.finish({
   entry: 'computer-bridge/client.mjs executeComputerTool (validation, linuxCaptureFallback, linuxComputerPreflight, the dispatch and the fallback note), over linux-readiness.mjs probing its own machine (process.env, fs.accessSync/existsSync, child_process.spawn gdbus/gsettings, Date.now); detectSession, detectDesktop; linux-action-capabilities.mjs requiredCapabilities',
   replay: { entry: 'mixdog-tools desktop::computer_linux tests: each recorded tool call through ProcessComputerBackend::run on the Linux path (probes injected at the process manager and environment, the 3 s cache on the runtime clock, one cache for every session), compared whole with the recorded outcome; detect_session/detect_desktop, required_capabilities', normalised: {} },
   exclusions: {
-    bridge: 'the desktop bridge is a stand-in HTTP endpoint (fetch) that records the dispatched command and answers ok: the helper and its screenshots are not run',
+    bridge: 'the desktop bridge is a stand-in HTTP endpoint (fetch) that records the dispatched command and answers ok, with a real 2x2 PNG screenshot for a capture that is not accessibility-only and for a sequence that observes its window; the desktop host is not run',
+    layers: 'Node dispatches one command per tool call to the desktop host, which does its own steps; Rust drives the helper step by step. The replay therefore derives the helper requests from each recorded dispatched command (sequence = one request per step then the observing capture; capture = snapshot then window_capture; diagnose = the two probes; list_apps/verify renamed) and compares them whole; the content is compared whole except that the text of an act (composed by the host in Node, by the client in Rust from the stand-in answers) is not compared, and a diagnose answers once per probe',
     platform: 'process.platform is set to linux (or the named platform) for each case: the recorder runs on Windows',
     machine: 'the machine under the probes is virtual (environment, executables, writable and existing paths, gdbus/gsettings answers); the Rust side reads the same world through its process manager, where Node reads it through fs and spawn, so the shell checks Rust uses for PATH/uinput/files are answered from that world and only the gdbus/gsettings spawns are compared one to one',
     notRecorded: 'the recording keeps no readiness object: a session is judged by what the tool returned and dispatched',

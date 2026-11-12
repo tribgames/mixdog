@@ -7,7 +7,7 @@
 //! rules, the same translation of a tool call into host commands, the same limits and the same
 //! recovery on a timeout or cancellation (the helper is killed and `--abort-cleanup` releases any
 //! input it held). What the Node desktop host adds on top of the helper (the permission prompt,
-//! overlay, history ledger, saved-login secrets, zoom frame store, display capture) is not here;
+//! overlay, history ledger, saved-login secrets, zoom frame store) is not here;
 //! those actions report `Unavailable`.
 
 use std::collections::HashMap;
@@ -669,7 +669,8 @@ impl ProcessComputerBackend {
     /// `capture`: the accessibility snapshot, plus the window's pixels unless the mode is `ax`.
     async fn capture(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         if command.contains_key("screen") {
-            return Err(unsupported("capture of a whole screen needs the desktop host's display capture"));
+            // A whole-screen capture is one command to the host, as Node dispatches it: the host answers with the screenshot.
+            return parts_of(&self.call(command, cancel).await?);
         }
         let mode = command.shift_remove("mode").and_then(|mode| mode.as_str().map(str::to_string)).unwrap_or_else(|| "state".into());
         let mut parts = Vec::new();
