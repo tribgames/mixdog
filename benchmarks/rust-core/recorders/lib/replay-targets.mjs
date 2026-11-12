@@ -147,6 +147,19 @@ export const REPLAY_TARGETS = {
     notPublic: ['idle reclaim around a running shell job: actor.rs:162 IDLE_EVICT, :1233 arm_idle_evict, :1248 has_active("shell") (private)'],
     missing: ['the desktop SessionHost pane (the rows it publishes from the job watcher timers, the show / hide reload): no counterpart found'],
   },
+  'named-attachment-file-cases': {
+    rust: [r('mixdog-core/src/run_host/attachment_store.rs', 291, 'StoreFiles'), r('mixdog-core/src/run_host/attachment_reference.rs', 156, 'ReferencedMedia', 'attached_files_note, reference_part_with'), r('mixdog-core/src/run_host/attachment_reference.rs', 286, 'AttachedFile'), r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments')],
+    notPublic: ['the submission intake (materializePromptSubmission, attachmentsForIntake) is not replayed: its recorded output is the input of the core calls'],
+  },
+  'message-attachments-cases': {
+    rust: [r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments'), r('mixdog-core-session/src/session/transcript_rows.rs', 925, 'restore')],
+    notPublic: ['the persisted metadata writer and the submission intake (store.mjs) are not part of this replay: the recording gives the attachment list the intake produced, the replay starts from it'],
+  },
+  'task-notification-envelope-cases': {
+    rust: [r('mixdog-agent/src/agent_tool/board.rs', 255, 'render_agent_completion'), r('mixdog-agent/src/project.rs', 196, 'is_model_visible_tool_completion_wrapper'), r('mixdog-protocol/src/text_class.rs', 76, 'parse_task_notification'), r('mixdog-core-session/src/session/delivered.rs', 66, 'DeliveredCompletions')],
+    notPublic: ['mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test'],
+    missing: ['modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)'],
+  },
   'slash-commands-cases': {
     missing: ['slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart', 'the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI'],
   },
