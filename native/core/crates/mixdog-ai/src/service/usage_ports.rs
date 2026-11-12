@@ -338,6 +338,7 @@ impl ProviderUsageSource {
             }
             _ => return Err(UsageError::new(MUSE_SIGNED_OUT)),
         };
+        file.keep(&[&stored.access_token, &stored.api_key]);
         let stored_account = stored.account_id.clone().unwrap_or_default();
         let digest = Sha256::digest(stored.access_token.as_bytes());
         let identity = format!("{stored_account}:{}", digest.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>());
@@ -469,6 +470,7 @@ impl ProviderUsageSource {
         if key.is_empty() {
             return Err(UsageError::new(COMMAND_CODE_SIGNED_OUT));
         }
+        file.keep(&[key]);
         let headers = vec![("Accept".to_owned(), "application/json".to_owned()), ("Authorization".to_owned(), format!("Bearer {key}"))];
         let reply = RoutedUsageHttp::new(self.http.clone()).get(usage_command_code::CREDITS_URL, &headers, Duration::from_millis(usage_command_code::REQUEST_TIMEOUT_MS)).await?;
         if !(200..300).contains(&reply.status) {

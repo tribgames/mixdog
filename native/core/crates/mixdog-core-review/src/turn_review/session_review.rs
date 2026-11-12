@@ -35,7 +35,7 @@ use super::review_diff::patch_omitted_file;
 use super::review_diff::review_diff_too_large;
 use super::service::Inner;
 use super::service::Tracker;
-use super::store::Record;
+use super::store::SharedRecord;
 use super::tracker::owned_paths_under;
 use super::tracker::path_key;
 use std::sync::Arc;
@@ -332,7 +332,7 @@ impl Inner {
     /// Files of the retained turn records that no baseline lists — a session recorded before
     /// baselines existed. Never exact. Also returns the baseline keys such older records
     /// touched: those baselines were first seen after an unrecorded edit.
-    async fn legacy_changes(&self, records: &[Record], kinds: &[&str], listed: &IndexSet<String>, covered: &(dyn Fn(&str) -> bool + Sync), since: f64, budget: &mut LineDiffBudget) -> (Vec<Unit>, IndexSet<String>) {
+    async fn legacy_changes(&self, records: &[SharedRecord], kinds: &[&str], listed: &IndexSet<String>, covered: &(dyn Fn(&str) -> bool + Sync), since: f64, budget: &mut LineDiffBudget) -> (Vec<Unit>, IndexSet<String>) {
         struct Group {
             key: String,
             abs: String,
@@ -458,7 +458,7 @@ impl Inner {
     /// The session-wide review: the Git baseline review (`base`) completed with every file it
     /// does not cover, measured from its first-seen state against the disk now. `file` answers
     /// that one file's patch instead.
-    pub(super) async fn session_change_review(&self, base: &Obj, loaded: Option<&Loaded>, records: &[Record], target: &str) -> Obj {
+    pub(super) async fn session_change_review(&self, base: &Obj, loaded: Option<&Loaded>, records: &[SharedRecord], target: &str) -> Obj {
         let source = obj_str(base, "source").to_owned();
         let git_backed = source == "git";
         let base_root = clean(obj_str(base, "root")).to_owned();

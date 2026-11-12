@@ -1,0 +1,154 @@
+{
+  "note": "Node's session adoption at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-session-adopt-cases.mjs",
+  "test": "src/session-runtime/boot/session-adopt-hooks.test.mjs",
+  "cases": [
+    {
+      "case": "an adopted session follows the current global compaction settings, keeping its own fields",
+      "kind": "compaction",
+      "injected": false,
+      "section": {
+        "auto": true,
+        "mainBufferPercent": 20
+      },
+      "before": {
+        "auto": false,
+        "mainBufferTokens": 8000,
+        "conversationThresholdTokens": 5,
+        "archive": {
+          "nextSeq": 3
+        }
+      },
+      "recorded": {
+        "compaction": {
+          "conversationThresholdTokens": 5,
+          "archive": {
+            "nextSeq": 3
+          },
+          "auto": true,
+          "mainBufferPercent": 20,
+          "onModelChange": true,
+          "summaryMode": "smart"
+        }
+      }
+    },
+    {
+      "case": "a headless runtime on an injected config keeps its session compaction fixed on adoption",
+      "kind": "compaction",
+      "injected": true,
+      "section": {
+        "auto": true,
+        "mainBufferPercent": 20
+      },
+      "before": {
+        "auto": false,
+        "mainBufferTokens": 8000
+      },
+      "recorded": {
+        "compaction": {
+          "auto": false,
+          "mainBufferTokens": 8000
+        }
+      }
+    },
+    {
+      "case": "an adopted (resumed) session sees hook rules saved while it is open, and stops when they are removed",
+      "kind": "rules",
+      "recorded": {
+        "steps": [
+          {
+            "op": "call",
+            "tool": "setup",
+            "answer": null
+          },
+          {
+            "op": "addRule",
+            "rule": {
+              "tool": "setup",
+              "action": "ask"
+            }
+          },
+          {
+            "op": "addRule",
+            "rule": {
+              "tool": "mcp__cal__*",
+              "action": "ask"
+            }
+          },
+          {
+            "op": "call",
+            "tool": "setup",
+            "answer": {
+              "action": "ask",
+              "reason": "approval requested by hook rule for setup"
+            }
+          },
+          {
+            "op": "call",
+            "tool": "mcp__cal__create",
+            "answer": {
+              "action": "ask",
+              "reason": "approval requested by hook rule for mcp__cal__create"
+            }
+          },
+          {
+            "op": "deleteRule",
+            "index": 0
+          },
+          {
+            "op": "call",
+            "tool": "setup",
+            "answer": null
+          },
+          {
+            "op": "call",
+            "tool": "mcp__cal__create",
+            "answer": {
+              "action": "ask",
+              "reason": "approval requested by hook rule for mcp__cal__create"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a resumed and a fresh session both run the PreToolUse deny hook for shell exactly once",
+      "kind": "deny",
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "shell",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "<node>",
+                "args": [
+                  "<deny.mjs>"
+                ],
+                "timeout": 10
+              }
+            ]
+          }
+        ]
+      },
+      "deny": {
+        "stderr": "blocked by policy",
+        "exit": 2
+      },
+      "command": "echo hi",
+      "recorded": {
+        "runs": [
+          {
+            "id": "sess_resumed",
+            "result": "Error: tool \"shell\" denied by hook: blocked by policy",
+            "hookRuns": 1
+          },
+          {
+            "id": "sess_fresh",
+            "result": "Error: tool \"shell\" denied by hook: blocked by policy",
+            "hookRuns": 1
+          }
+        ]
+      }
+    }
+  ]
+}

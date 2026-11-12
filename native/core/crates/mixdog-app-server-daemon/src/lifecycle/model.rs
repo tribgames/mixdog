@@ -201,6 +201,46 @@ impl ClientKind {
     }
 }
 
+/// How long the core stays up with no client attached before it signals its own shutdown (`client-grace.mjs`): `clientGraceMs` (10 s,
+/// `session-transport.mjs:29`) after a local client, and for a remote client `MIXDOG_REMOTE_CLIENT_GRACE_MS` (30 minutes by default,
+/// `client-grace.mjs:14`, `:25-30`), read each time the grace is armed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClientGrace {
+    pub local: std::time::Duration,
+    /// `None`: the environment variable, else Node's default.
+    pub remote: Option<std::time::Duration>,
+}
+
+impl ClientGrace {
+    pub const NODE_LOCAL: std::time::Duration = std::time::Duration::from_millis(10_000);
+    pub const NODE_REMOTE: std::time::Duration = std::time::Duration::from_millis(1_800_000);
+
+    /// Node's own durations.
+    pub const fn node() -> Self {
+        Self { local: Self::NODE_LOCAL, remote: None }
+    }
+
+    /// No grace: the last client leaving is the stop (what a harness that does not model time asks for).
+    pub const fn immediate() -> Self {
+        Self { local: std::time::Duration::ZERO, remote: Some(std::time::Duration::ZERO) }
+    }
+
+    /// The grace after the last client of `kind` left. Only the session transport's remote clients take the long one (`client-grace.mjs:74`).
+    pub fn after(&self, kind: ClientKind) -> std::time::Duration {
+        if kind != ClientKind::Remote {
+            return self.local;
+        }
+        self.remote.unwrap_or_else(|| {
+            std::env::var("MIXDOG_REMOTE_CLIENT_GRACE_MS")
+                .ok()
+                .filter(|text| !text.is_empty())
+                .and_then(|text| text.parse::<f64>().ok())
+                .filter(|ms| ms.is_finite() && *ms >= 0.0)
+                .map_or(Self::NODE_REMOTE, |ms| std::time::Duration::from_millis(ms as u64))
+        })
+    }
+}
+
 /// Node's recheck text when the busy work of a deferred self-shutdown has settled (`daemon.mjs:556`, `busySessions` / `busyMemoryAgents`).
 pub const BUSY_WORK_SETTLED: &str = "busy service work settled";
 /// The recheck when the in-flight service calls have settled (`daemon.mjs:543`, `activeCalls` / `queuedCalls`): the text of the last
@@ -220,5 +260,9 @@ pub enum Effect {
     ReleaseDecision { pid: u32 },
     /// Node's text of the self-shutdown that is about to begin (`Lifecycle::note_trigger`), before its `BeginRelease`.
     NodeTrigger(&'static str),
+    /// The no-clients grace starts: [`super::Machine::grace_expired`] is called with `generation` after `delay`.
+    ArmGrace { generation: u64, delay: std::time::Duration },
+    /// A client attached inside the grace: the pending timer is dropped.
+    CancelGrace,
     BeginRelease(ReleaseCause),
 }

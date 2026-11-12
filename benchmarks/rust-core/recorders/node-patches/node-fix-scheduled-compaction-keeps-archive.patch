@@ -1,0 +1,36 @@
+diff --git a/src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs b/src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs
+index 156afc8..69036e8 100644
+--- a/src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs
++++ b/src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs
+@@ -259,7 +259,9 @@ export function _setCompactionArchiveFs(ops) {
+   fsOps = ops ? { ...realFs, ...ops } : realFs;
+ }
+ 
+-const recordExists = (dir, sessionId) => existsSync(join(dir, `${sessionId}.json`));
++// A session is stored as `<id>.log.jsonl` (the `.json` record is the legacy form): either one is its record.
++const recordExists = (dir, sessionId) =>
++  existsSync(join(dir, `${sessionId}.log.jsonl`)) || existsSync(join(dir, `${sessionId}.json`));
+ 
+ /** Why a segment cannot be published now, or null. A delete that bumped the
+  *  epoch since `epoch` was captured is final. A missing record is final too
+diff --git a/src/runtime/agent/orchestrator/session/compaction-archive.test.mjs b/src/runtime/agent/orchestrator/session/compaction-archive.test.mjs
+index a1ec224..2cb6ea6 100644
+--- a/src/runtime/agent/orchestrator/session/compaction-archive.test.mjs
++++ b/src/runtime/agent/orchestrator/session/compaction-archive.test.mjs
+@@ -1256,6 +1256,16 @@ test('a record that is gone with no save pending is a skip that gives its number
+   );
+ });
+ 
++test('a session stored as a log record (no <id>.json beside it) has its segment published and keeps its number', async () => {
++  const session = storedSession('log-record');
++  rmSync(join(sessionsDir, `${session.id}.json`));
++  writeFileSync(join(sessionsDir, `${session.id}.log.jsonl`), `${JSON.stringify({ t: 'header', id: session.id })}\n`);
++  scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
++  await flushCompactionArchiveWrites();
++  assert.equal(archiveLines(session.id).length, 1);
++  assert.equal(session.compaction.archive.nextSeq, 2);
++});
++
+ /** Makes the sidecar read of `path` fail with `code`; every other read is real. */
+ function failSidecarRead(t, path, code) {
+   _setCompactionArchiveFs({

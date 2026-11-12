@@ -1,0 +1,45 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-switch-project-turn-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per case: every tool result the turn answered, the final reply, the session's folder after the turn, the names in each Project folder afterwards and the created file's text in each",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5594,
+      "path": "golden.json",
+      "sha256": "49fdb3c2b3d030b10893b16c842c9ad203d5bcd3f7fc98c3651c4721939e6d8d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "paths": "the case's temporary folder is written <root> in the script and in every answer",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-switch-project-turn-cases.mjs",
+  "recorderSha256": "0b049c16a67cd76fc578d9d21d641c03b2909150d8844d387e30c1fcbc2fa65f",
+  "set": "switch-project-turn-cases",
+  "totalBytes": 5594
+}

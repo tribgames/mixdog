@@ -25,6 +25,10 @@ mod read_paths;
 pub mod read_state;
 mod search;
 #[cfg(test)]
+mod other_node_cases;
+#[cfg(test)]
+mod search_node_cases;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod node_cases;

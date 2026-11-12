@@ -11,7 +11,7 @@
 // the test's block-walk, so a replay can compare both).
 //
 //   node benchmarks/rust-core/recorders/record-session-restart-prefix.mjs --tree <dir>
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -22,7 +22,14 @@ import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
 import { markTmp } from './lib/tmp-mark.mjs';
 
 const PATCH = 'benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch';
+const CANCELLED_PATCH = 'benchmarks/rust-core/recorders/patches/node-restart-prefix-cancelled.patch';
 const PRELOAD = 'benchmarks/rust-core/recorders/lib/determinism-preload.mjs';
+const PROBE = 'benchmarks/rust-core/recorders/lib/restart-read-probe.mjs';
+// Every child's profile folder is the run's own: the session store's user-data backups (~/.mixdog/backups) must not land in the user's.
+const profile = join(tmpdir(), 'rec-restart-prefix-profile');
+rmSync(profile, { recursive: true, force: true });
+mkdirSync(profile, { recursive: true });
+const ISOLATED = { USERPROFILE: profile, HOME: profile, APPDATA: join(profile, 'r'), LOCALAPPDATA: join(profile, 'l') };
 // A fixed base dir (the scenarios' data and work dirs live under it), so the paths in the requests repeat; it is under this
 // machine's temp dir, so those paths are the recording machine's and are an explicit input (see environment).
 const base = join(tmpdir(), 'rec-restart-prefix');
@@ -35,10 +42,10 @@ process.on('exit', () => { for (const child of children) if (child.exitCode === 
 await runSessionRecorder(import.meta.url, {
   set: 'session-restart-prefix',
   testFile: 'src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs',
-  dataFiles: [PATCH, PRELOAD],
-  patch: { file: PATCH, applied: 'to a temporary copy of the tree\'s src (restart-prefix-parity.fixture.mjs only)', fixes: 'The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep stood for the journal appends of the stopped turn having landed, but settleTurnJournalWrites only says the write lane is idle, which a FAILED write also leaves, so neither the sleep nor the settle shows the record is on disk. The fixture now waits for the thing itself: the record the turn stops at (killtool: the assistant message calling call_3 and phase tools; killrequest: the tool result of call_2 and phase streaming) readable back through readTurnCheckpointHeader + replayTurnJournal from the header and journal files, awaited on file-system events, not by polling: a watch on the checkpoint directory armed right after the session exists (before the turn that appends) re-reads the journal on each change notification, with one read on entry; the deadline is a real 30 s timer (the preload freezes Date.now, not timers) and its message names the record awaited and what the journal held; the one-time stderr warning of _warnJournalOnce (turn-checkpoint-journal.mjs) reporting a failed write fails the wait with the write error. Node gives no completion for an append (appendJournalLines only queues it; _pumpJournal settles only the open op, which has no handle the fixture can reach), so the file is read back; the appends are not fsynced (Node durability, untouched). New Node test restart-prefix-ready.test.mjs (in the patch): READY comes with the record readable; with the journal append made to fail (journal op gate) READY is never announced and the child fails with the write error: the unpatched fixture announces READY with no record on disk and fails it' },
+  dataFiles: [PATCH, CANCELLED_PATCH, PRELOAD, PROBE],
+  patch: { file: PATCH, applied: 'to a temporary copy of the tree\'s src (restart-prefix-parity.fixture.mjs only)', fixes: 'The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep stood for the journal appends of the stopped turn having landed, but settleTurnJournalWrites only says the write lane is idle, which a FAILED write also leaves, so neither the sleep nor the settle shows the record is on disk. The fixture now waits for the thing itself: the record the turn stops at (killtool: the assistant message calling call_3 and phase tools; killrequest: the tool result of call_2 and phase streaming) readable back through readTurnCheckpointHeader + replayTurnJournal from the header and journal files, awaited on file-system events, not by polling: a watch on the checkpoint directory armed right after the session exists (before the turn that appends) re-reads the journal on each change notification, with one read on entry; the deadline is a real 30 s timer (the preload freezes Date.now, not timers) and its message names the record awaited and what the journal held; the one-time stderr warning of _warnJournalOnce (turn-checkpoint-journal.mjs) reporting a failed write fails the wait with the write error. Node gives no completion for an append (appendJournalLines only queues it; _pumpJournal settles only the open op, which has no handle the fixture can reach), so the file is read back; the appends are not fsynced (Node durability, untouched). New Node test restart-prefix-ready.test.mjs (in the patch): READY comes with the record readable; with the journal append made to fail (journal op gate) READY is never announced and the child fails with the write error: the unpatched fixture announces READY with no record on disk and fails it', scenarioPatch: { file: CANCELLED_PATCH, applied: 'to the copy the settle patch made, restart-prefix-parity.fixture.mjs only; no Node behaviour is changed', adds: 'Three phases for the cases restart-killrequest-cancelled, restart-killrequest-cancelled-recoverkill, restart-killrequest-cachehit and restart-killrequest-cachehit-recoverkill. killrequestcachehit is the same kill with the hook overriding the result of call_1 to "Cancelled" (the read cache keeps that body) and call_2 reading call_1.txt again: the cache hit answers with the overridden body, a real result the request ends with; the process is killed with the next request on the wire. killrequestcancelled is the killrequest scenario with the tool of call_2 really returning the text "Cancelled" (a PostToolUse afterToolHook answering updatedToolOutput, the product\'s own override of a tool result): the process is killed with the request after it on the wire. recoverkill is a process that recovers the stored session (recoverTurnCheckpoint on the loaded session, as _recoverTurnCheckpointDurably does before it saves) and is killed (SIGKILL on READY) before the recovery is saved; the resume phase then runs on what that left. Node recovers from the turn checkpoint (the journal, replayCheckpoint), never from the stored rows, and keeps it until the recovery is saved, so a real "Cancelled" result is not taken for a recovery-written one, and a second kill leaves the first recovery to be derived again from the same checkpoint: the recording shows both' } },
   entry: 'Spawned the patched copy of the tree\'s src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test\'s own scenario script, minus its 300 ms sleep: see patch) with node --import lib/determinism-preload.mjs as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture\'s fake send). The recorder waits on the READY line / the child\'s exit with a 120 s deadline per phase.',
-  replay: 'native/core/crates/mixdog-core/src/run_host/restart_prefix_tests.rs runs each phase through the core over a real store on a temp data directory and the production Anthropic adapter (AnthropicAdapter::oauth over ReqwestLink) sending to a loopback HTTP server: a lead session on anthropic-oauth (Korean, so every request carries the language reminder), its route and Node\'s recorded system texts set through the header (inputs, with the recording machine\'s environment block), Node\'s tool definitions with read calling the core\'s read tool, the scripted answers sent as Anthropic event streams. The first process is a child process of the test binary, killed (no shutdown path) idle, inside the third read once the row calling call_3 is on disk, or when the request carrying call_2\'s result arrives; a second process reopens the directory and runs the third task. Every request body is compared as the bytes the server received with Node\'s JSON.stringify of the recorded body, before and after the restart; changes and comparisons are a walk over those bodies, so equal bodies give equal walks. A request waits for the rows it carries to be durable (mixdog-agent run.rs Run::drive). Not yet replayed: warmBody (the warm request is rebuilt by HostRunParts::next_request, NextRequestSource::last_sent, which this harness does not host).',
+  replay: 'native/core/crates/mixdog-core/src/run_host/restart_prefix_tests.rs runs each phase through the core over a real store on a temp data directory and the production Anthropic adapter (AnthropicAdapter::oauth over ReqwestLink) sending to a loopback HTTP server: a lead session on anthropic-oauth (Korean, so every request carries the language reminder), its route and Node\'s recorded system texts set through the header (inputs, with the recording machine\'s environment block), Node\'s tool definitions with read calling the core\'s read tool, the scripted answers sent as Anthropic event streams. The first process is a child process of the test binary, killed (no shutdown path) idle, inside the third read once the row calling call_3 is on disk, or when the request carrying call_2\'s result arrives; a second process reopens the directory and runs the third task. Every request body is compared as the bytes the server received with Node\'s JSON.stringify of the recorded body, before and after the restart; changes and comparisons are a walk over those bodies, so equal bodies give equal walks. A request waits for the rows it carries to be durable (mixdog-agent run.rs Run::drive). When the scenario is over (after the third task) the test reads the session through the core (thread/read, over the production transcript RecordTranscript) and compares it with Node\'s cold read of the same stored session (result.read, restart-read-probe.mjs: store-summary-reader.mjs readStoredSessionTranscript): every row\'s kind and text, each tool call\'s name, input, call id, result and error flag, and each turn\'s end status, in order, so the cancelled turn\'s end after a kill is compared too. Not compared, because they are generated or derived by the client\'s own row fold: the row ids (Node\'s hist_<session>_<ordinal>_<n>, the core\'s own), the turn ids, expanded/count/completedCount/the error counters, elapsedMs and verb (the verb is picked from generated ids). warmBody: Node rebuilds the warm from the stored session (lastSentMainRequest, side-question.mjs:108, whose system prompt is the stored header\'s and whose tools are session.tools), so the replay gives the core the same stored inputs (the header\'s prompt fields and tools) and the restarted process sends its warm through the production pieces: HostRunParts::next_request behind NextRequestSource::last_sent over the reopened store, SessionsWarm::last_sent_request and ProvidersWarm::send to the production adapter; the body the server received equals Node\'s warmBody byte for byte (null after a restart inside a turn: no warm is sent). After the reopen and before the third task, thread/read shows the conversation Node\'s first request after the restart carries (user text, assistant text, each tool call\'s name and input, in order; Node records no read answer, so what a client reads beyond that conversation - reasoning, tool output and turn-end items with their metadata - is compared through the request the reopened rows build, byte for byte). SEEDED INPUTS, given to the core as recorded and not regenerated: (1) the session\'s system texts promptBase, promptStable, bp3CoreContext and promptEnv, copied from system[1..4] of Node\'s first request: they are Node\'s composed prompt with the recording machine\'s environment block (OS, shell tools on PATH, git state, cwd entries), which no core code can reproduce on another machine, and the core\'s own prompt composition is replayed against its own recordings (mixdog-core-prompt), not here; (2) the session\'s tools, Node\'s tool definitions as its first request lists them (names, descriptions, schemas), set as the header\'s `tools` (the surface a rebuilt request lists), with `read` served by the core\'s own read tool: the replay is of the restart path, so the tool texts are an input as Node\'s fixture script gave them to its session; (3) the provider answers: Anthropic event streams the loopback server sends for each scripted step (the fixture\'s toolStep/textStep). Everything else - the requests\' messages, thinking blocks, tool results, reminders, cache breakpoints - is produced by the core.',
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs) for the recorder\'s own values; the child\'s output file is JSON the product script wrote (request bodies are already JSON), recorded as parsed',
   exclusions: [
     'this machine\'s roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values of system[*].text of every recorded request body and of input.environment only (the system prompt\'s cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat',
@@ -47,14 +54,16 @@ await runSessionRecorder(import.meta.url, {
     'the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)',
   ],
 }, async ({ tree }) => {
-  const patched = buildPatchedTree(tree, join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', PATCH));
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const settled = buildPatchedTree(tree, join(root, PATCH));
+  const patched = buildPatchedTree(settled, join(root, CANCELLED_PATCH));
   const fixture = join(patched, 'src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs');
   const preload = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'lib', 'determinism-preload.mjs')).href;
   const runPhase = (name, phase, extra = [], { killWhenReady = false } = {}) => new Promise((resolve, reject) => {
     const dataDir = join(base, name, 'data');
     mkdirSync(dataDir, { recursive: true });
     const outFile = join(base, name, `${phase}.json`);
-    const child = spawn(process.execPath, ['--import', preload, fixture, phase, dataDir, outFile, ...extra], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(process.execPath, ['--import', preload, fixture, phase, dataDir, outFile, ...extra], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, ...ISOLATED } });
     children.add(child);
     let stderr = '';
     let pending = '';
@@ -112,29 +121,38 @@ await runSessionRecorder(import.meta.url, {
   };
 
   const scenarios = [];
-  for (const [name, phase, killWhenReady] of [['idle', 'idle', false], ['killtool', 'killtool', true], ['killrequest', 'killrequest', true]]) {
+  for (const [name, phase, killWhenReady, recoveryKilled] of [['idle', 'idle', false], ['killtool', 'killtool', true], ['killrequest', 'killrequest', true], ['killrequest-cancelled', 'killrequestcancelled', true], ['killrequest-cancelled-recoverkill', 'killrequestcancelled', true, true], ['killrequest-cachehit', 'killrequestcachehit', true], ['killrequest-cachehit-recoverkill', 'killrequestcachehit', true, true]]) {
     const before = await runPhase(name, phase, [], { killWhenReady });
+    // The second kill: a process recovering the stored session is killed before it saves; the resume runs on what that left.
+    if (recoveryKilled) await runPhase(name, 'recoverkill', [before.output.sessionId], { killWhenReady: true });
     const after = await runPhase(name, 'resume', [before.output.sessionId]);
+    // What a client reads of the stored session when the scenario is over: Node's cold session read, in a process of its own.
+    const readFile = join(base, name, 'read.json');
+    const probe = spawnSync(process.execPath, ['--import', preload, join(dirname(fileURLToPath(import.meta.url)), 'lib', 'restart-read-probe.mjs'), join(patched, 'src'), join(base, name, 'data'), after.output.sessionId, readFile], { windowsHide: true, encoding: 'utf8', timeout: PHASE_DEADLINE_MS, env: { ...process.env, ...ISOLATED } });
+    if (probe.status !== 0) throw new Error(`${name}: the read probe exited ${probe.status ?? probe.signal}: ${(probe.stderr || '').slice(-2000)}`);
+    const read = JSON.parse(readFileSync(readFile, 'utf8'));
     const comparisons = { lastSentVsFirstAfterRestart: prefixDiff(before.output.bodies.at(-1), after.output.bodies[0]) };
     if (name === 'idle' && after.output.warmBody) {
       comparisons.lastSentVsWarmReplay = prefixDiff(before.output.bodies.at(-1), after.output.warmBody);
       comparisons.warmVsFirstAfterRestart = prefixDiff(after.output.warmBody, after.output.bodies[0]);
     }
-    scenarios.push({ name, before: before.output, beforeKilledOnReady: before.killed, after: after.output, comparisons });
+    scenarios.push({ name, phases: recoveryKilled ? [phase, 'recoverkill', 'resume'] : [phase, 'resume'], before: before.output, beforeKilledOnReady: before.killed, after: after.output, comparisons, read });
   }
 
   rmSync(patched, { recursive: true, force: true });
+  rmSync(settled, { recursive: true, force: true });
   // The environment block: the system block of the first request that holds the machine-derived startup facts.
   const environmentOf = (body) => (body.system || []).map((block) => block.text).find((text) => typeof text === 'string' && text.includes('Shell tools at startup')) ?? null;
   const testLines = { idle: [192, 198, 214], killtool: [207, 219], killrequest: [207, 227] };
   const cases = scenarios.map((s) => ({
     name: `restart-${s.name}`,
-    testLines: testLines[s.name],
-    input: { phases: [s.name, 'resume'], language: 'ko', model: 'claude-opus-5-5', kill: s.beforeKilledOnReady ? 'SIGKILL when READY is printed' : 'none (exits after two turns)', environment: environmentOf(s.before.bodies[0]) },
-    result: { before: s.before, after: s.after, comparisons: s.comparisons },
+    // The cancelled cases are this recorder's own scenarios (the cancelled patch): the test file has no lines for them.
+    ...(testLines[s.name] ? { testLines: testLines[s.name] } : {}),
+    input: { phases: s.phases, language: 'ko', model: 'claude-opus-5-5', kill: s.beforeKilledOnReady ? 'SIGKILL when READY is printed' : 'none (exits after two turns)', environment: environmentOf(s.before.bodies[0]) },
+    result: { before: s.before, after: s.after, comparisons: s.comparisons, read: s.read },
   }));
   // Declared: the OS temp dir -> <TMP> in system-block texts of the request bodies and in input.environment only.
-  const tmpPath = (path) => (path.at(-1) === 'text' && path.at(-3) === 'system') || (path.at(-1) === 'environment' && path.at(-2) === 'input');
+  const tmpPath = (path) => (path.at(-1) === 'text' && path.at(-3) === 'system') || (path.at(-1) === 'environment' && path.at(-2) === 'input') || (path.at(-1) === 'cwd' && path.at(-2) === 'read');
   return { cases: markTmp(cases, tmpPath) };
 });
 cleanup(base);

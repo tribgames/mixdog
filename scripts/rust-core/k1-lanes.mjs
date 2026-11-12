@@ -131,18 +131,27 @@ export async function lanesFixtures(options = {}) {
 // test). A lane whose filter selects one of them next to any other test must run under nextest; k1-lanes.test.mjs
 // checks that no lane does today and that this list holds every file that installs one.
 export const BACKEND_INSTALLERS = [
+  'native/core/crates/mixdog-app-server-daemon/src/effort_judge_host.rs',
   'native/core/crates/mixdog-app-server-daemon/tests/it/real_executors.rs',
+  'native/core/crates/mixdog-cli/tests/exec_replay.rs',
   'native/core/crates/mixdog-core-config/tests/config_lanes.rs',
+  'native/core/crates/mixdog-core-session/src/session/sensitive_carry_tests.rs',
   'native/core/crates/mixdog-core-session/tests/never_ran_reads.rs',
-  'native/core/crates/mixdog-core/tests/it/bot_routes_never_ran.rs',
+  'native/core/crates/mixdog-core/tests/check_phase_socket_reuse.rs',
   'native/core/crates/mixdog-ledger/tests/sums_lanes.rs',
   'native/core/crates/mixdog-mcp/tests/it/skill_catalog_suite.rs',
+  'native/core/crates/mixdog-mcp/tests/output_schema_depth.rs',
+  'native/core/crates/mixdog-mcp/tests/output_schema_lane.rs',
+  'native/core/crates/mixdog-rt/tests/elastic.rs',
   'native/core/crates/mixdog-rt/tests/executors.rs',
   'native/core/crates/mixdog-rt/tests/lane_wedged.rs',
   'native/core/crates/mixdog-rt/tests/submit_wait.rs',
   'native/core/crates/mixdog-rt/tests/ticker.rs',
+  'native/core/crates/mixdog-rt/tests/virtual_clock.rs',
+  'native/core/crates/mixdog-services/src/effort_judge/worker_tests.rs',
   'native/core/crates/mixdog-services/src/tidy/process.rs',
   'native/core/crates/mixdog-store/src/store_tests.rs',
+  'native/core/crates/mixdog-tools/src/exec/tests.rs',
 ];
 
 const REPO = resolve(CORE, '../..');

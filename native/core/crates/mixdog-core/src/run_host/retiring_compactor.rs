@@ -46,6 +46,10 @@ impl Compactor for RetiringCompactor {
         self.inner.cache_expired()
     }
 
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<mixdog_agent::compact::fresh::Preflight> {
+        self.inner.preflight_attachments(messages).await
+    }
+
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
         self.inner.request_media(messages)
     }

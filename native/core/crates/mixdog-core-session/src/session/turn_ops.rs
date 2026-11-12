@@ -123,7 +123,7 @@ impl super::SessionDirectory {
 /// The methods the thread's actor serves itself: they read or change what only the actor owns
 /// (its busy state, its live rows, its queue).
 pub(super) fn is_actor_method(method: &str) -> bool {
-    matches!(method, "thread/pushNotice" | "thread/clearSessionChangeHistory" | "thread/askSide" | "thread/cancelSide" | "thread/compact/start" | "turn/retryFailed")
+    matches!(method, "thread/pushNotice" | "thread/clearSessionChangeHistory" | "thread/askSide" | "thread/cancelSide" | "thread/compact/start" | "thread/compact/schedule" | "turn/retryFailed")
 }
 
 /// `SIDE_QUESTION_NO_REQUEST`.
@@ -195,7 +195,9 @@ pub trait ManualCompaction: Send + Sync {
     /// `mgr.compactSessionMessages(id, { requireReduction, onStageChange })`: the PreCompact hook
     /// (`trigger`) runs once the manager's savings gate passes, best-effort. `None` is Node's
     /// `null` (no session, or nothing to report); a `skipped` result is returned as is.
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError>;
+    ///
+    /// `cancel` is the session's abort signal (`getSessionAbortSignal`): the pass ends with its text when it fires.
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError>;
     /// `compactConversationForHeir` (`inheritance.mjs`): the conversation of `source` compacted to fit `budget_tokens`, on a
     /// copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted carry) summarizes whatever the
     /// size. The rows of the result, system blocks included; `None` when the compaction yields no conversation.

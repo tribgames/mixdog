@@ -153,6 +153,12 @@ impl ThreadStore for DefaultTail {
     fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<super::seams::ContextRead>) -> Result<super::seams::ContextRead, CoreError> {
         self.0.context_io(lane, id, read)
     }
+    fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
+        self.0.context_len(lane, id)
+    }
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<super::seams::ContextRead, CoreError> {
+        self.0.context_from_io(lane, id, skip)
+    }
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         self.0.session_meta(id)
     }
@@ -173,6 +179,12 @@ impl ThreadStore for DefaultTail {
     }
     fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
         self.0.create_log(lane, id, session)
+    }
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        self.0.archived_agent_parents(child)
+    }
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        self.0.draft_write(lane, id, write)
     }
 }
 

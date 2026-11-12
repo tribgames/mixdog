@@ -22,6 +22,8 @@ pub mod fixture_fs;
 #[cfg(test)]
 mod mixy_presence_replay_tests;
 #[cfg(test)]
+mod media_wire_table;
+#[cfg(test)]
 mod named_attachment_replay_tests;
 #[cfg(test)]
 mod process_tests;
@@ -29,11 +31,14 @@ mod process_tests;
 mod migrated_fixture;
 #[cfg(test)]
 mod wire_parity_tests;
+#[cfg(test)]
+mod native_request_bytes_node_cases;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod mcp_fold;
 pub mod rearm;
 pub mod manual_compaction;
+pub mod prompt_intake;
 pub mod route_surface;
 pub mod resume_tools;
 pub mod session_tools;
@@ -102,6 +107,7 @@ pub mod explorer_host;
 pub mod explorer_env;
 pub mod tidy_write_host;
 pub mod session_catalog;
+mod deferred_select;
 pub mod prompt_rebuild;
 pub mod surface_host;
 pub mod tool_availability;
@@ -145,8 +151,6 @@ pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
-#[cfg(test)]
-mod session_route_state_replay;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
@@ -183,4 +187,5 @@ mod room_rows_replay;
 mod room_send_replay;
 #[cfg(test)]
 mod pool_list_replay;
+pub mod task_report_store;
 pub mod room_labels;

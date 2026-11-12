@@ -29,6 +29,7 @@ use crate::netproxy::RoutedClients;
 use crate::netproxy::clients::ClientError;
 
 use super::deadlines::NODE_DISPATCHER;
+use super::guard::Guarded;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
@@ -161,6 +162,9 @@ pub enum Surface {
 
 /// `TypeError: fetch failed`, the message of every network error of a raw `fetch`.
 pub const FETCH_FAILED: &str = "fetch failed";
+/// `TypeError: terminated`, undici's error for a `fetch` body whose socket failed mid-body (the socket error is its
+/// `cause`).
+pub const TERMINATED: &str = "terminated";
 /// `APIConnectionError: Connection error.`, the SDK's wrapper of a failed connection.
 pub const CONNECTION_ERROR: &str = "Connection error.";
 /// `APIConnectionTimeoutError: Request timed out.`, the SDK's timer.
@@ -208,11 +212,20 @@ pub struct Exchange {
     pub surface: Surface,
     /// The Node client that writes the request: the global `fetch` (the default) or a raw `undici.request`.
     pub writer: Writer,
+    /// The answer is a token grant even though the request carries no `grant_type` (Cursor's key exchange): a success
+    /// arrives whole, and the credentials it names are remembered.
+    pub grant: bool,
 }
 
 impl Exchange {
     pub const fn new(liveness: Liveness, redirect: Redirect, surface: Surface) -> Self {
-        Self { liveness, redirect, surface, writer: Writer::Fetch }
+        Self { liveness, redirect, surface, writer: Writer::Fetch, grant: false }
+    }
+
+    /// The answer of this exchange is a token grant.
+    pub const fn grant(mut self) -> Self {
+        self.grant = true;
+        self
     }
 
     /// The call site is a raw `undici.request`, which adds none of `fetch`'s headers.
@@ -272,7 +285,9 @@ pub struct ReqwestLink {
 fn link_builder(schedule: &KeepaliveSchedule, http2_only: bool) -> reqwest::ClientBuilder {
     let mut builder = client_builder(schedule).redirect(reqwest::redirect::Policy::none());
     if http2_only {
-        builder = builder.http2_prior_knowledge();
+        // Connect streams carry their own framing and `node:http2` offers no `accept-encoding`: the client asks for no
+        // compression and decodes none.
+        builder = builder.http2_prior_knowledge().no_gzip().no_brotli().no_deflate();
     }
     builder
 }
@@ -543,6 +558,20 @@ async fn settle(
     Ok(response)
 }
 
+/// A link before its exchanges are redacted of the credentials they carried: only [`Guarded`] reaches it.
+struct Bare<'a, T>(&'a T);
+
+#[async_trait]
+impl HttpSend for Bare<'_, ReqwestLink> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        exchange: Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        settle(exchange, self.0.hops(request, exchange)).await
+    }
+}
+
 #[async_trait]
 impl HttpSend for ReqwestLink {
     async fn send(
@@ -550,7 +579,7 @@ impl HttpSend for ReqwestLink {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        settle(exchange, self.hops(request, exchange)).await
+        Guarded(Bare(self)).send(request, exchange).await
     }
 }
 
@@ -628,6 +657,18 @@ impl BidiOpen for ReqwestLink {
         first: Vec<u8>,
         exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+        Guarded(Bare(self)).open(request, first, exchange).await
+    }
+}
+
+#[async_trait]
+impl BidiOpen for Bare<'_, ReqwestLink> {
+    async fn open(
+        &self,
+        request: WireRequest,
+        first: Vec<u8>,
+        exchange: Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         // A streaming request body cannot be replayed, so a redirect is never followed.
         let redirect = exchange.redirect;
         if redirect == Redirect::Follow {
@@ -644,6 +685,7 @@ impl BidiOpen for ReqwestLink {
         });
         let surface = exchange.surface;
         let builder = self
+            .0
             .builder(&request, surface)
             .await?
             .body(reqwest::Body::wrap_stream(stream));
@@ -664,7 +706,7 @@ impl BidiOpen for ReqwestLink {
 
 /// An open WebSocket as the adapters use it.
 #[async_trait]
-pub trait WsSocket: Send {
+pub trait WsSocket: Send + Sync {
     async fn send(&self, message: Message) -> Result<(), TransportFault>;
     /// The next data frame, or the one fault that ended the link, then `None`.
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>>;
@@ -757,12 +799,23 @@ impl WsDial for KeepaliveDialer {
         &self,
         request: Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        Guarded(Bare(self)).dial(request).await
+    }
+}
+
+#[async_trait]
+impl WsDial for Bare<'_, KeepaliveDialer> {
+    async fn dial(
+        &self,
+        request: Request,
+    ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        let this = self.0;
         #[cfg(any(test, feature = "test-support"))]
-        if let Some((addr, tls)) = &self.pinned {
-            let (connection, response) = ws::connect_pinned(request, *addr, &self.schedule, tls.clone()).await?;
+        if let Some((addr, tls)) = &this.pinned {
+            let (connection, response) = ws::connect_pinned(request, *addr, &this.schedule, tls.clone()).await?;
             return Ok((Box::new(connection), response));
         }
-        let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
+        let (connection, response) = ws::connect_via(request, &this.schedule, this.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
     }
 }

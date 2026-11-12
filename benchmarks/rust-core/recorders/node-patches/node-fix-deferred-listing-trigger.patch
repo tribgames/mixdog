@@ -1,0 +1,81 @@
+diff --git a/src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs b/src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs
+index 27cb12f..6c2fb6a 100644
+--- a/src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs
++++ b/src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs
+@@ -404,8 +404,25 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
+ // The surface's catalog, rebuilt from the full catalog, not just its eager
+ // projection. Current definitions still take precedence over retained
+ // definitions. Bridge definitions belong to the exposure, never to the catalog.
++// A new session stores its standalone tools projected without title and trigger (the projection _getMcpTools makes), so its deferred listing named a
++// tool by its cut description while the rebuilt surface named the trigger it declares: the text a first request carried depended on whether the
++// settings moved before it. A stored definition missing either takes it from the whole definition the surface is given.
++function withDeclaredListing(tool, declared) {
++  if (!declared) return tool;
++  let out = tool;
++  for (const key of ['title', 'trigger']) {
++    if (declared[key] !== undefined && out[key] === undefined) out = { ...out, [key]: declared[key] };
++  }
++  return out;
++}
++
+ function surfaceCatalog(session, extraTools, options) {
+   const byName = new Map();
++  const declaredByName = new Map();
++  for (const tool of extraTools || []) {
++    const name = clean(tool?.name);
++    if (name && !declaredByName.has(name)) declaredByName.set(name, tool);
++  }
+   const candidates = filterDisallowedTools(
+     filterModelEditTools(
+       [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)].filter(
+@@ -418,7 +435,7 @@ function surfaceCatalog(session, extraTools, options) {
+   for (const tool of candidates) {
+     const name = clean(tool?.name);
+     if (!name || byName.has(name)) continue;
+-    byName.set(name, activeToolForSurface(tool));
++    byName.set(name, activeToolForSurface(withDeclaredListing(tool, declaredByName.get(name))));
+   }
+   return sortedCatalogByMeasuredUsage([...byName.values()]);
+ }
+diff --git a/src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs b/src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs
+new file mode 100644
+index 0000000..1aaf1eb
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs
+@@ -0,0 +1,36 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { applyDeferredToolSurface, rebuildDeferredToolSurfaceForProvider } from './tool-catalog.mjs';
++
++// A standalone tool as the runtime declares it (with a title and a when-to-use trigger) and as a new session stores it in `session.tools`
++// (`_getMcpTools` projects an internal tool to name, description, schema and annotations only).
++const declared = {
++  name: 'zeta_probe',
++  title: 'Zeta probe',
++  trigger: 'Probe zeta when the user names it.',
++  description: 'Probes zeta in depth: reads every zeta source, compares the readings and reports the drift with the evidence for each reading, at length.',
++  inputSchema: { type: 'object', properties: {} },
++  annotations: {},
++};
++const { title: _title, trigger: _trigger, ...stored } = declared;
++
++const newSession = (provider) => ({
++  id: 'listing-fixture',
++  provider,
++  model: 'fixture-model',
++  toolSpec: 'full',
++  tools: [stored],
++  messages: [{ role: 'system', content: '# Tool Use' }, { role: 'system', content: '# Profile' }, { role: 'system', content: '# Session', cacheTier: 'tier3' }],
++});
++
++const listing = (session) => session.messages.map((message) => message.content).join('\n').match(/^- zeta_probe: .*$/m)?.[0];
++
++test("a new session's deferred listing names the tool's trigger, before and after the surface is rebuilt", () => {
++  const session = newSession('anthropic-oauth');
++  applyDeferredToolSurface(session, 'lead', [declared], { provider: 'anthropic-oauth' });
++  assert.equal(listing(session), `- zeta_probe: ${declared.trigger}`);
++  // Another exposure rewrites the fixed listing from the stored catalog.
++  rebuildDeferredToolSurfaceForProvider(session, 'gemini');
++  assert.equal(listing(session), `- zeta_probe: ${declared.trigger}`);
++});

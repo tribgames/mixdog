@@ -121,6 +121,9 @@ pub fn unique_slug(base: &str, is_taken: impl Fn(&str) -> bool) -> String {
 }
 
 #[cfg(test)]
+mod node_cases;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

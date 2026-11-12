@@ -727,6 +727,9 @@ pub enum ProxyEvent {
     /// The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`,
     /// Node `firstOutputAt`).
     OutputStarted,
+    /// Anthropic's content-block summary of the turn (`StreamEvent::ContentSummary`, Node `hasThinkingContent` /
+    /// `contentBlockTypes`).
+    ContentSummary { has_thinking: bool, block_types: Vec<String> },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     #[serde(rename_all = "camelCase")]

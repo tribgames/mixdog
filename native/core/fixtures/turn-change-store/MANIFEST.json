@@ -1,0 +1,67 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-change-store.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules> --patch D:/mixdog-build/tmp/node-patches/node-fix-turn-change-store.patch",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 28664,
+      "path": "scenarios.json",
+      "sha256": "d50e4e624be30ee16b6c9c22d8a2450e9d510c9d93403fa5c2c8e329f8e99e0e"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "fields": [
+      "createdAt",
+      "updatedAt"
+    ],
+    "reason": "Date.now is a counter in the recording; a core stamps real time"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "D:/mixdog-build/tmp/node-patches/node-fix-turn-change-store.patch",
+      "paths": [
+        "src/runtime/shared/turn-snapshot-store.mjs"
+      ],
+      "sha256": "b6d9a56dfded8a9c303a22447651f91e9ef941e7d3e903858b2d6e5c018d62ca"
+    },
+    "patches": [
+      {
+        "file": "node-fix-turn-change-store.patch",
+        "paths": [
+          "src/runtime/shared/turn-snapshot-store.mjs"
+        ],
+        "sha256": "b6d9a56dfded8a9c303a22447651f91e9ef941e7d3e903858b2d6e5c018d62ca"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 1
+    },
+    "srcSha256": "ce21d4609f4f1a049ae94411aa1c3bb1805c2cb3eff7128a882db546639303c0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-change-store.mjs",
+  "recorderSha256": "929a46c54c100a5d4fbca95751e0795640e4bf4ac8372f6bbf354f4088ca0e7f",
+  "set": "turn-change-store",
+  "totalBytes": 28664
+}

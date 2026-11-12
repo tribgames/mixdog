@@ -106,6 +106,17 @@ async fn the_running_jobs_are_the_background_shells_with_their_folders() {
         vec![(Some("/p/wt".to_owned()), Some("sess_titled".to_owned())), (Some("/p".to_owned()), None)]
     );
 
+    // A foreground command whose kill was not confirmed keeps its folder reserved (Node holds its workspace admission until the
+    // exit is confirmed), and the hold ends with the exit.
+    start(&registry, "t6", Some("sess_named"), "/p/held", true);
+    registry.set_termination_unconfirmed("t6", true).expect("held");
+    async fn held(source: &StoredWorktreeSessions) -> bool {
+        source.running_jobs().await.expect("jobs").into_iter().filter_map(|job| job.cwd).any(|cwd| cwd == "/p/held")
+    }
+    assert!(held(&source).await, "the unconfirmed foreground command reserves its folder");
+    registry.set_termination_unconfirmed("t6", false).expect("confirmed");
+    assert!(!held(&source).await, "its confirmed exit frees the folder");
+
     // A running shell with no folder cannot be inspected: the listing is refused.
     start(&registry, "t5", None, "", false);
     let refused = source.running_jobs().await.expect_err("refused");

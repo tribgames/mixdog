@@ -63,8 +63,13 @@ impl SharedSource {
     }
 
     /// Replaces the source (screen ↔ secure desktop); viewers see a new generation.
+    /// One that arrives after [`Self::stop`] is released at once.
     pub fn set_source(&self, source: Box<dyn MediaFrameSource>) {
-        lock(&self.control).replacement = Some(source);
+        let superseded = {
+            let mut control = lock(&self.control);
+            if control.stopped { Some(source) } else { control.replacement.replace(source) }
+        };
+        drop(superseded);
         self.wake.notify_one();
     }
 
@@ -77,8 +82,15 @@ impl SharedSource {
         lock(&self.state).clone()
     }
 
+    /// A replacement not yet taken is released now, as Node stops a capture that arrives once its source has closed
+    /// (`source-capture.ts:62`, `:90`), rather than when the last holder of this source lets it go.
     pub fn stop(&self) {
-        lock(&self.control).stopped = true;
+        let pending = {
+            let mut control = lock(&self.control);
+            control.stopped = true;
+            control.replacement.take()
+        };
+        drop(pending);
         self.wake.notify_one();
     }
 }
@@ -88,6 +100,10 @@ impl Drop for SharedSource {
         self.stop();
     }
 }
+
+#[cfg(test)]
+#[path = "capture_tests.rs"]
+mod tests;
 
 /// `MediaFrameSource::next_frame` must be cancel-safe: a control change drops the pending call.
 async fn read_loop(shared: Arc<SharedSource>, mut source: Box<dyn MediaFrameSource>) {

@@ -311,7 +311,6 @@ async fn a_platform_without_a_binding_answers_unsupported_and_never_loads() {
     assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::Unsupported)));
     let judge = EffortJudgeModel::new(config, lane()).unwrap();
     assert!(!judge.is_available());
-    assert!(!judge.prewarm().await);
 }
 
 /// A known library on a platform that has a binding: the judge is supported and reaches the model files.

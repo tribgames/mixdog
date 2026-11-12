@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "stream_aborted",
-    "connectCode": null,
-    "cursorCode": "stream_aborted",
-    "liveTextEmitted": null,
-    "message": "Cursor stream was aborted",
     "name": "Error",
-    "providerRecoveryExhausted": true,
-    "reauthRequired": null,
-    "retryAfterMs": null,
+    "message": "Cursor resource_exhausted: fixture quota",
+    "status": 429,
+    "code": "resource_exhausted",
+    "cursorCode": "resource_exhausted",
+    "connectCode": null,
     "retryable": null,
-    "status": null,
+    "retryAfterMs": 7000,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": true
+  },
+  "dispatchedToolCalls": []
 }

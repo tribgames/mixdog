@@ -480,6 +480,9 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
         async fn open(&self, _: &str, _: &str, _: &std::path::Path) -> Result<(), mixdog_mcp::hub::ScopeReleased> {
             Ok(())
         }
+        fn start(&self, _: &str, _: &str, _: &std::path::Path) -> Result<(), mixdog_mcp::hub::ScopeReleased> {
+            Ok(())
+        }
         fn release(&self, _: &str) {}
         async fn open_runtime(&self, _: &std::path::Path) -> Result<String, mixdog_mcp::hub::ScopeReleased> {
             Ok(String::new())

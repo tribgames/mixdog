@@ -1,0 +1,61 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs --tree <b6f10295a>",
+  "exclusions": [
+    {
+      "reason": "a clock reading of the recording run: the recorder replaces it by the token <date> and the replay replaces the listener's Date value by the same token; the header name, its place and its case are compared",
+      "what": "the value of the Date header in wire[].responses[].{raw,head} and timing.timeouts[].responses[].{raw,head}"
+    },
+    {
+      "reason": "Node's own timers are real in the recording, so they are shortened to keep it to seconds; the bytes sent do not depend on them, and the replay waits timing.defaults (the server's own settings, read from a default server) on its virtual clock",
+      "what": "timing.timeouts[]: the 1000 ms request timeout, 500 ms headers timeout and 100 ms check interval of the recording server"
+    },
+    {
+      "reason": "Node closes it somewhere in [headersTimeout, headersTimeout + connectionsCheckingInterval] by where the check tick falls; the recorder records only that it was open just before headersTimeout and closed inside that window, and the replay closes at the end of the window (headersTimeoutMs + connectionsCheckingIntervalMs of timing.defaults, read from a default server)",
+      "what": "timing.timeouts[] \"a connection that sends no byte\": the instant of the close (not recorded) and the 1000/500/100 ms timers"
+    },
+    {
+      "reason": "Node's own timers are real in the recording; the long check interval puts the request before the first connection check whatever the machine's pace. The replay sends the request just after headersTimeoutMs of timing.defaults on its virtual clock, inside the window in which Node has not expired the connection yet",
+      "what": "timing.lateRequest: the 500 ms headers timeout and 5000 ms check interval of the recording server, and the instant the request is sent (200 ms after headersTimeout)"
+    }
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 27677,
+      "path": "golden.json",
+      "sha256": "21a907632caf853edf2ca446bc99338c68613e8dbbbf69fa2cc7ff533b34da53"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs",
+  "recorderSha256": "b23f299f09af747e1a6aed3b0f8952735b09bba798272c485b1afff1b59295dc",
+  "set": "webhook-endpoint-name",
+  "totalBytes": 27677
+}

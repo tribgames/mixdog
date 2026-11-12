@@ -451,7 +451,7 @@
           }
         }
       },
-      "error": "[voice-runtime] zip extract failed via Expand-Archive: ��ġ C:\\program files\\powershell\\7\\Modules\\Microsoft.PowerShell.Archive\\Microsoft.PowerShell.Archive.psm1:1035 ����:13\r\n+             throw $invalidFileFormatException\r\n+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (:) [], FileFormatException\r\n    + FullyQualifiedErrorId : \r\n \r\n",
+      "error": "[voice-runtime] zip extract failed via tar: tar.exe: Error opening archive: Unrecognized archive format\r\n",
       "requests": [
         "/not-a-zip.zip"
       ],

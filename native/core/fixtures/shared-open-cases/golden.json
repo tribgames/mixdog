@@ -1,0 +1,82 @@
+{
+  "note": "Node's shared opening at b6f10295a2f698afc85332467192de28500bd146, per scenario of benchmarks/rust-core/recorders/record-shared-open-cases.mjs",
+  "test": "src/runtime/shared/pg-schema-db.test.mjs",
+  "cases": [
+    {
+      "name": "uses during an opening join it, share its failure, and the next use opens again",
+      "uses": [
+        {
+          "signal": false
+        },
+        {
+          "signal": false
+        }
+      ],
+      "openingsDuring": 1,
+      "initAborted": false,
+      "results": [
+        "pg down",
+        "pg down"
+      ],
+      "openingsAfterNextUse": 2
+    },
+    {
+      "name": "a use withdrawing while another waits leaves the opening running",
+      "uses": [
+        {
+          "signal": true,
+          "withdraw": true
+        },
+        {
+          "signal": true
+        }
+      ],
+      "openingsDuring": 1,
+      "initAborted": false,
+      "results": [
+        "withdrawn",
+        "pg down"
+      ],
+      "openingsAfterNextUse": 2
+    },
+    {
+      "name": "every use withdrawing cancels the opening",
+      "uses": [
+        {
+          "signal": true,
+          "withdraw": true
+        },
+        {
+          "signal": true,
+          "withdraw": true
+        }
+      ],
+      "openingsDuring": 1,
+      "initAborted": true,
+      "results": [
+        "withdrawn",
+        "withdrawn"
+      ],
+      "openingsAfterNextUse": 2
+    },
+    {
+      "name": "a use that cannot withdraw keeps the opening running",
+      "uses": [
+        {
+          "signal": true,
+          "withdraw": true
+        },
+        {
+          "signal": false
+        }
+      ],
+      "openingsDuring": 1,
+      "initAborted": false,
+      "results": [
+        "withdrawn",
+        "pg down"
+      ],
+      "openingsAfterNextUse": 2
+    }
+  ]
+}

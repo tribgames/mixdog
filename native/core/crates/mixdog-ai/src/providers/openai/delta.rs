@@ -175,6 +175,19 @@ impl Chain {
         *self = Self::default();
     }
 
+    /// A pool entry's chain fields as Node holds them (`lastResponseId`,
+    /// `lastRequestSansInput`, `lastRequestInput`, `lastResponseItems`), for
+    /// a replay that hands `compute` a recorded entry.
+    #[cfg(feature = "test-support")]
+    pub fn from_entry(
+        response_id: Option<String>,
+        sans_input: Option<String>,
+        input: Option<Vec<Value>>,
+        response_items: Option<Vec<Value>>,
+    ) -> Self {
+        Self { response_id, sans_input, input, response_items }
+    }
+
     /// `_anchorResponseChain`: the request just sent and the response items it
     /// produced become the anchor of the next request.
     pub fn anchor(&mut self, response_id: &str, request: &Map<String, Value>, response_items: &[Value]) {
@@ -193,12 +206,145 @@ pub enum Mode {
 
 pub struct Framed {
     pub mode: Mode,
-    /// Why the frame is full (`no_anchor`, `request_properties_changed`,
+    /// Why the frame is full (`full_default`, `no_anchor`,
+    /// `no_input_snapshot`, `request_properties_changed`,
     /// `input_prefix_mismatch`, `response_output_mismatch:<type>`).
     pub reason: Option<String>,
     pub frame: Map<String, Value>,
     /// Response items left out of a delta's tail.
     pub stripped: usize,
+    /// Where the request stopped extending the previous one
+    /// (`requestInputMismatch`), for `input_prefix_mismatch`.
+    pub input_mismatch: Option<InputMismatch>,
+    /// The response item the request did not replay
+    /// (`responseOutputMismatch`), for `response_output_mismatch:<type>`.
+    pub output_mismatch: Option<OutputMismatch>,
+}
+
+/// `_requestInputMismatchDiagnostics`: types and content hashes, never content.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct InputMismatch {
+    pub index: usize,
+    pub previous_count: usize,
+    pub current_count: usize,
+    pub expected_type: String,
+    pub expected_hash: String,
+    pub actual_type: String,
+    pub actual_hash: String,
+}
+
+/// `_responseOutputMismatchDiagnostics`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct OutputMismatch {
+    pub expected_type: String,
+    pub expected_hash: String,
+    pub expected_response_item_count: usize,
+    pub actual_type: String,
+    pub actual_hash: String,
+    pub actual_replayed_input_item_count: usize,
+}
+
+/// JS `String(v || '')` of a field.
+fn js_string(item: &Value, key: &str) -> Value {
+    Value::String(match item.get(key) {
+        None | Some(Value::Null | Value::Bool(false)) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) if n.as_f64() == Some(0.0) => String::new(),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(other) => stable_stringify(other),
+    })
+}
+
+/// JS `v || null` of a field.
+fn or_null(item: &Value, key: &str) -> Value {
+    match item.get(key) {
+        None | Some(Value::Null | Value::Bool(false)) => Value::Null,
+        Some(Value::String(s)) if s.is_empty() => Value::Null,
+        Some(Value::Number(n)) if n.as_f64() == Some(0.0) => Value::Null,
+        Some(v) => v.clone(),
+    }
+}
+
+/// `_normalizedResponseItemDiagnosticShape`: the fields `logical_item_match`
+/// compares, per item type.
+fn diagnostic_shape(item: Option<&Value>) -> Value {
+    let Some(item) = item else { return Value::Null };
+    let Some(map) = item.as_object() else { return item.clone() };
+    let kind = input_type(item).to_owned();
+    let mut out = Map::new();
+    out.insert("type".into(), Value::String(kind.clone()));
+    match kind.as_str() {
+        "function_call" | "tool_search_call" => {
+            out.insert("call_id".into(), js_string(item, "call_id"));
+            if kind == "function_call" {
+                out.insert("name".into(), js_string(item, "name"));
+            }
+            out.insert("arguments".into(), Value::String(normalize_arguments(item.get("arguments"))));
+        }
+        "custom_tool_call" => {
+            out.insert("call_id".into(), js_string(item, "call_id"));
+            out.insert("name".into(), js_string(item, "name"));
+            out.insert("input".into(), js_string(item, "input"));
+        }
+        "message" => {
+            let role = or_null(item, "role");
+            out.insert("role".into(), if role.is_null() { "assistant".into() } else { role });
+            let content = match item.get("content") {
+                Some(Value::Array(parts)) => parts.iter().map(normalize_part).collect(),
+                _ => Vec::new(),
+            };
+            out.insert("content".into(), Value::Array(content));
+        }
+        "reasoning" => {
+            out.insert("id".into(), or_null(item, "id"));
+            out.insert("encrypted_content".into(), or_null(item, "encrypted_content"));
+        }
+        "web_search_call" => {
+            out.insert("id".into(), or_null(item, "id"));
+            out.insert("action".into(), or_null(item, "action"));
+        }
+        _ => {
+            for (k, v) in map {
+                if !matches!(k.as_str(), "id" | "status") {
+                    out.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    Value::Object(out)
+}
+
+fn diagnostic_hash(item: Option<&Value>) -> String {
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(stable_stringify(&diagnostic_shape(item)).as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `_diagnosticItemType`.
+fn diagnostic_type(item: Option<&Value>) -> String {
+    match item {
+        None => "missing".into(),
+        Some(item) => match text(item, "type") {
+            "" if text(item, "role") == "assistant" => "message".into(),
+            "" => "unknown".into(),
+            kind => kind.into(),
+        },
+    }
+}
+
+fn input_mismatch(current: &[Value], previous: &[Value]) -> InputMismatch {
+    let limit = current.len().min(previous.len());
+    let index = (0..limit).find(|&i| stable_stringify(&current[i]) != stable_stringify(&previous[i])).unwrap_or(limit);
+    let (expected, actual) = (previous.get(index), current.get(index));
+    InputMismatch {
+        index,
+        previous_count: previous.len(),
+        current_count: current.len(),
+        expected_type: diagnostic_type(expected),
+        expected_hash: diagnostic_hash(expected),
+        actual_type: diagnostic_type(actual),
+        actual_hash: diagnostic_hash(actual),
+    }
 }
 
 /// `_buildResponseCreateFrame`: `type` first, the body's keys in place minus
@@ -250,7 +396,14 @@ pub fn response_create(
 }
 
 fn full(body: &Map<String, Value>, reason: &str) -> Framed {
-    Framed { mode: Mode::Full, reason: Some(reason.to_owned()), frame: response_create(body, None, None), stripped: 0 }
+    Framed {
+        mode: Mode::Full,
+        reason: Some(reason.to_owned()),
+        frame: response_create(body, None, None),
+        stripped: 0,
+        input_mismatch: None,
+        output_mismatch: None,
+    }
 }
 
 /// `_stripRequestPrefix`: the request input after the previous request's
@@ -264,8 +417,9 @@ fn strip_request_prefix<'a>(current: &'a [Value], previous: &[Value]) -> Option<
 }
 
 /// `_stripResponseItemsFromHead`: the tail after the previous response's own
-/// items, which must all lead it in order; `Err` carries the mismatch reason.
-fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a [Value], String> {
+/// items, which must all lead it in order; `Err` carries the mismatch reason
+/// and its diagnostics.
+fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a [Value], (String, OutputMismatch)> {
     let mut cursor = 0;
     for output in outputs {
         if cursor < tail.len() && logical_item_match(&tail[cursor], output) {
@@ -273,15 +427,32 @@ fn strip_response_items<'a>(tail: &'a [Value], outputs: &[Value]) -> Result<&'a 
             continue;
         }
         let kind = Some(text(output, "type")).filter(|t| !t.is_empty()).unwrap_or("unknown");
-        return Err(format!("response_output_mismatch:{kind}"));
+        let actual = tail.get(cursor);
+        let actual_type = match actual.map(|item| input_type(item)) {
+            Some(t) if !t.is_empty() => t.to_owned(),
+            _ => "unknown".to_owned(),
+        };
+        let mismatch = OutputMismatch {
+            expected_type: kind.to_owned(),
+            expected_hash: diagnostic_hash(Some(output)),
+            expected_response_item_count: outputs.len(),
+            actual_type,
+            actual_hash: diagnostic_hash(actual),
+            actual_replayed_input_item_count: tail.len(),
+        };
+        return Err((format!("response_output_mismatch:{kind}"), mismatch));
     }
     Ok(&tail[cursor..])
 }
 
-/// `_computeDelta` under the `refs` policy: a delta only when the request
-/// extends the exact previous request plus its response; otherwise a full
-/// frame with the reason.
-pub fn compute(chain: &Chain, body: &Map<String, Value>) -> Framed {
+/// `_computeDelta` under the resolved policy's delta switch (`delta.optIn`;
+/// only `refs` exists): a delta only when the request extends the exact
+/// previous request plus its response; otherwise a full frame with the
+/// reason.
+pub fn compute(delta: bool, chain: &Chain, body: &Map<String, Value>) -> Framed {
+    if !delta {
+        return full(body, "full_default");
+    }
     let (Some(sans), Some(response_id)) =
         (chain.sans_input.as_deref().filter(|s| !s.is_empty()), chain.response_id.as_deref().filter(|s| !s.is_empty()))
     else {
@@ -295,16 +466,18 @@ pub fn compute(chain: &Chain, body: &Map<String, Value>) -> Framed {
     }
     let current = body.get("input").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let Some(after_previous) = strip_request_prefix(current, previous_input) else {
-        return full(body, "input_prefix_mismatch");
+        return Framed { input_mismatch: Some(input_mismatch(current, previous_input)), ..full(body, "input_prefix_mismatch") };
     };
     let outputs = chain.response_items.as_deref().unwrap_or(&[]);
     match strip_response_items(after_previous, outputs) {
-        Err(reason) => full(body, &reason),
+        Err((reason, mismatch)) => Framed { output_mismatch: Some(mismatch), ..full(body, &reason) },
         Ok(tail) => Framed {
             mode: Mode::Delta,
             reason: None,
             frame: response_create(body, Some(response_id), Some(tail.to_vec())),
             stripped: outputs.len(),
+            input_mismatch: None,
+            output_mismatch: None,
         },
     }
 }
