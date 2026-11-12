@@ -138,6 +138,38 @@ test('a call that arrives before the first connection is open waits for it, and 
   await assert.rejects(failedStart, /initialize refused/);
   await assert.rejects(failedCall, /initialize refused/);
 });
+
+test('closing while the first connection is still opening ends what waited for it', async () => {
+  const client = fakeClient();
+  let closedUnused = false;
+  client.close = async () => void (closedUnused = true);
+  let finishOpen;
+  const connection = createProtocolConnection({ open: () => new Promise((resolve) => (finishOpen = () => resolve(client))) });
+  const window = { push() {}, notification() {}, loginFeedLost() {} };
+  const starting = connection.start();
+  const waiting = [
+    connection.call('model/list', {}),
+    connection.watchFiles(window, { watchId: 'w1' }),
+    connection.watchFeed(window, 'media:1'),
+    connection.whenSynced(),
+  ];
+  // How each ended, read after the close has run: one left waiting stays `pending` here and fails the comparison.
+  const ended = waiting.map(() => 'pending');
+  waiting.forEach((wait, index) =>
+    wait.then(
+      () => (ended[index] = 'fulfilled'),
+      (error) => (ended[index] = error.message)
+    )
+  );
+  await connection.close();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(ended, Array(4).fill('The core connection is closed.'));
+  // The open that was in flight ends unused: its client is closed and nothing went out on it.
+  finishOpen();
+  await starting;
+  assert.equal(closedUnused, true);
+  assert.deepEqual(client.calls, []);
+});
 test('a burst of section changes leaves one flush with each pair at its current entry', () => {
   const store = fakeStore();
   const pushes = [];
