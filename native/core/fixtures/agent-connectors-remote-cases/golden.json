@@ -1,0 +1,349 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "every connector method is a desktop capability, a remote capability and a session action",
+      "observed": {
+        "reads": [
+          {
+            "capability": "getAgentConnectors",
+            "desktopRead": true,
+            "sessionRead": true
+          },
+          {
+            "capability": "getAgentConnectorTools",
+            "desktopRead": true,
+            "sessionRead": true
+          },
+          {
+            "capability": "listConnectors",
+            "desktopRead": true,
+            "sessionRead": true
+          },
+          {
+            "capability": "listConnectorTools",
+            "desktopRead": true,
+            "sessionRead": true
+          },
+          {
+            "capability": "getProjectConnectors",
+            "desktopRead": true,
+            "sessionRead": true
+          }
+        ],
+        "all": [
+          {
+            "capability": "getAgentConnectors",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "getAgentConnectorTools",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "listConnectors",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "listConnectorTools",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "getProjectConnectors",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "setAgentConnectors",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "setAgentConnectorEnabled",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "setAgentConnectorToolPermission",
+            "desktop": true,
+            "remoteRefusal": null
+          },
+          {
+            "capability": "setProjectConnectorEnabled",
+            "desktop": true,
+            "remoteRefusal": null
+          }
+        ],
+        "writes": [
+          {
+            "capability": "setAgentConnectors",
+            "sessionConfigure": true,
+            "desktopRead": false
+          },
+          {
+            "capability": "setAgentConnectorEnabled",
+            "sessionConfigure": true,
+            "desktopRead": false
+          },
+          {
+            "capability": "setAgentConnectorToolPermission",
+            "sessionConfigure": true,
+            "desktopRead": false
+          },
+          {
+            "capability": "setProjectConnectorEnabled",
+            "sessionConfigure": true,
+            "desktopRead": false
+          }
+        ]
+      }
+    },
+    {
+      "case": "the phone and the desktop send the same validated call to the host",
+      "observed": {
+        "writes": [
+          {
+            "capability": "setAgentConnectors",
+            "desktopCall": [
+              "setAgentConnectors",
+              [
+                "github-watcher",
+                {
+                  "off": [
+                    "notion"
+                  ],
+                  "tools": {
+                    "github": {
+                      "create_issue": "disabled"
+                    }
+                  }
+                }
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "setAgentConnectors",
+              [
+                "github-watcher",
+                {
+                  "off": [
+                    "notion"
+                  ],
+                  "tools": {
+                    "github": {
+                      "create_issue": "disabled"
+                    }
+                  }
+                }
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "noWidenMark": true
+          },
+          {
+            "capability": "setAgentConnectorEnabled",
+            "desktopCall": [
+              "setAgentConnectorEnabled",
+              [
+                "github-watcher",
+                "notion",
+                false
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "setAgentConnectorEnabled",
+              [
+                "github-watcher",
+                "notion",
+                false
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "noWidenMark": true
+          },
+          {
+            "capability": "setAgentConnectorToolPermission",
+            "desktopCall": [
+              "setAgentConnectorToolPermission",
+              [
+                "github-watcher",
+                "github",
+                "create_issue",
+                "needs_approval"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "setAgentConnectorToolPermission",
+              [
+                "github-watcher",
+                "github",
+                "create_issue",
+                "needs_approval"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "noWidenMark": true
+          },
+          {
+            "capability": "setProjectConnectorEnabled",
+            "desktopCall": [
+              "setProjectConnectorEnabled",
+              [
+                "C:\\work\\app",
+                "notion",
+                false
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "setProjectConnectorEnabled",
+              [
+                "C:\\work\\app",
+                "notion",
+                false
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "noWidenMark": true
+          }
+        ],
+        "reads": [
+          {
+            "capability": "getAgentConnectors",
+            "desktopCall": [
+              "getAgentConnectors",
+              [
+                "github-watcher"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "getAgentConnectors",
+              [
+                "github-watcher"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ]
+          },
+          {
+            "capability": "getAgentConnectorTools",
+            "desktopCall": [
+              "getAgentConnectorTools",
+              [
+                "github-watcher"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "getAgentConnectorTools",
+              [
+                "github-watcher"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ]
+          },
+          {
+            "capability": "listConnectors",
+            "desktopCall": [
+              "listConnectors",
+              [],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "listConnectors",
+              [],
+              {
+                "$exact": "undefined"
+              }
+            ]
+          },
+          {
+            "capability": "listConnectorTools",
+            "desktopCall": [
+              "listConnectorTools",
+              [
+                "github"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "listConnectorTools",
+              [
+                "github"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ]
+          },
+          {
+            "capability": "getProjectConnectors",
+            "desktopCall": [
+              "getProjectConnectors",
+              [
+                "C:\\work\\app"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "phoneCall": [
+              "getProjectConnectors",
+              [
+                "C:\\work\\app"
+              ],
+              {
+                "$exact": "undefined"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "a wrong argument count is refused before the host is reached",
+      "observed": {
+        "setAgentConnectorsOneArg": "TypeError",
+        "setAgentConnectorToolPermissionTwoArgs": "TypeError",
+        "listConnectorsOneArg": "TypeError"
+      }
+    }
+  ]
+}

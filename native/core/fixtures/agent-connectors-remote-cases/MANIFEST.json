@@ -1,0 +1,100 @@
+{
+  "cases": 3,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-agent-connectors-remote-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test.",
+    "notRun": "a scripted host records the calls it is handed; no real session or connector",
+    "runs": "DESKTOP_CAPABILITIES / DESKTOP_READ_CAPABILITIES (shared/contract.ts), requiredDesktopCapabilityRequest / requiredDesktopCapabilityReadRequests (ipc-validation.ts), assertRemoteCapability and createRemoteMethods (remote-methods.ts), SESSION_READ_ACTIONS / SESSION_CONFIGURE_ACTIONS (src/standalone/session-protocol.mjs)"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8909,
+      "path": "golden.json",
+      "sha256": "3db5ac3313df1ca913fa8ffeb46f0fd40dd1107e7d016b4b7873d221eeae40a6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/agent-connectors-scenarios.mjs",
+      "sha256": "9c82b6833de41c7e7cc108bc4820707e05688261eed4bf69241d9dcc92da6cfa"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-connectors-remote-cases.mjs",
+  "recorderSha256": "2cc9efc3d1b2d11461cec6db28f587d033a27344b72207c58f0326db72e1e21e",
+  "replay": {
+    "compare": "the desktop connector capability tables and the phone and window routes to the host: replay each case on the product modules and compare whole; the protocol-2 methods carrying them are listed in protocolMethods",
+    "entry": "Drive these public items on o1: agent/getAgentConnectors; agent/getAgentConnectorTools; agent/setAgentConnectors; agent/setAgentConnectorEnabled; agent/setAgentConnectorToolPermission; project/getProjectConnectors; project/setProjectConnectorEnabled; connector/listConnectorTools.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "`listConnectors`: the inventory (mixdog-app-protocol/src/inventory.rs) lists it as Deleted (caller-less action, DS 17.1), so it has no method in protocol 2"
+    ],
+    "normalised": {},
+    "protocolMethods": [
+      "agent/getAgentConnectors",
+      "agent/getAgentConnectorTools",
+      "agent/setAgentConnectors",
+      "agent/setAgentConnectorEnabled",
+      "agent/setAgentConnectorToolPermission",
+      "project/getProjectConnectors",
+      "project/setProjectConnectorEnabled",
+      "connector/listConnectorTools"
+    ],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "agent-connectors-remote-cases",
+  "totalBytes": 8909,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
