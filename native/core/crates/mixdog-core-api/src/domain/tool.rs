@@ -205,7 +205,8 @@ pub enum ImageData {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ToolPart {
     Text(String),
-    Image { mime: String, data: ImageData },
+    /// `width`/`height`: the frame's pixel size where the producing tool reports it (the computer tool's capture), else `None`.
+    Image { mime: String, data: ImageData, width: Option<u32>, height: Option<u32> },
     Json(JsonValue),
 }
 

@@ -129,6 +129,9 @@ import { browserUrlPolicyFromEnvironment } from './browser/host-policy';
 import { createBrowserLoginPopup } from './browser/login-popup';
 import { loginTakeoverOf } from './browser/login-takeover';
 import { createComputerHost, type ComputerHost } from './computer';
+import { readDisplays } from './computer/host/display-reads';
+import { assertPublicComputerRequest } from './computer/host/request-policy';
+import type { ComputerCommand } from './computer/shared/types';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
@@ -1179,6 +1182,15 @@ const hostRole = createLocalHostRole({
     trashItem: (path) => shell.trashItem(path),
   }),
   resolveProxy: (url) => session.defaultSession.resolveProxy(url),
+  computer: () => {
+    const host = computerControlEnabled ? computerHost : null;
+    if (!host) return null;
+    return {
+      assertPublic: assertPublicComputerRequest,
+      answer: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
+      displays: readDisplays,
+    };
+  },
   notifications: {
     createNotification: (content) =>
       new Notification({

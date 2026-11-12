@@ -4,9 +4,12 @@
 pub mod browser;
 pub mod computer;
 pub mod computer_backend;
+mod computer_gnome;
+pub mod computer_linux;
 pub mod computer_recovery;
 mod computer_screen;
 pub mod host;
+pub mod mail_links;
 pub mod pending;
 pub mod reveal;
 pub mod terminal;

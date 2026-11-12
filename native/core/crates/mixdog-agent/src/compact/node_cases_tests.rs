@@ -34,6 +34,8 @@ fn part_of(part: &Value) -> ContentPart {
         Some("image") => ContentPart::Image(ImageSource::Base64 {
             data: part["data"].as_str().unwrap_or_default().to_owned(),
             mime_type: part["mimeType"].as_str().unwrap_or_default().to_owned(),
+            width: None,
+            height: None,
         }),
         other => panic!("unsupported part {other:?}"),
     }

@@ -1,5 +1,6 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible)")]
-//! The project registry (DS §4.1): the `projects` rows of the core state store. Every
+//! The project registry (DS §4.1): the `projects` rows of the core state store, the only registry the core reads or writes (a Node
+//! profile's `projects.json` joins them once, [`Catalog::import_registry`]). Every
 //! root-taking method resolves its root here, so a path outside the registry is refused
 //! (`permissionDenied`). A registry change and its op record commit in one store
 //! transaction (SPEC R30).
@@ -7,6 +8,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_store::registry::ProjectEntry;
+use mixdog_store::registry::Registry;
 use mixdog_store::registry::ensure_project_id_marker;
 use mixdog_store::state::CoreState;
 use mixdog_store::state::OpRow;
@@ -68,7 +71,7 @@ fn folder_name(path: &str) -> String {
 }
 
 /// The registry name Node lists a project under; a row without one (v1 or imported) is listed under its alias, else its folder.
-fn display_name(row: &ProjectRow) -> String {
+pub fn display_name(row: &ProjectRow) -> String {
     row.name.clone().filter(|n| !n.is_empty()).or_else(|| row.alias.clone().filter(|a| !a.is_empty())).unwrap_or_else(|| folder_name(&row.path))
 }
 
@@ -76,6 +79,60 @@ fn display_name(row: &ProjectRow) -> String {
 /// virtual clock the Node recording ran on (a release build reads the system clock).
 pub fn now_ms() -> i64 {
     crate::editorcfg::now_ms()
+}
+
+/// The `meta` row that says `projects.json` was imported into the `projects` rows (the one-time step of [`Catalog::import_registry`]).
+pub const REGISTRY_IMPORTED: &str = "import:projects.json";
+
+/// Node's `normalizedProjectKey`: the resolved path without trailing separators, lowercase on Windows.
+fn project_key(path: &str) -> String {
+    let resolved = project_path(path).map_or_else(|| path.to_owned(), |p| p.to_string_lossy().into_owned());
+    let trimmed = resolved.trim_end_matches(['/', '\\']);
+    if cfg!(windows) { trimmed.to_lowercase() } else { trimmed.to_owned() }
+}
+
+/// `entry`'s recency as `compareProjects` reads it (`projectRecency`): the last selection, else when it was added.
+fn recency(entry: &ProjectEntry) -> Option<i64> {
+    let positive = |n: &serde_json::Number| n.as_f64().filter(|v| *v > 0.0).map(|v| v as i64);
+    entry.last_selected_at.as_ref().and_then(positive).or_else(|| positive(&entry.added_at))
+}
+
+/// The rows after the registry `entries` joined the rows `rows`, as the rows to write and the paths to delete. The registry decides what is
+/// listed (as in the desktop): a registered path is a visible row of the registry's spelling and name, keeping its alias and a later
+/// recency; a row that only holds a preference of a path the registry does not have (no name: the migration made it from
+/// `desktop-projects.json`, where `add` and `rename` name the rows the core registers) becomes a tombstone, which keeps the alias
+/// and lists nothing. A selection of such a row in an earlier build (`touch`) does not register it: Node never listed the path, and
+/// a listed row is one the code graph trusts.
+fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, Vec<String>) {
+    let (mut puts, mut deletes, mut matched) = (Vec::new(), Vec::new(), std::collections::HashSet::new());
+    for entry in entries {
+        let key = project_key(&entry.path);
+        if !matched.insert(key.clone()) {
+            continue;
+        }
+        let row = match rows.iter().find(|r| project_key(&r.path) == key) {
+            Some(old) => {
+                if old.path != entry.path {
+                    deletes.push(old.path.clone());
+                }
+                // A Rust-made name (a rename after the cut) stays; a tombstone's or an imported row's is the registry's.
+                let kept = if old.hidden { None } else { old.name.clone() };
+                let name = kept.or_else(|| Some(entry.name.clone()));
+                let last_used_at = [old.last_used_at, recency(entry)].into_iter().flatten().max();
+                // The desktop lists an alias trimmed, and none for a blank one (`projectAlias`).
+                let alias = old.alias.as_deref().map(mixdog_js::js_trim).filter(|alias| !alias.is_empty()).map(str::to_owned);
+                ProjectRow { path: entry.path.clone(), alias, hidden: false, hidden_rank: None, last_used_at, name }
+            }
+            None => ProjectRow { path: entry.path.clone(), alias: None, hidden: false, hidden_rank: None, last_used_at: recency(entry), name: Some(entry.name.clone()) },
+        };
+        puts.push(row);
+    }
+    let mut rank = rows.iter().filter_map(|r| r.hidden_rank).max().unwrap_or(-1);
+    for old in rows.iter().filter(|r| !r.hidden && r.name.is_none() && !matched.contains(&project_key(&r.path))) {
+        rank += 1;
+        puts.push(ProjectRow { hidden: true, hidden_rank: Some(rank), ..old.clone() });
+    }
+    (puts, deletes)
 }
 
 fn finish(mut op: OpRecord, outcome: &Value) -> OpRecord {
@@ -88,6 +145,34 @@ fn finish(mut op: OpRecord, outcome: &Value) -> OpRecord {
 impl Catalog {
     pub fn new(state: CoreState, lanes: Lanes) -> Self {
         Self { state, lanes }
+    }
+
+    /// The one-time step that makes the `projects` rows the registry of a profile that came from Node: `<home>/projects.json` (Node's registry,
+    /// the list `list` must answer) joins the rows the migration made from `desktop-projects.json` ([`joined`]). It commits with the
+    /// [`REGISTRY_IMPORTED`] row, so it runs once whatever happens to the file afterwards, and no reader opens the file again. No
+    /// `projects.json` is an empty registry; an unreadable one fails and the step stays open. Answers whether it ran now.
+    pub async fn import_registry(&self, home: &Path) -> WsResult<bool> {
+        if self.state.meta(REGISTRY_IMPORTED).await.map_err(store)?.is_some() {
+            return Ok(false);
+        }
+        let registry = Registry::new(home.join("projects.json"));
+        // Read without recovery: the file stays byte for byte (it is the way back to Node), and a damaged one fails here.
+        let read = run_in(self.lanes.durability, &CancellationToken::new(), move |lane| registry.list_untouched(lane)).await?;
+        let entries = read.map_err(|error| WsError::new(Reason::Io, error.to_string()))?;
+        let (puts, deletes) = joined(self.state.projects().await.map_err(store)?, &entries);
+        self.state
+            .write(move |tx| {
+                for path in &deletes {
+                    tx.delete_project(path)?;
+                }
+                for row in &puts {
+                    tx.put_project(row)?;
+                }
+                tx.put_meta(REGISTRY_IMPORTED, "1")
+            })
+            .await
+            .map_err(store)?;
+        Ok(true)
     }
 
     pub async fn list(&self) -> WsResult<Vec<ProjectRow>> {

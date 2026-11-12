@@ -50,6 +50,9 @@ pub struct HostCapabilities {
     /// File snapshots and the local page server.
     #[serde(default)]
     pub files: bool,
+    /// Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.
+    #[serde(default)]
+    pub computer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

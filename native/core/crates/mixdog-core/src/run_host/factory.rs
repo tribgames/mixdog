@@ -757,6 +757,14 @@ impl TranscriptSink for PortSink {
         let mut done = self.done.clone();
         let _ = done.wait_for(|d| *d >= ticket.0).await;
     }
+
+    /// The jobs queued so far, the draft the observer queued for the send's mark among them, have run: each ends once its
+    /// write is durable or has failed (`RunPort::draft`, `commit_item`).
+    async fn drafted(&self) {
+        let queued = self.jobs.seq.load(Ordering::SeqCst);
+        let mut done = self.done.clone();
+        let _ = done.wait_for(|d| *d >= queued).await;
+    }
 }
 
 // ---- the observer ------------------------------------------------------------------------------------

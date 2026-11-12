@@ -657,6 +657,8 @@ fn error_results_keep_only_text_and_hoist_media() {
             ContentPart::Image(mixdog_core_api::domain::provider::ImageSource::Base64 {
                 data: "AAAA".into(),
                 mime_type: "image/png".into(),
+                width: None,
+                height: None,
             }),
         ]),
     );

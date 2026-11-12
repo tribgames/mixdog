@@ -58,5 +58,56 @@ export function composerErrorScenarios({ i18n, composerSubmitErrorText, codedErr
       );
       return { params, ipcDetails: overIpc(file).details ?? null, relayDetails: (await overRelay(file)).details ?? null, fileFrame, secretFrame: frame, secretInFrame: JSON.stringify(frame).includes('my-secret-value') };
     },
+    // The relay's answer to each refusal below, whole: what a phone receives. `call` is the frame the phone sent (the arguments of a
+    // capability are the object the core takes as its method's params), `thrown` what the host threw.
+    "the relay answers a refusal with its public params only, and redacts the call's own secrets from the message and the params": async () => {
+      const refusal = (message, code, details) => Object.assign(new Error(message), code === undefined ? {} : { code }, details === undefined ? {} : { details });
+      const nest = (depth, leaf) => (depth === 0 ? leaf : { [`k${depth}`]: nest(depth - 1, leaf) });
+      const capability = (name, args) => ({ method: 'invokeCapability', params: [{ capability: name, args }] });
+      const SWITCHED_OFF = 'ROOM_MEMBER_SWITCHED_OFF';
+      const secretCall = capability('saveProviderApiKey', { providerId: 'anthropic', secret: 'my-secret-value' });
+      const cases = [
+        ['the secret is removed from the message', secretCall, refusal('401 for key my-secret-value', undefined)],
+        ['every string of the call that is long enough is a secret', secretCall, refusal('anthropic refused my-secret-value', undefined)],
+        ['the secret is removed from the params of a public code', secretCall, refusal('x', SWITCHED_OFF, { name: 'Rel-my-secret-value-x' })],
+        ['the secret as a JSON body escapes it is removed too', capability('saveProviderApiKey', { providerId: 'p', secret: 'pa"ss\\word99' }), refusal('bad body {"secret":"pa\\"ss\\\\word99"} and pa"ss\\word99', undefined)],
+        ['a string under six characters is no secret', capability('saveProviderApiKey', { providerId: 'p', secret: 'abc12' }), refusal('key abc12 refused', undefined)],
+        ['every value of a wrapped input is a secret', capability('addConnectorAccount', { email: 'dev@example.com', appPassword: 'abcd efgh ijkl mnop' }), refusal('login failed for dev@example.com with abcd efgh ijkl mnop', undefined)],
+        ['six levels down is still seen', capability('saveMcpServer', nest(6, 'deep-secret-six')), refusal('echo deep-secret-six', undefined)],
+        ['seven levels down is not', capability('saveMcpServer', nest(7, 'deep-secret-seven')), refusal('echo deep-secret-seven', undefined)],
+        ['arrays are walked', capability('addConnectorAccount', { keys: ['first-secret-aaa', 'second-secret-bbb'] }), refusal('first-secret-aaa then second-secret-bbb', undefined)],
+        ['a pasted redirect URL is a secret', capability('completeMcpOAuthLogin', { flowId: 'flow-1', callbackUrl: 'http://localhost:1/cb?code=abcdefgh' }), refusal('bad http://localhost:1/cb?code=abcdefgh', undefined)],
+        ['a handoff secret is redacted whole, however short', { method: 'provideSecretInput', params: ['req-1', 'x1'] }, refusal('pin x1 rejected x1y', undefined)],
+        ['an empty handoff secret redacts nothing', { method: 'provideSecretInput', params: ['req-1', ''] }, refusal('pin  rejected', undefined)],
+        ['a call that carries no secrets keeps its message', { method: 'send', params: [{ text: 'my-secret-value' }] }, refusal('my-secret-value is not a member', undefined)],
+        ['a public code forwards its name', { method: 'send', params: [] }, refusal('"Release" is switched off.', SWITCHED_OFF, { name: 'Release', other: 'x' })],
+        ['a name of 200 characters is forwarded', { method: 'send', params: [] }, refusal('x', SWITCHED_OFF, { name: 'n'.repeat(200) })],
+        ['a name of 201 characters is not', { method: 'send', params: [] }, refusal('x', SWITCHED_OFF, { name: 'n'.repeat(201) })],
+        ['an empty name is not', { method: 'send', params: [] }, refusal('x', SWITCHED_OFF, { name: '' })],
+        ['a schedule code forwards its name', { method: 'send', params: [] }, refusal('x', 'SCHEDULE_NAME_TAKEN', { name: 'nightly' })],
+        ['a schedule code without a public param forwards none', { method: 'send', params: [] }, refusal('x', 'SCHEDULE_RENAME_UNCERTAIN', { name: 'nightly' })],
+        ['any other code forwards none', { method: 'send', params: [] }, refusal('x', 'WORKTREE_DIRTY', { files: ['C:/secret/path.txt'], name: 'C:/secret/path.txt' })],
+        ['an error with no code has none', { method: 'send', params: [] }, refusal('plain', undefined)],
+      ];
+      const answered = [];
+      for (const [why, { method, params }, thrown] of cases) {
+        const frame = await executeRemoteFrame({ [method]: async () => { throw thrown; } }, JSON.stringify({ id: 1, method, params }));
+        answered.push({ why, method, params, thrown: { message: thrown.message, code: thrown.code ?? null, details: thrown.details ?? null }, frame });
+      }
+      return { answered };
+    },
+    // Node's relay keeps no outcome: a call that failed is not stored, a phone that asks again (after a reconnect, with the same
+    // arguments) has it fail afresh through the same redaction, and no relay method reads an outcome back.
+    "the relay keeps no outcome: a failed secret-bearing call asked again fails afresh, redacted, and no method reads a stored outcome": async () => {
+      const secret = 'my-secret-value';
+      const thrown = Object.assign(new Error(`401 for key ${secret}`), { code: 'ROOM_MEMBER_SWITCHED_OFF', details: { name: `Rel-${secret}-x` } });
+      const call = { method: 'invokeCapability', params: [{ capability: 'saveProviderApiKey', args: { providerId: 'anthropic', secret } }] };
+      const methods = { invokeCapability: async () => { throw thrown; } };
+      const ask = (id, method, params) => executeRemoteFrame(methods, JSON.stringify({ id, method, params }));
+      const first = await ask(1, call.method, call.params);
+      const again = await ask(1, call.method, call.params);
+      const status = await ask(1, 'opStatus', [{ scope: 'account', opIds: ['op-1'] }]);
+      return { secret, call, thrown: { message: thrown.message, code: thrown.code, details: thrown.details }, first, again, status, secretInFrames: [first, again, status].map((frame) => JSON.stringify(frame).includes(secret)) };
+    },
   };
 }

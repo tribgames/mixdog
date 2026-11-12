@@ -14,6 +14,7 @@ import { createHostReports, type HostUpdater } from './lifecycle';
 import { createVisualizeHost, type VisualizeControl } from './visualize';
 import { type NotificationPresenter, registerNotificationHost } from './notification';
 import { registerSystemProxyHost } from './system-proxy';
+import { type ComputerControlSource, registerComputerHost } from './computer';
 
 export interface DesktopHostOptions {
   connection: HostConnection;
@@ -35,6 +36,8 @@ export interface DesktopHostOptions {
   /** `host/browser/viewFrames` is a notification: a live view that failed to start is reported (diagnostics). */
   onBrowserViewFailed: (error: unknown) => void;
   resolveProxy: (url: string) => Promise<string>;
+  /** The computer host while Computer Use is on, else null. */
+  computer: ComputerControlSource;
   notifications: NotificationPresenter;
   updater?: HostUpdater;
   /** An install that failed after `host/update/command` was answered: report it (diagnostics). */
@@ -66,6 +69,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
+  registerComputerHost(connection, options.computer);
   registerNotificationHost(connection, options.notifications);
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;

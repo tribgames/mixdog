@@ -1539,7 +1539,11 @@ updater: boolean,
 /**
  * File snapshots and the local page server.
  */
-files: boolean, };
+files: boolean,
+/**
+ * Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.
+ */
+computer: boolean, };
 
 /**
  * Claims the host role for this install (`hostId` generated per install).
@@ -1547,6 +1551,33 @@ files: boolean, };
 export type HostClaimParams = { hostId: HostId, };
 
 export type HostCommandParams = { action: string, input?: JsonValue, threadId?: ThreadId, };
+
+/**
+ * Params of `host/computer/capture` (core → host): the `capture` command exactly as the loopback bridge was
+ * posted it (`computer-bridge/client.mjs`: the host command plus `session_id`).
+ */
+export type HostComputerCaptureParams = { command: JsonValue, };
+
+/**
+ * Result of `host/computer/capture`: the computer host's reply value (`{ text, image? }`), as the bridge's
+ * `{ ok: true, value }` carried it. A command the host refused is a JSON-RPC error carrying the host's message.
+ */
+export type HostComputerCaptureResult = { text: string, image?: HostComputerImage, };
+
+/**
+ * One display of `host/computer/displays` (`computer/host/display-reads.ts` `readDisplays`).
+ */
+export type HostComputerDisplay = { index: number, id: string, primary: boolean, scale_factor: number, width: number, height: number, };
+
+/**
+ * Params of `host/computer/displays` (core → host): none.
+ */
+export type HostComputerDisplaysParams = Record<string, never>;
+
+/**
+ * The image of a computer host reply: its media type and base64 bytes.
+ */
+export type HostComputerImage = { mimeType: string, data: string, };
 
 /**
  * Result of `host/capture/fileSnapshot`: the picture of the file.
@@ -3681,7 +3712,7 @@ export type ServerNotification = { "method": "thread/snapshot", "params": Thread
 /**
  * Request from the core to a client.
  */
-export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/screen/displays", id: RequestId, params: ScreenDisplaysParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
+export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/screen/displays", id: RequestId, params: ScreenDisplaysParams, } | { "method": "host/computer/capture", id: RequestId, params: HostComputerCaptureParams, } | { "method": "host/computer/displays", id: RequestId, params: HostComputerDisplaysParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
 
 /**
  * To every eligible connection, losers included (P §8.4 step 4).
@@ -5687,6 +5718,8 @@ export type ServerRequestMethods = {
   "host/browser/command": { params: HostCommandParams; result: JsonValue };
   "host/browser/liveControl": { params: HostBrowserLiveControlParams; result: JsonValue };
   "host/screen/displays": { params: ScreenDisplaysParams; result: JsonValue };
+  "host/computer/capture": { params: HostComputerCaptureParams; result: HostComputerCaptureResult };
+  "host/computer/displays": { params: HostComputerDisplaysParams; result: Array<HostComputerDisplay> };
   "host/visualize/command": { params: HostVisualizeCommandParams; result: JsonValue | null };
   "host/systemProxy/resolve": { params: HostSystemProxyResolveParams; result: HostSystemProxyResolveResponse };
   "host/notification/status": { params: HostNotificationStatusParams; result: HostNotificationStatus };
@@ -17073,6 +17106,18 @@ export const methodTable = {
       "params": "ScreenDisplaysParams",
       "requires": "host.browser",
       "result": "JsonValue"
+    },
+    {
+      "method": "host/computer/capture",
+      "params": "HostComputerCaptureParams",
+      "requires": "host.computer",
+      "result": "HostComputerCaptureResult"
+    },
+    {
+      "method": "host/computer/displays",
+      "params": "HostComputerDisplaysParams",
+      "requires": "host.computer",
+      "result": "Vec<HostComputerDisplay>"
     },
     {
       "method": "host/visualize/command",

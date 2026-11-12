@@ -11,7 +11,13 @@ import { CHROME_SETUP_SESSION_ID } from '../shared/common';
 import { computerUseCoordinator } from '../session/coordinator';
 import { createBridgeServerState, type BridgeServerHost } from './bridge-server-contract';
 import { publishBridgeDiscovery } from './bridge-server-discovery';
-import { createBridgeRequestHandler } from './bridge-server-request';
+import {
+  answerAdmittedCommand,
+  CAPACITY_REFUSAL,
+  createBridgeRequestHandler,
+  type BridgeAnswer,
+} from './bridge-server-request';
+import type { ComputerCommand } from '../shared/types';
 
 export type { BridgeServerHost } from './bridge-server-contract';
 
@@ -160,5 +166,12 @@ export function createBridgeServer(host: BridgeServerHost) {
     );
   }
 
-  return { startBridge, stopBridge: () => stopBridge() };
+  /** The host protocol's capture: the HTTP command's own allowance, refusal and abort handling. */
+  async function answerCommand(command: ComputerCommand, signal: AbortSignal): Promise<BridgeAnswer> {
+    return (
+      (await answerAdmittedCommand(host, state, command, signal)) ?? { ok: false, error: CAPACITY_REFUSAL }
+    );
+  }
+
+  return { startBridge, stopBridge: () => stopBridge(), answerCommand };
 }

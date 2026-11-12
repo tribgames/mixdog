@@ -1,0 +1,145 @@
+{
+  "cases": 6,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-project-registry-import-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no daemon, no Electron",
+    "runs": "apps/desktop DesktopProjectRegistry.list over the real shared/projects.mjs and the real desktop-projects.json reader, over prepared profiles"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8310,
+      "path": "golden.json",
+      "sha256": "d339465fccd93b84d9e63da4512880cecd83dc98dee381e4e2657dab4045715d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "19b5e18bfa90ac12f591a14212b13f8662f3fcdba0329a06efed26937f93d6ea"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "2101362087bc7ccd85b9a70e0a5814a7fd6a68c435e48c3aa86ccc0fd06d07b1"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.listed.projects[0].path",
+      "$.cases[0].observed.listed.projects[1].path",
+      "$.cases[0].observed.listed.projects[2].path",
+      "$.cases[0].observed.listed.projects[3].path",
+      "$.cases[0].observed.listed.projects[4].path",
+      "$.cases[0].observed.listed.recents[0]",
+      "$.cases[0].observed.listed.recents[1]",
+      "$.cases[0].observed.listed.recents[2]",
+      "$.cases[0].observed.listed.recents[3]",
+      "$.cases[0].observed.listed.recents[4]",
+      "$.cases[1].observed.listed.projects[0].path",
+      "$.cases[1].observed.listed.projects[1].path",
+      "$.cases[1].observed.listed.projects[2].path",
+      "$.cases[1].observed.listed.projects[3].path",
+      "$.cases[1].observed.listed.projects[4].path",
+      "$.cases[1].observed.listed.recents[0]",
+      "$.cases[1].observed.listed.recents[1]",
+      "$.cases[1].observed.listed.recents[2]",
+      "$.cases[1].observed.listed.recents[3]",
+      "$.cases[1].observed.listed.recents[4]",
+      "$.cases[2].observed.listed.projects[0].path",
+      "$.cases[2].observed.listed.projects[1].path",
+      "$.cases[2].observed.listed.projects[2].path",
+      "$.cases[2].observed.listed.projects[3].path",
+      "$.cases[2].observed.listed.projects[4].path",
+      "$.cases[2].observed.listed.recents[0]",
+      "$.cases[2].observed.listed.recents[1]",
+      "$.cases[2].observed.listed.recents[2]",
+      "$.cases[2].observed.listed.recents[3]",
+      "$.cases[2].observed.listed.recents[4]",
+      "$.cases[3].observed.listed.projects[0].path",
+      "$.cases[3].observed.listed.projects[1].path",
+      "$.cases[3].observed.listed.projects[2].path",
+      "$.cases[3].observed.listed.projects[3].path",
+      "$.cases[3].observed.listed.projects[4].path",
+      "$.cases[3].observed.listed.projects[5].path",
+      "$.cases[3].observed.listed.recents[0]",
+      "$.cases[3].observed.listed.recents[1]",
+      "$.cases[3].observed.listed.recents[2]",
+      "$.cases[3].observed.listed.recents[3]",
+      "$.cases[3].observed.listed.recents[4]",
+      "$.cases[3].observed.listed.recents[5]"
+    ],
+    "reason": "per-run temp root written <root>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-project-registry-import-cases.mjs",
+  "recorderSha256": "e71dfb019fc8cfd3a4a43d6716faba97a618a48d25675d5a988b48672a9d1f17",
+  "replay": {
+    "compare": "the real `migrate` of the prepared Node profile, then the core's project registry import and project catalog listing: the same projects, names, aliases and order",
+    "entry": "Drive these public items on o1: mixdog-migrate/src/run.rs:194 Migrator::run; mixdog-workspace/src/catalog.rs:150 Catalog::import_registry; mixdog-workspace/src/catalog.rs:174 Catalog::list.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {
+      "dataDir": "<root>, wherever it occurs; separators as Node produced them"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 194,
+        "name": "Migrator::run",
+        "path": "native/core/crates/mixdog-migrate/src/run.rs"
+      },
+      {
+        "line": 150,
+        "name": "Catalog::import_registry",
+        "path": "native/core/crates/mixdog-workspace/src/catalog.rs"
+      },
+      {
+        "line": 174,
+        "name": "Catalog::list",
+        "path": "native/core/crates/mixdog-workspace/src/catalog.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "project-registry-import-cases",
+  "totalBytes": 8310,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

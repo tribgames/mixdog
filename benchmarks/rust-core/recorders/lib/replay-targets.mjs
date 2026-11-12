@@ -88,6 +88,10 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs', 184, 'ModelProxyService::call', 'the `modelProxy/run` request: admission by payload size, then the run and its typed events')],
     missing: [],
   },
+  'project-registry-import-cases': {
+    rust: [r('mixdog-migrate/src/run.rs', 194, 'Migrator::run'), r('mixdog-workspace/src/catalog.rs', 150, 'Catalog::import_registry'), r('mixdog-workspace/src/catalog.rs', 174, 'Catalog::list')],
+    missing: [],
+  },
   'project-recency-failure-cases': {
     rust: [r('mixdog-store/src/registry.rs', 282, 'add'), r('mixdog-store/src/registry.rs', 309, 'touch_selected'), r('mixdog-store/src/registry.rs', 335, 'remove'), r('mixdog-store/src/registry.rs', 354, 'rename')],
     protocolMethods: ['startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222)'],
@@ -194,6 +198,10 @@ export const REPLAY_TARGETS = {
   'computer-error-recovery': {
     rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
     missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
+  },
+  'computer-linux-readiness': {
+    rust: [r('mixdog-tools/src/desktop/computer_backend.rs', 330, 'ProcessComputerBackend', 'run: the refusal with no desktop, the preflight and the capture rewrite before any dispatch, then diagnose and the capture of a screen, on the Linux path the platform seam selects'), r('mixdog-tools/src/desktop/computer_backend.rs', 724, 'ask_desktop', 'host/computer/capture and host/computer/displays over the host channel'), r('mixdog-tools/src/desktop/computer_backend.rs', 740, 'capture_screen', 'the command sent to the desktop'), r('mixdog-tools/src/desktop/computer_backend.rs', 875, 'screen_parts', 'the host reply as the tool returns it'), r('mixdog-tools/src/desktop/computer_backend.rs', 898, 'canonical_capture_text'), r('mixdog-tools/src/desktop/computer_gnome.rs', 185, 'diagnose_text'), r('mixdog-tools/src/desktop/computer_linux.rs', 231, 'check_readiness'), r('mixdog-tools/src/desktop/computer_linux.rs', 464, 'missing_capabilities'), r('mixdog-tools/src/desktop/computer_linux.rs', 556, 'preflight'), r('mixdog-tools/src/desktop/computer_linux.rs', 588, 'capture_fallback'), r('mixdog-tools/src/desktop/computer_linux.rs', 377, 'required_capabilities'), r('mixdog-tools/src/desktop/computer_linux.rs', 162, 'detect_session'), r('mixdog-tools/src/desktop/computer_linux.rs', 167, 'detect_desktop'), r('mixdog-tools/src/desktop/computer_linux.rs', 654, 'SystemProbes')],
+    notPublic: ['the process-wide probe cache (computer_linux.rs `CACHED`) is private: it is reached through run'],
   },
   'google-mcp': {
     rust: [r('mixdog-mcp/src/google_mcp.rs', 639, 'answer'), r('mixdog-mcp/src/google_mcp.rs', 83, 'service'), r('mixdog-mcp/src/http.rs', 93, 'HttpTransport::with_google_fetch')],

@@ -33,6 +33,8 @@ pub enum HostCapability {
     Updater,
     /// File snapshots and the local page server.
     Files,
+    /// `host/computer/capture` and `host/computer/displays`: the screen reads of Computer Use.
+    Computer,
     /// `model/proxy/execute`: runs a model call with the connection's own accounts. Declared
     /// by `capabilities.modelProxy` (not under `capabilities.host`), so a connection serves it
     /// from `initialize` on, without `host/claim`.
@@ -49,10 +51,12 @@ impl HostCapability {
     /// Node's values: `systemProxy` 3 s (`apps/desktop/src/main/system-proxy.ts:16`
     /// `SYSTEM_PROXY_RESOLVE_TIMEOUT_MS`, applied at `desktop-service.ts:1120`); the notification
     /// status read 3 s (`desktop-service.ts:842`). Browser, visualize, files, updater, power and
-    /// the model proxy have none in Node: a browser takeover may wait for a person for minutes.
+    /// the model proxy have none in Node: a browser takeover may wait for a person for minutes. A Computer Use command
+    /// ends at the client's `REQUEST_TIMEOUT_MS`, 150 s (`computer-bridge/client.mjs:36`).
     pub const fn deadline(self) -> Option<Duration> {
         match self {
             Self::SystemProxy | Self::Notifications => Some(Duration::from_secs(3)),
+            Self::Computer => Some(Duration::from_secs(150)),
             Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy => None,
         }
     }
@@ -158,6 +162,14 @@ pub trait HostChannel: Send + Sync {
             Scoped::Done(answer) => answer,
             _ => Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() }.into()),
         }
+    }
+
+    /// Whether a claimant serving `capability` is connected now: the check Node's client makes first, by reading the
+    /// bridge's discovery file, before it validates or dispatches anything. A channel that cannot tell answers true and
+    /// leaves the refusal to the request.
+    fn serves(&self, capability: HostCapability) -> bool {
+        let _ = capability;
+        true
     }
 
     /// A `host/*` notification to the claimant serving `capability`.

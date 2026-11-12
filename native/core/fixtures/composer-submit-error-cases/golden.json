@@ -143,6 +143,533 @@
         },
         "secretInFrame": false
       }
+    },
+    {
+      "case": "the relay answers a refusal with its public params only, and redacts the call's own secrets from the message and the params",
+      "observed": {
+        "answered": [
+          {
+            "why": "the secret is removed from the message",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveProviderApiKey",
+                "args": {
+                  "providerId": "anthropic",
+                  "secret": "my-secret-value"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "401 for key my-secret-value",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "401 for key [redacted]"
+            }
+          },
+          {
+            "why": "every string of the call that is long enough is a secret",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveProviderApiKey",
+                "args": {
+                  "providerId": "anthropic",
+                  "secret": "my-secret-value"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "anthropic refused my-secret-value",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "[redacted] refused [redacted]"
+            }
+          },
+          {
+            "why": "the secret is removed from the params of a public code",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveProviderApiKey",
+                "args": {
+                  "providerId": "anthropic",
+                  "secret": "my-secret-value"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "x",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": "Rel-my-secret-value-x"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+              "errorParams": {
+                "name": "Rel-[redacted]-x"
+              }
+            }
+          },
+          {
+            "why": "the secret as a JSON body escapes it is removed too",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveProviderApiKey",
+                "args": {
+                  "providerId": "p",
+                  "secret": "pa\"ss\\word99"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "bad body {\"secret\":\"pa\\\"ss\\\\word99\"} and pa\"ss\\word99",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "bad body {\"secret\":\"[redacted]\"} and [redacted]"
+            }
+          },
+          {
+            "why": "a string under six characters is no secret",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveProviderApiKey",
+                "args": {
+                  "providerId": "p",
+                  "secret": "abc12"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "key abc12 refused",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "key abc12 refused"
+            }
+          },
+          {
+            "why": "every value of a wrapped input is a secret",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "addConnectorAccount",
+                "args": {
+                  "email": "dev@example.com",
+                  "appPassword": "abcd efgh ijkl mnop"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "login failed for dev@example.com with abcd efgh ijkl mnop",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "login failed for [redacted] with [redacted]"
+            }
+          },
+          {
+            "why": "six levels down is still seen",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveMcpServer",
+                "args": {
+                  "k6": {
+                    "k5": {
+                      "k4": {
+                        "k3": {
+                          "k2": {
+                            "k1": "deep-secret-six"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "thrown": {
+              "message": "echo deep-secret-six",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "echo [redacted]"
+            }
+          },
+          {
+            "why": "seven levels down is not",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "saveMcpServer",
+                "args": {
+                  "k7": {
+                    "k6": {
+                      "k5": {
+                        "k4": {
+                          "k3": {
+                            "k2": {
+                              "k1": "deep-secret-seven"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "thrown": {
+              "message": "echo deep-secret-seven",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "echo deep-secret-seven"
+            }
+          },
+          {
+            "why": "arrays are walked",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "addConnectorAccount",
+                "args": {
+                  "keys": [
+                    "first-secret-aaa",
+                    "second-secret-bbb"
+                  ]
+                }
+              }
+            ],
+            "thrown": {
+              "message": "first-secret-aaa then second-secret-bbb",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "[redacted] then [redacted]"
+            }
+          },
+          {
+            "why": "a pasted redirect URL is a secret",
+            "method": "invokeCapability",
+            "params": [
+              {
+                "capability": "completeMcpOAuthLogin",
+                "args": {
+                  "flowId": "flow-1",
+                  "callbackUrl": "http://localhost:1/cb?code=abcdefgh"
+                }
+              }
+            ],
+            "thrown": {
+              "message": "bad http://localhost:1/cb?code=abcdefgh",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "bad [redacted]"
+            }
+          },
+          {
+            "why": "a handoff secret is redacted whole, however short",
+            "method": "provideSecretInput",
+            "params": [
+              "req-1",
+              "x1"
+            ],
+            "thrown": {
+              "message": "pin x1 rejected x1y",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "pin [redacted] rejected [redacted]y"
+            }
+          },
+          {
+            "why": "an empty handoff secret redacts nothing",
+            "method": "provideSecretInput",
+            "params": [
+              "req-1",
+              ""
+            ],
+            "thrown": {
+              "message": "pin  rejected",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "pin  rejected"
+            }
+          },
+          {
+            "why": "a call that carries no secrets keeps its message",
+            "method": "send",
+            "params": [
+              {
+                "text": "my-secret-value"
+              }
+            ],
+            "thrown": {
+              "message": "my-secret-value is not a member",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "my-secret-value is not a member"
+            }
+          },
+          {
+            "why": "a public code forwards its name",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "\"Release\" is switched off.",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": "Release",
+                "other": "x"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "\"Release\" is switched off.",
+              "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+              "errorParams": {
+                "name": "Release"
+              }
+            }
+          },
+          {
+            "why": "a name of 200 characters is forwarded",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+              "errorParams": {
+                "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+              }
+            }
+          },
+          {
+            "why": "a name of 201 characters is not",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "ROOM_MEMBER_SWITCHED_OFF"
+            }
+          },
+          {
+            "why": "an empty name is not",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": ""
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "ROOM_MEMBER_SWITCHED_OFF"
+            }
+          },
+          {
+            "why": "a schedule code forwards its name",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "SCHEDULE_NAME_TAKEN",
+              "details": {
+                "name": "nightly"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "SCHEDULE_NAME_TAKEN",
+              "errorParams": {
+                "name": "nightly"
+              }
+            }
+          },
+          {
+            "why": "a schedule code without a public param forwards none",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "SCHEDULE_RENAME_UNCERTAIN",
+              "details": {
+                "name": "nightly"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "SCHEDULE_RENAME_UNCERTAIN"
+            }
+          },
+          {
+            "why": "any other code forwards none",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "x",
+              "code": "WORKTREE_DIRTY",
+              "details": {
+                "files": [
+                  "C:/secret/path.txt"
+                ],
+                "name": "C:/secret/path.txt"
+              }
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "x",
+              "errorCode": "WORKTREE_DIRTY"
+            }
+          },
+          {
+            "why": "an error with no code has none",
+            "method": "send",
+            "params": [],
+            "thrown": {
+              "message": "plain",
+              "code": null,
+              "details": null
+            },
+            "frame": {
+              "id": 1,
+              "ok": false,
+              "error": "plain"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "the relay keeps no outcome: a failed secret-bearing call asked again fails afresh, redacted, and no method reads a stored outcome",
+      "observed": {
+        "secret": "my-secret-value",
+        "call": {
+          "method": "invokeCapability",
+          "params": [
+            {
+              "capability": "saveProviderApiKey",
+              "args": {
+                "providerId": "anthropic",
+                "secret": "my-secret-value"
+              }
+            }
+          ]
+        },
+        "thrown": {
+          "message": "401 for key my-secret-value",
+          "code": "ROOM_MEMBER_SWITCHED_OFF",
+          "details": {
+            "name": "Rel-my-secret-value-x"
+          }
+        },
+        "first": {
+          "id": 1,
+          "ok": false,
+          "error": "401 for key [redacted]",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "Rel-[redacted]-x"
+          }
+        },
+        "again": {
+          "id": 1,
+          "ok": false,
+          "error": "401 for key [redacted]",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "Rel-[redacted]-x"
+          }
+        },
+        "status": {
+          "id": 1,
+          "ok": false,
+          "error": "unknown method: opStatus"
+        },
+        "secretInFrames": [
+          false,
+          false,
+          false
+        ]
+      }
     }
   ]
 }
