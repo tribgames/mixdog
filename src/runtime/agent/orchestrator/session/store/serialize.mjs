@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { loadLegacySession } from './legacy-session.mjs';
 import { redactSensitiveMessage } from '../sensitive-projection.mjs';
+import { redactSensitiveText } from '../sensitive-values.mjs';
 
 // Inline base64 images (tool screenshots included) are written as
 // content-addressed refs, like prompt media, so session JSON stays small while
@@ -45,7 +46,35 @@ export const TRANSIENT_SESSION_KEYS = Object.freeze([
 /** The session's header as it is stored, messages aside (the session log
  *  drops TRANSIENT_SESSION_KEYS and `messages` itself). */
 export function _sessionHeaderForDisk(session) {
-  return _withMidTurnContextAnchor(session, session);
+  return _withMidTurnContextAnchor(_withSensitiveHeaderRedacted(session), session);
+}
+
+/** The header fields that hold the conversation's text (the title, from the
+ *  first prompt) or a tool call's arguments (the repeat-failure guards keep
+ *  each failed call's signature, its arguments included): a value the session
+ *  marked sensitive is stored there as the marker, as in its messages. The
+ *  same object when nothing changes. */
+function _withSensitiveHeaderRedacted(session) {
+  const id = session?.id;
+  const text = (value) => (typeof value === 'string' ? redactSensitiveText(id, value) : value);
+  const guard = (value) => {
+    if (!value || typeof value !== 'object' || typeof value.sig !== 'string') return value;
+    const sig = text(value.sig);
+    return sig === value.sig ? value : { ...value, sig };
+  };
+  const changes = {};
+  const title = text(session?.title);
+  if (title !== session?.title) changes.title = title;
+  for (const key of ['_repeatFailGuard', '_repeatArgShapeFailGuard']) {
+    const next = guard(session?.[key]);
+    if (next !== session?.[key]) changes[key] = next;
+  }
+  const history = session?._repeatFailHistory;
+  if (Array.isArray(history)) {
+    const next = history.map(text);
+    if (next.some((entry, index) => entry !== history[index])) changes._repeatFailHistory = next;
+  }
+  return Object.keys(changes).length ? { ...session, ...changes } : session;
 }
 
 export function _sessionForDisk(session) {

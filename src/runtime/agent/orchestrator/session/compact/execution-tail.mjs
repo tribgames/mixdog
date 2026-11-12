@@ -13,6 +13,7 @@ import {
 } from './messages.mjs';
 import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
 import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
+import { redactSensitiveMessages } from '../sensitive-projection.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
 const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
@@ -238,8 +239,9 @@ export function buildExecutionTail(
   const ensureArchive = () => {
     if (archive) return;
     const persist = preview ? previewToolResultArtifact : persistToolResultArtifactSync;
-    // Model-readable evidence: display ids stay out of it.
-    const text = serializeExecutionArchive(transcript, (line) =>
+    // Model-readable evidence: display ids stay out of it. A file like the
+    // session log: the session's sensitive values are redacted in it.
+    const text = serializeExecutionArchive(redactSensitiveMessages(sessionId, transcript), (line) =>
       persist({ sessionId, toolCallId: 'compact-execution', channel: 'compact-execution-message', content: line })
     );
     const dump = persist({ sessionId, toolCallId: 'compact-execution', channel: 'compact-execution', content: text });
