@@ -15,6 +15,11 @@ fn utf16le(text: &str) -> Vec<u8> {
     text.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
+/// Every byte of `text` as `%u00XX`.
+fn percent_u(text: &str) -> String {
+    text.bytes().map(|b| format!("%u{b:04x}")).collect()
+}
+
 /// Each spelling the review found passing (item 1), inside ordinary text: the whole source span of each is one `[REDACTED]`.
 #[test]
 fn every_encoding_of_a_credential_is_redacted_whole() {
@@ -31,12 +36,46 @@ fn every_encoding_of_a_credential_is_redacted_whole() {
         utf16le(KEY),
         // Two layers: JSON escapes of an HTML reference of a percent-escape.
         br"long\u0026#37;2Fkey+value".to_vec(),
+        // `%uXXXX`, whole and mixed with percent-escapes (review 1123v item 2).
+        percent_u(KEY).into_bytes(),
+        b"long%u002Fkey%2bvalue".to_vec(),
+        b"long%u002fkey%u002Bvalue".to_vec(),
     ];
     let scrub = matcher(&[KEY]);
     for form in forms {
         let text = [b"refused ".as_slice(), &form, b" for this account"].concat();
         let clean = scrub.redacted(&text).unwrap_or_else(|| panic!("{} passed", String::from_utf8_lossy(&form)));
         assert_eq!(String::from_utf8_lossy(&clean), "refused [REDACTED] for this account", "{}", String::from_utf8_lossy(&form));
+    }
+}
+
+/// `%u0061…` for `abcdefgh`, and a form's `+` for a space (and its reading back) in both directions, whole and split at every
+/// cut of a chunked text (item 2).
+#[test]
+fn percent_u_escapes_and_form_plus_are_read() {
+    let plain = matcher(&["abcdefgh"]);
+    assert_eq!(plain.redact_str(&format!("x {} y", percent_u("abcdefgh"))), "x [REDACTED] y");
+    assert_eq!(plain.redact_str("x %u0061bcdefgh y %u0061%u0062%u0063%u0064%u0065%u0066%u0067%u0068 z"), "x [REDACTED] y [REDACTED] z");
+    // An unfinished `%u` escape at the end of a text is not a credential yet.
+    assert_eq!(plain.redact_str("x %u00"), "x %u00");
+    let spaced = matcher(&["abcdefgh ijkl"]);
+    for echoed in ["abcdefgh+ijkl", "abcdefgh ijkl", "abcdefgh%20ijkl", "abcdefgh%2Bijkl", "abcdefgh%u0020ijkl"] {
+        assert_eq!(spaced.redact_str(&format!("x {echoed} y")), "x [REDACTED] y", "{echoed}");
+    }
+    let plus = matcher(&["abcdefgh+ijkl"]);
+    for echoed in ["abcdefgh ijkl", "abcdefgh+ijkl", "abcdefgh%2Bijkl", "abcdefgh%20ijkl"] {
+        assert_eq!(plus.redact_str(&format!("x {echoed} y")), "x [REDACTED] y", "{echoed}");
+    }
+    let text = format!("data: {} and {}\n\n", percent_u("abcdefgh"), "abcdefgh+ijkl");
+    let scrub = Arc::new(matcher(&["abcdefgh", "abcdefgh ijkl"]));
+    let whole = scrub.redact_str(&text);
+    assert_eq!(whole, "data: [REDACTED] and [REDACTED]\n\n");
+    for cut in 1..text.len() {
+        let mut stream = Stream::new(scrub.clone());
+        let mut got = stream.push(&text.as_bytes()[..cut]);
+        got.extend(stream.push(&text.as_bytes()[cut..]));
+        got.extend(stream.finish());
+        assert_eq!(String::from_utf8(got).unwrap(), whole, "cut at {cut}");
     }
 }
 
@@ -162,11 +201,28 @@ impl Rng {
     }
 }
 
-/// A credential: printable ASCII with no escape introducer (`%`, `\`, `&`) and no blank.
+/// A credential: printable ASCII with no escape introducer (`%`, `\`, `&`), blanks inside it only (a credential is trimmed).
 fn credential(rng: &mut Rng) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./+=:~!*'()<>\"#$,;?@[]^`{|}";
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./+=:~!*'()<>\"#$,;?@[]^`{|} ";
     let len = 1 + rng.below(40);
-    (0..len).map(|_| char::from(ALPHABET[rng.below(ALPHABET.len())])).collect()
+    let drawn: String = (0..len).map(|_| char::from(ALPHABET[rng.below(ALPHABET.len())])).collect();
+    let trimmed = drawn.trim();
+    if trimmed.is_empty() { "k".to_owned() } else { trimmed.to_owned() }
+}
+
+/// `%u00XX`, the escape of JavaScript's `escape()`.
+fn percent_u_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
+    bytes.iter().flat_map(|b| if !b.is_ascii_alphanumeric() || rng.below(4) == 0 { format!("%u{b:04x}").into_bytes() } else { vec![*b] }).collect()
+}
+
+/// A form encoder's space as `+`, or a form decoder's `+` as a space.
+fn form_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
+    let encode = rng.chance();
+    bytes.iter().map(|b| match (b, encode) {
+        (b' ', true) => b'+',
+        (b'+', false) => b' ',
+        (b, _) => *b,
+    }).collect()
 }
 
 fn percent_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
@@ -218,6 +274,11 @@ fn utf16_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
 fn encoded(rng: &mut Rng, secret: &str) -> (Vec<u8>, Vec<&'static str>) {
     let mut names = Vec::new();
     let mut bytes = secret.as_bytes().to_vec();
+    // A form encoding of the credential itself, before anything else is done to it.
+    if rng.chance() {
+        bytes = form_layer(rng, &bytes);
+        names.push("form");
+    }
     if rng.chance() {
         let mut text = if rng.chance() { STANDARD.encode(&bytes) } else { URL_SAFE_NO_PAD.encode(&bytes) };
         if text.len() > 32 && rng.chance() {
@@ -230,7 +291,7 @@ fn encoded(rng: &mut Rng, secret: &str) -> (Vec<u8>, Vec<&'static str>) {
     }
     for _ in 0..rng.below(4) {
         let (name, layer): (&str, fn(&mut Rng, &[u8]) -> Vec<u8>) =
-            [("percent", percent_layer as fn(&mut Rng, &[u8]) -> Vec<u8>), ("json", json_layer), ("html", html_layer), ("utf16", utf16_layer)][rng.below(4)];
+            [("percent", percent_layer as fn(&mut Rng, &[u8]) -> Vec<u8>), ("json", json_layer), ("html", html_layer), ("utf16", utf16_layer), ("percent-u", percent_u_layer)][rng.below(5)];
         bytes = layer(rng, &bytes);
         names.push(name);
     }
@@ -246,7 +307,10 @@ fn decoded(text: &[u8]) -> Vec<u8> {
         while i < current.len() {
             let rest = &current[i..];
             let hex_at = |at: usize| rest.get(at).and_then(|b| (*b as char).to_digit(16));
-            if rest[0] == b'%' && let (Some(h), Some(l)) = (hex_at(1), hex_at(2)) {
+            if rest.starts_with(b"%u") && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok()) {
+                next.extend(char::from_u32(unit).unwrap_or('\u{FFFD}').to_string().into_bytes());
+                i += 6;
+            } else if rest[0] == b'%' && let (Some(h), Some(l)) = (hex_at(1), hex_at(2)) {
                 next.push((h * 16 + l) as u8);
                 i += 3;
             } else if rest.starts_with(b"\\u") && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok()) {
@@ -293,6 +357,17 @@ fn decoded(text: &[u8]) -> Vec<u8> {
 /// of a base64 run (line breaks taken out) at any of the four character offsets. A short credential counts as a whole
 /// token, and in base64 as a whole run.
 fn holds(text: &[u8], secret: &str) -> bool {
+    let mut forms = vec![secret.to_owned()];
+    if secret.contains(' ') {
+        forms.push(secret.replace(' ', "+"));
+    }
+    if secret.contains('+') && !secret.starts_with('+') && !secret.ends_with('+') {
+        forms.push(secret.replace('+', " "));
+    }
+    forms.iter().any(|form| holds_form(text, form))
+}
+
+fn holds_form(text: &[u8], secret: &str) -> bool {
     let plain = decoded(text);
     let n = secret.len();
     let whole = n < WHOLE_TOKEN_BELOW;
@@ -368,4 +443,78 @@ fn a_megabyte_stream_with_five_credentials() {
     let spent = started.elapsed();
     assert!(out == text, "the stream holds no credential");
     println!("1 MiB in {count} chunks, five credentials: {spent:?} in all, {:?} per chunk", spent / count as u32);
+}
+
+// ---- the registry ------------------------------------------------------------------------------------------------------
+
+/// What the transport ever attached stays a credential: over its cap the registry drops the oldest, a value seen again is
+/// the newest, and the matcher is built once per version (handed on as it is until the set changes).
+#[test]
+fn the_registry_drops_the_oldest_over_its_cap_and_builds_once_per_version() {
+    let values: Vec<String> = (0..6).map(|i| format!("registry-credential-{i}-aa")).collect();
+    let mut registry = Registry::new(4);
+    registry.remember(&values[..4]);
+    let first = registry.matcher();
+    assert!(Arc::ptr_eq(&first, &registry.matcher()), "one build per version");
+    registry.remember(&values[..2]);
+    assert!(Arc::ptr_eq(&first, &registry.matcher()), "a value seen again changes no set");
+    // [2, 3, 0, 1] and two more: the two oldest go.
+    registry.remember(&values[4..]);
+    let second = registry.matcher();
+    assert!(!Arc::ptr_eq(&first, &second));
+    for (i, value) in values.iter().enumerate() {
+        let said = second.redact_str(&format!("echo {value} end"));
+        assert_eq!(said == "echo [REDACTED] end", ![2, 3].contains(&i), "{value}: {said}");
+    }
+}
+
+/// A credential the registry holds is found in the text of any later exchange, in any encoding.
+#[test]
+fn the_registry_finds_an_old_credential_in_any_encoding() {
+    let mut registry = Registry::new(REGISTRY_CAP);
+    registry.remember(&["old-credential-of-a-refreshed-token".to_owned(), "key/with+chars-77aa".to_owned()]);
+    let scrub = registry.matcher();
+    assert_eq!(scrub.redact_str("previous value old-credential-of-a-refreshed-token"), "previous value [REDACTED]");
+    assert_eq!(scrub.redact_str("key%2Fwith%2Bchars-77aa and key&#47;with&#43;chars-77aa"), "[REDACTED] and [REDACTED]");
+    assert_eq!(scrub.redacted(b"nothing of the kind"), None);
+}
+
+/// The cost with the registry full: [`REGISTRY_CAP`] JWT-sized values (the most an access token takes), one build per
+/// registry version, then one pass over a 1 MiB stream in 16 KiB chunks. The figures are printed (`--nocapture`).
+#[test]
+fn a_full_registry_costs_one_build_per_version() {
+    let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+    const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut part = |len: usize| -> String { (0..len).map(|_| char::from(URL[rng.below(URL.len())])).collect() };
+    let values: Vec<String> = (0..REGISTRY_CAP).map(|_| format!("eyJ{}.{}.{}", part(36), part(800), part(340))).collect();
+    let mut registry = Registry::new(REGISTRY_CAP);
+    registry.remember(&values);
+    let started = std::time::Instant::now();
+    let matcher = registry.matcher();
+    let built = started.elapsed();
+    assert!(Arc::ptr_eq(&matcher, &registry.matcher()));
+    // One more value: a new version, built again.
+    registry.remember(&["the-one-more-credential-1234567890".to_owned()]);
+    let started = std::time::Instant::now();
+    let rebuilt = registry.matcher();
+    let rebuild = started.elapsed();
+    assert!(!Arc::ptr_eq(&matcher, &rebuilt));
+    let event = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"the quick brown fox \\u00e9 jumps\"}}\n\n";
+    let text: Vec<u8> = event.as_bytes().iter().copied().cycle().take(1 << 20).collect();
+    let started = std::time::Instant::now();
+    let mut stream = Stream::new(rebuilt.clone());
+    let mut out = Vec::with_capacity(text.len());
+    for chunk in text.chunks(16 * 1024) {
+        out.extend(stream.push(chunk));
+    }
+    out.extend(stream.finish());
+    let scanned = started.elapsed();
+    assert!(out == text, "the stream holds no credential");
+    // A credential of the first values is still found.
+    assert_eq!(rebuilt.redact_str(&format!("echo {} end", values[7])), "echo [REDACTED] end");
+    let states = rebuilt.states();
+    println!(
+        "registry of {REGISTRY_CAP} JWT-sized values: {states} automaton states (~{} MiB at 25 bytes), build {built:?}, rebuild after one more value {rebuild:?}, 1 MiB in 64 chunks {scanned:?}",
+        (states * 25) >> 20
+    );
 }

@@ -84,8 +84,10 @@ fn scrub_token_text(text: &str, secret_values: &[&str]) -> String {
     let text = BEARER.replace_all(text, format!("Bearer {REDACTED}").as_str());
     let text = SK_ANT.replace_all(&text, REDACTED);
     let scrubbed = JWT.replace_all(&text, REDACTED);
-    // The values named, however the text encodes them (`carried`'s canonical view).
-    super::carried::Matcher::of_secrets(secret_values).redact_str(&scrubbed)
+    // The values named, however the text encodes them (`carried`'s canonical view), and every credential the process ever
+    // attached (the registry): an error that repeats the old credential of a refreshed token is redacted as well.
+    let scrubbed = super::carried::Matcher::of_secrets(secret_values).redact_str(&scrubbed);
+    super::carried::remembered().redact_str(&scrubbed)
 }
 
 /// `"field": value` with `value` a string (possibly cut off) or a bare non-numeric word, as one

@@ -212,11 +212,20 @@ pub struct Exchange {
     pub surface: Surface,
     /// The Node client that writes the request: the global `fetch` (the default) or a raw `undici.request`.
     pub writer: Writer,
+    /// The answer is a token grant even though the request carries no `grant_type` (Cursor's key exchange): a success
+    /// arrives whole, and the credentials it names are remembered.
+    pub grant: bool,
 }
 
 impl Exchange {
     pub const fn new(liveness: Liveness, redirect: Redirect, surface: Surface) -> Self {
-        Self { liveness, redirect, surface, writer: Writer::Fetch }
+        Self { liveness, redirect, surface, writer: Writer::Fetch, grant: false }
+    }
+
+    /// The answer of this exchange is a token grant.
+    pub const fn grant(mut self) -> Self {
+        self.grant = true;
+        self
     }
 
     /// The call site is a raw `undici.request`, which adds none of `fetch`'s headers.

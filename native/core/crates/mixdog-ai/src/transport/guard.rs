@@ -1,9 +1,11 @@
 //! The one place every provider exchange has its credentials redacted from what comes back.
 //!
-//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). It takes the credentials the request
-//! carries ([`carried::of_request`], [`carried::of_upgrade`]: the exchange's own, nothing remembered across exchanges) and
-//! redacts them, however the text encodes them ([`carried::Matcher`]), from everything that leaves the transport on that
-//! exchange's behalf:
+//! [`Guarded`] wraps a transport seam ([`HttpSend`], [`BidiOpen`], [`WsDial`]). It remembers the credentials the request
+//! carries ([`carried::of_request`], [`carried::of_upgrade`]) in the process-wide registry, with the tokens a token response
+//! grants, and redacts every credential the process ever attached, however the text encodes it ([`carried::remembered`]: one
+//! matcher per registry version), from everything that leaves the transport on any exchange's behalf (an error that
+//! repeats the old credential of a refreshed token, or the key of an earlier request, is as redacted as one that repeats
+//! the current one):
 //!
 //! - the response's headers, whatever its status (a redirect's `Location`, an echo header);
 //! - the body of a refusal, of a redirect and of an event stream, as it streams ([`carried::Stream`]), after the body was
@@ -13,11 +15,13 @@
 //!   proxy's refusal of the tunnel.
 //!
 //! Every error, refusal, redirect, log line, trace and stage a provider builds from a response is built from these, so none
-//! of them holds a credential the request carried. Two bodies pass whole, by rule: a successful answer that is not an event
-//! stream is a document its caller parses (a token grant names the credentials it issues, often the very refresh token the
-//! request carried, and redacting it would break the sign-in), and a body of length-framed binary messages (Connect, gRPC,
-//! protobuf) cannot lose bytes without breaking its frames; the decoders of those frames scrub the error text they read
-//! with the credential their adapter attached (`scrub_oauth_secrets`, the same matcher). No provider reaches the network
+//! of them holds a credential the process attached. Two bodies pass whole, by rule: a token grant (a successful answer to
+//! a token request, which has a `grant_type`, or to an exchange declared a grant: it names the credentials it issues, often
+//! the very refresh token the request carried, and redacting it would break the sign-in; the credentials it names are
+//! remembered as it passes), and a body of length-framed binary messages (Connect, gRPC, protobuf) cannot lose bytes
+//! without breaking its frames; the decoders of those frames scrub the error text they read with the registry too
+//! (`scrub_oauth_secrets` and Devin's `redact`). Every other successful body, a JSON document included, is redacted as it
+//! streams: its text reaches the model, the transcript and the logs. No provider reaches the network
 //! but through these seams: the only implementations of them outside tests are this guard and the links that wrap
 //! themselves in it (`every_seam_outside_tests_is_guarded`).
 
@@ -99,33 +103,73 @@ fn framed_binary(headers: &[(String, String)]) -> bool {
     })
 }
 
-fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>) -> HttpResponse {
-    if matcher.is_empty() {
+/// A token grant on its way to its caller: whole, and the credentials it names are remembered once it ended.
+struct GrantBody {
+    inner: Box<dyn BodyStream>,
+    seen: Vec<u8>,
+    over: bool,
+    noted: bool,
+}
+
+#[async_trait]
+impl BodyStream for GrantBody {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        let item = self.inner.next().await;
+        match &item {
+            Some(Ok(chunk)) if !self.over => {
+                if self.seen.len() + chunk.len() > carried::MAX_GRANT_BODY {
+                    self.over = true;
+                    self.seen = Vec::new();
+                } else {
+                    self.seen.extend_from_slice(chunk);
+                }
+            }
+            Some(Ok(_)) => {}
+            _ if !self.noted => {
+                self.noted = true;
+                carried::remember_grant(&self.seen);
+            }
+            _ => {}
+        }
+        item
+    }
+
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
+}
+
+fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>, grant: bool) -> HttpResponse {
+    if !matcher.is_empty() {
+        matcher.redact_headers(&mut response.headers);
+    }
+    // A token grant carries the credentials it issues, often the refresh token the request carried: it is the one
+    // successful body that arrives whole. Every other body, a successful document or stream and a refusal alike, reaches
+    // the model, the transcript or a log, and is redacted as it streams (a framed binary body by its decoder).
+    if grant && response.is_success() {
+        response.body = Box::new(GrantBody { inner: response.body, seen: Vec::new(), over: false, noted: false });
         return response;
     }
-    matcher.redact_headers(&mut response.headers);
-    // A successful answer that is not an event stream is a document the caller reads for what it holds: a token grant
-    // carries the credentials it issues, often the refresh token the request carried. Only a refusal, a redirect and a
-    // stream (whose in-band error events repeat the key as a refusal does) are redacted.
-    let event_stream = response.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.trim_start().to_ascii_lowercase().starts_with("text/event-stream"));
-    if (response.is_success() && !event_stream) || framed_binary(&response.headers) {
+    if matcher.is_empty() || framed_binary(&response.headers) {
         return response;
     }
     response.body = Box::new(RedactedBody { inner: response.body, stream: carried::Stream::new(matcher.clone()), ended: false, fault: None });
     response
 }
 
-/// The matcher of the credentials `request` carries.
-fn matcher_of(request: &WireRequest) -> Arc<Matcher> {
-    Arc::new(Matcher::new(&carried::of_request(request)))
+/// Remembers the credentials a request carries and takes the matcher of every one the process ever attached.
+fn matcher_of(credentials: &[String]) -> Arc<Matcher> {
+    carried::remember(credentials);
+    carried::remembered()
 }
 
 #[async_trait]
 impl<T: HttpSend> HttpSend for Guarded<T> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-        let matcher = matcher_of(&request);
+        let matcher = matcher_of(&carried::of_request(&request));
+        let grant = exchange.grant || carried::is_token_request(&request.body);
         match self.0.send(request, exchange).await {
-            Ok(response) => Ok(clean_response(response, &matcher)),
+            Ok(response) => Ok(clean_response(response, &matcher, grant)),
             Err(error) => Err(matcher.redact_error(error)),
         }
     }
@@ -134,9 +178,9 @@ impl<T: HttpSend> HttpSend for Guarded<T> {
 #[async_trait]
 impl<T: BidiOpen> BidiOpen for Guarded<T> {
     async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
-        let matcher = matcher_of(&request);
+        let matcher = matcher_of(&carried::of_request(&request));
         match self.0.open(request, first, exchange).await {
-            Ok((response, sink)) => Ok((clean_response(response, &matcher), sink)),
+            Ok((response, sink)) => Ok((clean_response(response, &matcher, false), sink)),
             Err(error) => Err(matcher.redact_error(error)),
         }
     }
@@ -206,7 +250,7 @@ impl<T: WsDial> WsDial for Guarded<T> {
     async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let headers: Vec<(String, String)> =
             request.headers().iter().filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))).collect();
-        let matcher = Arc::new(Matcher::new(&carried::of_upgrade(&request.uri().to_string(), &headers)));
+        let matcher = matcher_of(&carried::of_upgrade(&request.uri().to_string(), &headers));
         match self.0.dial(request).await {
             Ok((socket, mut response)) => {
                 clean_upgrade(&mut response, &matcher);
@@ -395,6 +439,68 @@ mod tests {
         let with_code = WireRequest { body: br#"{"input":[{"type":"function_call_output","output":{"code":"print(1)"}}]}"#.to_vec(), ..request("https://example.test/v1", &[]) };
         assert_eq!(body_of(link.send(with_code, TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
         assert_eq!(body_of(link.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
+    }
+
+    /// A resend after a refresh carries the new credential; the refusal of the resend repeats the old one (review 1123v item 1).
+    #[tokio::test]
+    async fn an_error_repeating_the_old_credential_of_a_refreshed_token_is_redacted() {
+        let first = Guarded(Echo { chunks: vec![b"expired"], location: "", fail_with: None, content_type: "text/plain", status: 401 });
+        let refused = first.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-oldcredential123")]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(refused).await, "expired");
+        let resend = Guarded(Echo {
+            chunks: vec![b"{\"error\":\"previous value refreshed-oldcredential123, current refreshed-newcredential456\"}"],
+            location: "",
+            fail_with: None,
+            content_type: "application/json",
+            status: 400,
+        });
+        let answered = resend.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-newcredential456")]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(answered).await, "{\"error\":\"previous value [REDACTED], current [REDACTED]\"}");
+    }
+
+    /// An exchange that carries no credential of its own repeats what an earlier request of the process carried (a pooled
+    /// connection, a gateway), in the error of a transport failure as well.
+    #[tokio::test]
+    async fn an_error_repeating_the_credential_of_an_earlier_request_is_redacted() {
+        let early = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 400 });
+        early.send(request("https://example.test/v1?key=earlier%2Frequest-key-9d3b&alt=sse", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        let later = Guarded(Echo {
+            chunks: vec![b"the key earlier/request-key-9d3b was refused"],
+            location: "https://example.test/?k=earlier%2Frequest-key-9d3b",
+            fail_with: None,
+            content_type: "text/plain",
+            status: 400,
+        });
+        let response = later.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(response.headers[0].1, "https://example.test/?k=[REDACTED]");
+        assert_eq!(body_of(response).await, "the key [REDACTED] was refused");
+        let failing = Guarded(Echo { chunks: Vec::new(), location: "", fail_with: Some("error sending request for url (https://example.test/v3?key=earlier/request-key-9d3b)"), content_type: "", status: 0 });
+        let error = failing.send(request("https://example.test/v3", &[]), TOKEN_EXCHANGE).await.err().expect("failed");
+        assert_eq!(error.message, "error sending request for url (https://example.test/v3?key=[REDACTED])");
+    }
+
+    /// Only a token grant arrives whole: the tokens it names are remembered, and any other successful body (a JSON
+    /// document its caller parses and hands on) that repeats a credential the process attached is redacted.
+    #[tokio::test]
+    async fn only_a_token_grant_arrives_whole_and_what_it_grants_is_remembered() {
+        let grant: &'static [u8] = br#"{"access_token":"granted-access-token-4e7f21","refresh_token":"granted-refresh-token-8a90c3","id_token":"granted-id-token-55b2d0"}"#;
+        let link = Guarded(Echo { chunks: vec![grant], location: "", fail_with: None, content_type: "application/json", status: 200 });
+        let refresh = WireRequest { body: b"grant_type=refresh_token&refresh_token=granted-refresh-token-8a90c3".to_vec(), ..request("https://example.test/token", &[]) };
+        assert_eq!(body_of(link.send(refresh, TOKEN_EXCHANGE).await.expect("answered")).await.as_bytes(), grant);
+        // Cursor's exchange has no `grant_type`: the exchange is declared one.
+        let exchange = Guarded(Echo { chunks: vec![br#"{"accessToken":"cursor-granted-access-6c1e","refreshToken":"cursor-granted-refresh-2f70"}"#], location: "", fail_with: None, content_type: "application/json", status: 200 });
+        let body = body_of(exchange.send(request("https://example.test/auth/exchange", &[("authorization", "Bearer cursor-granted-refresh-2f70")]), crate::transport::deadlines::CURSOR_EXCHANGE).await.expect("answered")).await;
+        assert!(body.contains("cursor-granted-refresh-2f70") && body.contains("cursor-granted-access-6c1e"), "{body}");
+        // Later, an answer of no token request that repeats a granted token, or the one an earlier request carried.
+        let document = Guarded(Echo {
+            chunks: vec![br#"{"note":"granted-access-token-4e7f21 and cursor-granted-access-6c1e and granted-id-token-55b2d0"}"#],
+            location: "",
+            fail_with: None,
+            content_type: "application/json",
+            status: 200,
+        });
+        let answered = document.send(request("https://example.test/v1/models", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(answered).await, r#"{"note":"[REDACTED] and [REDACTED] and [REDACTED]"}"#);
     }
 
     /// A compressed refusal is decoded below the guard and redacted after: the real link, over TLS, with a gzip body.
