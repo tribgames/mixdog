@@ -364,12 +364,9 @@ impl AnthropicAdapter {
         if !matches!(response.status, 400 | 415) {
             return Ok(response);
         }
-        // Drained best-effort before the plain resend (`resendIfEncodingRejected`), which goes out on the same turn of
-        // Node's event loop and so finds the refusal's socket still busy.
-        let held = response.read_all_held().await.ok();
-        let retry = self.http.send(request, MODEL_STREAM).await;
-        drop(held);
-        let retry = retry?;
+        // Drained best-effort before the plain resend (`resendIfEncodingRejected`).
+        drop(response.read_all().await);
+        let retry = self.http.send(request, MODEL_STREAM).await?;
         if retry.is_success() {
             GZIP_LATCHED.store(true, Ordering::SeqCst);
         }

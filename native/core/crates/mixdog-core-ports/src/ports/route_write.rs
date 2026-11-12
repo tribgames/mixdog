@@ -106,7 +106,8 @@ impl RouteWriter for LiveRouteWriter {
         }
         let live_provider = self.cell.route(thread).get("provider").and_then(Value::as_str).unwrap_or("").to_owned();
         let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
-        let route = refresh_route_fields(&config, &target, Some(&meta), &live_provider, &fast);
+        let windows = |provider: &str, model: &str| self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok());
+        let route = refresh_route_fields(&config, &target, Some(&meta), &live_provider, &fast, &windows);
         self.cell.set_route_state(thread, route.clone());
         Ok(Some(route))
     }

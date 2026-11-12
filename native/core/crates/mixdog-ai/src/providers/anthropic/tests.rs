@@ -1079,7 +1079,7 @@ async fn an_error_keeps_the_events_decoded_before_it_whatever_the_chunking() {
     assert!(err.exposure.tool_dispatched, "the error reports the dispatch");
     // An error frame carries no partial usage in Node (`_anthropicSseError`, anthropic-sse.mjs:138; only a cut stream
     // gets the turn's partial fields): as Node's recorded in-stream error after output shows.
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/claude-floors/golden.json")).expect("fixture");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture");
     let after_output = golden["fallback"]
         .as_array()
         .expect("fallback")

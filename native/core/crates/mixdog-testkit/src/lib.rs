@@ -5,13 +5,18 @@
 //! no `#[allow]`. Every function panics with the path in the message when the operation fails,
 //! because a fixture that cannot be written or read is a failed test, not a value to handle.
 
+mod chain;
 pub mod exact;
 pub mod provider_fields;
+mod fixture;
 mod fs;
 mod process;
 
+pub use chain::chain_output;
 pub use exact::Exact;
-
+pub use fixture::Fixture;
+pub use fixture::bytes as fixture_read;
+pub use fixture::text as fixture_text;
 pub use fs::canonical;
 pub use fs::create_dir;
 pub use fs::create_dir_all;

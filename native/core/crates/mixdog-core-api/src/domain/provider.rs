@@ -192,6 +192,10 @@ pub struct Message {
     /// Assistant only: the stored `providerMetadata.gemini` (`{thoughtParts, textParts}`), which a Gemini-wire request
     /// replays for a turn that has no replay envelope of its own (`geminiThoughtPartsFromMetadata`).
     pub gemini_metadata: Option<JsonValue>,
+    /// User and tool only (Node `meta.sentRequestTail`): the message a provider request ended with when a restart
+    /// or cancel cut it. An Anthropic wire keeps later user text beside it as sibling blocks instead of folding it
+    /// in, so the cached prefix that request wrote is sent unchanged.
+    pub sent_request_tail: bool,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -212,6 +216,7 @@ impl Message {
             turn_reminder: None,
             account_routing: None,
             gemini_metadata: None,
+            sent_request_tail: false,
             provider_replay: Vec::new(),
         }
     }

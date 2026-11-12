@@ -428,7 +428,7 @@ mod tests {
         let mut config = PeerConfig::new(vec![]);
         config.udp_bind = vec!["127.0.0.1:0".to_owned()];
         config.hooks.mdns_socket = Some(allowed_mdns_join);
-        let _built = tokio::time::timeout(Duration::from_secs(20), open(&config, None)).await.expect("the open answers within the test bound");
+        let _built = mixdog_rt::time::timeout(Duration::from_secs(20), open(&config, None)).await.expect("the open answers within the test bound");
         assert_eq!(*config.hooks.builds.lock().unwrap(), vec![MulticastDnsMode::QueryOnly], "one build, with mDNS resolution on");
     }
 

@@ -170,8 +170,8 @@ pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8], sec
 /// One refresh exchange (`_postRefresh`). xAI rotates refresh tokens; the prior one is kept only when the response
 /// omits it. `pace` is the clock the new expiry counts from.
 pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
-    // The discovery answer's connection is held until the exchange went out: Node returns its socket only after the code
-    // that read it has run on, and the exchange follows at once, so it does not get it.
+    // The discovery answer's connection is held until the exchange went out: Node returns its socket a check phase
+    // after the code that read it has run on, and the exchange follows at once, so it does not get it.
     let cached = DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     let (endpoint, discovered) = if !tokens.token_endpoint.is_empty() {
         (trusted_xai_endpoint(&tokens.token_endpoint)?.to_string(), None)

@@ -1,0 +1,82 @@
+{
+  "name": "grep-missing-indexed",
+  "files": {
+    "zz/sub/nope.txt": "n\n",
+    "zz/m0/other.txt": "o\n",
+    "zz/m1/other.txt": "o\n",
+    "zz/m2/other.txt": "o\n",
+    "zz/m3/other.txt": "o\n",
+    "zz/m4/other.txt": "o\n",
+    "zz/m5/other.txt": "o\n",
+    "zz/m6/other.txt": "o\n"
+  },
+  "bulkDirs": {
+    "dir": "d",
+    "count": 6100
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "nope.txt"
+      },
+      "text": "Error: path does not exist: <ROOT>/nope.txt (ENOENT)\n[path not found here; same-named indexed file(s): zz/sub/nope.txt] (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "zz/nope.txt"
+      },
+      "text": "Error: path does not exist: <ROOT>/zz/nope.txt (ENOENT)\n[path not found here; same-named indexed file(s): zz/sub/nope.txt] (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "other.txt"
+      },
+      "text": "Error: path does not exist: <ROOT>/other.txt (ENOENT)\n[path not found here; same-named indexed file(s): zz/m0/other.txt, zz/m1/other.txt, zz/m2/other.txt, zz/m3/other.txt, zz/m4/other.txt] (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "none.md"
+      },
+      "text": "Error: path does not exist: <ROOT>/none.md (ENOENT) (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": [
+          "nope.txt"
+        ]
+      },
+      "text": "Error: path does not exist: <ROOT>/nope.txt (ENOENT)\n[path not found here; same-named indexed file(s): zz/sub/nope.txt] (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "nope.txt"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/nope.txt' (relative paths resolve from <ROOT>) Locate with find on the basename before retrying.",
+      "isError": false
+    }
+  ]
+}

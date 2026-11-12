@@ -1,0 +1,407 @@
+From bb8c5e3b7a9064a1a5bcd066e5781468bf0b284e Mon Sep 17 00:00:00 2001
+From: t <t@example.com>
+Date: Wed, 11 Nov 2026 20:22:24 +0900
+Subject: [PATCH] effort judge: the decision log keeps its newest two segments
+ and counts the older lines into a summary (the one growing file had reached
+ 134 MB)
+
+---
+ src/runtime/effort-judge/decision-log.mjs     | 182 ++++++++++++++++++
+ .../effort-judge/decision-log.test.mjs        | 159 +++++++++++++++
+ src/runtime/effort-judge/judge-client.mjs     |  16 +-
+ 3 files changed, 352 insertions(+), 5 deletions(-)
+ create mode 100644 src/runtime/effort-judge/decision-log.mjs
+ create mode 100644 src/runtime/effort-judge/decision-log.test.mjs
+
+diff --git a/src/runtime/effort-judge/decision-log.mjs b/src/runtime/effort-judge/decision-log.mjs
+new file mode 100644
+index 000000000..bd1aa77ef
+--- /dev/null
++++ b/src/runtime/effort-judge/decision-log.mjs
+@@ -0,0 +1,182 @@
++// The effort judge's decision log. One line per judgment adds up quickly (every
++// tool-result step of every agent is one: a log left to grow reached 134 MB),
++// and what stays useful of an old judgment is how often each outcome happened,
++// not the line itself. So the log is three files beside each other:
++//   decisions.jsonl          the newest judgments as written, up to one segment
++//   decisions.1.jsonl        the segment before it
++//   decisions-summary.jsonl  everything older, as counts per day, route and kind
++// When the newest file passes a segment, the previous segment is counted into
++// the summary and removed, and the newest takes its place. The counting runs
++// off the turn's path and reads the segment as a stream.
++import { appendFileSync, createReadStream, mkdirSync, statSync } from 'node:fs';
++import { appendFile, rename, unlink } from 'node:fs/promises';
++import { dirname } from 'node:path';
++
++/** About 17,000 judgments. */
++export const DECISION_SEGMENT_BYTES = 4 * 1024 * 1024;
++
++const MS_BUCKETS = [100, 200, 300, 500];
++
++function msBucket(ms) {
++  for (const limit of MS_BUCKETS) if (ms < limit) return `under${limit}`;
++  return `from${MS_BUCKETS.at(-1)}`;
++}
++
++function bump(counts, key) {
++  counts[key] = (counts[key] || 0) + 1;
++}
++
++const sortedCounts = (counts) => Object.fromEntries(Object.keys(counts).sort().map((key) => [key, counts[key]]));
++
++/**
++ * Counts decision lines into one row per day, provider, model and kind (a
++ * turn's judgment or a tool-result step's). Every count of a row adds up with
++ * the same row of another segment, so the latency is kept as buckets, not as
++ * percentiles. `sessions` is the number of sessions seen in this segment.
++ */
++export function createDecisionSummary() {
++  const rows = new Map();
++  return {
++    add(line) {
++      let entry;
++      try {
++        entry = JSON.parse(line);
++      } catch {
++        return;
++      }
++      const at = typeof entry?.at === 'string' ? entry.at : '';
++      if (at.length < 10) return;
++      const kind = entry.atStep === undefined ? 'turn' : 'step';
++      const provider = String(entry.provider ?? '');
++      const model = String(entry.model ?? '');
++      const key = JSON.stringify([at.slice(0, 10), provider, model, kind]);
++      let row = rows.get(key);
++      if (!row) {
++        row = {
++          day: at.slice(0, 10),
++          provider,
++          model,
++          kind,
++          from: at,
++          to: at,
++          judged: 0,
++          sessions: new Set(),
++          skipped: {},
++          efforts: {},
++          ms: {},
++        };
++        rows.set(key, row);
++      }
++      if (at < row.from) row.from = at;
++      if (at > row.to) row.to = at;
++      row.judged += 1;
++      if (entry.sessionId) row.sessions.add(entry.sessionId);
++      // `load-error: <message>` carries the message; the reason is what counts.
++      if (entry.skipped !== undefined) bump(row.skipped, String(entry.skipped).split(':')[0]);
++      else if (entry.effort !== undefined) bump(row.efforts, `${entry.base ?? ''}>${entry.effort}`);
++      if (Number.isFinite(entry.ms)) bump(row.ms, msBucket(entry.ms));
++    },
++    rows() {
++      return [...rows.keys()].sort().map((key) => {
++        const row = rows.get(key);
++        return {
++          ...row,
++          sessions: row.sessions.size,
++          skipped: sortedCounts(row.skipped),
++          efforts: sortedCounts(row.efforts),
++          ms: sortedCounts(row.ms),
++        };
++      });
++    },
++  };
++}
++
++const sibling = (file, suffix) => `${file.replace(/\.jsonl$/, '')}${suffix}`;
++
++// Counts `segment` into `summary` and removes it; a segment that is not there is nothing to do.
++async function fold(segment, summary) {
++  const counts = createDecisionSummary();
++  try {
++    let rest = '';
++    for await (const chunk of createReadStream(segment, 'utf8')) {
++      const lines = `${rest}${chunk}`.split('\n');
++      rest = lines.pop();
++      for (const line of lines) if (line) counts.add(line);
++    }
++    if (rest) counts.add(rest);
++  } catch (error) {
++    if (error?.code === 'ENOENT') return;
++    throw error;
++  }
++  const rows = counts.rows();
++  if (rows.length) await appendFile(summary, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
++  await unlink(segment);
++}
++
++const logs = new Map();
++
++/**
++ * The log at `file`: `record(entry)` appends one line and, past a segment,
++ * starts the rotation; `settled()` resolves when no rotation is running.
++ */
++export function decisionLog(file, { segmentBytes = DECISION_SEGMENT_BYTES } = {}) {
++  let log = logs.get(file);
++  if (log) return log;
++  const previous = sibling(file, '.1.jsonl');
++  const leaving = sibling(file, '.leaving.jsonl');
++  const summary = sibling(file, '-summary.jsonl');
++  // Other processes append to the same file; the size is read when this one starts and again before a rotation.
++  let bytes = null;
++  let rotating = null;
++  const sizeOnDisk = () => {
++    try {
++      return statSync(file).size;
++    } catch {
++      return 0;
++    }
++  };
++  async function rotate() {
++    // A segment a stopped process left half-counted goes first.
++    await fold(leaving, summary);
++    const size = sizeOnDisk();
++    if (size <= segmentBytes) {
++      // Another process rotated it.
++      bytes = size;
++      return;
++    }
++    if (size > 2 * segmentBytes) {
++      // A log from before segments existed: counted whole, not kept as a segment.
++      await rename(file, leaving);
++    } else {
++      await rename(previous, leaving).catch(() => {});
++      await rename(file, previous);
++    }
++    bytes = 0;
++    await fold(leaving, summary);
++  }
++  log = {
++    record(entry) {
++      const line = `${JSON.stringify(entry)}\n`;
++      try {
++        appendFileSync(file, line);
++      } catch {
++        mkdirSync(dirname(file), { recursive: true });
++        appendFileSync(file, line);
++      }
++      bytes = (bytes ?? sizeOnDisk() - Buffer.byteLength(line)) + Buffer.byteLength(line);
++      if (bytes > segmentBytes && !rotating) {
++        rotating = rotate()
++          .catch(() => {
++            /* the log is diagnostic only; the next record past the segment tries again */
++            bytes = null;
++          })
++          .finally(() => {
++            rotating = null;
++          });
++      }
++    },
++    settled: () => rotating ?? Promise.resolve(),
++  };
++  logs.set(file, log);
++  return log;
++}
+diff --git a/src/runtime/effort-judge/decision-log.test.mjs b/src/runtime/effort-judge/decision-log.test.mjs
+new file mode 100644
+index 000000000..83288269b
+--- /dev/null
++++ b/src/runtime/effort-judge/decision-log.test.mjs
+@@ -0,0 +1,159 @@
++import assert from 'node:assert/strict';
++import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { createDecisionSummary, decisionLog } from './decision-log.mjs';
++
++const lines = (file) =>
++  readFileSync(file, 'utf8')
++    .split('\n')
++    .filter(Boolean)
++    .map((line) => JSON.parse(line));
++
++function tempLog(t) {
++  const root = mkdtempSync(join(tmpdir(), 'mixdog-decision-log-'));
++  t.after(() => rmSync(root, { recursive: true, force: true }));
++  return {
++    file: join(root, 'effort-judge', 'decisions.jsonl'),
++    previous: join(root, 'effort-judge', 'decisions.1.jsonl'),
++    summary: join(root, 'effort-judge', 'decisions-summary.jsonl'),
++    leaving: join(root, 'effort-judge', 'decisions.leaving.jsonl'),
++  };
++}
++
++const step = (n, extra) => ({
++  at: `2026-11-11T10:00:${String(n).padStart(2, '0')}.000Z`,
++  sessionId: `s${n % 2}`,
++  provider: 'anthropic-oauth',
++  model: 'claude-opus-5-5',
++  mode: 'on',
++  atStep: n,
++  ...extra,
++});
++
++test('old decisions are kept as counts per day, route and kind', () => {
++  const summary = createDecisionSummary();
++  const answered = { base: 'medium', step: 0, level: 1, confidence: 0.5, probs: [0.2, 0.5, 0.2, 0.1] };
++  for (const entry of [
++    step(1, { ...answered, effort: 'medium', ms: 99 }),
++    step(2, { ...answered, effort: 'high', ms: 100 }),
++    step(3, { ...answered, effort: 'medium', ms: 499 }),
++    step(4, { ...answered, effort: 'medium', ms: 500 }),
++    step(5, { skipped: 'timeout' }),
++    step(6, { skipped: 'load-error: model.onnx is damaged' }),
++    { ...step(7, { ...answered, effort: 'low', ms: 250 }), atStep: undefined, chosen: 'medium', requestChars: 40 },
++    { ...step(8, { skipped: 'busy' }), at: '2026-11-12T00:00:00.000Z', model: 'gpt-6.1-sol' },
++  ]) {
++    summary.add(JSON.stringify(entry));
++  }
++  summary.add('{"at":"2026-11-11T10:00:09.000Z","sessionId":"s9","provider":"anthro');
++  summary.add('{"no":"time"}');
++  assert.deepEqual(summary.rows(), [
++    {
++      day: '2026-11-11',
++      provider: 'anthropic-oauth',
++      model: 'claude-opus-5-5',
++      kind: 'step',
++      from: '2026-11-11T10:00:01.000Z',
++      to: '2026-11-11T10:00:06.000Z',
++      judged: 6,
++      sessions: 2,
++      skipped: { 'load-error': 1, timeout: 1 },
++      efforts: { 'medium>high': 1, 'medium>medium': 3 },
++      ms: { from500: 1, under100: 1, under200: 1, under500: 1 },
++    },
++    {
++      day: '2026-11-11',
++      provider: 'anthropic-oauth',
++      model: 'claude-opus-5-5',
++      kind: 'turn',
++      from: '2026-11-11T10:00:07.000Z',
++      to: '2026-11-11T10:00:07.000Z',
++      judged: 1,
++      sessions: 1,
++      skipped: {},
++      efforts: { 'medium>low': 1 },
++      ms: { under300: 1 },
++    },
++    {
++      day: '2026-11-12',
++      provider: 'anthropic-oauth',
++      model: 'gpt-6.1-sol',
++      kind: 'step',
++      from: '2026-11-12T00:00:00.000Z',
++      to: '2026-11-12T00:00:00.000Z',
++      judged: 1,
++      sessions: 1,
++      skipped: { busy: 1 },
++      efforts: {},
++      ms: {},
++    },
++  ]);
++});
++
++test('the log keeps two segments as written and counts what is older', async (t) => {
++  const paths = tempLog(t);
++  const entry = (n) => step(n, { skipped: 'timeout' });
++  const segmentBytes = 4 * Buffer.byteLength(`${JSON.stringify(entry(1))}\n`);
++  const log = decisionLog(paths.file, { segmentBytes });
++  for (let n = 1; n <= 5; n += 1) log.record(entry(n));
++  await log.settled();
++  // The fifth line passed the segment: the five became the previous segment.
++  assert.deepEqual(lines(paths.previous), [1, 2, 3, 4, 5].map(entry));
++  assert.equal(existsSync(paths.file), false);
++  assert.equal(existsSync(paths.summary), false);
++
++  for (let n = 6; n <= 10; n += 1) log.record(entry(n));
++  await log.settled();
++  // The next segment took its place; the first five are counts now.
++  assert.deepEqual(lines(paths.previous), [6, 7, 8, 9, 10].map(entry));
++  assert.equal(existsSync(paths.file), false);
++  assert.equal(existsSync(paths.leaving), false);
++  assert.deepEqual(lines(paths.summary), [
++    {
++      day: '2026-11-11',
++      provider: 'anthropic-oauth',
++      model: 'claude-opus-5-5',
++      kind: 'step',
++      from: '2026-11-11T10:00:01.000Z',
++      to: '2026-11-11T10:00:05.000Z',
++      judged: 5,
++      sessions: 2,
++      skipped: { timeout: 5 },
++      efforts: {},
++      ms: {},
++    },
++  ]);
++
++  log.record(entry(11));
++  await log.settled();
++  assert.deepEqual(lines(paths.file), [entry(11)]);
++  assert.deepEqual(lines(paths.previous), [6, 7, 8, 9, 10].map(entry));
++});
++
++test('a log grown before segments existed is counted whole, and a half-counted segment is finished', async (t) => {
++  const paths = tempLog(t);
++  const entry = (n) => step(n, { skipped: 'busy' });
++  const lineBytes = Buffer.byteLength(`${JSON.stringify(entry(1))}\n`);
++  const log = decisionLog(paths.file, { segmentBytes: 2 * lineBytes });
++  log.record(entry(1));
++  await log.settled();
++  // What an older version left: one file far past two segments, and a segment a stopped process was counting.
++  writeFileSync(paths.file, [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${JSON.stringify(entry(n))}\n`).join(''));
++  writeFileSync(paths.leaving, `${JSON.stringify(entry(20))}\n`);
++  log.record(entry(10));
++  log.record(entry(11));
++  await log.settled();
++  assert.equal(existsSync(paths.leaving), false);
++  assert.equal(existsSync(paths.previous), false);
++  const counted = lines(paths.summary);
++  assert.deepEqual(
++    counted.map((row) => [row.from, row.to, row.judged]),
++    [
++      ['2026-11-11T10:00:20.000Z', '2026-11-11T10:00:20.000Z', 1],
++      ['2026-11-11T10:00:02.000Z', '2026-11-11T10:00:11.000Z', 10],
++    ]
++  );
++  assert.equal(existsSync(paths.file), false);
++});
+diff --git a/src/runtime/effort-judge/judge-client.mjs b/src/runtime/effort-judge/judge-client.mjs
+index b0ad7ce8a..54c050ec8 100644
+--- a/src/runtime/effort-judge/judge-client.mjs
++++ b/src/runtime/effort-judge/judge-client.mjs
+@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
+ import { resolvePluginData } from '../shared/plugin-paths.mjs';
+ import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
+ import { fileHasData } from '../shared/file-has-data.mjs';
++import { decisionLog } from './decision-log.mjs';
+ import {
+   effortJudgeInstallCurrent,
+   effortJudgeInstallStamped,
+@@ -378,13 +379,18 @@ export async function judgeTurn(input) {
+ }
+ 
+ // MIXDOG_EFFORT_DECISIONS_LOG redirects the log, e.g. for benchmark runs whose
+-// data directory is discarded when the run ends.
++// data directory is discarded when the run ends; a redirected log is one file
++// with every line (a run's report reads it whole). The data directory's own
++// log keeps its newest lines and counts the older ones (decision-log.mjs).
+ export function recordEffortDecision(entry) {
+   try {
+-    const file =
+-      process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge', 'decisions.jsonl');
+-    mkdirSync(dirname(file), { recursive: true });
+-    appendFileSync(file, `${JSON.stringify(entry)}\n`);
++    const redirected = process.env.MIXDOG_EFFORT_DECISIONS_LOG;
++    if (redirected) {
++      mkdirSync(dirname(redirected), { recursive: true });
++      appendFileSync(redirected, `${JSON.stringify(entry)}\n`);
++      return;
++    }
++    decisionLog(join(resolvePluginData(), 'effort-judge', 'decisions.jsonl')).record(entry);
+   } catch {
+     /* the log is diagnostic only */
+   }
+-- 
+2.51.0.windows.1
+

@@ -16,6 +16,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_core_base::rooms::ids::SESSION_ID_PATTERN;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_js::JsRegex;
 use mixdog_js::time::date_parse;
@@ -29,7 +30,13 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::quiet_progress::{display_progress_stage, last_progress_at};
+
 type Row = Map<String, Value>;
+
+#[cfg(test)]
+#[path = "pool_list_quiet_replay.rs"]
+mod quiet_replay;
 
 const TAG_TOMBSTONE_TTL_MS: f64 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const AGENT_PANE_VISIBLE_MS: f64 = 60.0 * 60.0 * 1000.0;
@@ -47,7 +54,7 @@ static FAILED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:er
 static COMPLETED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:idle|done|complete|completed|success)$", "i"));
 static CANCEL_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^cancel", "i"));
 static YEAR_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d{4}-", ""));
-static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[A-Za-z0-9_-]+$", ""));
+static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(SESSION_ID_PATTERN.0, SESSION_ID_PATTERN.1));
 
 /// The header fields the pool reads of a worker session record (`WORKER_HEADER_FIELDS`).
 pub const HEADER_FIELDS: [&str; 33] = [
@@ -813,11 +820,9 @@ impl AgentPool {
         if to_number_of(liveness.get("taskWaits")) > 0.0 {
             row.insert("awaitingTask".into(), json!("wait"));
         }
-        let progress_at = number("lastProgressAt").max(number("lastStreamDeltaAt")).max(number("toolStartedAt")).max(ask_started);
+        let progress_at = last_progress_at(Some(liveness));
         row.insert("progressAt".into(), if progress_at == 0.0 { Value::Null } else { json_number(progress_at) });
-        let sent_at = number("requestSentAt");
-        let awaiting_model = stage == Some("requesting") && sent_at > 0.0 && (number("lastTransportAt").is_nan() || number("lastTransportAt") < sent_at);
-        row.insert("progressStage".into(), if awaiting_model { json!("model_thinking") } else { stage.map_or(Value::Null, |stage| json!(stage)) });
+        row.insert("progressStage".into(), display_progress_stage(Some(liveness)).map_or(Value::Null, Value::String));
         let tool = if stage == Some("tool_running") { or_null(&[liveness.get("lastToolCall")]) } else { Value::Null };
         row.insert("progressTool".into(), tool);
         row.insert("stallWarnMs".into(), json_number(self.live.stall_warn_ms(row.get("agent").and_then(Value::as_str))));
@@ -851,3 +856,7 @@ fn iso(ms: f64) -> Option<String> {
         fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.millisecond
     ))
 }
+
+#[cfg(test)]
+#[path = "pool_list_usage_tests.rs"]
+mod usage_tests;

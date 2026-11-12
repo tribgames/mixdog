@@ -68,6 +68,7 @@ use super::custom_config::assert_reasoning_patch;
 use super::custom_config::canonical_reasoning_level;
 use super::custom_config::is_api_key_env;
 use super::custom_config::normalize;
+use super::custom_config::normalize_input;
 use super::custom_probe::CustomEndpoint;
 use super::custom_probe::CustomProbeHost;
 use super::custom_probe::CustomProbes;
@@ -247,7 +248,10 @@ struct InputAt {
 }
 
 /// `customInputAt`. `stored_key` is the stored key of an existing provider (empty when none).
-fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment) -> Result<InputAt, Failure> {
+/// `body_lone_units`: the lone surrogates the client's `requestBody` held, for its size limit
+/// ([`normalize_input`]); a later reading of an input [`CustomHost::resolve`] accepted passes 0,
+/// as the same body can only measure smaller.
+fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment, body_lone_units: usize) -> Result<InputAt, Failure> {
     let id = input.get("id").and_then(Value::as_str).map(str::to_owned);
     // Additional keys are secrets, applied by the save itself.
     let mut settings = input.clone();
@@ -256,7 +260,7 @@ fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment) -
         Some(id) => with_stored_settings(&settings, &existing_entry(agent, id)?),
         None => settings,
     };
-    let config = normalize(&Value::Object(merged.clone())).map_err(Failure::error)?;
+    let config = normalize_input(&Value::Object(merged.clone()), body_lone_units).map_err(Failure::error)?;
     let typed = merged.get("apiKey").and_then(Value::as_str).map(js_trim).unwrap_or_default().to_owned();
     let keyless = config["auth"] == "none";
     let env_name = if keyless { "" } else { config.get("apiKeyEnv").and_then(Value::as_str).unwrap_or_default() }.to_owned();
@@ -419,14 +423,14 @@ impl CustomHost {
     }
 
     /// `resolveCustomInput`.
-    async fn resolve(&self, raw: &Value) -> Result<InputAt, Failure> {
+    async fn resolve(&self, raw: &Value, body_lone_units: usize) -> Result<InputAt, Failure> {
         let input = input_object(raw)?;
         validate_transport_fields(input)?;
         let stored = match input.get("id").and_then(Value::as_str) {
             Some(id) => self.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default(),
             None => String::new(),
         };
-        input_at(&self.config.agent(), input, &stored, self.env.as_ref())
+        input_at(&self.config.agent(), input, &stored, self.env.as_ref(), body_lone_units)
     }
 
     /// `customProviderRow`: the secret-free public view of a custom provider.
@@ -745,8 +749,8 @@ impl CustomProbeHost for CustomHost {
         ProviderAdmin::require_local()
     }
 
-    async fn resolve_input(&self, input: &Value) -> Result<ResolvedCustom, Failure> {
-        let resolved = self.resolve(input).await?;
+    async fn resolve_input(&self, input: &Value, body_lone_units: usize) -> Result<ResolvedCustom, Failure> {
+        let resolved = self.resolve(input, body_lone_units).await?;
         Ok(ResolvedCustom { id: resolved.id, config: resolved.config, api_key: resolved.api_key })
     }
 
@@ -869,7 +873,7 @@ impl CustomAdmin {
         let stored = self.host.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default();
         let (input, env, id) = (input.clone(), self.host.env.clone(), id.to_owned());
         self.edit(move |agent| {
-            let latest = input_at(agent, &input, &stored, env.as_ref())?;
+            let latest = input_at(agent, &input, &stored, env.as_ref(), 0)?;
             require_custom_key(&latest)?;
             let mut entry = latest.config.as_object().cloned().unwrap_or_default();
             entry.insert("type".into(), json!("custom"));
@@ -889,7 +893,7 @@ impl CustomAdmin {
         let previous = if !typed.is_empty() && existing { host.keys.get(id).await.map_err(vault_failure)? } else { None };
         // Auth as of this save's turn in the key queue: a no-auth save queued earlier may have
         // landed since the input was resolved.
-        let keyless = if existing { input_at(&host.config.agent(), input, "", host.env.as_ref())?.keyless } else { resolved.keyless };
+        let keyless = if existing { input_at(&host.config.agent(), input, "", host.env.as_ref(), 0)?.keyless } else { resolved.keyless };
         let saved = if existing { host.key_ids_of(id).await? } else { Vec::new() };
         let plan = extra_key_plan(saved, input.get("extraApiKeys"), keyless)?;
         if !typed.is_empty() {
@@ -922,10 +926,10 @@ impl CustomAdmin {
         host.row(id, &entry).await
     }
 
-    async fn save_inner(&self, input: Value) -> Result<Value, Failure> {
+    async fn save_inner(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
         ProviderAdmin::require_local()?;
         // Early verdict: an invalid save never touches the keychain.
-        let resolved = self.host.resolve(&input).await?;
+        let resolved = self.host.resolve(&input, body_lone_units).await?;
         require_custom_key(&resolved)?;
         let object = input_object(&input)?;
         let id = resolved.id.clone().unwrap_or_else(|| format!("custom-{}", uuid::Uuid::new_v4()));
@@ -1115,8 +1119,8 @@ impl CustomAdmin {
 
 #[async_trait]
 impl CustomProviders for CustomAdmin {
-    async fn save(&self, input: Value) -> Result<Value, Failure> {
-        self.refreshed(self.save_inner(input).await)
+    async fn save(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.refreshed(self.save_inner(input, body_lone_units).await)
     }
 
     async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure> {
@@ -1131,12 +1135,12 @@ impl CustomProviders for CustomAdmin {
         self.refreshed(self.update_model_inner(id, model_id, patch).await)
     }
 
-    async fn test(&self, input: Value) -> Result<Value, Failure> {
-        self.probes.test(input).await
+    async fn test(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.probes.test(input, body_lone_units).await
     }
 
-    async fn discover_models(&self, input: Value) -> Result<Value, Failure> {
-        self.probes.discover_models(input).await
+    async fn discover_models(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure> {
+        self.probes.discover_models(input, body_lone_units).await
     }
 }
 
@@ -1160,7 +1164,7 @@ mod key_variable_reads {
         }))
         .unwrap();
         let before = mixdog_ai::work::credential_reads();
-        let resolved = input_at(&Obj::new(), &input, "", &Vars).unwrap_or_else(|_| panic!("input"));
+        let resolved = input_at(&Obj::new(), &input, "", &Vars, 0).unwrap_or_else(|_| panic!("input"));
         assert_eq!(resolved.api_key, "v");
         assert!(mixdog_ai::work::credential_reads() > before, "input_at read a key variable without counting it");
 

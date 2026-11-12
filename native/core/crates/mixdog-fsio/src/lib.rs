@@ -14,6 +14,7 @@
 //! Process spawning is not here: `mixdog-spawn` is the sanctioned path for it.
 
 mod dir;
+pub mod elide;
 mod file;
 mod ops;
 mod proof;

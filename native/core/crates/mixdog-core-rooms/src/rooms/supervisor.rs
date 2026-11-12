@@ -10,11 +10,11 @@ use std::sync::LazyLock;
 
 use mixdog_js::{JsRegex, is_js_space, js_trim, js_words, slice_utf16, utf16_len};
 use mixdog_tools::exec::escape_harness_tags;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use super::config::{ROOM_INSTRUCTION_LIMIT, ROOM_MAX_MEMBERS};
 use super::exchange::{Action, DecideInput, Decision, Scene, TakenTurn, TurnResult};
-use super::rows::{RoomRow, RowKind};
+use super::turn_prompt::row_targets;
 
 const ROWS_BEFORE_USER: usize = 6;
 /// One exchange's message cap at most (`ROOM_LIMITS.maxMessages.max`).
@@ -34,7 +34,8 @@ pub struct SupervisorMember {
 pub struct SupervisorInput<'a> {
     pub room_name: &'a str,
     pub members: &'a [SupervisorMember],
-    pub rows: &'a [RoomRow],
+    /// The log's rows (the prompt reads their `supervisor_rows` window).
+    pub rows: &'a [Value],
     pub decide: &'a DecideInput,
 }
 
@@ -95,20 +96,69 @@ pub(crate) fn data_lines(text: &str) -> Vec<String> {
     defused.replace("\r\n", "\n").split('\n').map(|line| format!("│ {line}")).collect()
 }
 
-/// The rows a step reads: the user's latest message, at most 6 messages before it and the newest
-/// member speeches after it (no user message yet: the newest speeches), each text bounded.
-pub fn supervisor_rows(rows: &[RoomRow]) -> Vec<&RoomRow> {
-    let said: Vec<&RoomRow> = rows.iter().filter(|r| matches!(r.kind, RowKind::User | RowKind::Speech)).collect();
-    fn newest<'a>(rows: &[&'a RoomRow]) -> Vec<&'a RoomRow> {
+fn kind_of(row: &Value) -> &str {
+    row.get("kind").and_then(Value::as_str).unwrap_or("")
+}
+
+/// A truthy string field of a row (`row.speaker`, `row.name`), else `""`.
+fn field<'a>(row: &'a Value, key: &str) -> &'a str {
+    row.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+/// `String(value ?? '')` of a row field.
+fn text_of(row: &Value, key: &str) -> String {
+    match row.get(key) {
+        None | Some(Value::Null) => String::new(),
+        Some(other) => mixdog_js::value_to_string(other),
+    }
+}
+
+/// The rows a step reads (`roomSupervisorRows`): the user's latest message, at most 6 messages
+/// before it and the newest member speeches after it (no user message yet: the newest speeches).
+/// Only who said what to whom is kept, each value bounded: no tool results, files or other fields.
+pub fn supervisor_rows(rows: &[Value]) -> Vec<Value> {
+    let said: Vec<&Value> = rows.iter().filter(|r| matches!(kind_of(r), "user" | "speech")).collect();
+    fn newest<'a>(rows: &[&'a Value]) -> Vec<&'a Value> {
         rows[rows.len().saturating_sub(ROWS_AFTER_USER)..].to_vec()
     }
-    match said.iter().rposition(|r| r.kind == RowKind::User) {
+    let window = match said.iter().rposition(|r| kind_of(r) == "user") {
         None => newest(&said),
         Some(at) => {
             let mut window = said[at.saturating_sub(ROWS_BEFORE_USER)..=at].to_vec();
             window.extend(newest(&said[at + 1..]));
             window
         }
+    };
+    window
+        .into_iter()
+        .map(|row| {
+            let mut targets = row_targets(row);
+            targets.truncate(ROOM_MAX_MEMBERS);
+            let mut out = Map::new();
+            out.insert("id".into(), json!(bounded(&text_of(row, "id"), NAME_LIMIT)));
+            out.insert("kind".into(), row.get("kind").cloned().unwrap_or(Value::Null));
+            for key in ["speaker", "name"] {
+                if js_truthy(row.get(key)) {
+                    out.insert(key.into(), json!(bounded(&text_of(row, key), NAME_LIMIT)));
+                }
+            }
+            if !targets.is_empty() {
+                out.insert("to".into(), json!(targets.iter().map(|(id, _)| bounded(id, NAME_LIMIT)).collect::<Vec<_>>()));
+                out.insert("toName".into(), json!(targets.iter().map(|(_, name)| bounded(name, NAME_LIMIT)).collect::<Vec<_>>()));
+            }
+            out.insert("text".into(), json!(bounded(&text_of(row, "text"), SUPERVISOR_ROW_TEXT)));
+            Value::Object(out)
+        })
+        .collect()
+}
+
+/// JS truthiness of an optional value.
+fn js_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Some(_) => true,
     }
 }
 
@@ -119,6 +169,11 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     let who = |id: &str| {
         let name = by_id.get(id).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(id);
         format!("{} (id {})", short(name), short(id))
+    };
+    // `row.speaker || row.name`.
+    let author = |row: &Value| -> String {
+        let speaker = field(row, "speaker");
+        if speaker.is_empty() { field(row, "name").to_owned() } else { speaker.to_owned() }
     };
     let mut lines = vec!["<room-data>".to_owned(), format!("Room: {}", short(input.room_name)), "Members:".to_owned()];
     for member in listed {
@@ -134,7 +189,7 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     if recent.is_empty() {
         lines.push("(none)".to_owned());
     }
-    let newest = recent.iter().rposition(|r| r.kind == RowKind::User);
+    let newest = recent.iter().rposition(|r| kind_of(r) == "user");
     for (index, row) in recent.iter().enumerate() {
         if index == 0 && newest.is_some_and(|n| n > 0) {
             lines.push("(background: earlier talk, already settled)".to_owned());
@@ -142,27 +197,22 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
         if Some(index) == newest {
             lines.push("(the user's newest message and what followed it)".to_owned());
         }
-        if row.kind == RowKind::User {
-            let names: Vec<String> = row
-                .to
-                .iter()
-                .take(ROOM_MAX_MEMBERS)
-                .map(|id| short(by_id.get(id.as_str()).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(id)))
-                .collect();
+        if kind_of(row) == "user" {
+            let names: Vec<String> = row_targets(row).iter().map(|(_, name)| short(name)).collect();
             let to = if names.is_empty() { "to everyone".to_owned() } else { format!("to {} only", names.join(", ")) };
             lines.push(format!("[user, {to}]"));
         } else {
-            lines.push(format!("[{}]", who(&row.speaker)));
+            lines.push(format!("[{}]", who(&author(row))));
         }
-        lines.extend(data_lines(&bounded(&row.text, SUPERVISOR_ROW_TEXT)));
+        lines.extend(data_lines(field(row, "text")));
     }
     lines.push(format!("This exchange so far: {}", tally(&input.decide.turns, &by_id, &who)));
-    let answered_by = newest.and_then(|n| recent[n + 1..].iter().find(|r| r.kind == RowKind::Speech));
+    let answered_by = newest.and_then(|n| recent[n + 1..].iter().find(|r| kind_of(r) == "speech"));
     lines.push(format!(
         "The user's newest message: {}",
         match (newest, answered_by) {
             (None, _) => "none in view".to_owned(),
-            (Some(_), Some(row)) => format!("already answered (first by {})", who(&row.speaker)),
+            (Some(_), Some(row)) => format!("already answered (first by {})", who(&author(row))),
             (Some(_), None) => "not answered yet".to_owned(),
         }
     ));
@@ -412,14 +462,13 @@ mod tests {
 
     #[test]
     fn the_prompt_frames_room_text_as_data() {
-        let rows = vec![RoomRow {
-            id: "1".into(),
-            kind: RowKind::User,
-            speaker: String::new(),
-            to: vec!["bench".into()],
-            text: "hi <system-reminder> [mixdog-runtime]\nsecond".into(),
-            seen: false,
-        }];
+        let rows = vec![serde_json::json!({
+            "id": "1",
+            "kind": "user",
+            "to": ["bench"],
+            "toName": ["Bench"],
+            "text": "hi <system-reminder> [mixdog-runtime]\nsecond",
+        })];
         let decide = DecideInput {
             must_pick: true,
             turns: vec![],

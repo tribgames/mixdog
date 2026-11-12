@@ -215,7 +215,7 @@ async fn entries_expire_at_their_deadline_and_a_replacement_outlives_the_older_t
         let mut observed = Vec::new();
         for step in line["steps"].as_array().unwrap() {
             let at = step["at"].as_u64().unwrap();
-            tokio::time::sleep(Duration::from_millis(at - now)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(at - now)).await;
             now = at;
             match text(step, "do") {
                 "provide" => assert!(slots.provide(ID, text(step, "value")), "{name}"),
@@ -238,11 +238,11 @@ async fn entries_expire_at_their_deadline_and_a_replacement_outlives_the_older_t
 async fn an_expired_value_leaves_memory_without_any_later_operation() {
     let slots = SecretSlots::with_binding_timeout(Duration::from_millis(100), Duration::from_millis(200));
     assert!(slots.provide(ID, "plaintext") && slots.bind(ID, "S1", claim()));
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
     // Inspected beneath the operations, which would otherwise sweep it themselves.
     assert!(slots.inner.state().slots.is_empty(), "the value outlived its deadline");
     assert_eq!(slots.inner.state().bindings.len(), 1);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(slots.inner.state().bindings.is_empty());
     drop(slots);
 }

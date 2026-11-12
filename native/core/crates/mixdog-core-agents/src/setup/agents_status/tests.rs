@@ -28,8 +28,8 @@ use tokio_util::sync::CancellationToken;
 use super::*;
 use crate::agents::AgentEvidence;
 
-const STATUS: &str = include_str!("../../../../../fixtures/desktop/settings/agents-status-twin.json");
-const WORLDS: &str = include_str!("../../../../../fixtures/desktop/settings/agent-definitions-twin.json");
+const STATUS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/agents-status-twin.json");
+const WORLDS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/agent-definitions-twin.json");
 
 fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
     tokio::task::unconstrained(mixdog_rt::testing::tokens().durability_io.submit(&CancellationToken::new(), job).unwrap())
@@ -158,15 +158,15 @@ mixdog_rt::replay_chunks!(STATUS_TESTS, #[tokio::test] async the_agents_status_c
 
 #[test]
 fn every_recorded_case_has_its_status_test() {
-    let twin: Value = serde_json::from_str(STATUS).unwrap();
+    let twin: Value = serde_json::from_str(&STATUS).unwrap();
     let cases = twin["cases"].as_array().unwrap();
     assert!(cases.len() >= 80);
     mixdog_rt::testing::assert_chunks_registered(STATUS_TESTS, cases.len(), CASE_CHUNK);
 }
 
 async fn the_agents_status_chunk(chunk: usize) {
-    let twin: Value = serde_json::from_str(STATUS).unwrap();
-    let worlds: Value = serde_json::from_str(WORLDS).unwrap();
+    let twin: Value = serde_json::from_str(&STATUS).unwrap();
+    let worlds: Value = serde_json::from_str(&WORLDS).unwrap();
     let by_name: HashMap<&str, &Value> = worlds["worlds"].as_array().unwrap().iter().map(|w| (w["name"].as_str().unwrap(), w)).collect();
     let mut failures = Vec::new();
     let cases = twin["cases"].as_array().unwrap();
@@ -187,8 +187,8 @@ async fn the_agents_status_chunk(chunk: usize) {
 /// The held sessions come last, whole and in the order the route owner gave them.
 #[tokio::test]
 async fn the_held_sessions_are_printed_last_as_given() {
-    let twin: Value = serde_json::from_str(STATUS).unwrap();
-    let worlds: Value = serde_json::from_str(WORLDS).unwrap();
+    let twin: Value = serde_json::from_str(&STATUS).unwrap();
+    let worlds: Value = serde_json::from_str(&WORLDS).unwrap();
     let case = &twin["cases"][0];
     let world = worlds["worlds"].as_array().unwrap().iter().find(|w| w["name"] == case["world"]).unwrap();
     let (_dir, agents) = open_world(world).await;

@@ -256,7 +256,7 @@ impl FailureWriter {
         } else if !self.armed.swap(true, Ordering::AcqRel) {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-timer", TaskClass::Work, async move {
-                tokio::time::sleep(FLUSH_AFTER).await;
+                mixdog_rt::time::sleep(FLUSH_AFTER).await;
                 me.armed.store(false, Ordering::Release);
                 me.flush().await;
             }));

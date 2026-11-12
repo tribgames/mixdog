@@ -174,7 +174,7 @@ mod tests {
 
     /// Awaits `task` for the deadline; a timeout names `what`.
     async fn within<T>(what: &str, task: impl std::future::Future<Output = T>) -> T {
-        tokio::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))
+        mixdog_rt::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))
     }
 
     /// Receives from `channel` for the deadline; a timeout names `what`.

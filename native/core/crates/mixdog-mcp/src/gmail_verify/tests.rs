@@ -254,7 +254,7 @@ fn lines(log: &Log) -> Vec<String> {
 /// The server sees QUIT after the check has already returned.
 async fn until(log: &Log, line: &str) {
     while !lines(log).iter().any(|l| l == line) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -412,7 +412,7 @@ async fn a_bye_greeting_and_an_idle_session_are_failed_with_nodes_details() {
     let stalled = serve(&pki, &log, |mut chan: Chan| async move {
         chan.say("* OK ready").await;
         chan.line().await;
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(5)).await;
     })
     .await;
     let timeouts = Timeouts { socket: Duration::from_millis(200), ..quick() };

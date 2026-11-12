@@ -555,7 +555,7 @@ async fn the_other_calls_are_answered_on_the_pc() {
 
 // -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
 
-const PC_TWIN: &str = include_str!("../../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
+const PC_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
 
 /// A provider whose attempt never ends: only the cancel ends the call.
 struct Hang(MockProvider);
@@ -590,7 +590,7 @@ impl ProviderLookup for HangLookup {
 
 #[tokio::test(start_paused = true)]
 async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
-    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
     // The text deltas of the recorded run, in order.
     let recorded: Vec<String> = twin["runs"]["stream"]["events"]
         .as_array()
@@ -634,7 +634,7 @@ async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
 /// the PC looks it up, with the text of the recording, and is not named in the config answer.
 #[tokio::test(start_paused = true)]
 async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
-    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
     let recorded = twin["runs"]["refusals"].as_array().unwrap().iter().find(|r| r["label"] == "not allowed").unwrap();
     // "openai" in the recording; the same refusal for the provider this test names.
     let expected = recorded["error"]["message"].as_str().unwrap().replace("openai", "mock");

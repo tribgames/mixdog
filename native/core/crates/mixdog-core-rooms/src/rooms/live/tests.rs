@@ -36,6 +36,8 @@ struct Daemon {
     appended: StdMutex<Vec<Value>>,
     aborted: StdMutex<Vec<String>>,
     catalog: StdMutex<u32>,
+    /// The process's sensitive values.
+    marks: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
 }
 #[async_trait]
 impl RoomDaemon for Daemon {
@@ -58,6 +60,9 @@ impl RoomDaemon for Daemon {
     }
     fn republish_catalog(&self) {
         *self.catalog.lock().unwrap() += 1;
+    }
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.marks.redact_text(session_id, text)
     }
 }
 
@@ -194,8 +199,8 @@ impl AgentCatalog for Catalog {
 struct Unmanaged;
 #[async_trait]
 impl Maintainer for Unmanaged {
-    async fn ask(&self, _: &str, _: &str) -> Maintained {
-        Maintained::Unmanaged
+    async fn decide(&self, _: &crate::rooms::exchange_run::SupervisorStep) -> Result<Option<crate::rooms::exchange::Decision>, String> {
+        Ok(Some(crate::rooms::exchange::Decision { action: crate::rooms::exchange::Action::Unmanaged, scene: None }))
     }
 }
 
@@ -225,6 +230,7 @@ async fn rig(members: &[&str]) -> Rig {
             maintainer: Arc::new(Unmanaged),
             preview: Arc::new(|text: &str| text.trim().to_owned()),
             log: Arc::new(|_: &str| {}),
+            now: Arc::new(|| chrono::Utc::now().timestamp_millis()),
         },
     );
     live.start(&rooms).await.unwrap();
@@ -381,6 +387,34 @@ async fn a_post_stores_the_canonical_row_and_the_list_preview_follows_the_spoken
     assert!(host.post(vec![json!({ "id": "bad id", "kind": "pass" })]).await.is_err());
 }
 
+/// A member's speech posted into a room against `fixtures/sensitive-gaps/golden.json` (`room`), recorded from Node with the
+/// sensitive-value patches (`record-sensitive-gaps.mjs`: the desktop's room log over the daemon's room delivery): the
+/// same marks and posts; after each post the same log contents, rows shown and list preview.
+#[tokio::test]
+async fn a_members_speech_is_posted_as_patched_node_posted_it() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    let host = rig.live.host("room01").unwrap();
+    let steps = golden["room"].as_array().unwrap();
+    assert_eq!(steps.len(), 5);
+    for (index, step) in steps.iter().enumerate() {
+        if let Some(mark) = step.get("mark") {
+            let fields: Vec<Value> = mark["values"].as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
+            let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } });
+            assert!(rig.daemon.marks.remember(mark["session"].as_str().unwrap(), &[fill]), "step {index}");
+            continue;
+        }
+        host.post(step["post"].as_array().unwrap().clone()).await.unwrap();
+        host.persist().await.unwrap();
+        let contents: Vec<Value> = rig.daemon.appended.lock().unwrap().iter().map(|m| m["content"].clone()).collect();
+        assert_eq!(Value::Array(contents), step["contents"], "step {index}: log contents");
+        let rows: Vec<Value> = host.rows().await.unwrap().iter().map(|row| row["text"].clone()).collect();
+        assert_eq!(Value::Array(rows), step["rows"], "step {index}: rows shown");
+        assert_eq!(rig.rooms.get("room01").await.unwrap().last_preview.as_deref(), step["preview"].as_str(), "step {index}: preview");
+    }
+}
+
 #[tokio::test]
 async fn a_member_session_is_made_once_for_a_member_and_never_for_a_stranger() {
     let rig = rig(&["a", MIXY_AGENT_ID]).await;
@@ -420,6 +454,7 @@ async fn a_restart_marks_a_cut_off_exchange_interrupted_and_stops_its_members() 
             maintainer: Arc::new(Unmanaged),
             preview: Arc::new(|text: &str| text.to_owned()),
             log: Arc::new(|_: &str| {}),
+            now: Arc::new(|| chrono::Utc::now().timestamp_millis()),
         },
     );
     assert_eq!(live.start(&rooms).await.unwrap(), ["room01"]);

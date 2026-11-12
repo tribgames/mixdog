@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn the_stall_caps_are_what_node_read_off_the_internal_agents() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
         let caps = golden["stallCaps"].as_object().unwrap();
         assert!(!caps.is_empty());
         for (name, recorded) in caps {

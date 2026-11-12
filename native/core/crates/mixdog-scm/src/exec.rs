@@ -64,12 +64,21 @@ impl ExecSpec {
     }
 }
 
+/// `runChildTimed`'s account of one start (run-child.mjs): how long the request waited before the start was asked for, and how
+/// long the start took. Node's git runner notes both as the `spawn-queue` and `spawn` phases, on a failed start too.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SpawnTiming {
+    pub queue_ms: f64,
+    pub spawn_ms: f64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ExecOutput {
     /// `None` when the child ended by a signal.
     pub code: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+    pub timing: SpawnTiming,
 }
 
 impl ExecOutput {
@@ -137,6 +146,7 @@ impl Exec {
         cancel: &CancellationToken,
         attempt: &crate::seam::Attempt,
     ) -> Result<ExecOutput, ScmFailure> {
+        let asked = std::time::Instant::now();
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
         let (time_limit, mut deadline) = crate::seam::run_limit(spec.time_limit, attempt);
@@ -161,13 +171,18 @@ impl Exec {
             owner: ProcessOwner::Internal,
             time_limit,
         };
+        let starting = std::time::Instant::now();
         let spawned = self.processes.spawn(request).await;
+        let timing = SpawnTiming {
+            queue_ms: starting.duration_since(asked).as_secs_f64() * 1000.0,
+            spawn_ms: starting.elapsed().as_secs_f64() * 1000.0,
+        };
         attempt.spawned(spawned.is_ok());
-        spawned.map_err(|error| spawn_failure(error, &program))?;
+        spawned.map_err(|error| spawn_failure(error, &program, timing))?;
         let mut events = self
             .processes
             .subscribe(&handle, Some(0))
-            .map_err(|error| spawn_failure(error, &program))?;
+            .map_err(|error| spawn_failure(error, &program, timing))?;
         if let Some(input) = spec.stdin {
             // A child that exits before reading its input reports through its exit status.
             if !input.is_empty() {
@@ -175,7 +190,7 @@ impl Exec {
             }
             let _ = self.processes.close_stdin(&handle);
         }
-        let mut out = ExecOutput::default();
+        let mut out = ExecOutput { timing, ..ExecOutput::default() };
         let mut exit = None;
         let mut killed = false;
         let mut cancelled = false;
@@ -248,16 +263,24 @@ pub(crate) fn command_label(program: &str, args: &[String]) -> String {
     std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
 }
 
-fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {
+/// The message Node's `child_process` gives a start the system refused: `spawn <file> <code>`, the file as it was given.
+pub fn spawn_message(program: &str, code: &str) -> String {
+    format!("spawn {program} {code}")
+}
+
+fn spawn_failure(error: ProcessError, program: &str, timing: SpawnTiming) -> ScmFailure {
     match error {
         ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable {
             capability: program.to_owned(),
         },
-        // CreateProcess answers ERROR_BAD_EXE_FORMAT (193) or ERROR_EXE_MACHINE_TYPE_MISMATCH (216, what this Windows answers for a
-        // text file named git.exe) for a file the loader cannot run; libuv has no name for either.
-        ProcessError::Io { os_code: Some(193 | 216) } if cfg!(windows) => ScmFailure::Spawn { code: "UNKNOWN" },
-        ProcessError::Io { os_code } => ScmFailure::Io {
-            os_code,
+        // Node rejects a start the operating system refused with `spawn <code>`, the code libuv names the OS error with: a file
+        // the loader cannot run is EFTYPE (ERROR_BAD_EXE_FORMAT) or UNKNOWN (ERROR_EXE_MACHINE_TYPE_MISMATCH), an executable that
+        // needs elevation EACCES. Each caller words it as its Node counterpart does.
+        ProcessError::Io { os_code: Some(code) } => ScmFailure::Spawn { code: mixdog_js::uv_error::os_name(code), timing },
+        // The manager folds the access-denied OS error into its own variant: libuv names it EPERM on Windows, EACCES elsewhere.
+        ProcessError::PermissionDenied => ScmFailure::Spawn { code: if cfg!(windows) { "EPERM" } else { "EACCES" }, timing },
+        ProcessError::Io { os_code: None } => ScmFailure::Io {
+            os_code: None,
             message: format!("could not start {program}"),
         },
         other => ScmFailure::Io {
