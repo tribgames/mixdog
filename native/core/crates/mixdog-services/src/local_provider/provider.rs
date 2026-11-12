@@ -113,22 +113,26 @@ pub struct LocalProvider {
 /// overwrites a newer one.
 struct InstalledRows {
     rows: tokio::sync::watch::Sender<Option<Vec<Value>>>,
-    started: std::sync::atomic::AtomicU64,
-    published: Mutex<u64>,
+    /// The reads started so far and the newest one published.
+    tickets: Mutex<(u64, u64)>,
 }
 
 impl InstalledRows {
     fn new() -> Arc<Self> {
-        Arc::new(Self { rows: tokio::sync::watch::channel(None).0, started: std::sync::atomic::AtomicU64::new(0), published: Mutex::new(0) })
+        Arc::new(Self { rows: tokio::sync::watch::channel(None).0, tickets: Mutex::new((0, 0)) })
     }
 
     /// Reads the installed models from the catalog now and publishes them unless a newer read already has.
     async fn read(&self, catalog: &Arc<Catalog>) -> Result<Vec<Value>, String> {
-        let ticket = self.started.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let ticket = {
+            let mut tickets = self.tickets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            tickets.0 += 1;
+            tickets.0
+        };
         let rows = catalog.installed_models().await.map_err(|e| e.to_string())?;
-        let mut published = self.published.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if ticket > *published {
-            *published = ticket;
+        let mut tickets = self.tickets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ticket > tickets.1 {
+            tickets.1 = ticket;
             self.rows.send_replace(Some(rows.clone()));
         }
         Ok(rows)

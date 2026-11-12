@@ -56,7 +56,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "2a301221d21cde7656afe68d5f81631decb62824fc81ddf85aa814a8d2201598"
+      "sha256": "465aad6ae970141223f867a86eb2ae8915c03ee20873b8105c228d1890008520"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
