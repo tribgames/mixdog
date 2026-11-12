@@ -7,7 +7,6 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -76,11 +75,13 @@ fn preparation_failed(path: &str, detail: &str, failing: Option<FailingImage>) -
     error
 }
 
-/// The bound on one request's whole image preparation, from the bulk lane's admission to the last answer. Node has none:
-/// `resizeImageBuffer` calls `sharp` directly and nothing ends a resize that never returns (a worker that hangs holds the
-/// turn). The largest accepted input resizes in 0.13-0.47 s on this machine (cold, 8192 x 8192 px PNG and JPEG, a 4000 x
-/// 5600 px 67 MiB PNG; `limitInputPixels` is 64 Mi pixels), so 100 images (the Messages API's cap per request) cost 47 s at
-/// worst; 120 s is 2.5 times that. Not the 600 s a model has for its first byte, which says nothing of a resize.
+/// The bound on one step of a request's image preparation: parsing the body, one image (from the bulk lane's admission
+/// for its decode to the resizer's answer), serialising the body. A preparation that keeps finishing its steps is never
+/// ended, however many images it holds or however slow the machine: Node has no bound at all (`resizeImageBuffer` calls
+/// `sharp` directly), so only a step that does not come back may be ended, where Node would hold the turn for ever. The
+/// largest accepted input resizes in 0.13-0.47 s on this machine (cold, 8192 x 8192 px PNG and JPEG, a 4000 x 5600 px
+/// 67 MiB PNG; `limitInputPixels` is 64 Mi pixels): 120 s for one is 250 times that, room for a starved machine and a
+/// queue on the lane. Not the 600 s a model has for its first byte, which says nothing of a resize.
 const PREPARATION: Liveness = Liveness::unary(Duration::from_secs(120));
 
 /// What fits the images of a request: the extension host's resizer, and the bulk lane the body is parsed on and the base64
@@ -111,28 +112,27 @@ impl ImageFitter {
     }
 
     /// `prepareAnthropicImages(body.messages)` on the request's lowered wire body, so a location names the image where the
-    /// body holds it: a tool's images inside `tool_result`, results merged into one user message, no system message. The
-    /// whole preparation (queueing on the lane included) is under [`PREPARATION`]; its expiry reads as a machine that
-    /// cannot resize.
+    /// body holds it: a tool's images inside `tool_result`, results merged into one user message, no system message.
+    /// Each step (queueing on the lane included) is under [`PREPARATION`]; its expiry reads as a machine that cannot
+    /// resize, at the step that did not come back.
     pub async fn fit_wire(&self, request: &ModelRequest, mut wire: WireRequest) -> Result<WireRequest, ProviderError> {
         if !wire.body.windows(IMAGE_TYPE.len()).any(|w| w == IMAGE_TYPE) {
             return Ok(wire);
         }
         let thread = ThreadId::from(request.options.session_id.clone().unwrap_or_default());
-        let at = Mutex::new(String::from("messages"));
         let body = std::mem::take(&mut wire.body);
-        match PREPARATION.bound_head(self.fit_body(&thread, body, &at)).await {
-            Ok(body) => {
-                wire.body = body?;
-                Ok(wire)
-            }
-            Err(_) => Err(runtime_unavailable(&at.lock().unwrap())),
-        }
+        wire.body = self.fit_body(&thread, body).await?;
+        Ok(wire)
     }
 
-    async fn fit_body(&self, thread: &ThreadId, body: Vec<u8>, at: &Mutex<String>) -> Result<Vec<u8>, ProviderError> {
+    /// One lane job as a step of the preparation: `None` when the lane never ran it or it outlived the step's bound.
+    async fn step<R: Send + 'static>(&self, job: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+        PREPARATION.bound_head(self.on_lane(job)).await.ok().flatten()
+    }
+
+    async fn fit_body(&self, thread: &ThreadId, body: Vec<u8>) -> Result<Vec<u8>, ProviderError> {
         let parsed = self
-            .on_lane(move || match serde_json::from_slice::<Value>(&body) {
+            .step(move || match serde_json::from_slice::<Value>(&body) {
                 Ok(json) => Ok((json, body)),
                 Err(_) => Err(body),
             })
@@ -146,17 +146,17 @@ impl ImageFitter {
         let mut changed = false;
         for (index, message) in messages.iter_mut().enumerate() {
             let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) else { continue };
-            changed |= self.content(thread, content, format!("messages.{index}.content"), at).await?;
+            changed |= self.content(thread, content, format!("messages.{index}.content")).await?;
         }
         if !changed {
             return Ok(body);
         }
-        let bytes = self.on_lane(move || serde_json::to_vec(&json)).await.ok_or_else(|| runtime_unavailable("messages"))?;
+        let bytes = self.step(move || serde_json::to_vec(&json)).await.ok_or_else(|| runtime_unavailable("messages"))?;
         Ok(bytes.expect("a JSON value serialises"))
     }
 
     /// `prepareContent`: the parts of one content array, a tool result's own content under its own path.
-    fn content<'a>(&'a self, thread: &'a ThreadId, list: &'a mut Vec<Value>, path: String, at: &'a Mutex<String>) -> Fitted<'a> {
+    fn content<'a>(&'a self, thread: &'a ThreadId, list: &'a mut Vec<Value>, path: String) -> Fitted<'a> {
         Box::pin(async move {
             let mut changed = false;
             let parts = std::mem::take(list);
@@ -166,13 +166,16 @@ impl ImageFitter {
                 match part.get("type").and_then(Value::as_str) {
                     Some("tool_result") => {
                         if let Some(inner) = part.get_mut("content").and_then(Value::as_array_mut) {
-                            changed |= self.content(thread, inner, format!("{here}.content"), at).await?;
+                            changed |= self.content(thread, inner, format!("{here}.content")).await?;
                         }
                     }
                     // Remote URLs and file ids stay server-owned.
                     Some("image") if part.pointer("/source/type").and_then(Value::as_str) == Some("base64") => {
-                        at.lock().unwrap().clone_from(&here);
-                        if let Some(resized) = self.image(thread, &here, &part).await? {
+                        let fitted = match PREPARATION.bound_head(self.image(thread, &here, &part)).await {
+                            Ok(fitted) => fitted?,
+                            Err(_) => return Err(runtime_unavailable(&here)),
+                        };
+                        if let Some(resized) = fitted {
                             changed = true;
                             if (resized.original_w, resized.original_h) != (resized.display_w, resized.display_h) {
                                 let text = superseding_metadata_text((resized.original_w, resized.original_h), (resized.display_w, resized.display_h));
@@ -368,9 +371,10 @@ mod tests {
         }
     }
 
-    /// The bound is the whole preparation's, not each image's: a first image that took 100 s leaves 20 s for the rest.
+    /// The bound is each step's, not the whole preparation's: a first image that took 100 s takes nothing from the
+    /// second, which has its own 120 s and is the one named when it does not come back.
     #[tokio::test(start_paused = true)]
-    async fn the_bound_covers_the_whole_preparation_not_each_image() {
+    async fn a_slow_image_takes_nothing_from_the_bound_of_the_next() {
         let (asked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
         let fitter = fitter(Stalled { calls: 0.into(), asked: asked.clone(), release: release.clone() });
         let sent = wire(&json!([user(json!([image("QUFB"), image("QUFC")]))]));
@@ -381,11 +385,12 @@ mod tests {
         for _ in 0..8 {
             tokio::task::yield_now().await;
         }
-        tokio::time::advance(Duration::from_secs(20) - Duration::from_millis(1)).await;
+        // 219.999 s after the start, 119.999 s into the second image.
+        tokio::time::advance(Duration::from_secs(120) - Duration::from_millis(1)).await;
         for _ in 0..8 {
             tokio::task::yield_now().await;
         }
-        assert!(!task.is_finished(), "ended before the bound of the whole");
+        assert!(!task.is_finished(), "ended before the second image's own bound");
         tokio::time::advance(Duration::from_millis(1)).await;
         let error = task.await.unwrap().unwrap_err();
         assert_eq!(error.message, format!("{RUNTIME_DOWN_AT}messages.0.content.1{RUNTIME_DOWN_TAIL}"));
