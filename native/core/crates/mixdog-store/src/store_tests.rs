@@ -205,6 +205,36 @@ fn iids(rows: &[HistoryRow]) -> Vec<String> {
     rows.iter().map(|r| r.iid.clone()).collect()
 }
 
+/// A client's row id is found through the indexes of `iid` and of aliases (a submission id, a display row's own id): the
+/// oldest row it can name, how many rows can be named, and a page from there that starts with that row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_a_client_names_is_found_without_walking_the_history() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let prompt = rec(json!({"k":"item","iid":"d","role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":"d","role":"user","meta":{"transcript":{"clientSubmissionId":"sub"}}}}}));
+    let shown = rec(json!({"k":"item","iid":"z","form":"display","model":false,"visible":true,"refs":[],
+        "body":{"inline":{"kind":"user","id":"bid","text":"t","clientSubmissionId":"cs"}}}));
+    let (_w, _) = env.commit(w, vec![item("a"), item("b"), item("c"), prompt, shown]).await;
+    let one = || lineage(&[("s1", None)]);
+    let find = |ids: &[&str], alias: &str| {
+        let (store, ids, alias) = (&env.store, ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>(), alias.to_owned());
+        async move { store.history_anchor(one(), None, ids, alias).await.unwrap() }
+    };
+    let b = find(&["b"], "b").await.expect("b is a row");
+    assert_eq!((b.named, b.cursor.level, b.cursor.before), (1, 0, 3));
+    let (rows, _) = env.store.history_page(one(), None, Some(b.cursor), 10).await.unwrap();
+    assert_eq!(iids(&rows), ["b", "a"]);
+    // The submission id of a message names the prompt, which its own iid names too.
+    let sub = find(&["sub"], "sub").await.expect("the submission id names a row");
+    assert_eq!((sub.named, sub.cursor.before), (1, 5));
+    assert_eq!(find(&["d"], "sub").await.expect("named twice").named, 2);
+    // A display row is named by its own id and by its submission id.
+    assert_eq!(find(&["bid"], "bid").await.expect("own id").cursor.before, 6);
+    assert_eq!(find(&["cs"], "cs").await.expect("submission").cursor.before, 6);
+    assert_eq!(find(&["nope", "nope:1"], "nope").await, None);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn barrier_projects_and_reopens() {
     let env = Env::new();

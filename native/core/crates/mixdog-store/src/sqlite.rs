@@ -1245,7 +1245,7 @@ fn apply_frame(
                 crate::message_index::open_view(tx, session, ordinal, base.session.as_str(), end, end)?;
             }
         }
-        FrameKind::Item { iid, turn, form, model, visible, refs: r, prompt, msg, facets } => {
+        FrameKind::Item { iid, turn, form, model, visible, refs: r, prompt, msg, facets, aliases } => {
             if let Some(msg) = msg {
                 crate::message_index::add_item(tx, session, ordinal, (file_no, offset, len), iid, msg)?;
             }
@@ -1280,6 +1280,10 @@ fn apply_frame(
                 len,
                 facets.as_ref().map(|f| serde_json::to_string(f).expect("facets are plain data"))
             ])?;
+            for alias in aliases {
+                tx.prepare_cached("INSERT OR IGNORE INTO history_alias (session, alias, ordinal) VALUES (?1, ?2, ?3)")?
+                    .execute(params![session, alias, ordinal])?;
+            }
             refs(r)?;
         }
         FrameKind::Amend { iid, refs: r, msg } => {
@@ -2276,6 +2280,29 @@ impl SqliteStore {
         self.shared.gate.with(|c| page_on(c, lineage, cut, cursor, limit))
     }
 
+    /// `anchor_on`, as a job of the read pool.
+    pub async fn history_anchor(
+        &self,
+        lineage: Vec<LineageLevel>,
+        cut: Option<u64>,
+        ids: Vec<String>,
+        alias: String,
+    ) -> Result<Option<HistoryAnchor>, DbError> {
+        self.read(move |c| anchor_on(c, &lineage, cut, &ids, &alias)).await
+    }
+
+    /// `anchor_on` inside a job already on the read lane.
+    pub fn history_anchor_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        ids: &[String],
+        alias: &str,
+    ) -> Result<Option<HistoryAnchor>, DbError> {
+        self.shared.gate.with(|c| anchor_on(c, lineage, cut, ids, alias))
+    }
+
     /// The live `compacted` frame whose replacement holds the entry `iid` (such as the
     /// summary, which has no history row), as the reader of `lineage` with `cut` sees it:
     /// its `ordinal` is that of a `model_switch` anchor on the entry (FORMAT.md §5.3). The
@@ -2721,6 +2748,65 @@ fn dividers_on(
 
 type Page = (Vec<HistoryRow>, Option<PageCursor>);
 
+/// The rows of `lineage[level]` a reader sees below `before`: the exclusive ordinal bound (a child sees a base row unless a
+/// rewind before the fork point superseded it) and the fork point its liveness is judged at.
+fn level_bounds(lineage: &[LineageLevel], cut: Option<u64>, level: usize, before: u64) -> (u64, i64) {
+    let fork_end = lineage[level].end;
+    let mut before = fork_end.map_or(before, |e| before.min(e));
+    if level > 0
+        && let Some(cut) = cut
+    {
+        before = before.min(cut);
+    }
+    (before, fork_end.map_or(i64::MAX, |e| e as i64))
+}
+
+/// Where the rows older than a row that a client's id names start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryAnchor {
+    /// A page from here starts with the oldest row named by `ids` or `alias`, then runs older.
+    pub cursor: PageCursor,
+    /// How many visible rows `ids` or `alias` name. With several, the one a client's id means depends on how each shows it
+    /// (a row's submission id takes the id before another row's item id does), which only the rows themselves tell.
+    pub named: u64,
+}
+
+/// The oldest visible row of the lineage whose `iid` is one of `ids` or that `alias` names, found by the indexes of `iid` and
+/// of aliases, not by a walk of the history; `None` when no row is.
+fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[String], alias: &str) -> Result<Option<HistoryAnchor>, DbError> {
+    if ids.is_empty() {
+        return Ok(None);
+    }
+    let rev: i64 = c
+        .prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?
+        .query_row([&lineage[0].session], |r| r.get(0))
+        .optional()?
+        .unwrap_or(0);
+    let marks = (0..ids.len()).map(|i| format!("?{}", i + 4)).collect::<Vec<_>>().join(",");
+    let by_iid = format!(
+        "SELECT min(h.ordinal), count(*) FROM history h WHERE h.session = ?1 AND h.iid IN ({marks}) AND h.ordinal < ?2 AND h.visible = 1
+         AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)"
+    );
+    let by_alias = "SELECT min(h.ordinal), count(*) FROM history_alias a JOIN history h ON h.session = a.session AND h.ordinal = a.ordinal
+         WHERE a.session = ?1 AND a.alias = ?4 AND h.ordinal < ?2 AND h.visible = 1
+         AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)";
+    let (mut found, mut named) = (None, 0u64);
+    // The deepest level is the oldest: its first hit is the oldest row of all.
+    for level in (0..lineage.len()).rev() {
+        let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
+        let before = before.min(i64::MAX as u64) as i64;
+        let session = &lineage[level].session;
+        let by_name = c.prepare_cached(by_alias)?.query_row(params![session, before, floor, alias], |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![session, &before, &floor];
+        args.extend(ids.iter().map(|id| id as &dyn rusqlite::ToSql));
+        let by_id = c.prepare(&by_iid)?.query_row(args.as_slice(), |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, i64>(1)?)))?;
+        named += (by_name.1 + by_id.1) as u64;
+        if found.is_none() {
+            found = by_name.0.into_iter().chain(by_id.0).min().map(|ordinal| (level, ordinal as u64));
+        }
+    }
+    Ok(found.map(|(level, ordinal)| HistoryAnchor { cursor: PageCursor { history_rev: rev as u64, level, before: ordinal + 1 }, named }))
+}
 fn page_on(
     c: &Connection,
     lineage: &[LineageLevel],
@@ -2746,22 +2832,16 @@ fn page_on(
             let mut compactions = crate::archive_index::Compactions::new(c, lineage, cut);
             while cur.level < lineage.len() && out.len() < limit {
                 let level = &lineage[cur.level];
-                // A child sees a base row unless a rewind before the fork point superseded it.
-                let fork_end = level.end;
-                let mut before = fork_end.map_or(cur.before, |e| cur.before.min(e));
-                if cur.level > 0
-                    && let Some(cut) = cut
-                {
-                    before = before.min(cut);
-                }
+                let (before, floor) = level_bounds(lineage, cut, cur.level, cur.before);
                 let mut stmt = c.prepare_cached(PAGE_SQL)?;
                 let want = (limit - out.len()) as i64;
-                let floor = fork_end.map_or(i64::MAX, |e| e as i64);
                 let mut rows = stmt.query(params![level.session, before.min(i64::MAX as u64) as i64, floor, want])?;
                 let mut got = 0;
                 let mut full = false;
                 while let Some(r) = rows.next()? {
                     got += 1;
+                    #[cfg(any(test, feature = "test-support"))]
+                    crate::read_count::add(&lineage[0].session, 1);
                     let frame_len = r.get::<_, i64>(7)? as u64;
                     let amend = match r.get::<_, Option<i64>>(8)? {
                         Some(o) => Some((

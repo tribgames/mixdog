@@ -56,6 +56,7 @@ use super::ThreadStore;
 use super::Transcript;
 use super::directory::DirInner;
 use super::transcript::position_of_id;
+use super::transcript::displayed_id;
 use super::view::meta;
 
 /// `PAGE_MIN_ROWS` (`store-transcript-projection.mjs`): a byte budget never cuts a page below
@@ -118,6 +119,44 @@ async fn display_rows(deps: &SessionDeps, records: Vec<mixdog_store::schema::rec
     rows.await.map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })
 }
 
+/// The rows from a cursor's row back (`ThreadStore::history_before`): the cursor's record's rows are `rows[from..]`.
+pub(super) struct Before {
+    pub rev: u64,
+    pub rows: Vec<(ThreadItem, usize)>,
+    pub from: usize,
+    pub complete: bool,
+    pub named: u64,
+}
+
+/// [`ThreadStore::history_before`] with its records shown as rows.
+pub(super) async fn history_before(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    anchor: String,
+    records: usize,
+) -> Result<Option<Before>, CoreError> {
+    let token = CancellationToken::new();
+    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+    store.unheld().await;
+    let (store, thread) = (store.clone(), id.clone());
+    let Some(read) = lanes.io.submit(&token, move |lane| store.history_before(lane, &thread, &anchor, records))?.await.map_err(|_| dropped())?? else {
+        return Ok(None);
+    };
+    let transcript = transcript.clone();
+    let shown = lanes.cpu.submit(&token, move |lane| {
+        let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
+        let mut from = 0;
+        for record in &read.records {
+            from = rows.len();
+            rows.extend(transcript.rows(lane, record));
+        }
+        Before { rev: read.rev, rows, from, complete: read.complete, named: read.named }
+    })?;
+    Ok(Some(shown.await.map_err(|_| dropped())?))
+}
+
 /// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
 pub(super) async fn history_tail(
     store: &Arc<dyn ThreadStore>,
@@ -149,10 +188,15 @@ impl DirInner {
             let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
             let deps = &self.deps;
             let thread = &id;
-            return list_from_tail(&id, &p, |rows| async move {
-                let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
-                Ok((rev, rows, complete))
-            })
+            return list_from_tail(
+                &id,
+                &p,
+                |rows| async move {
+                    let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
+                    Ok((rev, rows, complete))
+                },
+                |anchor, records| history_before(&deps.store, &deps.transcript, deps.lanes, thread, anchor.to_owned(), records),
+            )
             .await;
         }
         let History { rev: _, rows } = history(&self.deps, &id).await?;
@@ -208,6 +252,11 @@ impl DirInner {
 /// `rows` are the newest rows of the history, or all of it when `complete`. The page is one only the newest rows can decide
 /// (no cursor, and an older page that ends before the rows run out), or `None`: more rows are needed.
 pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+    items_window_in(id, rev, rows, complete, false, p)
+}
+
+/// [`items_window`]; with `anchored`, `rows` end with the cursor's row and run back from it, which is all an older page reads.
+fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, anchored: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -233,7 +282,7 @@ pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)]
         // A cursor names the first row that displays it, else the first of that item id (`position_of_id`), and a user
         // row displays its client's own submission id: an older row may display the same id, so only the whole history
         // proves which row a cursor names.
-        Some(_) if !complete => return Ok(None),
+        Some(_) if !complete && !anchored => return Ok(None),
         Some(item) => match position_of_id(turn.iter().map(|(row, _)| row), item) {
             Some(at) => Some(at),
             None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
@@ -267,12 +316,42 @@ const FIRST_TAIL_ROWS: usize = 128;
 
 /// `thread/items/list` from the newest rows of the history only: `fetch(n)` answers the newest `n` stored rows
 /// (their items, with the history revision, and whether that is all of the history).
-pub(super) async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
+///
+/// A page older than a cursor is read from the cursor's row back (`before(id, n)`: that row and the `n` records older), when
+/// the store places the id; any other cursor reads the whole history.
+pub(super) async fn list_from_tail<F, Fut, B, BFut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F, mut before: B) -> Result<Reply, CoreError>
 where
     F: FnMut(usize) -> Fut,
     Fut: std::future::Future<Output = Result<(u64, Vec<(ThreadItem, usize)>, bool), CoreError>>,
+    B: FnMut(&str, usize) -> BFut,
+    BFut: std::future::Future<Output = Result<Option<Before>, CoreError>>,
 {
-    // A cursor's row is only known from the whole history; the page of the newest rows reads as few as it needs.
+    let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
+    let anchor = match &p.cursor {
+        Some(ItemsCursor::Opaque(item)) => Some(item.as_str()),
+        Some(ItemsCursor::Item { kind, item_id }) if kind == "item" => Some(item_id.as_str()),
+        _ => None,
+    };
+    // A turn's rows are counted among that turn's only, which the rows around the cursor do not show.
+    if let Some(anchor) = anchor.filter(|_| older && p.turn_id.is_none()) {
+        let mut want = FIRST_TAIL_ROWS;
+        while let Some(b) = before(anchor, want).await? {
+            // The index names candidates; the rows decide. A row older than the cursor's own that shows its id, or none
+            // that does, is a history the index did not describe whole: the whole history answers.
+            let Some(at) = position_of_id(b.rows.iter().map(|(item, _)| item), anchor).filter(|at| *at >= b.from) else {
+                break;
+            };
+            // With several rows the id can name, a row's submission id takes it before another row's item id does.
+            if b.named > 1 && displayed_id(&b.rows[at].0) != anchor {
+                break;
+            }
+            if let Some(reply) = items_window_in(id, b.rev, &b.rows, b.complete, true, p)? {
+                return Ok(reply);
+            }
+            want = want.saturating_mul(2);
+        }
+    }
+    // A cursor's row is otherwise only known from the whole history; the page of the newest rows reads as few as it needs.
     let mut want = if p.cursor.is_some() { usize::MAX } else { FIRST_TAIL_ROWS };
     loop {
         let (rev, rows, complete) = fetch(want).await?;
