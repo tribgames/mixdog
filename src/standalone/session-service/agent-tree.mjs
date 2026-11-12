@@ -24,6 +24,8 @@ export function createAgentTree({
   stateBusy,
   entryForSession,
   retainUnwatched,
+  releaseEntry = null,
+  sessionAbsent = null,
   createSession,
   // Sessions run inline in this daemon, so its own store records the owner
   // close; loaded on first use only.
@@ -126,7 +128,7 @@ export function createAgentTree({
     return {
       ...descriptor,
       status,
-      stage: status,
+      stage: descriptor.parked === true && status === 'idle' && !owner ? 'parked' : status,
       messageCount:
         Array.isArray(state.items) && state.items.length > 0
           ? state.items.length
@@ -191,6 +193,18 @@ export function createAgentTree({
     rehydrateAgentSessions,
     descendantSessionIds: registry.agentDescendantSessionIds,
     getSession: (sessionId) => agentDescriptor(sessionId),
+    /** True once the session's stored record is deleted; its descriptor stays
+     *  until the daemon restarts. A session with a live runtime, a record that
+     *  is there but cannot be read, or a store that cannot be asked, is not gone. */
+    async sessionGone(sessionId) {
+      if (sessionOwner(sessionId) || typeof sessionAbsent !== 'function') return false;
+      try {
+        return (await sessionAbsent(sessionId)) === true;
+      } catch (error) {
+        log(`agent session existence check failed session=${sessionId}: ${error?.message || error}`);
+        return false;
+      }
+    },
     listSessions: ({ includeClosed = false } = {}) =>
       registry
         .ids()
@@ -239,6 +253,24 @@ export function createAgentTree({
     unloadSessionRuntime: (sessionId) => {
       progress.delete(sessionId);
       return false;
+    },
+    /** Releases an idle agent's runtime (provider connection, shells, caches,
+     *  the live session) but keeps the agent open: its next turn loads the
+     *  session from disk (entryForSession) with its whole transcript. False
+     *  when the runtime is busy or watched; true when none is left. */
+    async parkSession(sessionId) {
+      const descriptor = registry.get(sessionId);
+      if (!descriptor || descriptor.closed) return false;
+      const owner = sessionOwner(sessionId);
+      if (owner) {
+        if (stateBusy(owner.runtime?.getState?.()) || owner.subscribers?.size > 0) return false;
+        if (typeof releaseEntry !== 'function') return false;
+        progress.delete(sessionId);
+        const disposed = await releaseEntry(owner, 'agent parked', { keepBackgroundWork: false });
+        if (disposed?.ok === false) return false;
+      }
+      descriptor.parked = true;
+      return true;
     },
     hideSessionFromList: () => false,
   });

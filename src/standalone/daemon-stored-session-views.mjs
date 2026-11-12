@@ -40,6 +40,11 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;
     },
+    // Proven absent only: an unreadable or ambiguous record is not a deleted one.
+    sessionAbsent: async (sessionId) => {
+      const store = await desktopRuntime.loadSessionStore();
+      return store.storedSessionAbsent?.(sessionId) === true;
+    },
     readStoredSession: async (sessionId, options = {}) => {
       const store = await desktopRuntime.loadSessionStore();
       if (typeof store.readStoredSessionTranscript !== 'function') return null;

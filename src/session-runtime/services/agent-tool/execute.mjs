@@ -94,7 +94,7 @@ export function createAgentExecute({
         case 'read':
           return await readJob(args, scopedContext);
         case 'cleanup':
-          return renderResult(closeFlow.cleanup(args, scopedContext));
+          return renderResult(await closeFlow.cleanup(args, scopedContext));
         case 'cancel':
         case 'close':
           return renderResult(await closeFlow.close(args, scopedContext));

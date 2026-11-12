@@ -116,6 +116,7 @@ export function createAgentTurns({
     registry.assertAdmission(sessionId, cancelEpoch);
     descriptor.status = 'running';
     descriptor.stage = 'running';
+    descriptor.parked = false;
     descriptor.updatedAt = Date.now();
     try {
       const content = agentTurnContent(prompt);

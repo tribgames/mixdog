@@ -21,6 +21,7 @@ import {
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
 import { createSendFlow } from './agent-tool/send-flow.mjs';
 import { createCloseFlow } from './agent-tool/close-flow.mjs';
+import { createIdleRelease } from './agent-tool/close-flow/idle-release.mjs';
 import { createRestartFailureNotifier } from './agent-tool/restart-notify.mjs';
 import { createTerminalTrace } from './agent-tool/terminal-trace.mjs';
 import { createAgentExecute } from './agent-tool/execute.mjs';
@@ -151,6 +152,9 @@ export function createStandaloneAgent({
   });
   wakeIdleWorker = sendFlow.wakeIdleWorker;
   const closeFlow = createCloseFlow({ mgr, registry, views });
+  const idleRelease = createIdleRelease({ registry, release: closeFlow.parkIdle });
+  // Agents already idle at start-up get their timers now; later ones on a row change.
+  idleRelease.check();
   const terminalTrace = createTerminalTrace({ registry });
   const execute = createAgentExecute({
     mgr,
@@ -434,6 +438,7 @@ export function createStandaloneAgent({
     registry.onWorkerRowsChange(() => {
       statusMayHaveChanged();
       bookkeepingMayBeDue();
+      idleRelease.check();
     }),
     sessionRecords.onChange((sessionId) => {
       sets.noteSession(sessionId);
@@ -540,6 +545,7 @@ export function createStandaloneAgent({
     // recreated tool would own the same sessions a second time.
     spawnFlow.workerTurns.dispose();
     for (const stop of stopStatusSources) stop();
+    idleRelease.dispose();
     sessionRecords.release();
   }
 

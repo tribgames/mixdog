@@ -18,7 +18,9 @@ import {
   recordLifecycle,
   recordSession,
   sessionRecordFiles,
+  sessionRecordStampOfSync,
 } from './store/session-record.mjs';
+import { parseSessionRecordStamp } from './store/session-log-reader.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
 import {
@@ -360,6 +362,20 @@ export function storedSessionExists(id) {
     { messages: false }
   );
   return value === true;
+}
+
+/** True only when the session's record is proven absent: neither its log nor
+ *  its json is there. A record that is unreadable, invalid or ambiguous, or a
+ *  directory that cannot be asked, is not absent. */
+export function storedSessionAbsent(id) {
+  const sessionId = String(id || '').trim();
+  if (!isStoredSessionId(sessionId)) return false;
+  try {
+    const { log, json } = parseSessionRecordStamp(sessionRecordStampOfSync(join(dataDir(), 'sessions'), sessionId));
+    return log === null && json === null;
+  } catch {
+    return false;
+  }
 }
 
 /** Metadata of session `sessionId`'s record (its header), or null when it is

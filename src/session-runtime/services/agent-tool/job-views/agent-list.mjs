@@ -25,7 +25,7 @@ export function isActiveWorkerRow(row = {}) {
 }
 
 // A finished worker that is still open: it takes follow-ups and can be closed.
-function isOpenIdleRow(row = {}) {
+export function isOpenIdleRow(row = {}) {
   const status = String(row.status ?? '')
     .trim()
     .toLowerCase();
