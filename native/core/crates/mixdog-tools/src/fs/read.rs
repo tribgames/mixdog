@@ -946,7 +946,7 @@ impl ReadTool {
     async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
         let (root, pattern) = split_glob(&be.path);
         let root = resolve_path(&ctx.cwd, &root)?;
-        let (mut files, _, _) = glob_files(ctx, &root, &[pattern], false, Some(GLOB_ACCUM_CAP)).await?;
+        let (mut files, _, _, _) = glob_files(ctx, &root, &[pattern], false, Some(GLOB_ACCUM_CAP)).await?;
         if files.is_empty() {
             return Ok(None);
         }
@@ -1791,6 +1791,7 @@ impl ReadTool {
                 respect_ignore: true,
                 include_dirs: false,
                 prune: Vec::new(),
+                descent: Default::default(),
                 server: None,
             },
         );

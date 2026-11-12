@@ -15,6 +15,7 @@ use globset::GlobBuilder;
 use globset::GlobSet;
 use globset::GlobSetBuilder;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsError;
@@ -96,7 +97,7 @@ pub(super) async fn walk_entries_pruned(
     cap: Option<usize>,
     server: Option<SearchClass>,
 ) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, server };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, descent: Default::default(), server };
     walk_kept(ctx, request, keep, cap).await
 }
 
@@ -109,8 +110,18 @@ pub(super) async fn walk_inventory(
     cap: usize,
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, server: None };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, descent: Default::default(), server: None };
     walk_kept(ctx, request, keep, Some(cap)).await
+}
+
+/// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
+/// kept, as one `--files --directories` request to the search server, which is a broad search (`isBroadSearchRequest`: its
+/// args hold `--files`) and takes its turn on the broad-search gate within the search's budget. It is refused or ends past
+/// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
+/// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
+pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
+    broad_search(ctx, BROAD_REFUSALS[1], |_| walk_kept(ctx, request, keep, Some(cap))).await
 }
 
 async fn walk_kept(
@@ -180,10 +191,25 @@ fn refusal(reason: String) -> ToolError {
     fail(ToolErrorCode::Failed { reason }, text)
 }
 
+/// What Node's client throws for a broad search that waited past its budget for its turn (owner-fair-gate.mjs
+/// `waitTimeoutError`) and for one that was admitted and then ran past what the wait left (`timeoutError`,
+/// native-search-client.mjs:67-77), as the reasons begin; the tools answer both as they answer a full queue
+/// ([`broad_search`]).
+const BROAD_REFUSALS: [&str; 4] = [
+    "broad search I/O admission wait exceeded ",
+    "native file inventory search timed out after ",
+    "native fuzzy search timed out after ",
+    "native content search timed out after ",
+];
+
 /// The reason of a refusal ([`refusal`]).
 fn refused_with(error: &ToolError) -> Option<&str> {
     match &error.code {
-        ToolErrorCode::Failed { reason } if reason == SATURATED || reason.starts_with(STALLED_PREFIX) => Some(reason),
+        ToolErrorCode::Failed { reason }
+            if reason == SATURATED || reason.starts_with(STALLED_PREFIX) || BROAD_REFUSALS.iter().any(|p| reason.starts_with(p)) =>
+        {
+            Some(reason)
+        }
         _ => None,
     }
 }
@@ -231,6 +257,81 @@ async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
     Some(stat.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis()))
 }
 
+/// Node's `searchIoAdmission` (`tool-workload-gates.mjs`, `search-admission.mjs`): one broad search (a `--files` walk, a fuzzy
+/// find, a bulk grep) runs at a time in the process; the others wait their turn behind it, session by session
+/// (`createOwnerFairGate`: the turn goes round the sessions that wait, not to the oldest waiter).
+static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> = std::sync::LazyLock::new(mixdog_rt::OwnerGate::new);
+
+/// The gate's owner key of a call. Node's is the session id of the loop that ran the tool (`executeTool`'s
+/// `callerSessionId`, `runWithToolExecutionOwner`, tool-execution-owner.mjs), which is the thread id here: a sub-agent's
+/// run has its own session and so its own thread, never its parent's; the core keys a session by its thread id, so a
+/// session's threads are the owners its sessions are in Node. A call with no session is `anonymous`, and the key is trimmed and cut at 240
+/// characters (owner-fair-gate.mjs `run`).
+fn gate_owner(thread: &str) -> String {
+    let owner: String = thread.trim().chars().take(240).collect();
+    if owner.is_empty() { "anonymous".to_owned() } else { owner }
+}
+
+/// How a broad search came by its turn, and how long its work then ran.
+pub(super) struct Turn {
+    /// It waited behind another search. Node tells such a search's admission to whichever call was running when the
+    /// turn was handed over (`onAdmit` runs in the dispatching call's context), so it is not the search's own to report.
+    pub queued: bool,
+    pub ran_ms: u64,
+}
+
+/// `work`, a broad search whose hard timeout is worded `kind` (`BROAD_REFUSALS`: a file inventory's, a fuzzy search's or a
+/// content search's), run in its turn on the process's one broad-search gate, for the session of the call.
+/// The search's budget (`SearchDeadlines`, native-search-client.mjs `requestNativeWithRestart`) covers the wait and the
+/// work: a turn not had within it is refused (the gate's `waitTimeoutMs` is the budget left at the call, its whole
+/// budget here as no setup is spent), and the work has what the wait left, at least 1 ms
+/// (`searchRemainingMs`), before the search's hard timeout (`requestNative`). A cancel ends the wait, or the work and
+/// its turn with it; the turn is released as the work ends, however it ends.
+async fn broad_search<T, W: Future<Output = Result<T, ToolError>>>(ctx: &ToolContext, kind: &str, work: impl FnOnce(u64) -> W) -> Result<T, ToolError> {
+    broad_search_turn(ctx, kind, work).await.map(|(out, _)| out)
+}
+
+/// As [`broad_search`], with how the turn came and went; `work` is given the budget left, in ms.
+pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>>>(
+    ctx: &ToolContext,
+    kind: &str,
+    work: impl FnOnce(u64) -> W,
+) -> Result<(T, Turn), ToolError> {
+    let budget = SearchDeadlines::of(ctx).hard_ms;
+    let queued = mixdog_rt::time::Instant::now();
+    let waited = mixdog_rt::Scope::new()
+        .cancel(&ctx.cancel)
+        .within(Duration::from_millis(budget))
+        .run(BROAD_SEARCH.enter(&gate_owner(ctx.thread_id.as_str()), &ctx.cancel))
+        .await;
+    let turn = match waited {
+        mixdog_rt::Scoped::Done(Ok(turn)) => turn,
+        mixdog_rt::Scoped::Done(Err(mixdog_rt::GateCancelled)) | mixdog_rt::Scoped::Cancelled => return Err(cancelled()),
+        mixdog_rt::Scoped::DeadlineExceeded => {
+            return Err(refusal(format!("{}{budget}ms; retry after running work completes", BROAD_REFUSALS[0])));
+        }
+    };
+    let queued_behind_others = turn.queued();
+    let admitted = std::time::Instant::now();
+    let left = budget.saturating_sub(u64::try_from(queued.elapsed().as_millis()).unwrap_or(u64::MAX)).max(1);
+    let ran = mixdog_rt::Scope::new().cancel(&ctx.cancel).within(Duration::from_millis(left)).run(work(left)).await;
+    drop(turn);
+    let turn = Turn { queued: queued_behind_others, ran_ms: u64::try_from(admitted.elapsed().as_millis()).unwrap_or(u64::MAX) };
+    match ran {
+        mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
+        mixdog_rt::Scoped::Cancelled => Err(cancelled()),
+        mixdog_rt::Scoped::DeadlineExceeded => {
+            // The remedy a fuzzy search's timeout names (`timeoutError`).
+            let detail = if kind == BROAD_REFUSALS[2] {
+                " Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match."
+            } else {
+                ""
+            };
+            Err(refusal(format!("{kind}{left}ms.{detail}")))
+        }
+    }
+}
+
 /// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
 /// stat failed), at most `cap` of them. `complete` is false when the walk hit the deadline,
 /// `capped` true when a match past the cap was dropped.
@@ -240,27 +341,31 @@ pub(crate) async fn glob_files(
     patterns: &[String],
     include_noise: bool,
     cap: Option<usize>,
-) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool), ToolError> {
+) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool, Turn), ToolError> {
     let (inc, exc, any_include) = compile_globs(patterns)?;
     let root_path = root.as_path().to_path_buf();
     let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
-    let walked = walk_entries(ctx, root, !include_noise, |e| {
-        if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
-            return false;
+    let ((found, complete, capped), turn) = broad_search_turn(ctx, BROAD_REFUSALS[1], |_| async {
+        let walked = walk_entries(ctx, root, !include_noise, |e| {
+            if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
+                return false;
+            }
+            let r = rel(e.path.as_path());
+            (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
+        }, cap, Some(SearchClass::Bulk))
+        .await?;
+        let mut out = Vec::with_capacity(walked.entries.len());
+        for e in walked.entries {
+            if ctx.cancel.is_cancelled() {
+                return Err(cancelled());
+            }
+            let m = mtime_millis(ctx, &e.path).await;
+            out.push((e.path, m));
         }
-        let r = rel(e.path.as_path());
-        (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
-    }, cap, Some(SearchClass::Bulk))
+        Ok((out, walked.complete, walked.capped))
+    })
     .await?;
-    let mut out = Vec::with_capacity(walked.entries.len());
-    for e in walked.entries {
-        if ctx.cancel.is_cancelled() {
-            return Err(cancelled());
-        }
-        let m = mtime_millis(ctx, &e.path).await;
-        out.push((e.path, m));
-    }
-    Ok((out, walked.complete, walked.capped))
+    Ok((found, complete, capped, turn))
 }
 
 async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Option<String>, ToolError> {
@@ -576,19 +681,22 @@ impl Tool for GlobTool {
         let (mut files, mut complete, mut capped) = (Vec::new(), true, false);
         let mut errors = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        let started = std::time::Instant::now();
+        let (mut walk_ms, mut admitted_directly, mut queued_behind_others) = (0u64, 0usize, false);
         for (group_root, rels, label) in &groups {
             if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
                 errors.push(missing.trim_start_matches("Error: ").to_owned());
                 continue;
             }
-            let (found, done, cut) = match glob_files(ctx, group_root, rels, include_noise, cap).await {
+            let (found, done, cut, turn) = match glob_files(ctx, group_root, rels, include_noise, cap).await {
                 Err(e) if refused_with(&e).is_some() => {
                     errors.push(format!("rg failed for {label}: {}", refused_with(&e).unwrap_or_default()));
                     continue;
                 }
                 found => found?,
             };
+            walk_ms += turn.ran_ms;
+            admitted_directly += usize::from(!turn.queued);
+            queued_behind_others |= turn.queued;
             complete &= done;
             capped |= cut;
             files.extend(found.into_iter().filter(|f| seen.insert(f.0.clone())));
@@ -599,17 +707,19 @@ impl Tool for GlobTool {
         }
         // Node's glob is one `--files` request to the search server: admitted as a broad search, served as a bulk
         // one (`search-admission.mjs`, `native-search-runner.mjs`, `local-search-telemetry.mjs`). The walk here is
-        // that request: no admission wait or queue, its handler time the walk's.
-        let walk_ms = started.elapsed().as_millis() as u64;
-        let local_search = serde_json::json!({
-            "broad_admissions": 1,
-            "broad_admission_wait_ms": 0,
-            "native_bulk_requests": 1,
-            "native_bulk_queue_ms": 0,
-            "native_bulk_handler_ms": walk_ms,
-            "native_hits": 1,
-            "native_ms": walk_ms,
-        });
+        // that request: its handler time the walk's, from its admission on. A search that waited for its turn
+        // (`broad_search`) reports no admission of its own: Node's gate tells it to whichever call handed the turn over
+        // (`onAdmit` runs where the dispatch was scheduled), so the waiter's telemetry has neither `broad_admissions` nor
+        // `broad_admission_wait_ms` (recorded: search-admission-waiter-telemetry).
+        let mut local_search = serde_json::Map::new();
+        if admitted_directly > 0 || !queued_behind_others {
+            local_search.insert("broad_admissions".to_owned(), 1.into());
+            local_search.insert("broad_admission_wait_ms".to_owned(), 0.into());
+        }
+        for (key, value) in [("native_bulk_requests", 1), ("native_bulk_queue_ms", 0), ("native_bulk_handler_ms", walk_ms), ("native_hits", 1), ("native_ms", walk_ms)] {
+            local_search.insert(key.to_owned(), value.into());
+        }
+        let local_search = JsonValue::Object(local_search);
         let text_output = |text: String| {
             let mut output = text_output(text);
             output.meta = Some(serde_json::json!({ LOCAL_SEARCH_META: local_search }));
@@ -927,9 +1037,9 @@ impl Tool for FindTool {
         }
         let root_path = root.as_path().to_path_buf();
         // Every file is scored, as Node's native inventory ranks the whole scope.
-        let Walked { entries, complete, .. } = walk_entries(ctx, &root, false, |e| {
+        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |_| walk_entries(ctx, &root, false, |e| {
             include_noise || !in_noise_dir(e.path.as_path(), &root_path)
-        }, None, Some(SearchClass::Fuzzy))
+        }, None, Some(SearchClass::Fuzzy)))
         .await?;
         let tokens: Vec<&str> = query.split_whitespace().collect();
         let mut scored: Vec<(i64, String)> = entries
@@ -1127,6 +1237,7 @@ impl GrepTool {
         mode: Mode,
         bound: Option<usize>,
         class: SearchClass,
+        budget_ms: u64,
     ) -> Result<Scanned, ToolError> {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
@@ -1164,7 +1275,7 @@ impl GrepTool {
                 }
             }
         }
-        let deadlines = SearchDeadlines::of(ctx);
+        let deadlines = SearchDeadlines::within(ctx, budget_ms);
         let mut stream = ctx.files.search_text(
             ctx.io.maintenance,
             SearchRequest {
@@ -1287,10 +1398,16 @@ struct SearchDeadlines {
 
 impl SearchDeadlines {
     fn of(ctx: &ToolContext) -> Self {
+        Self::within(ctx, u64::MAX)
+    }
+
+    /// The deadlines of a search that has `left_ms` of its budget left: one admitted after a wait (`requestNativeWithRestart`
+    /// sets the server's soft deadline from the budget that remains).
+    fn within(ctx: &ToolContext, left_ms: u64) -> Self {
         const REQUEST_TIMEOUT_MS: u64 = 17_500;
         let now = std::time::Instant::now();
         let caller = ctx.deadline.map(|at| u64::try_from(at.saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
-        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.min(REQUEST_TIMEOUT_MS));
+        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.min(REQUEST_TIMEOUT_MS)).min(left_ms);
         let margin = (hard_ms * 75 / 1000).clamp(250, 2000);
         let ms = std::time::Duration::from_millis;
         Self { soft: now + ms(hard_ms.saturating_sub(margin).max(1)), hard: now + ms(hard_ms), hard_ms }
@@ -1573,7 +1690,13 @@ impl GrepTool {
         let mut scan_errors = 0;
         for raw in &roots {
             let left = bound.map(|n| n.saturating_sub(all.len()));
-            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class).await?;
+            // A bulk scan (a fan-out's prefilter or combined pass, `bulkHint`) takes its turn on the broad-search gate as
+            // Node's client makes it (search-admission.mjs `isBroadSearchRequest`); the others pass it.
+            let scanned = if class == SearchClass::Bulk {
+                broad_search(ctx, BROAD_REFUSALS[3], |budget| self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class, budget)).await?
+            } else {
+                self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class, u64::MAX).await?
+            };
             complete &= scanned.complete;
             timed_out |= scanned.timed_out;
             scan_errors += scanned.scan_errors;
@@ -1654,7 +1777,7 @@ impl GrepTool {
         let mut sections = Vec::with_capacity(roots.len());
         let mut seen = 0usize;
         for (raw, _, _, _) in &roots {
-            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen), SearchClass::Interactive).await;
+            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
             let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
                 return Ok(None);
             };
