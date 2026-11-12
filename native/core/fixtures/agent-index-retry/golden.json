@@ -1,0 +1,1656 @@
+{
+  "note": "when the agent index write queue retries a write its store refuses (ms from the write, on a clock that moves only to the next armed timer)",
+  "t0": 1793923200000,
+  "scenarios": [
+    {
+      "name": "recovers_on_the_second_attempt",
+      "failures": 1,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50
+      ],
+      "delays": [
+        50
+      ],
+      "flush": {
+        "at": 50,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 0,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 50,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recovers_on_the_last_attempt",
+      "failures": 3,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 0,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fails_after_four_attempts",
+      "failures": "always",
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "failureReports": 1,
+      "indexed": [],
+      "unpersisted": true,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_later_flush_retries_the_kept_batch",
+      "failures": 4,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "later": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "later",
+          "at": 1300
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 1300,
+          "attempts": 5,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "later",
+              "at": 1300,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the_retry_timer_retries_the_kept_batch",
+      "failures": 4,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "retriedAt": 16300,
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the_stop_drain_with_a_batch_still_failing",
+      "failures": "always",
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        1300
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "laterDrain": {
+        "at": 1300,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "recover",
+          "failures": 0
+        },
+        {
+          "op": "flush",
+          "id": "laterDrain",
+          "at": 1300
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 1300,
+          "attempts": 5,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "laterDrain",
+              "at": 1300,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_0_of_the_timer_round_fails",
+      "failures": "always",
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350,
+        16600,
+        17600
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16310,
+      "joined": {
+        "at": 17600,
+        "ok": false,
+        "error": "store refused"
+      },
+      "failureReports": 2,
+      "indexed": [],
+      "unpersisted": true,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16310,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16310
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16310,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 40,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 16600,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 17600,
+          "attempts": 8,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 17600,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_0_of_the_timer_round_recovers",
+      "failures": 5,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16310,
+      "joined": {
+        "at": 16350,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16310,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16310
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16310,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 40,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 16350,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_1_of_the_timer_round_fails",
+      "failures": "always",
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350,
+        16600,
+        17600
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16360,
+      "joined": {
+        "at": 17600,
+        "ok": false,
+        "error": "store refused"
+      },
+      "failureReports": 2,
+      "indexed": [],
+      "unpersisted": true,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16360,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16360
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16360,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 240,
+          "at": 16600,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 17600,
+          "attempts": 8,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 17600,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_1_of_the_timer_round_recovers",
+      "failures": 6,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350,
+        16600
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50,
+        250
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16360,
+      "joined": {
+        "at": 16600,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16360,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16360
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16360,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 240,
+          "at": 16600,
+          "attempts": 7,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 16600,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_2_of_the_timer_round_fails",
+      "failures": "always",
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350,
+        16600,
+        17600
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50,
+        250,
+        1000,
+        15000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16610,
+      "joined": {
+        "at": 17600,
+        "ok": false,
+        "error": "store refused"
+      },
+      "failureReports": 2,
+      "indexed": [],
+      "unpersisted": true,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 16600,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16610,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16610
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16610,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 990,
+          "at": 17600,
+          "attempts": 8,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 17600,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a_flush_in_backoff_2_of_the_timer_round_recovers",
+      "failures": 7,
+      "input": {
+        "session": "sess_row",
+        "row": {
+          "status": "running"
+        }
+      },
+      "attempts": [
+        0,
+        50,
+        300,
+        1300,
+        16300,
+        16350,
+        16600,
+        17600
+      ],
+      "delays": [
+        50,
+        250,
+        1000,
+        15000,
+        50,
+        250,
+        1000
+      ],
+      "flush": {
+        "at": 1300,
+        "ok": false,
+        "error": "store refused"
+      },
+      "retryAfter": 15000,
+      "joinedAt": 16610,
+      "joined": {
+        "at": 17600,
+        "ok": true,
+        "error": null
+      },
+      "failureReports": 1,
+      "indexed": [
+        "sess_row"
+      ],
+      "unpersisted": false,
+      "steps": [
+        {
+          "op": "flush",
+          "id": "flush",
+          "at": 0
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 0,
+          "attempts": 1,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 50,
+          "attempts": 2,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 300,
+          "attempts": 3,
+          "indexed": [],
+          "settled": []
+        },
+        {
+          "op": "advance",
+          "by": 1000,
+          "at": 1300,
+          "attempts": 4,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 15000,
+          "at": 16300,
+          "attempts": 5,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 50,
+          "at": 16350,
+          "attempts": 6,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 250,
+          "at": 16600,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 10,
+          "at": 16610,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "flush",
+          "id": "joined",
+          "at": 16610
+        },
+        {
+          "op": "advance",
+          "by": 0,
+          "at": 16610,
+          "attempts": 7,
+          "indexed": [],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "by": 990,
+          "at": 17600,
+          "attempts": 8,
+          "indexed": [
+            "sess_row"
+          ],
+          "settled": [
+            {
+              "id": "flush",
+              "at": 1300,
+              "ok": false,
+              "error": "store refused"
+            },
+            {
+              "id": "joined",
+              "at": 17600,
+              "ok": true,
+              "error": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
